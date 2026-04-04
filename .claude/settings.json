@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"EXIT_CODE:$?\")",
+      "Bash(find c:/ai_studio/frontend -name vite.config.*)",
+      "Bash(find c:/ai_studio/frontend/src -name RuntimeGuard*)",
+      "Bash(find c:/ai_studio/frontend/src -name *Benchmark* -o -name *benchmark* -o -name *Scorecard* -o -name *Baseline*)",
+      "Bash(find c:/ai_studio -name vite.config.*)",
+      "Bash(grep -r fetch.*https c:ai_studiofrontendsrc --include=*.ts --include=*.tsx -n)",
+      "Bash(find c:ai_studio -type f -name *.html)",
+      "Bash(npx supabase:*)",
+      "Bash(grep -rn \"split.*/\" /c/ai_studio/frontend/src/services/*.ts)",
+      "Bash(npx tsx:*)",
+      "Bash(npx vite:*)",
+      "Bash(powershell -Command \"Remove-Item -Recurse -Force ''c:\\\\ai_studio\\\\frontend\\\\preview-sandbox\\\\*''\")",
+      "Bash(powershell -Command \"if \\(-not \\(Test-Path ''c:\\\\ai_studio\\\\frontend\\\\preview-sandbox''\\)\\) { mkdir ''c:\\\\ai_studio\\\\frontend\\\\preview-sandbox'' }\")",
+      "Bash(powershell -Command \"dir ''c:\\\\ai_studio\\\\frontend\\\\preview-sandbox''\")",
+      "Bash(grep -r \"SandboxMaterializeService\\\\|RegistryDualWriteService\\\\|RevisionSourceAdapter\\\\|BranchResolver\\\\|CapabilityBootstrap\\\\|RegistryBootstrapService\\\\|RegistryReconcileService\\\\|RevisionManager\\\\|PreviewWatchdog\\\\|RevisionStartupGuard\" c:/ai_studio/frontend/src --include=*.ts --include=*.tsx)",
+      "Bash(grep -l \"SandboxMaterializeService\\\\|RegistryDualWriteService\\\\|RevisionSourceAdapter\\\\|BranchResolver\\\\|CapabilityBootstrap\\\\|RegistryBootstrapService\\\\|RegistryReconcileService\\\\|RevisionManager\\\\|PreviewWatchdog\\\\|RevisionStartupGuard\" c:/ai_studio/frontend/src/**/*.ts c:/ai_studio/frontend/src/**/*.tsx)",
+      "Bash(grep -l \"SandboxMaterializeService\\\\|RegistryDualWriteService\\\\|RevisionSourceAdapter\\\\|BranchResolver\\\\|CapabilityBootstrap\\\\|RegistryBootstrapService\\\\|RegistryReconcileService\\\\|RevisionManager\\\\|PreviewWatchdog\\\\|RevisionStartupGuard\" c:/ai_studio/frontend/src/services/preview/*.ts)",
+      "Bash(for f:*)",
+      "Bash(do cp:*)",
+      "Bash(rm -f \"c:/ai_studio/preview-app/src/App.tsx\")",
+      "Bash(rm -rf \"c:/ai_studio/preview-app/src/pages\")",
+      "Bash(npx kill-port:*)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Read(//c/pm-agent/apps/worker/**)",
+      "Read(//c/pm-agent/packages/**)",
+      "Read(//c/pm-agent/**)",
+      "Bash(ls /c/ai_studio/frontend/src/App.tsx.*)"
+    ],
+    "additionalDirectories": [
+      "c:\\ai_studio\\supabase\\functions",
+      "c:\\ai_studio\\frontend\\preview-sandbox",
+      "c:\\ai_studio\\preview-app\\src"
+    ]
+  }
+}
