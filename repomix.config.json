@@ -1,0 +1,13 @@
+{
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "all_code.txt",
+      "project_audit.txt",
+      "repomix-output.xml",
+      "all_code.*",
+      "*_audit.txt"
+    ]
+  }
+}

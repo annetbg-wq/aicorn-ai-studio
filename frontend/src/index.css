@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@source "./**/*.{ts,tsx}"; /* Искать во всех TS/TSX файлах текущей папки и подпапок */
+
+:root {
+  /* Сделаем основной фон чуть светлее (антрацит), чтобы была видна глубина */
+  --bg-studio: #0f0f0f; 
+  --panel-bg: #0a0a0a;
+  --accent: #2563eb;
+}
+
+body, html, #root {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  /* Добавляем сетку прямо на фоновый слой приложения */
+  background-color: var(--bg-studio);
+  background-image: 
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0);
+  background-size: 24px 24px;
+  color: white;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Код в чате больше не ломает верстку */
+pre {
+  max-width: 100% !important;
+  max-height: 250px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  margin: 10px 0;
+  font-size: 12px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+pre *, code {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Scoped copy-paste enabler — apply to any text node that must be selectable */
+.allow-copy {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  pointer-events: auto !important;
+  cursor: text;
+}
+
+/* Сетка на фоне превью как в Lovable */
+.preview-grid {
+  background-size: 30px 30px;
+  background-image: 
+    linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+}
+
+/* src/index.css */
+.preview-stage {
+  perspective: 1000px; /* Добавляет легкий объем */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* Добавь это в конец index.css */
+.viewport-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 40px; /* Отступ, чтобы девайс не прилипал к краям */
+}

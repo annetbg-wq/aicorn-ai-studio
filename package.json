@@ -1,0 +1,16 @@
+{
+  "scripts": {
+    "tool:save": "node scripts/backup-tool.js",
+    "tool:restore": "node scripts/restore-tool.js"
+  },
+  "dependencies": {
+    "@codesandbox/sandpack-react": "^2.20.0",
+    "@supabase/supabase-js": "^2.98.0",
+    "esbuild-wasm": "^0.27.3",
+    "lucide-react": "^0.575.0",
+    "typescript": "^5.9.3",
+    "y-protocols": "^1.0.7",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.29"
+  }
+}

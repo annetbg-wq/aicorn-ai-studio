@@ -1,0 +1,22 @@
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.git/
+.next/
+.cache/
+*.log
+*.lock
+package-lock.json
+yarn.lock
+*.map
+.env*
+# Игнорируем тяжелые бинарники, но не конфиги
+*.wasm
+*.exe
+*.dll
+
+# Non-authoritative audit/aggregate snapshots — not source of truth
+all_code.txt
+project_audit.txt
+repomix-output.xml
