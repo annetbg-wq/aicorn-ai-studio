@@ -1,11 +1,10 @@
 {
   "scripts": {
     "dev:frontend": "npm run dev --prefix frontend",
-    "dev:preview": "npm run dev --prefix preview-app",
     "dev:agent": "npx tsx backend/auth-token.ts",
     "preflight": "node -e \"const net=require('net'); const ports=[5183,3100,3107]; let busy=[]; const check=(i)=>{ if(i>=ports.length){ if(busy.length>0){console.error('BUSY PORTS:',busy.join(',')); process.exit(1);} else{console.log('All ports free'); process.exit(0);} return; } const s=net.createServer(); s.listen(ports[i],()=>{s.close(()=>check(i+1));}); s.on('error',()=>{busy.push(ports[i]); check(i+1);}); }; check(0);\"",
-    "kill-ports": "node -e \"const{execSync}=require('child_process');[5183,3100,3107].forEach(p=>{try{const o=execSync('netstat -ano',{encoding:'utf8'});const m=o.match(new RegExp(':'+p+'\\\\s+.*LISTENING\\\\s+(\\\\d+)'));if(m){execSync('taskkill /F /PID '+m[1],{stdio:'ignore'});console.log('Killed PID '+m[1]+' on port '+p)}}catch{}})\"",
-    "dev:all": "npm run kill-ports && concurrently \"npm run dev:frontend\" \"npm run dev:preview\" \"npm run dev:agent\"",
+    "kill-ports": "node -e \"const{execSync}=require('child_process');[5183,3107].forEach(p=>{try{const o=execSync('netstat -ano',{encoding:'utf8'});const m=o.match(new RegExp(':'+p+'\\\\s+.*LISTENING\\\\s+(\\\\d+)'));if(m){execSync('taskkill /F /PID '+m[1],{stdio:'ignore'});console.log('Killed PID '+m[1]+' on port '+p)}}catch{}})\"",
+    "dev:all": "npm run kill-ports && concurrently \"npm run dev:frontend\" \"npm run dev:agent\"",
     "test:unit": "vitest run backend/auth-token.test.ts",
     "test:e2e": "playwright test",
     "test:smoke:projects": "npx playwright test tests/e2e/projects.smoke.spec.cjs --reporter=line --workers=1",
