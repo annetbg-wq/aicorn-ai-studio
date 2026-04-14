@@ -384,22 +384,68 @@ interface GenerationPlanCardProps {
   isDark: boolean;
   onConfirmPlan: () => void;
   onSubmitClarification: (text: string) => void;
+  onCancel?: () => void;
 }
+
+const renderDescription = (desc: unknown): string => {
+  if (typeof desc === 'string') return desc;
+  if (desc !== null && typeof desc === 'object') {
+    const o = desc as Record<string, unknown>;
+    if (typeof o.label === 'string') return o.label;
+    if (typeof o.text === 'string')  return o.text;
+    return JSON.stringify(desc);
+  }
+  return String(desc ?? '');
+};
 
 const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
   m, pendingPlan, textColor, subText, borderColor, isDark,
-  onConfirmPlan, onSubmitClarification,
+  onConfirmPlan, onSubmitClarification, onCancel,
 }) => {
-  const [isClarifying, setIsClarifying] = useState(false);
-  const [clarifyText, setClarifyText]   = useState('');
+  const [isClarifying, setIsClarifying]   = useState(false);
+  const [clarifyText, setClarifyText]     = useState('');
+  const [confirmed, setConfirmed]         = useState(false);
 
   const isDone:         boolean = (m as any).buildStatus === 'ready';
   const isBuilding:     boolean = (m as any).buildStatus === 'building';
   const steps:          Array<{ id: string; label: string; status: string }> = (m as any).steps ?? [];
   const pages:          string[]  = (m as any).pages ?? [];
+  const screens:        Array<{ name: string; description: unknown }> = (m as any).screens ?? [];
+  const summary:        string    = (m as any).summary ?? '';
   const appName:        string    = (m as any).appName ?? '';
   const progress:       number    = (m as any).progress ?? 0;
   const streamingCode:  string    = (m as any).streamingCode ?? '';
+
+  // After user clicks confirm — hide plan details, show progress overlay.
+  if (confirmed && !isDone) {
+    return (
+      <div data-testid="generation-plan-card" style={{
+        background: 'var(--card)',
+        border: '1px solid rgba(99,102,241,0.3)',
+        borderRadius: 12, padding: '14px 16px', margin: '8px 0',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 14, height: 14, flexShrink: 0,
+            border: '2px solid rgba(99,102,241,0.3)',
+            borderTopColor: '#6366f1', borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+          }} />
+          <div style={{ fontSize: 13, fontWeight: 600, color: textColor }}>ГЕНЕРАЦИЯ... {progress}%</div>
+        </div>
+        <div style={{
+          marginTop: 10, height: 2, borderRadius: 1,
+          background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', overflow: 'hidden',
+        }}>
+          <div style={{
+            height: '100%', width: `${progress}%`,
+            background: '#6366f1', transition: 'width 0.5s ease',
+          }} />
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
   // Show confirm UI only while waiting for user decision (blueprint ready, not yet building).
   const showConfirm = pendingPlan !== null && !isBuilding && !isDone;
@@ -473,7 +519,30 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
         </div>
       )}
 
-      {/* Pages */}
+      {/* Summary */}
+      {summary && (
+        <div style={{ fontSize: 12, color: subText, marginTop: 8, lineHeight: 1.5 }}>
+          {summary}
+        </div>
+      )}
+
+      {/* Screens with descriptions */}
+      {screens.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+          {screens.map((s, i) => (
+            <div key={i} style={{ fontSize: 12, color: textColor }}>
+              <span style={{ fontWeight: 600 }}>{s.name}</span>
+              {s.description != null && (
+                <span style={{ color: subText, marginLeft: 6 }}>
+                  — {renderDescription(s.description)}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pages (string tags) */}
       {pages.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
           {pages.map(p => (
@@ -533,14 +602,14 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               data-testid="confirm-plan-btn"
-              onClick={onConfirmPlan}
+              onClick={() => { setConfirmed(true); onConfirmPlan(); }}
               style={{
                 flex: 1, padding: '9px', borderRadius: 8, cursor: 'pointer',
                 background: '#6366f1', border: 'none', color: '#fff',
                 fontSize: 13, fontWeight: 600,
               }}
             >
-              ✓ Все верно, делаем
+              ✓ Все верно
             </button>
             <button
               data-testid="clarify-plan-btn"
@@ -552,8 +621,21 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
                 color: subText, fontSize: 13,
               }}
             >
-              Уточнить детали
+              Уточнить
             </button>
+            {onCancel && (
+              <button
+                onClick={onCancel}
+                style={{
+                  padding: '9px 14px', borderRadius: 8, cursor: 'pointer',
+                  background: 'transparent',
+                  border: `1px solid ${borderColor}`,
+                  color: subText, fontSize: 13,
+                }}
+              >
+                Отмена
+              </button>
+            )}
           </div>
 
           {isClarifying && (
@@ -867,6 +949,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                     isDark={isDark}
                     onConfirmPlan={onConfirmPlan}
                     onSubmitClarification={onSubmitClarification}
+                    onCancel={cancelPlan}
                   />
                 );
               }
