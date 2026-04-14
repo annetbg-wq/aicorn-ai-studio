@@ -7,6 +7,7 @@
     "kill-ports": "node -e \"const{execSync}=require('child_process');[5183,3100,3107].forEach(p=>{try{const o=execSync('netstat -ano',{encoding:'utf8'});const m=o.match(new RegExp(':'+p+'\\\\s+.*LISTENING\\\\s+(\\\\d+)'));if(m){execSync('taskkill /F /PID '+m[1],{stdio:'ignore'});console.log('Killed PID '+m[1]+' on port '+p)}}catch{}})\"",
     "dev:all": "npm run kill-ports && concurrently \"npm run dev:frontend\" \"npm run dev:preview\" \"npm run dev:agent\"",
     "test:unit": "vitest run backend/auth-token.test.ts",
+    "test:e2e": "playwright test",
     "test:smoke:projects": "npx playwright test tests/e2e/projects.smoke.spec.cjs --reporter=line --workers=1",
     "tool:save": "node scripts/backup-tool.js",
     "tool:restore": "node scripts/restore-tool.js"

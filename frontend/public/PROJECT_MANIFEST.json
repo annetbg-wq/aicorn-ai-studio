@@ -60,6 +60,7 @@
     "components/ui/toast.tsx",
     "components/WeeklyFeedPanel.tsx",
     "components/WelcomeScreen.tsx",
+    "components/__tests__/BlueprintFlow.test.tsx",
     "config/studioModules.ts",
     "contexts/AuthContext.tsx",
     "hooks/useFigmaState.ts",
@@ -234,5 +235,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-14T12:37:10.329Z"
+  "last_scan_timestamp": "2026-04-14T12:52:05.129Z"
 }
