@@ -10,4 +10,5 @@ export type StudioCommand =
   | { type: 'PREVIEW_READY' }
   | { type: 'PREVIEW_FAILED'; error: string }
   | { type: 'EDIT_FILE'; path: string; content: string }
-  | { type: 'REQUEST_FIX'; error: string };
+  | { type: 'REQUEST_FIX'; error: string }
+  | { type: 'REQUEST_PLAN_REVISION'; payload: string };

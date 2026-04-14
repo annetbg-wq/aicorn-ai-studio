@@ -480,7 +480,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
 
     try {
-      const response = await fetch('http://localhost:3107/dev-agent-mode', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/dev-agent-mode`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: nextProvider }),
@@ -498,7 +498,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   useEffect(() => {
     if (!isOpen || !canSeeDevMode) return;
-    fetch('http://localhost:3107/dev-agent-mode')
+    fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/dev-agent-mode`)
       .then(r => r.json())
       .then(data => setDevAgentProvider(syncLocalDevAgentMode(data)))
       .catch(() => {});

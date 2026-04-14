@@ -1537,6 +1537,7 @@ export const useStudio = () => {
       });
 
       console.log('[DEBUG] pipeline input files:', Object.keys(contextWithTheme));
+      const existingCodeCount = Object.keys(files).length;
       const runOnce = (intentArg: string, modelArg: string) => GenerationPipeline.run({
         intent:    intentArg,
         history,

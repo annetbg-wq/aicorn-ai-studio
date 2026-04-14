@@ -39,9 +39,6 @@ interface AppSidebarProps {
   activeModule:      ViewId;
   onNavigate:        (id: ModuleId) => void;
   onHome:            () => void;
-  apiWalletPct:      number;
-  contextHealthPct:  number;
-  cloudAvailable:    boolean;
   onStartBlueprint:  (text: string) => void;
   onLaunchWithPlan?: (
     plan: IdeaPlan,
@@ -53,7 +50,7 @@ interface AppSidebarProps {
 
 export const AppSidebar: React.FC<AppSidebarProps> = ({
   activeModule, onNavigate, onHome,
-  apiWalletPct, contextHealthPct, cloudAvailable, onStartBlueprint, onLaunchWithPlan,
+  onStartBlueprint, onLaunchWithPlan,
   appLanguage = 'en',
 }) => {
   const [tooltip,  setTooltip]  = useState<string | null>(null);
@@ -66,11 +63,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   return (
     <>
       <div style={{
-        width: 56, height: '100vh', flexShrink: 0,
+        width: 56, height: '100dvh', maxHeight: '100dvh', flexShrink: 0,
         background: '#06060a',
         borderRight: '1px solid rgba(255,255,255,0.05)',
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        padding: '14px 0 10px', zIndex: 210, position: 'relative',
+        padding: '10px 0 6px', zIndex: 210, position: 'relative',
+        overflow: 'hidden',
       }}>
 
         {/* ── Logo — click → Home Dashboard ── */}
@@ -99,7 +97,16 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
         <div style={{ width: 24, height: 1, background: 'rgba(255,255,255,0.06)', marginBottom: 6 }} />
 
         {/* ── Module icons ── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+        <div style={{
+          flex: 1,
+          width: '100%',
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 2,
+          paddingBottom: 4,
+        }}>
           {visibleNavItems.map(item => {
             const Icon       = item.icon;
             const isSelected = activeModule === item.id;
@@ -146,7 +153,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           onMouseEnter={() => setTooltip('Weekly Hot Ideas')}
           onMouseLeave={() => setTooltip(null)}
           style={{
-            width: 36, height: 36, borderRadius: 10, marginBottom: 8, flexShrink: 0,
+            width: 36, height: 36, borderRadius: 10, marginBottom: 4, flexShrink: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer',
             background: feedOpen ? 'rgba(74,222,128,0.15)' : 'rgba(74,222,128,0.06)',
@@ -168,42 +175,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           )}
         </button>
 
-        {/* ── Resource mini-bars + cloud dot ── */}
-        <div style={{
-          width: '100%', padding: '8px 0 6px',
-          borderTop: '1px solid rgba(255,255,255,0.05)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-        }}>
-          <div style={{ width: 32 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-              <span style={{ fontSize: 7, fontWeight: 700, letterSpacing: '0.06em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase' }}>API</span>
-              <span style={{ fontSize: 7, color: 'rgba(74,222,128,0.55)', fontFamily: 'monospace' }}>{Math.round(apiWalletPct)}%</span>
-            </div>
-            <div style={{ height: 2.5, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 2, width: `${apiWalletPct}%`, background: 'linear-gradient(90deg, #22c55e, #4ade80)', transition: 'width 0.6s ease' }} />
-            </div>
-          </div>
 
-          <div style={{ width: 32 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-              <span style={{ fontSize: 7, fontWeight: 700, letterSpacing: '0.06em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase' }}>CTX</span>
-              <span style={{ fontSize: 7, color: 'rgba(96,165,250,0.55)', fontFamily: 'monospace' }}>{Math.round(contextHealthPct)}%</span>
-            </div>
-            <div style={{ height: 2.5, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 2, width: `${contextHealthPct}%`, background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', transition: 'width 0.6s ease' }} />
-            </div>
-          </div>
-
-          <div
-            title={cloudAvailable ? 'Cloud sync active' : 'Cloud sync offline'}
-            style={{
-              width: 5, height: 5, borderRadius: '50%', marginTop: 2,
-              background: cloudAvailable ? '#4ade80' : '#374151',
-              boxShadow:  cloudAvailable ? '0 0 5px #4ade8066' : 'none',
-              transition: 'all 0.4s',
-            }}
-          />
-        </div>
 
         {/* Tooltip */}
         {tooltip && (

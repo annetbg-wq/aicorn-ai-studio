@@ -12,7 +12,7 @@ import {
   syncLocalDevAgentMode,
 } from '../../services/devAgentMode';
 
-const BRIDGE_BASE = 'http://localhost:3107';
+const BRIDGE_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000';
 const POLL_INTERVAL = 4000;   // bridge health poll, ms
 const LOG_LIMIT     = 200;    // max log lines kept
 
@@ -618,7 +618,7 @@ const DevModePanel: React.FC = () => {
       `AIC-RG Studio — Bug Report`,
       `Generated: ${now}`,
       sep,
-      `Bridge: ${bridgeOk === null ? 'unknown' : bridgeOk ? 'online (:3107)' : 'OFFLINE'}`,
+      `Bridge: ${bridgeOk === null ? 'unknown' : bridgeOk ? 'online (:3000)' : 'OFFLINE'}`,
       `Provider: ${modeStatus?.activeProvider ?? activeProvider}`,
       ...connectors.map(c =>
         `  ${c.label}: ${c.available === null ? 'checking' : c.available ? `OK (${c.version ?? '?'})` : `FAIL — ${c.reason ?? 'unreachable'}`}`
@@ -674,7 +674,7 @@ const DevModePanel: React.FC = () => {
             background: bridgeOk === null ? C.dim : bridgeOk ? C.ok : C.err,
           }} />
           <span style={{ fontSize: 10, color: C.dim }}>
-            {bridgeOk === null ? 'connecting…' : bridgeOk ? 'bridge:3107' : 'bridge offline'}
+            {bridgeOk === null ? 'connecting…' : bridgeOk ? 'bridge:3000' : 'bridge offline'}
           </span>
         </div>
         {/* Mode badge */}

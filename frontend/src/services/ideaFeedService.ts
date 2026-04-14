@@ -304,7 +304,7 @@ async function generateIdeas(
 ): Promise<IdeaPlan[]> {
   let devAgentProvider = getLocalDevAgentProvider();
   try {
-    const modeResp = await fetch('http://localhost:3107/dev-agent-mode');
+    const modeResp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/dev-agent-mode`);
     if (modeResp.ok) {
       devAgentProvider = syncLocalDevAgentMode(await modeResp.json());
     }
@@ -321,7 +321,7 @@ async function generateIdeas(
     const bridgeTimer = window.setTimeout(() => bridgeCtrl.abort(), bridgeTimeoutMs);
     let bridgeResp: Response;
     try {
-      bridgeResp = await fetch('http://localhost:3107/chat', {
+      bridgeResp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: bridgeCtrl.signal,
