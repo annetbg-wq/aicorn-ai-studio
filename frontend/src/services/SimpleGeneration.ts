@@ -1854,7 +1854,7 @@ async function callLLM(
 
   let devAgentProvider = getLocalDevAgentProvider();
   try {
-    const modeResp = await fetch('http://localhost:3107/dev-agent-mode');
+    const modeResp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/dev-agent-mode`);
     if (modeResp.ok) {
       devAgentProvider = syncLocalDevAgentMode(await modeResp.json());
     }
@@ -1898,7 +1898,7 @@ async function callLLM(
             }
             const prompt = promptParts.join('\n\n');
 
-            const bridgeResp = await fetch('http://localhost:3107/chat', {
+            const bridgeResp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/chat`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               signal: mergedSignal ?? undefined,
@@ -2233,6 +2233,93 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
       return qs.length > 0 ? { questions: qs } : null;
     } catch {
       return null; // JSON parse failure → skip clarification
+    }
+  }
+
+  /**
+   * Generate a structured app plan in the user's language without asking
+   * clarifying questions. Returns a GenerationPlan on success; falls back to
+   * a minimal plan so generation can always continue.
+   */
+  static async generatePlan(config: {
+    intent:   string;
+    userLang: string;
+    apiKey:   string;
+    signal?:  AbortSignal;
+  }): Promise<{
+    appName: string;
+    summary: string;
+    pages: string[];
+    steps: Array<{ id: string; label: string; status: 'pending' | 'active' | 'done' }>;
+    assumptions: string[];
+  }> {
+    const PLAN_SYSTEM = `You MUST respond in the user's language. User language: ${config.userLang}.
+Generate a step-by-step plan. Do not ask questions. If ambiguous, make a reasonable assumption and state it.
+
+Return a JSON object with this exact shape:
+{
+  "appName": "<short app name>",
+  "summary": "<one-sentence description>",
+  "pages": ["<page1>", "<page2>"],
+  "steps": [
+    { "id": "think",     "label": "<analysis summary>" },
+    { "id": "architect", "label": "<architecture decision>" },
+    { "id": "code",      "label": "<main coding tasks>" },
+    { "id": "theme",     "label": "<visual style choice>" },
+    { "id": "save",      "label": "Saving project" }
+  ],
+  "assumptions": ["<assumption if any>"]
+}
+
+Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
+
+    const fallback = {
+      appName: 'App',
+      summary: config.intent.slice(0, 120),
+      pages:   ['Home'],
+      steps: [
+        { id: 'think',     label: 'Analyzing your idea',    status: 'active'  as const },
+        { id: 'architect', label: 'Designing architecture', status: 'pending' as const },
+        { id: 'code',      label: 'Writing code',           status: 'pending' as const },
+        { id: 'theme',     label: 'Applying theme',         status: 'pending' as const },
+        { id: 'save',      label: 'Saving project',         status: 'pending' as const },
+      ],
+      assumptions: [] as string[],
+    };
+
+    let raw: string;
+    try {
+      raw = await callLLM(
+        PLAN_SYSTEM,
+        config.intent,
+        'primary',
+        config.apiKey,
+        undefined,
+        config.signal,
+        1024,
+      );
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      return fallback;
+    }
+
+    try {
+      const cleaned = raw.trim().replace(/^```json?\s*\n?/, '').replace(/\n?```\s*$/, '');
+      const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+      const rawSteps = Array.isArray(parsed['steps']) ? parsed['steps'] as Record<string, unknown>[] : [];
+      return {
+        appName:     typeof parsed['appName']  === 'string' ? parsed['appName']  : 'App',
+        summary:     typeof parsed['summary']  === 'string' ? parsed['summary']  : '',
+        pages:       Array.isArray(parsed['pages']) ? parsed['pages'] as string[] : [],
+        steps:       rawSteps.map((s, i) => ({
+          id:     typeof s['id']    === 'string' ? s['id']    : `step_${i}`,
+          label:  typeof s['label'] === 'string' ? s['label'] : '',
+          status: (i === 0 ? 'active' : 'pending') as 'active' | 'pending' | 'done',
+        })),
+        assumptions: Array.isArray(parsed['assumptions']) ? parsed['assumptions'] as string[] : [],
+      };
+    } catch {
+      return fallback;
     }
   }
 

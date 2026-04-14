@@ -1274,6 +1274,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             files={files}
             projectName={projectName ?? 'my-app'}
             addLog={addLog ?? (() => {})}
+            currentTheme={currentTheme}
           />
         )}
       </div>

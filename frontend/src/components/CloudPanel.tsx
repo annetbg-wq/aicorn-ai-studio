@@ -7,10 +7,11 @@ interface CloudPanelProps {
   files:       FileMap;
   projectName: string;
   addLog:      (msg: string) => void;
+  currentTheme?: 'dark' | 'medium' | 'light';
 }
 
 export const CloudPanel: React.FC<CloudPanelProps> = ({
-  files, projectName, addLog,
+  files, projectName, addLog, currentTheme = 'dark',
 }) => {
 
   // ── RN code ───────────────────────────────────────────────────────────────
@@ -38,6 +39,9 @@ export const CloudPanel: React.FC<CloudPanelProps> = ({
 
   const hasWebProject = Object.keys(files).length > 0;
   const hasRNCode     = Object.keys(rnFiles).length > 0;
+  const isLightTheme = currentTheme === 'light';
+  const textPrimary = isLightTheme ? '#111827' : 'var(--foreground)';
+  const textSecondary = isLightTheme ? '#4b5563' : 'var(--muted-foreground)';
 
   useEffect(() => {
     if (ascIssuerId && ascKeyId && ascPrivateKey) {
@@ -66,7 +70,7 @@ export const CloudPanel: React.FC<CloudPanelProps> = ({
     ...inputStyle, fontFamily: 'monospace', fontSize: 11,
   };
   const labelStyle: React.CSSProperties = {
-    fontSize: 11, color: 'var(--muted-foreground)',
+    fontSize: 11, color: textSecondary,
     display: 'block', marginBottom: 4,
   };
   const sectionStyle: React.CSSProperties = {
@@ -74,17 +78,17 @@ export const CloudPanel: React.FC<CloudPanelProps> = ({
     borderRadius: 8, padding: '14px 16px', marginBottom: 12,
   };
   const sectionTitleStyle: React.CSSProperties = {
-    fontSize: 12, fontWeight: 600, color: 'var(--foreground)',
+    fontSize: 12, fontWeight: 600, color: textPrimary,
     marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6,
   };
   const primaryBtn: React.CSSProperties = {
     padding: '7px 14px', borderRadius: 6, cursor: 'pointer',
-    background: 'var(--primary)', color: 'var(--primary-foreground)',
+    background: 'var(--primary)', color: isLightTheme ? '#111827' : 'var(--primary-foreground)',
     border: 'none', fontSize: 12, fontWeight: 500,
   };
   const secondaryBtn: React.CSSProperties = {
     padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
-    background: 'transparent', color: 'var(--muted-foreground)',
+    background: 'transparent', color: textSecondary,
     border: '1px solid var(--border)', fontSize: 12,
   };
   const statusBox = (valid: boolean): React.CSSProperties => ({
@@ -180,7 +184,7 @@ export const CloudPanel: React.FC<CloudPanelProps> = ({
         </div>
 
         {!hasWebProject ? (
-          <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
+          <div style={{ fontSize: 12, color: textSecondary }}>
             Generate a web project first, then convert to React Native.
           </div>
         ) : (
@@ -211,7 +215,7 @@ export const CloudPanel: React.FC<CloudPanelProps> = ({
 
             {hasRNCode && (
               <div style={{
-                marginTop: 8, fontSize: 11, color: 'var(--muted-foreground)',
+                marginTop: 8, fontSize: 11, color: textSecondary,
               }}>
                 {Object.keys(rnFiles).length} files generated
                 {' · '}
@@ -268,7 +272,7 @@ export const CloudPanel: React.FC<CloudPanelProps> = ({
         <div style={{
           marginTop: 12, padding: '10px 12px', borderRadius: 6,
           background: 'rgba(99,102,241,0.06)', fontSize: 11,
-          color: 'var(--muted-foreground)', lineHeight: 1.5,
+          color: textSecondary, lineHeight: 1.5,
         }}>
           Connect now — Cloud build & submit will activate in June.
           EAS builds iOS without a Mac, Android without Android Studio.
@@ -377,7 +381,7 @@ export const CloudPanel: React.FC<CloudPanelProps> = ({
         </button>
 
         {validatingGoogle && (
-          <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+          <div style={{ fontSize: 11, color: textSecondary }}>
             Validating...
           </div>
         )}
@@ -392,7 +396,7 @@ export const CloudPanel: React.FC<CloudPanelProps> = ({
 
         {googleStatus?.valid && (
           <div style={{
-            marginTop: 8, fontSize: 11, color: 'var(--muted-foreground)',
+            marginTop: 8, fontSize: 11, color: textSecondary,
             lineHeight: 1.5,
           }}>
             Make sure this service account has Release Manager role

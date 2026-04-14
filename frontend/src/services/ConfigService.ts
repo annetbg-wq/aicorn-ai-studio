@@ -475,7 +475,7 @@ export const ConfigService = {
     const storageKey = PROVIDER_KEYS[provider];
     if (storageKey) set(storageKey, key);
     try {
-      await fetch('http://localhost:3107/provider-keys', {
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, key }),
@@ -494,7 +494,7 @@ export const ConfigService = {
     try {
       const results = await Promise.allSettled(
         providers.map(async (provider) => {
-          const res = await fetch(`http://localhost:3107/provider-key/${provider}`);
+          const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-key/${provider}`);
           if (!res.ok) return;
           const data = await res.json() as { key?: string };
           if (data.key) {
@@ -519,7 +519,7 @@ export const ConfigService = {
    */
   async loadFromBackend(): Promise<void> {
     try {
-      const res = await fetch('http://localhost:3107/agent-config');
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`);
       if (!res.ok) return;
       const fileData = await res.json() as Record<string, unknown>;
 
@@ -568,7 +568,7 @@ export const ConfigService = {
    */
   async saveToBackend(agentId: string, config: AgentConfig): Promise<void> {
     try {
-      await fetch('http://localhost:3107/agent-config', {
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agentId, config }),

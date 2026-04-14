@@ -816,7 +816,7 @@ export class Orchestrator {
       case 'openai':        return 'https://api.openai.com/v1/chat/completions';
       case 'google':        return 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
       case 'deepseek':      return 'https://api.deepseek.com/v1/chat/completions';
-      case 'claude-bridge': return 'http://localhost:3107/chat';
+      case 'claude-bridge': return `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/chat`;
       default:              return 'https://openrouter.ai/api/v1/chat/completions';
     }
   }
@@ -1646,7 +1646,7 @@ Rules:
   }
 
   /**
-   * Single non-streaming LLM call — local Claude bridge at :3107.
+   * Single non-streaming LLM call — local Claude bridge at :3000.
    * Bridge accepts { message: string, model: string } and returns
    * { content: [{ type: 'text', text: string }] }.
    */

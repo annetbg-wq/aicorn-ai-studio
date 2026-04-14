@@ -277,10 +277,6 @@ export default function App() {
     }
   }, [sessionCost, sessionTokens, selectedModel]);
 
-  // ── Computed resource percentages (for sidebar bars) ─────────────────────
-  const apiWalletPct     = Math.min((studio.sessionCost   / 1)       * 100, 100);
-  const contextHealthPct = Math.min((studio.sessionTokens / 100_000) * 100, 100);
-
   // ── Navigation ────────────────────────────────────────────────────────────
   const handleNavigate = (id: ModuleId) => {
     // Analytics + AgentLab → floating overlays, not view changes
@@ -445,9 +441,6 @@ export default function App() {
           activeModule={activeModule}
           onNavigate={handleNavigate}
           onHome={() => setView('dashboard')}
-          apiWalletPct={apiWalletPct}
-          contextHealthPct={contextHealthPct}
-          cloudAvailable={cloudAvailable}
           onStartBlueprint={handleStartBlueprint}
           onLaunchWithPlan={handleLaunchWithPlan}
           appLanguage={studio.appLanguage}
@@ -506,7 +499,7 @@ export default function App() {
               setFiles={studio.setFiles}
               activeFile={studio.activeFile ?? ''}
               setActiveFile={studio.setActiveFile}
-              device={studio.device ?? 'web'}
+              device={studio.device ?? 'desktop'}
               setDevice={(d) => studio.setDevice(d as import('./hooks/useStudio').DeviceType)}
               sessionCost={studio.sessionCost ?? 0}
               sessionTokens={studio.sessionTokens ?? 0}
@@ -527,6 +520,8 @@ export default function App() {
               pendingPlan={studio.pendingPlan}
               confirmPlan={studio.confirmPlan}
               cancelPlan={studio.cancelPlan}
+              onConfirmPlan={studio.onConfirmPlan}
+              onSubmitClarification={studio.onSubmitClarification}
               studioPhase={studio.studioPhase}
               studioError={studio.studioError}
               previewLifecycle={studio.previewLifecycle}

@@ -342,7 +342,7 @@ async function generateIdeas(
     const bridgeTimer = window.setTimeout(() => bridgeCtrl.abort(), bridgeTimeoutMs);
     let bridgeResp: Response;
     try {
-      bridgeResp = await fetch('http://localhost:3107/chat', {
+      bridgeResp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: bridgeCtrl.signal,
@@ -492,7 +492,7 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
     window.addEventListener('storage', onStorage);
     window.addEventListener(changeEvent, syncFromLocalStorage as EventListener);
 
-    fetch('http://localhost:3107/dev-agent-mode')
+    fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/dev-agent-mode`)
       .then(r => (r.ok ? r.json() : null))
       .then((data: { provider?: DevAgentProvider; claudeMode?: boolean } | null) => {
         if (!mounted || !data) return;

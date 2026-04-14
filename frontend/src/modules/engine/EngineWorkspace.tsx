@@ -315,11 +315,6 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             cancelPlan={cancelPlan}
           />
           </ChatErrorBoundary>
-          {currentProjectId == null ? (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>
-              Загрузка проекта...
-            </div>
-          ) : (
           <PreviewCanvas
             device={device}
             setDevice={setDevice}
@@ -347,9 +342,8 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             apiKey={apiKey}
             previewLifecycle={previewLifecycle}
             previewBlockedReason={previewBlockedReason}
-            projectId={currentProjectId}
+            projectId={currentProjectId ?? ''}
           />
-          )}
         </div>
       </div>
     </EngineErrorBoundary>
