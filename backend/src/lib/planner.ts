@@ -3,14 +3,12 @@
  *
  * Design decisions:
  * - No clarifying questions: plan is generated immediately.
- * - Language is auto-detected from the user's prompt.
- * - In E2E / Playwright runs (PLAYWRIGHT_TEST=1) language is pinned to 'ru'
- *   so snapshot assertions stay deterministic.
- * - Result is always dispatched as:
- *     { type: 'APPEND', payload: { type: 'generation-plan', data: plan } }
+ * - Language is passed by the caller (detected from the user's prompt).
+ * - In E2E / Playwright runs (PLAYWRIGHT_TEST=1) caller pins language to 'ru'.
+ * - Returns GenerationPlan; caller is responsible for dispatching.
  */
 
-import { detectLang, callLLM, buildPlannerSystemPrompt, LLMConfig } from './llm-service';
+import { callLLM, buildPlannerSystemPrompt } from './llm-service';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,20 +29,13 @@ export interface GenerationPlan {
 export interface DispatchAction {
   type:    'APPEND';
   payload: {
+    id:   string;
     type: 'generation-plan';
     data: GenerationPlan;
   };
 }
 
 export type DispatchFn = (action: DispatchAction) => void;
-
-export interface PlannerConfig {
-  userPrompt: string;
-  apiKey:     string;
-  modelId?:   string;
-  dispatch:   DispatchFn;
-  signal?:    AbortSignal;
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -86,43 +77,68 @@ function fallbackPlan(userPrompt: string): GenerationPlan {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
- * Generate an app plan for `userPrompt` and call `dispatch` with the result.
- * Never throws (errors produce a fallback plan so generation can continue).
+ * Generate a structured app plan. Returns GenerationPlan; never throws
+ * (falls back to a minimal plan on error so the caller can always continue).
+ * Caller is responsible for dispatching the result and for logging.
+ *
+ * @param userPrompt - Raw text from the user.
+ * @param userLang   - BCP-47 tag, e.g. 'ru' | 'en'. Caller detects/pins this.
+ * @param options    - Optional apiKey, modelId, AbortSignal.
  */
-export async function generatePlan(config: PlannerConfig): Promise<void> {
-  const { userPrompt, apiKey, dispatch, signal } = config;
-
-  // Determine language — pin to 'ru' in E2E test runs for determinism.
-  let userLang = detectLang(userPrompt);
-  if (process.env['PLAYWRIGHT_TEST'] === '1') userLang = 'ru';
-
+export async function generatePlan(
+  userPrompt: string,
+  userLang:   string,
+  options: {
+    apiKey?:  string;
+    modelId?: string;
+    signal?:  AbortSignal;
+  } = {},
+): Promise<GenerationPlan> {
   const systemPrompt = buildPlannerSystemPrompt(userLang);
-
-  const llmConfig: LLMConfig = {
-    systemPrompt,
-    userPrompt,
-    apiKey,
-    modelId:   config.modelId,
-    maxTokens: 1024,
-    signal,
-  };
 
   let plan: GenerationPlan;
   try {
-    const { content } = await callLLM(llmConfig);
+    const { content } = await callLLM({
+      systemPrompt,
+      userPrompt,
+      apiKey:    options.apiKey  ?? '',
+      modelId:   options.modelId,
+      maxTokens: 1024,
+      signal:    options.signal,
+    });
     plan = parsePlan(content);
   } catch (err) {
-    // Re-throw AbortError so callers can handle cancellation properly.
     if (err instanceof Error && err.name === 'AbortError') throw err;
     console.error('[planner] LLM call failed, using fallback plan:', err);
     plan = fallbackPlan(userPrompt);
   }
 
+  return plan;
+}
+
+/**
+ * Convenience wrapper: generate plan and immediately dispatch it.
+ * Logs '[planner] plan generated, dispatching' before calling dispatch.
+ */
+export async function generateAndDispatch(
+  userPrompt: string,
+  userLang:   string,
+  dispatch:   DispatchFn,
+  options: {
+    apiKey?:  string;
+    modelId?: string;
+    signal?:  AbortSignal;
+  } = {},
+): Promise<GenerationPlan> {
+  const plan = await generatePlan(userPrompt, userLang, options);
+  console.log('[planner] plan generated, dispatching', plan);
   dispatch({
     type: 'APPEND',
     payload: {
+      id:   crypto.randomUUID(),
       type: 'generation-plan',
       data: plan,
     },
   });
+  return plan;
 }
