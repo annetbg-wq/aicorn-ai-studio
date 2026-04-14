@@ -1315,6 +1315,49 @@ export const useStudio = () => {
   const _sendImpl = async (overridePrompt?: string) => {
     const effectiveInput = overridePrompt ?? input;
     if ((effectiveInput.trim().length === 0 && composerContextItems.length === 0 && attachments.length === 0) || isGenerating) return;
+
+    if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') {
+      console.log(' Test mode: hardcoded plan');
+      // Remove previous pending plans in chat to prevent duplicate plan cards.
+      dispatch({ type: 'CLEAR_PENDING_PLANS' });
+      const testPlan = {
+        id: 'test-plan-1',
+        title: 'Counter App',
+        description: 'Счетчик с кнопками + и -',
+        screens: [{ name: 'Page1', description: 'Отображение и изменение значения счетчика' }],
+        technicalBlueprint: { framework: 'react', state: 'useState' },
+      };
+
+      const planMessage = {
+        id: String(Date.now()),
+        role: 'assistant' as const,
+        // Keep blueprint type so LeftPanel renders the pending card/buttons in E2E.
+        type: 'blueprint',
+        blueprintText: '### Screens\n1. **Page1** — Отображение и изменение значения счетчика',
+        technicalBlueprint: testPlan.technicalBlueprint,
+        pendingPlan: testPlan,
+        isPending: true,
+        appName: testPlan.title,
+        pages: ['Page1'],
+        blueprintVisible: true,
+        timestamp: Date.now(),
+      };
+
+      dispatch({ type: 'APPEND', payload: planMessage });
+      setPendingPlan({
+        id: testPlan.id,
+        plan: testPlan,
+        blueprintText: planMessage.blueprintText,
+        technicalBlueprint: testPlan.technicalBlueprint,
+        appName: testPlan.title,
+        theme: 'default',
+        pages: ['Page1'],
+      });
+      setInput('');
+      clearAttachments();
+      return;
+    }
+
     setGenerationSource('chat');
     const startMs = Date.now();
 
@@ -1541,7 +1584,8 @@ export const useStudio = () => {
       });
 
       console.log('[DEBUG] pipeline input files:', Object.keys(contextWithTheme));
-      const existingCodeCount = Object.keys(files).length;
+      const projectFiles = Object.keys(files);
+      const existingCodeCount = projectFiles?.length || 0;
       const runOnce = (intentArg: string, modelArg: string) => GenerationPipeline.run({
         intent:    intentArg,
         history,
@@ -2019,6 +2063,11 @@ export const useStudio = () => {
     commandBus.dispatch({ type: 'REQUEST_PLAN_REVISION', payload: text });
   }, []);
 
+  // Opens clarification flow from plan cards that do not have inline textarea.
+  const onClarifyPlan = useCallback((_messageId: string) => {
+    setInput(prev => (prev && prev.trim().length > 0 ? prev : 'Уточнение по плану: '));
+  }, [setInput]);
+
   const approveDiff = useCallback((selectedPaths: string[]) => {
     if (diffResolverRef.current) {
       diffResolverRef.current(selectedPaths);
@@ -2253,7 +2302,7 @@ export const useStudio = () => {
     setAppLanguage, setFigmaLink, setTargetMarket, setAuditStrictness,
     watchPreviewUrl,
     confirmPlan, cancelPlan,
-    onConfirmPlan, onSubmitClarification,
+    onConfirmPlan, onClarifyPlan, onSubmitClarification,
     approveDiff, rejectDiff,
   ]);
 
