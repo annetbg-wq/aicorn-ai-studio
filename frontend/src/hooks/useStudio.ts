@@ -16,7 +16,8 @@ import {
   normalizeMessages,
   normalizeMessage,
   type ChatMessage,
-} from '../types/chat';
+  type ChatAction,
+} from '../lib/chat';
 import { supabase } from '../lib/supabase';
 import {
   Orchestrator,  // kept for applyOperations / resetSession — NOT for run() or planTask()
@@ -62,7 +63,7 @@ import {
 import { useFigmaState } from './useFigmaState';
 import { useSettingsState } from './useSettingsState';
 
-export type DeviceType = 'mobile' | 'tablet' | 'web';
+export type DeviceType = 'desktop' | 'iphone' | 'pixel' | 'ipad';
 export type FileMap     = Record<string, string>;
 
 /**
@@ -675,7 +676,7 @@ export const useStudio = () => {
   const [input,           setInput]           = useState('');
   const [showSettings,    setShowSettings]    = useState(false);
   const [isGenerating,    setIsGenerating]    = useState(false);
-  const [device,          setDevice]          = useState<DeviceType>('web');
+  const [device,          setDevice]          = useState<DeviceType>('desktop');
   // ── Settings (extracted hook) ───────────────────────────────────────────────
   const settings = useSettingsState();
   const { apiKey, setApiKey, selectedModel, setSelectedModel, theme, setTheme,
@@ -1070,6 +1071,16 @@ export const useStudio = () => {
     Orchestrator.resetSession();
     // Clear preview-app/src/ so next generation starts fresh
     gatewayClearPreview({ source: 'useStudio.createNewProject' }).catch(() => {});
+    // Immediately provision a blank project so currentProjectId is never null
+    // and PreviewCanvas always has a valid projectId to render the device frame.
+    try {
+      const proj = ProjectManager.create({ name: 'New Project', theme: 'dark-slate', description: '' });
+      ProjectManager.setCurrent(proj.id);
+      setCurrentProjectId(proj.id);
+      setProjects(ProjectStorage.listProjects());
+    } catch {
+      // Storage full or limit reached — UI stays in "no project" state gracefully.
+    }
   }, [currentProjectId, clearSnapshots, clearLogs, clearAttachments, clearComposerContextItems, addLog]);
 
   const loadProject = useCallback(async (project: { id: string }) => {
@@ -1208,6 +1219,40 @@ export const useStudio = () => {
     clearSnapshots();
   }, [clearSnapshots]);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Auto-init: ensure a project is always active on first load ──────────────
+  // Runs once after mount. If currentProjectId is already set (restored from
+  // localStorage) we just restore files into React state without a preview reload.
+  // If no project is active we either load the most-recent project or create one.
+  useEffect(() => {
+    const init = async () => {
+      // Already have an active project → just make sure files are in React state.
+      if (currentProjectId) {
+        const existing = ProjectStorage.getProject(currentProjectId);
+        if (existing && Object.keys(filesRaw).length === 0) {
+          const loaded = normalizeToFileMap(existing.files);
+          startTransition(() => {
+            setFiles(loaded);
+            chatLoadHistory(existing.chatHistory as any[]);
+          });
+        }
+        return;
+      }
+
+      // No active project — try the most-recent saved one first.
+      const list = ProjectStorage.listProjects();
+      if (list.length > 0) {
+        const recent = list[list.length - 1];
+        await loadProject({ id: recent.id });
+        return;
+      }
+
+      // Nothing saved — create a blank "New Project" silently.
+      createProject({ name: 'New Project' });
+    };
+
+    init().catch(() => {/* ignore — addLog already records errors inside loadProject */});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const stopGeneration = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -1267,8 +1312,10 @@ export const useStudio = () => {
   }, []);
 
   // ── handleSend ────────────────────────────────────────────────────────────
-  const _sendImpl = async () => {
-    if ((input.trim().length === 0 && composerContextItems.length === 0 && attachments.length === 0) || isGenerating) return;
+  // overridePrompt: used by REQUEST_PLAN_REVISION to bypass the textarea state.
+  const _sendImpl = async (overridePrompt?: string) => {
+    const effectiveInput = overridePrompt ?? input;
+    if ((effectiveInput.trim().length === 0 && composerContextItems.length === 0 && attachments.length === 0) || isGenerating) return;
     setGenerationSource('chat');
     const startMs = Date.now();
 
@@ -1306,12 +1353,12 @@ export const useStudio = () => {
     setCurrentPhase('think');
     setPreviewLifecycle('generating');
     setPreviewBlockedReason(null);
-    commandBus.dispatch({ type: 'START_GENERATION', intent: input, plan: {} });
+    commandBus.dispatch({ type: 'START_GENERATION', intent: effectiveInput, plan: {} });
     addLog('─'.repeat(40));
 
     // (planning is handled inside GenerationPipeline via onPlan callback)
 
-    const userPrompt = input.trim();
+    const userPrompt = effectiveInput.trim();
     const hasComposerContext = composerContextItems.length > 0;
     const documentAttachmentContext = attachments
       .filter(a => a.type === 'pdf' || a.type === 'text' || a.type === 'code')
@@ -1596,20 +1643,22 @@ export const useStudio = () => {
         onPlanReady: (data) => {
           // Synchronous dispatch — no startTransition, no commandBus indirection.
           // All chat mutations go through the reducer in order.
+          // commandBus.dispatch(SHOW_BLUEPRINT) is intentionally omitted here:
+          // chat state is already mutated above; firing SHOW_BLUEPRINT via commandBus
+          // would create a second asynchronous mutation path and introduce races.
           const bpId = `blueprint-${Date.now()}`;
           blueprintIdRef.current = bpId;
           dispatch({
             type: 'APPEND',
             payload: {
-              role:            'assistant',
-              type:            'blueprint',
-              id:              bpId,
-              timestamp:       Date.now(),
+              role:             'assistant',
+              type:             'blueprint',
+              id:               bpId,
+              timestamp:        Date.now(),
               blueprintVisible: true,
               ...data,
             },
           });
-          commandBus.dispatch({ type: 'SHOW_BLUEPRINT', planId: bpId });
         },
         waitForConfirmation: (_plan) => new Promise((resolve) => {
           planResolverRef.current = resolve;
@@ -1812,9 +1861,18 @@ export const useStudio = () => {
         setPreviewBlockedReason(null);
       }
 
-      // Preview is handled by preview-app on port 3100 via Vite HMR.
-      // SimpleGeneration writes files directly to preview-app/src/.
-      // No revision commits, no materialization needed.
+      // Push generated files to the per-project Vite server so the iframe
+      // at /preview/${projectId} can load them. Fire-and-forget — lifecycle
+      // handshake waits for the iframe-ready postMessage, not this push.
+      const projectId = currentProjectId ?? crypto.randomUUID();
+      if (Object.keys(finalFiles).length > 0) {
+        const fileArray = Object.entries(finalFiles).map(([p, c]) => ({ path: p, content: c as string }));
+        fetch(`/api/preview/${projectId}/push`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: fileArray }),
+        }).catch(err => addLog(`[Preview] Push failed: ${err}`));
+      }
 
       console.log('[Project] Name debug:', {
         capturedAppName,
@@ -1833,7 +1891,6 @@ export const useStudio = () => {
         || (result as any)?.plan?.appName
         || userPrompt?.slice(0, 40)
         || 'New Project';
-      const projectId = currentProjectId ?? crypto.randomUUID();
 
       if (Object.keys(finalFiles).length > 0) {
         pendingProjectSaveRef.current = {
@@ -1948,6 +2005,14 @@ export const useStudio = () => {
     commandBus.dispatch({ type: 'REJECT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
   }, [pendingPlan]);
 
+  // Alias exposed to LeftPanel's GenerationPlanCard (same action as confirmPlan).
+  const onConfirmPlan = confirmPlan;
+
+  // Dispatches REQUEST_PLAN_REVISION → commandBus subscriber re-runs generation.
+  const onSubmitClarification = useCallback((text: string) => {
+    commandBus.dispatch({ type: 'REQUEST_PLAN_REVISION', payload: text });
+  }, []);
+
   const approveDiff = useCallback((selectedPaths: string[]) => {
     if (diffResolverRef.current) {
       diffResolverRef.current(selectedPaths);
@@ -2019,6 +2084,18 @@ export const useStudio = () => {
           dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: blueprintIdRef.current, visible: false });
         }
         blueprintIdRef.current = null;
+      }),
+      commandBus.subscribe('REQUEST_PLAN_REVISION', (cmd) => {
+        const text = (cmd as Extract<typeof cmd, { type: 'REQUEST_PLAN_REVISION' }>).payload;
+        // Clear the pending blueprint so its card hides, then re-run generation
+        // with the revision text as the new prompt (bypasses textarea state).
+        planDecisionRef.current = false;
+        setPendingPlan(null);
+        if (blueprintIdRef.current) {
+          dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: blueprintIdRef.current, visible: false });
+        }
+        blueprintIdRef.current = null;
+        _sendRef.current(text);
       }),
       // State machine — mirror every command into read-only machineState
       commandBus.subscribeAll((cmd) => {
@@ -2157,6 +2234,7 @@ export const useStudio = () => {
     saveFigmaProject, loadFigmaProject, deleteFigmaProject, markFigmaProjectSynced, clearFigmaSync,
     setAppLanguage, setFigmaLink, setTargetMarket, setAuditStrictness,
     confirmPlan, cancelPlan,
+    onConfirmPlan, onSubmitClarification,
     approveDiff, rejectDiff,
   ]);
 
