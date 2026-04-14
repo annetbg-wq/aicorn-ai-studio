@@ -1,7 +1,9 @@
 import 'dotenv/config';
 import dotenv from 'dotenv';
 import express from 'express';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import { execSync, spawn, spawnSync } from 'child_process';
+import { pushFiles, getPreviewPort } from './preview-manager';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -1248,6 +1250,46 @@ app.put('/agent-config/reset', (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
+});
+
+// ── Preview push ──────────────────────────────────────────────────────────────
+
+app.post('/api/preview/:projectId/push', async (req, res) => {
+  const { projectId } = req.params;
+  const { files } = req.body as { files?: { path: string; content: string }[] };
+
+  if (!Array.isArray(files) || files.length === 0) {
+    res.status(400).json({ error: 'files[] is required' });
+    return;
+  }
+
+  try {
+    await pushFiles(projectId, files);
+    res.json({ ok: true, url: `/preview/${projectId}` });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) });
+  }
+});
+
+// ── Preview proxy (with WebSocket / HMR support) ──────────────────────────────
+
+app.use('/preview/:projectId', (req, res, next) => {
+  const { projectId } = req.params;
+  const port = getPreviewPort(projectId);
+
+  if (port === null) {
+    res.status(404).json({ error: `No running preview for project "${projectId}"` });
+    return;
+  }
+
+  // Strip the /preview/:projectId prefix so Vite receives bare paths.
+  req.url = req.url.replace(new RegExp(`^/preview/${projectId}`), '') || '/';
+
+  createProxyMiddleware({
+    target: `http://localhost:${port}`,
+    changeOrigin: true,
+    ws: true,
+  })(req, res, next);
 });
 
 export function startServer(port = PORT) {
