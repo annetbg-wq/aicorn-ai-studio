@@ -94,7 +94,7 @@ interface LeftPanelProps {
   pendingPlan?:            object | null;
   confirmPlan?:            () => void;
   cancelPlan?:             () => void;
-  onConfirmPlan?:          () => void;
+  onConfirmPlan?:          (plan: object) => void;
   onSubmitClarification?:  (text: string) => void;
 }
 
@@ -382,7 +382,7 @@ interface GenerationPlanCardProps {
   subText: string;
   borderColor: string;
   isDark: boolean;
-  onConfirmPlan: () => void;
+  onConfirmPlan: (plan: object) => void;
   onSubmitClarification: (text: string) => void;
   onCancel?: () => void;
 }
@@ -405,6 +405,7 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
   const [isClarifying, setIsClarifying]   = useState(false);
   const [clarifyText, setClarifyText]     = useState('');
   const [confirmed, setConfirmed]         = useState(false);
+  const confirmLockedRef                  = useRef(false);
 
   const isDone:         boolean = (m as any).buildStatus === 'ready';
   const isBuilding:     boolean = (m as any).buildStatus === 'building';
@@ -414,6 +415,7 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
   const summary:        string    = (m as any).summary ?? '';
   const appName:        string    = (m as any).appName ?? '';
   const progress:       number    = (m as any).progress ?? 0;
+  const displayProgress: number   = Math.max(progress, 15);
   const streamingCode:  string    = (m as any).streamingCode ?? '';
 
   // After user clicks confirm — hide plan details, show progress overlay.
@@ -431,14 +433,14 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
             borderTopColor: '#6366f1', borderRadius: '50%',
             animation: 'spin 0.8s linear infinite',
           }} />
-          <div style={{ fontSize: 13, fontWeight: 600, color: textColor }}>ГЕНЕРАЦИЯ... {progress}%</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: textColor }}>ГЕНЕРАЦИЯ... {displayProgress}%</div>
         </div>
         <div style={{
           marginTop: 10, height: 2, borderRadius: 1,
           background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', overflow: 'hidden',
         }}>
           <div style={{
-            height: '100%', width: `${progress}%`,
+            height: '100%', width: `${displayProgress}%`,
             background: '#6366f1', transition: 'width 0.5s ease',
           }} />
         </div>
@@ -471,12 +473,12 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: textColor }}>
             {isDone
-              ? `${appName || 'App'} ready`
-              : appName ? `Building ${appName}...` : 'Analyzing your idea...'}
+              ? `${appName || 'Приложение'} готово`
+              : appName ? `Генерация ${appName}...` : 'Анализирую идею...'}
           </div>
           {isBuilding && (
             <div style={{ fontSize: 11, color: subText, marginTop: 2 }}>
-              Vite is compiling...
+              Собираю проект...
             </div>
           )}
         </div>
@@ -563,8 +565,8 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
             cursor: 'pointer', userSelect: 'none',
           }}>
             {isDone
-              ? 'View code'
-              : `Generating... (${Math.round(streamingCode.length / 1000)}k chars)`}
+              ? 'Показать код'
+              : `ГЕНЕРАЦИЯ... (${Math.round(streamingCode.length / 1000)}k chars)`}
           </summary>
           <div style={{ position: 'relative', marginTop: 6 }}>
             <pre style={{
@@ -586,7 +588,7 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
                   background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
                   color: subText, cursor: 'pointer',
                 }}
-              >Copy</button>
+              >Копировать</button>
             )}
           </div>
         </details>
@@ -602,14 +604,19 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               data-testid="confirm-plan-btn"
-              onClick={() => { setConfirmed(true); onConfirmPlan(); }}
+              onClick={() => {
+                if (confirmLockedRef.current) return;
+                confirmLockedRef.current = true;
+                setConfirmed(true);
+                onConfirmPlan(m as object);
+              }}
               style={{
                 flex: 1, padding: '9px', borderRadius: 8, cursor: 'pointer',
                 background: '#6366f1', border: 'none', color: '#fff',
                 fontSize: 13, fontWeight: 600,
               }}
             >
-              ✓ Все верно
+              Все верно
             </button>
             <button
               data-testid="clarify-plan-btn"
@@ -699,7 +706,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   attachments = [], addAttachment = () => {}, removeAttachment = () => {},
   composerContextItems = [], removeComposerContextItem = () => {}, clearComposerContextItems = () => {},
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
-  onConfirmPlan = confirmPlan, onSubmitClarification = () => {},
+  onConfirmPlan = () => confirmPlan(), onSubmitClarification = () => {},
 }) => {
   const lang = LABELS[appLanguage] ?? LABELS['en'];
   const t = (key: string) => lang[key] ?? LABELS['en'][key] ?? key;

@@ -2,7 +2,8 @@ import { Button } from "@/components/ui/button";
 import React from 'react';
 import { HashRouter, Routes, Route, Link } from 'react-router-dom';
 const Onboarding = React.lazy(() => import('./pages/Onboarding'));
-const Home = React.lazy(() => import('./pages/Home'));
+const Dashboard = React.lazy(() => import('./pages/Dashboard'));
+const ProjectDetails = React.lazy(() => import('./pages/ProjectDetails'));
 const Settings = React.lazy(() => import('./pages/Settings'));
 
 class RouteGuard extends React.Component<
@@ -48,7 +49,8 @@ export default function App() {
       <React.Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center"><p className="text-muted-foreground">Loading...</p></div>}>
       <Routes>
         <Route path="/onboarding" element={<RouteGuard name="Onboarding"><Onboarding /></RouteGuard>} />
-        <Route path="/" element={<RouteGuard name="Home"><Home /></RouteGuard>} />
+        <Route path="/" element={<RouteGuard name="Dashboard"><Dashboard /></RouteGuard>} />
+        <Route path="/projects/:projectId" element={<RouteGuard name="ProjectDetails"><ProjectDetails /></RouteGuard>} />
         <Route path="/settings" element={<RouteGuard name="Settings"><Settings /></RouteGuard>} />
       </Routes>
       </React.Suspense>

@@ -13,7 +13,7 @@
  * This test exercises the REAL RevisionManager and PreviewController singletons
  * in their actual wired configuration — no mocks on the rejection path.
  * The only thing stubbed is the network (fetch to /__write_preview) since
- * preview-app is not running during vitest.
+ * preview-workspace is not running during vitest.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -100,7 +100,7 @@ describe('Preview Poison Smoke — Integrated Failure Path', () => {
     expect(goodFiles!['App.tsx']).toBe(CLEAN_APP_TSX);
 
     // Simulate successful compilation by directly setting state
-    // (we can't call compileCandidate because it needs a running preview-app)
+    // (we can't call compileCandidate because it needs a running preview-workspace)
     // Instead we verify the pre-compile state is correct
     expect(rm.getCandidateRevisionId()).toBe(goodRevId);
     expect(rm.getActiveRevisionId()).toBeNull(); // Nothing promoted yet

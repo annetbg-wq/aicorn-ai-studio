@@ -8,7 +8,7 @@
  *
  * This pack ties together the 5 critical stability scenarios into one
  * coherent suite. Each scenario uses real service code with ONLY the
- * network layer stubbed (no running preview-app in vitest).
+ * network layer stubbed (no running preview-workspace in vitest).
  *
  * Scenarios:
  *   S1. Happy path — candidate → compile → promote → ready_set

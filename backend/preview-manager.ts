@@ -35,7 +35,7 @@ interface PreviewInstance {
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
-const TEMPLATE_DIR = path.resolve(__dirname, '..', 'preview-app');
+const TEMPLATE_DIR = path.resolve(__dirname, '..', 'preview-workspace');
 const PREVIEWS_DIR = path.resolve(__dirname, '..', 'previews');
 const STARTUP_TIMEOUT_MS = 20_000;
 const RESTART_DELAY_MS   = 1_000;

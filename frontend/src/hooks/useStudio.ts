@@ -735,6 +735,8 @@ export const useStudio = () => {
   const [previewLifecycle, setPreviewLifecycle] = useState<PreviewLifecycleStage>('idle');
   /** Human-readable reason when previewLifecycle === 'blocked'. Null otherwise. */
   const [previewBlockedReason, setPreviewBlockedReason] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [previewReady, setPreviewReady] = useState(false);
 
   // ── Level 2: Auto-fixer ───────────────────────────────────────────────────
   const fixAttemptsRef   = useRef(0);
@@ -1059,12 +1061,14 @@ export const useStudio = () => {
     clearAttachments();
     clearComposerContextItems();
     setPreviewLifecycle('idle');
+    setPreviewUrl('');
+    setPreviewReady(false);
     localStorage.removeItem('CHAT_HISTORY');
     localStorage.removeItem('LAST_FILES');
     localStorage.removeItem('LAST_CODE');
     localStorage.removeItem('CURRENT_PROJECT_ID');
     Orchestrator.resetSession();
-    // Clear preview-app/src/ so next generation starts fresh
+    // Clear preview-workspace/src/ so next generation starts fresh
     gatewayClearPreview({ source: 'useStudio.createNewProject' }).catch(() => {});
     // Immediately provision a blank project so currentProjectId is never null
     // and PreviewCanvas always has a valid projectId to render the device frame.
@@ -1091,7 +1095,7 @@ export const useStudio = () => {
         return;
       }
 
-      // 1. Write files to preview-app first — await so HMR triggers before React state update
+      // 1. Write files to preview-workspace first — await so HMR triggers before React state update
       try {
         await ProjectRepository.loadToPreview(full);
         addLog('[Project] ✅ Loaded to preview');
@@ -1122,7 +1126,7 @@ export const useStudio = () => {
         });
       }
 
-      // 2. Now update React state — preview-app already has the files on disk.
+      // 2. Now update React state — preview-workspace already has the files on disk.
       // startTransition: these are non-critical UI updates; batching prevents
       // intermediate renders where iframe and React state are out of sync.
       const b = loadBilling(full.id);
@@ -1964,9 +1968,44 @@ export const useStudio = () => {
 
   const onSettings = useCallback(() => setShowSettings(true), []);
 
-  const confirmPlan = useCallback(() => {
+  const watchPreviewUrl = useCallback(async (projectId: string) => {
+    if (!projectId) return;
+
+    try {
+      await fetch(`/api/preview/${projectId}/start`, { method: 'POST' });
+    } catch (err) {
+      addLog(`[Preview] start failed: ${String(err)}`);
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 30_000) {
+      try {
+        const resp = await fetch(`/api/preview/${projectId}/status`, { method: 'GET' });
+        if (resp.ok) {
+          const data = await resp.json() as { ready?: boolean; url?: string };
+          if (data.ready && data.url) {
+            commandBus.dispatch({ type: 'PREVIEW_READY', payload: { url: data.url } });
+            return;
+          }
+        }
+      } catch {
+        // ignore transient polling errors
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }, [addLog]);
+
+  const confirmPlan = useCallback((plan?: object) => {
+    commandBus.dispatch({
+      type: 'PLAN_APPROVED',
+      payload: plan ?? pendingPlan?.plan ?? {},
+    });
+    if (currentProjectId) {
+      setPreviewReady(false);
+      void watchPreviewUrl(currentProjectId);
+    }
     commandBus.dispatch({ type: 'ACCEPT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
-  }, [pendingPlan]);
+  }, [pendingPlan, currentProjectId, watchPreviewUrl]);
 
   const cancelPlan = useCallback(() => {
     commandBus.dispatch({ type: 'REJECT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
@@ -2064,6 +2103,16 @@ export const useStudio = () => {
         blueprintIdRef.current = null;
         _sendRef.current(text);
       }),
+      commandBus.subscribe('PREVIEW_READY', (cmd) => {
+        const data = (cmd as Extract<typeof cmd, { type: 'PREVIEW_READY' }>).payload;
+        if (data?.url) {
+          setPreviewUrl(data.url);
+          setPreviewReady(true);
+          if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') {
+            (window as any).__E2E_PREVIEW_URL__ = data.url;
+          }
+        }
+      }),
       // State machine — mirror every command into read-only machineState
       commandBus.subscribeAll((cmd) => {
         setMachineState(prev => transition(prev, cmd));
@@ -2159,6 +2208,8 @@ export const useStudio = () => {
     // preview lifecycle — honest completion handshake
     previewLifecycle,
     previewBlockedReason,
+    previewUrl,
+    previewReady,
     // blueprint confirmation
     pendingPlan, confirmPlan, cancelPlan,
     // diff review
@@ -2170,7 +2221,7 @@ export const useStudio = () => {
     // state — re-memoize only when actual data changes
     // messages/input intentionally excluded — returned directly below
     files, activeFile, theme, apiKey, selectedModel,
-    isGenerating, device, progress, currentPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, machineState,
+    isGenerating, device, progress, currentPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, previewUrl, previewReady, machineState,
     designClassification,
     projectGraph,
     snapshots, historyIndex, currentProjectId, currentProject, currentSnapshotId, stableSnapshotId,
@@ -2200,6 +2251,7 @@ export const useStudio = () => {
     startFigmaSync, addSystemMessage,
     saveFigmaProject, loadFigmaProject, deleteFigmaProject, markFigmaProjectSynced, clearFigmaSync,
     setAppLanguage, setFigmaLink, setTargetMarket, setAuditStrictness,
+    watchPreviewUrl,
     confirmPlan, cancelPlan,
     onConfirmPlan, onSubmitClarification,
     approveDiff, rejectDiff,

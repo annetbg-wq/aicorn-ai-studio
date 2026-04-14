@@ -127,9 +127,7 @@ export function probeIframe(
     window.addEventListener('message', onMessage);
 
     // Send the probe request to the iframe
-    const iframe = document.querySelector<HTMLIFrameElement>(
-      'iframe[src*="localhost:3100"], iframe[src*="/__preview"]',
-    );
+    const iframe = document.querySelector<HTMLIFrameElement>('[data-testid="preview-iframe"], iframe[src*="/__preview"]');
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
         { type: 'white-screen-check', buildId },

@@ -867,6 +867,7 @@ interface PreviewCanvasProps {
   previewLifecycle?:      string;
   previewBlockedReason?:  string | null;
   projectId:              string;
+  previewUrl?:            string;
 }
 
 /* ---- Main component ---- */
@@ -884,8 +885,9 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   previewLifecycle,
   previewBlockedReason,
   projectId,
+  previewUrl,
 }) => {
-  const iframeUrl = projectId ? `/preview/${projectId}` : '';
+  const iframeUrl = previewUrl || (projectId ? `/preview/${projectId}` : '');
   const [tab, setTab] = useState<TabId>('preview');
 
   const TH = {
@@ -1250,6 +1252,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
               <DeviceFrame device={device}>
                 <iframe
                   src={iframeUrl}
+                  data-testid="preview-iframe"
                   title="preview"
                   style={{ display: 'block', width: '100%', height: '100%', border: 'none' }}
                 />

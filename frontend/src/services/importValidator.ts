@@ -1,7 +1,7 @@
 /**
  * importValidator.ts — Pre-write import resolution checker.
  *
- * Before files are flushed to preview-app, this module validates that all
+ * Before files are flushed to preview-workspace, this module validates that all
  * relative imports between generated files actually resolve.
  *
  * Returns a list of missing files so the self-correction loop can
@@ -113,7 +113,7 @@ export function validateImports(
     }
   }
 
-  // Well-known scaffold paths that always exist in preview-app
+  // Well-known scaffold paths that always exist in preview-workspace
   const scaffoldPrefixes = [
     'components/ui/',
     'components/layout/',

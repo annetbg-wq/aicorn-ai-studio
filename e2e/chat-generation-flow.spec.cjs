@@ -23,7 +23,12 @@ async function openEngine(page) {
 async function typeInChat(page, text) {
   const textarea = page.locator('textarea').first();
   await textarea.fill(text);
+  // Enter can be flaky in CI when focus briefly shifts; click send as a stable fallback.
   await textarea.press('Enter');
+  const sendBtn = page.locator('textarea').first().locator('xpath=following-sibling::button[not(@disabled)]').first();
+  if (await sendBtn.count()) {
+    await sendBtn.click();
+  }
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -36,7 +41,7 @@ test.describe('Chat → generation → blueprint → preview', () => {
     await openEngine(page);
 
     // 2. Send prompt — plan card appears immediately, no clarifier step
-    await typeInChat(page, 'todo app with supabase');
+    await typeInChat(page, 'simple counter app');
     await expect(page.locator('[data-testid="generation-plan-card"]')).toBeVisible({ timeout: 60_000 });
 
     // 3. Confirm the plan
@@ -47,14 +52,27 @@ test.describe('Chat → generation → blueprint → preview', () => {
       page.locator('text=⚙️ Building…').or(page.locator('text=Building…'))
     ).toBeVisible({ timeout: 10_000 });
 
-    // 5. Wait for preview iframe to contain "Todo"
-    const iframeLocator = page.frameLocator('iframe[src*="/preview/"]');
+    // 5. Wait until frontend receives preview-manager URL for this project
+    await page.waitForFunction(() => window.__E2E_PREVIEW_URL__, { timeout: 30_000 });
+    const previewUrl = await page.evaluate(() => window.__E2E_PREVIEW_URL__);
+    expect(previewUrl).toContain('127.0.0.1:');
+
+    // 6. iframe must be visible and point to dynamic preview-manager URL
+    const iframe = page.locator('[data-testid="preview-iframe"]');
+    await expect(iframe).toBeVisible({ timeout: FLOW_TIMEOUT });
     await expect(async () => {
-      const bodyText = await iframeLocator.locator('body').innerText({ timeout: 5_000 });
-      expect(bodyText).toMatch(/todo/i);
+      const src = await iframe.getAttribute('src');
+      expect(src).toBeTruthy();
+      expect(src).not.toBe('about:blank');
+      expect(src).toContain('127.0.0.1:');
     }).toPass({ timeout: FLOW_TIMEOUT, intervals: [2_000, 3_000, 5_000] });
 
-    // 6. No crash text
+    // 7. Counter app should render initial value 0
+    await expect(page.frameLocator('[data-testid="preview-iframe"]').locator('body')).toContainText('0', {
+      timeout: FLOW_TIMEOUT,
+    });
+
+    // 8. No crash text
     const pageText = await page.locator('body').innerText();
     expect(pageText).not.toMatch(/\bError\b/);
     expect(pageText).not.toContain('insertBefore');

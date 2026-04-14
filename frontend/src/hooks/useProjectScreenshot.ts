@@ -5,7 +5,7 @@
  * Flow:
  *   1. Call captureFromViteIframe(iframeEl, projectId)
  *   2. Sends postMessage { type: 'capture-screenshot' } to the iframe
- *   3. preview-app/main.tsx responds with { type: 'screenshot-result', dataUrl }
+ *   3. preview-workspace/main.tsx responds with { type: 'screenshot-result', dataUrl }
  *   4. We compress and persist via screenshotCache.saveScreenshot()
  */
 

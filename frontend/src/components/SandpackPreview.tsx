@@ -4,12 +4,12 @@
  * This component is a DISPLAY layer only.
  *
  * Architecture:
- *   - React/TSX projects → iframe pointing to localhost:3100 (preview-app Vite dev server)
+ *   - React/TSX projects → iframe pointing to dynamic preview-manager URL
  *   - HTML/Alpine projects → srcdoc iframe (no sandbox involved)
  *   - Empty state → welcome screen (srcdoc)
  *
  * Preview pipeline:
- *   SimpleGeneration writes to preview-app/src/ → Vite HMR on port 3100 → iframe
+ *   SimpleGeneration writes to preview workspace → Vite HMR → iframe
  *
  * No materialization, no revisions, no sandbox. One canonical path.
  */
@@ -23,9 +23,7 @@ import { useProjectScreenshot } from '../hooks/useProjectScreenshot';
 import { resolvePreviewUI } from '../services/previewLifecycleResolver';
 import { visualEditBridge, type VisualEditState, type SelectedElement } from '../services/VisualEditBridge';
 
-/** Port where the preview-app Vite dev server runs. */
-const PREVIEW_PORT = 3100;
-const PREVIEW_URL = `http://localhost:${PREVIEW_PORT}`;
+const PREVIEW_URL = (import.meta.env.VITE_PREVIEW_ORIGIN || 'http://127.0.0.1:5183').replace(/\/$/, '');
 
 /* ── Welcome / Loading bundles (IIFE, used for srcdoc path only) ─────────────── */
 
@@ -294,7 +292,7 @@ interface SandpackViewProps {
   setActiveFile:    (n: string) => void;
   theme?:           'dark' | 'light';
   studioTheme?:     'dark' | 'medium' | 'light';
-  /** Current device key (desktop | iphone | pixel | ipad). Forwarded to preview-app
+  /** Current device key (desktop | iphone | pixel | ipad). Forwarded to preview-workspace
    *  via postMessage so the app can set html[data-device]. */
   device?:          string;
   /** Project ID used to cache screenshots in localStorage. */
@@ -390,7 +388,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
     }
   }, [visualEditActive]);
 
-  // Probe whether the preview-app dev server is reachable
+  // Probe whether the preview-workspace dev server is reachable
   useEffect(() => {
     let cancelled = false;
     fetch(PREVIEW_URL, { mode: 'no-cors' })
@@ -509,11 +507,11 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
   // Preview reload is now driven by PreviewController subscription (above).
   // No force-preview-reload listener, no setTimeout.
 
-  // Listen for preview-mounted / iframe-error / vite:error postMessages from the preview-app
+  // Listen for preview-mounted / iframe-error / vite:error postMessages from the preview-workspace
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.origin !== PREVIEW_URL) return;
-      // S1: scope to our vite iframe — rejects messages from other localhost:3100
+      // S1: scope to our vite iframe — rejects messages from unrelated windows
       // windows and from synthetic re-dispatched events (e.source is null there,
       // which is intentional: the vite:error re-dispatch targets useStudio only).
       if (e.source !== viteIframeRef.current?.contentWindow) return;
@@ -547,15 +545,15 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
     return () => window.removeEventListener('message', handler);
   }, [onError, captureScreenshot]);
 
-  // Sync studio theme to preview-app via postMessage
+  // Sync studio theme to preview-workspace via postMessage
   useEffect(() => {
     const iframe = viteIframeRef.current;
     if (!iframe?.contentWindow) return;
     iframe.contentWindow.postMessage({ type: 'studio-theme', theme: studioTheme ?? theme }, '*');
   }, [studioTheme, theme]);
 
-  // S1: Sync device mode to preview-app → html[data-device].
-  // Future: preview-app can expose a useDeviceMode() hook reading this attribute.
+  // S1: Sync device mode to preview-workspace → html[data-device].
+  // Future: preview-workspace can expose a useDeviceMode() hook reading this attribute.
   useEffect(() => {
     const iframe = viteIframeRef.current;
     if (!iframe?.contentWindow) return;

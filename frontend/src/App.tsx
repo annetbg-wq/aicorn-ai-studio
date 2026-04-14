@@ -526,6 +526,7 @@ export default function App() {
               studioError={studio.studioError}
               previewLifecycle={studio.previewLifecycle}
               previewBlockedReason={studio.previewBlockedReason}
+              previewUrl={studio.previewUrl}
             />
           </Suspense>
         </div>
