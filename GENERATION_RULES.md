@@ -30,7 +30,7 @@ Only performs safe, non-destructive fixes:
 Intentionally does NOT strip: imports, exports, TypeScript.
 
 ## Preview runtime compatibility
-- `preview-app` is a **shell-only runtime** and must stay neutral.
-- `preview-app/src/App.tsx` is baseline shell UI only (no demo pages, no baked-in app routing).
+- `preview-workspace` is a **shell-only runtime** and must stay neutral.
+- `preview-workspace/src/App.tsx` is baseline shell UI only (no demo pages, no baked-in app routing).
 - Generated source written into preview is the only UI authority for the mounted app.
 - Build readiness is signaled by `preview-mounted` with a matching `buildId`.

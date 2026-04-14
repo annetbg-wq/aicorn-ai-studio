@@ -3,7 +3,7 @@
  *
  * NOT part of the normal preview runtime or build pipeline.
  * Use only to manually extract a JSON artifact envelope that was accidentally
- * written to preview-app/src/App.tsx during debugging or a corrupted session.
+ * written to preview-workspace/src/App.tsx during debugging or a corrupted session.
  *
  * Usage: node scripts/extract-envelope.js
  * Safe:  exits cleanly if App.tsx is not JSON.
@@ -11,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const srcDir = path.join(__dirname, '..', 'preview-app', 'src');
+const srcDir = path.join(__dirname, '..', 'preview-workspace', 'src');
 const appFile = path.join(srcDir, 'App.tsx');
 const raw = fs.readFileSync(appFile, 'utf8');
 
@@ -39,4 +39,4 @@ files.forEach(f => {
   console.log(`  ✓ ${relPath}`);
 });
 
-console.log('Done. Preview-app should hot-reload now.');
+console.log('Done. Preview-workspace should hot-reload now.');

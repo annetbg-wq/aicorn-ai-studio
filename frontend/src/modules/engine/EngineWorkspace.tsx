@@ -149,6 +149,9 @@ export interface EngineWorkspaceProps {
   pendingPlan?:      object | null;
   confirmPlan?:      () => void;
   cancelPlan?:       () => void;
+  onConfirmPlan?:    (plan: object) => void;
+  onClarifyPlan?:    (messageId: string) => void;
+  onSubmitClarification?: (text: string) => void;
 
   // ── State machine ─────────────────────────────────────────────
   studioPhase?:      string;
@@ -178,6 +181,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
   attachments = [], addAttachment = () => {}, removeAttachment = () => {},
   composerContextItems = [], removeComposerContextItem = () => {}, clearComposerContextItems = () => {},
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
+  onConfirmPlan = () => confirmPlan(), onClarifyPlan = () => {}, onSubmitClarification = () => {},
   studioPhase,
   studioError = null,
   previewLifecycle,
@@ -315,6 +319,9 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             pendingPlan={pendingPlan}
             confirmPlan={confirmPlan}
             cancelPlan={cancelPlan}
+            onConfirmPlan={onConfirmPlan}
+            onClarifyPlan={onClarifyPlan}
+            onSubmitClarification={onSubmitClarification}
           />
           </ChatErrorBoundary>
           <PreviewCanvas

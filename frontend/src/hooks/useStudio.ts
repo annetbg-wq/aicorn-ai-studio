@@ -50,7 +50,6 @@ import type { Project } from '../services/ProjectManager';
 import { ProjectRepository } from '../services/ProjectRepository';
 import { BenchmarkService } from '../services/benchmark/BenchmarkService';
 import { revisionManager } from '../services/RevisionManager';
-import { clearPreview as gatewayClearPreview } from '../services/PreviewWriteGateway';
 import { safeSetItem } from '../lib/safeStorage';
 import { getLocalDevAgentProvider, isLocalDevAgentEnabled } from '../services/devAgentMode';
 import type { FileDiff } from '../components/DiffPreview';
@@ -1026,7 +1025,7 @@ export const useStudio = () => {
   _latestMsgsRef.current  = messages;
 
   // ── project actions ───────────────────────────────────────────────────────
-  const createNewProject = useCallback(() => {
+  const createNewProject = useCallback(async () => {
     pendingProjectSaveRef.current = null;
     pendingSavePromptShownRef.current = false;
     currentPlanMsgIdRef.current = null;
@@ -1068,8 +1067,7 @@ export const useStudio = () => {
     localStorage.removeItem('LAST_CODE');
     localStorage.removeItem('CURRENT_PROJECT_ID');
     Orchestrator.resetSession();
-    // Clear preview-workspace/src/ so next generation starts fresh
-    gatewayClearPreview({ source: 'useStudio.createNewProject' }).catch(() => {});
+    await revisionManager.createEmptyCandidate();
     // Immediately provision a blank project so currentProjectId is never null
     // and PreviewCanvas always has a valid projectId to render the device frame.
     try {

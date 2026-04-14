@@ -171,6 +171,9 @@ export async function pushFiles(projectId: string, files: ProjectFile[]): Promis
   for (const file of files) {
     const dest = path.join(srcDir, file.path);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
+    if (dest.endsWith('App.tsx') && file.content.trim().startsWith('{')) {
+      throw new Error('FATAL: POISON_BLOCKED. Attempted to write JSON artifact to App.tsx');
+    }
     fs.writeFileSync(dest, file.content, 'utf-8');
   }
 }

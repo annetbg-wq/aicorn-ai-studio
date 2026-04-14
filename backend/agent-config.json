@@ -14,7 +14,7 @@
   },
   "agent_build": {
     "provider": "openrouter",
-    "modelId": "xiaomi/mimo-v2-pro",
+    "modelId": "qwen/qwen-2.5-coder-32b-instruct",
     "fallback1Provider": "openrouter",
     "fallback1ModelId": "z-ai/glm-5.1",
     "maxTokens": {

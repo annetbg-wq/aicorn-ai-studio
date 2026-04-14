@@ -9,7 +9,7 @@
       "all_code.*",
       "*_audit.txt",
       "frontend/dist/**",
-      "preview-app/dist/**",
+      "preview-workspace/dist/**",
       ".chrome-e2e/**",
       "**/node_modules/**",
       "**/*.min.js",
