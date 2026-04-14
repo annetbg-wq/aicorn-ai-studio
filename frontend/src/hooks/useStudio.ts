@@ -963,7 +963,7 @@ export const useStudio = () => {
   // Captures apiKey, addLog via ref so the effect never needs to be re-registered.
   const _autoFixHandlerRef = useRef<(e: MessageEvent) => void>(() => {});
   _autoFixHandlerRef.current = (e: MessageEvent) => {
-    if (e.origin !== 'http://localhost:3100') return;
+    if (e.origin !== window.location.origin) return;
     if (e.data?.type !== 'iframe-error') return;
     // Preview lifecycle — mark as failed/degraded on first error after generation
     setPreviewLifecycle(prev =>

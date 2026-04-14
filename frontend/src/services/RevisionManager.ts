@@ -51,7 +51,7 @@ import {
   cancelPendingCheck,
 } from './WhiteScreenDetector';
 
-const PREVIEW_ORIGIN = 'http://localhost:3100';
+const PREVIEW_ORIGIN = window.location.origin;
 const MAX_REVISIONS = 20;
 
 /**
