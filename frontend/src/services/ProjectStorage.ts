@@ -8,7 +8,6 @@ import { scanBeforePreviewLoad } from './projectCorruptionScan';
 import {
   clearPreview,
   writeBatch,
-  writeBuildMarker,
   writeFile,
 } from './PreviewWriteGateway';
 import type { ProjectMeta } from '../shared/projectModel';
@@ -174,8 +173,7 @@ export class ProjectStorage {
     }
 
     // Step 3: Write all project files in parallel batches.
-    // __build_id.ts is excluded by writeBatch. index.css is skipped here
-    // because it was already written with the theme in step 2.
+    // index.css is skipped here because it was already written with the theme in step 2.
     const filesWithoutCss = Object.fromEntries(
       Object.entries(project.files).filter(([p]) => {
         const clean = p.startsWith('/') ? p.slice(1) : p;
@@ -185,10 +183,8 @@ export class ProjectStorage {
     );
     await writeBatch(filesWithoutCss, gwOpts);
 
-    // Step 4: Write the build marker LAST. preview-app's main.tsx HMR accept hook
-    // posts `preview-mounted` with this buildId, settling the parent's waitForReady.
-    if (buildId) {
-      await writeBuildMarker(buildId, gwOpts);
-    }
+    // Step 4: Give Vite's polling watcher (interval: 100ms) time to pick up
+    // the written files before the preview iframe is considered ready.
+    await new Promise<void>(resolve => setTimeout(resolve, 100));
   }
 }

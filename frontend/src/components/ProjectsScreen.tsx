@@ -305,7 +305,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                       background: isDark ? '#111' : '#f0f0f0',
                     }}>
                       <iframe
-                        src="http://localhost:3100"
+                        src={`/preview/${selectedProject.id}`}
                         style={{
                           width: 960, height: 720, border: 'none',
                           transform: 'scale(0.208)', transformOrigin: '0 0',

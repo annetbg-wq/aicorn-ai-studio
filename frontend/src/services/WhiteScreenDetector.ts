@@ -51,7 +51,7 @@ export interface DOMMetrics {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const PREVIEW_ORIGIN = 'http://localhost:3100';
+const PREVIEW_ORIGIN = window.location.origin;
 
 /** Delay after ready_set before running the probe. Allows async renders. */
 const POST_READY_DELAY_MS = 2_500;

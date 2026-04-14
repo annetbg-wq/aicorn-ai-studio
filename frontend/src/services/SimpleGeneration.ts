@@ -2297,7 +2297,7 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
     }
   }
 
-  static async installPreviewDeps(deps: string[]): Promise<void> {
+  static async installPreviewDeps(deps: string[], projectId?: string): Promise<void> {
     if (!deps || deps.length === 0) return;
 
     const alreadyInstalled = new Set([
@@ -2343,7 +2343,8 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
 
     console.log('[deps] Installing:', toInstall.join(', '));
     try {
-      const response = await fetch('http://localhost:3100/__install_deps', {
+      const base = projectId ? `/preview/${projectId}` : 'http://localhost:3100';
+      const response = await fetch(`${base}/__install_deps`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ packages: toInstall }),
@@ -2654,7 +2655,7 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
       }
       config.onLog(`[SimpleGeneration] EDIT: buffered ${Object.keys(editLlmFiles).length} files (preserved ${Object.keys(existingFiles).length})`);
 
-      await SimpleGeneration.installPreviewDeps(editDependencies);
+      await SimpleGeneration.installPreviewDeps(editDependencies, config.projectId);
       config.onLog(`[SimpleGeneration] EDIT deps prepared: ${editDependencies.join(', ') || 'none'}`);
 
       // ── Pre-write import validation ──────────────────────────────────
@@ -3278,7 +3279,7 @@ Generate the complete application for: ${config.intent}`;
 
     config.onLog(`[SimpleGeneration] buffered ${writtenCount} files + theme into candidate`);
 
-    await SimpleGeneration.installPreviewDeps(artifactDependencies);
+    await SimpleGeneration.installPreviewDeps(artifactDependencies, config.projectId);
     config.onLog(`[SimpleGeneration] NEW deps prepared: ${artifactDependencies.join(', ') || 'none'}`);
 
     // ── Pre-write import validation ────────────────────────────────────
