@@ -225,6 +225,10 @@ export const useStudio = () => {
     () => normalizeMessages(JSON.parse(localStorage.getItem('CHAT_HISTORY') || '[]')),
   );
 
+  // Tracks the id of the last blueprint message so ACCEPT/REJECT subscribers
+  // can hide it without scanning the messages array.
+  const blueprintIdRef = useRef<string | null>(null);
+
   // ── chat dispatch helpers ─────────────────────────────────────────────────
   const chatAppend = useCallback((partial: Omit<ChatMessage, 'id' | 'timestamp'> & Partial<Pick<ChatMessage, 'id' | 'timestamp'>>) => {
     dispatch({ type: 'APPEND', payload: partial });
@@ -1593,13 +1597,15 @@ export const useStudio = () => {
           // Synchronous dispatch — no startTransition, no commandBus indirection.
           // All chat mutations go through the reducer in order.
           const bpId = `blueprint-${Date.now()}`;
+          blueprintIdRef.current = bpId;
           dispatch({
             type: 'APPEND',
             payload: {
-              role:      'assistant',
-              type:      'blueprint',
-              id:        bpId,
-              timestamp: Date.now(),
+              role:            'assistant',
+              type:            'blueprint',
+              id:              bpId,
+              timestamp:       Date.now(),
+              blueprintVisible: true,
               ...data,
             },
           });
@@ -1994,15 +2000,25 @@ export const useStudio = () => {
     const unsubs = [
       commandBus.subscribe('ACCEPT_BLUEPRINT', () => {
         planDecisionRef.current = true;
-        // Synchronous — no rAF. Pending plan cleared immediately so confirmPlan
-        // cannot fire twice if the user double-clicks.
         setPendingPlan(null);
+        // 1. Hide blueprint card — DOM node stays mounted, no insertBefore crash.
+        if (blueprintIdRef.current) {
+          dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: blueprintIdRef.current, visible: false });
+        }
+        // 2. Append "Building…" after the (now hidden) blueprint — order guaranteed.
+        dispatch({
+          type: 'APPEND',
+          payload: { role: 'assistant', type: 'text', content: '⚙️ Building…' },
+        });
       }),
       commandBus.subscribe('REJECT_BLUEPRINT', () => {
         planDecisionRef.current = false;
         setPendingPlan(null);
-        // Direct reducer dispatch — guaranteed sequential after setPendingPlan.
-        dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'blueprint' });
+        // Hide instead of remove — preserves fiber identity, avoids DOM conflicts.
+        if (blueprintIdRef.current) {
+          dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: blueprintIdRef.current, visible: false });
+        }
+        blueprintIdRef.current = null;
       }),
       // State machine — mirror every command into read-only machineState
       commandBus.subscribeAll((cmd) => {
