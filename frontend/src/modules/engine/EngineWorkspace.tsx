@@ -15,7 +15,6 @@ import { PreviewCanvas }  from '../../components/PreviewCanvas';
 import { previewController } from '../../services/PreviewController';
 import { EngineTopBar, DevIdentity } from '../../components/EngineTopBar';
 import { ChatErrorBoundary }    from '../../components/boundaries/ChatErrorBoundary';
-import { PreviewErrorBoundary } from '../../components/boundaries/PreviewErrorBoundary';
 import type { Snapshot, FileMap, Attachment, ComposerContextItem } from '../../hooks/useStudio';
 import type { ChatMessage } from '../../types/chat';
 import { ProjectExportService }          from '../../services/ProjectExportService';
@@ -316,11 +315,11 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             cancelPlan={cancelPlan}
           />
           </ChatErrorBoundary>
-          <PreviewErrorBoundary onRetry={() => {
-            // Render-error retry: clear preview state to idle so the next real
-            // build cycle (or load) is the only thing that can promote to ready.
-            previewController.reset();
-          }}>
+          {currentProjectId == null ? (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>
+              Загрузка проекта...
+            </div>
+          ) : (
           <PreviewCanvas
             device={device}
             setDevice={setDevice}
@@ -348,8 +347,9 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             apiKey={apiKey}
             previewLifecycle={previewLifecycle}
             previewBlockedReason={previewBlockedReason}
+            projectId={currentProjectId}
           />
-          </PreviewErrorBoundary>
+          )}
         </div>
       </div>
     </EngineErrorBoundary>
