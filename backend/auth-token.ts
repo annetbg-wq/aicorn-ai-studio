@@ -9,7 +9,7 @@ import os from 'os';
 import path from 'path';
 
 const app = express();
-const PORT = 3107;
+const PORT = 3000;
 
 app.use((_req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -1278,7 +1278,42 @@ app.use('/preview/:projectId', (req, res, next) => {
   const port = getPreviewPort(projectId);
 
   if (port === null) {
-    res.status(404).json({ error: `No running preview for project "${projectId}"` });
+    res.status(503)
+      .type('html')
+      .send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Preview is starting</title>
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #0a0a0f;
+        color: #e5e7eb;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+      .wrap {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        place-items: center;
+      }
+      .msg {
+        font-size: 13px;
+        color: rgba(229,231,235,0.6);
+        letter-spacing: 0.02em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="msg">Preparing preview...</div>
+    </div>
+  </body>
+</html>`);
     return;
   }
 
