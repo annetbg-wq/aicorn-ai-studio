@@ -269,6 +269,113 @@ const formatTime = (iso: string) => {
 
 // â”€â”€ ÐžÑÐ½Ð¾Ð²Ð½Ð¾Ð¹ ÐºÐ¾Ð¼Ð¿Ð¾Ð½ÐµÐ½Ñ‚ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+// ── BlueprintCard ─────────────────────────────────────────────────────────────
+// Always rendered inside messages.map() — never unmounted after first append.
+// If blueprintVisible === false the card is hidden via early return (no DOM removal).
+
+interface BlueprintCardProps {
+  m: any;
+  isPending: boolean;
+  textColor: string;
+  subText: string;
+  borderColor: string;
+  confirmPlan: () => void;
+  cancelPlan: () => void;
+}
+
+const BlueprintCard: React.FC<BlueprintCardProps> = ({
+  m, isPending, textColor, subText, borderColor, confirmPlan, cancelPlan,
+}) => {
+  // Visibility guard — keeps fiber in the tree but renders nothing.
+  // This prevents the insertBefore crash that occurs when a node is removed
+  // by REMOVE_BY_TYPE while a sibling is being inserted simultaneously.
+  if (m.blueprintVisible === false) return null;
+
+  const bpPages: string[] = m.pages ?? [];
+
+  return (
+    <div style={{
+      background: 'var(--card)',
+      border: '1px solid rgba(99,102,241,0.4)',
+      borderRadius: 12, overflow: 'hidden', margin: '8px 0',
+    }}>
+      <div style={{
+        padding: '12px 16px', background: 'rgba(99,102,241,0.08)',
+        borderBottom: '1px solid rgba(99,102,241,0.2)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: textColor }}>{m.appName}</div>
+          <div style={{ fontSize: 11, color: subText, marginTop: 2 }}>
+            {bpPages.length} screens · {m.theme} theme
+          </div>
+        </div>
+        {isPending && (
+          <div style={{
+            fontSize: 10, padding: '3px 8px', borderRadius: 10,
+            background: 'rgba(251,191,36,0.15)', color: '#f59e0b', fontWeight: 600,
+          }}>
+            Awaiting confirmation
+          </div>
+        )}
+      </div>
+
+      <div style={{
+        padding: '12px 16px', fontSize: 12, color: textColor,
+        lineHeight: 1.6, maxHeight: isPending ? 400 : 200,
+        overflowY: 'auto', whiteSpace: 'pre-wrap',
+      }}>
+        {m.blueprintText}
+      </div>
+
+      {m.technicalBlueprint && JSON.stringify(m.technicalBlueprint).length > 20 && (
+        <details style={{
+          margin: '0 16px 12px', borderRadius: 8,
+          border: `1px solid ${borderColor}`, overflow: 'hidden',
+        }}>
+          <summary style={{
+            padding: '8px 12px', fontSize: 11, fontWeight: 600,
+            color: subText, cursor: 'pointer',
+            background: 'rgba(99,102,241,0.05)', userSelect: 'none',
+          }}>
+            Technical Blueprint
+          </summary>
+          <pre style={{
+            padding: '10px 12px', fontSize: 10, color: subText,
+            lineHeight: 1.5, maxHeight: 300, overflowY: 'auto',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            margin: 0, fontFamily: 'monospace',
+          }}>
+            {JSON.stringify(m.technicalBlueprint, null, 2)}
+          </pre>
+        </details>
+      )}
+
+      {isPending && (
+        <div style={{
+          padding: '12px 16px', borderTop: `1px solid ${borderColor}`,
+          display: 'flex', gap: 8,
+        }}>
+          <button onClick={confirmPlan} style={{
+            flex: 1, padding: '9px', borderRadius: 8, cursor: 'pointer',
+            background: '#6366f1', border: 'none', color: '#fff',
+            fontSize: 13, fontWeight: 600,
+          }}>
+            Build it
+          </button>
+          <button onClick={cancelPlan} style={{
+            padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
+            background: 'transparent', border: `1px solid ${borderColor}`,
+            color: subText, fontSize: 13,
+          }}>
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const LeftPanel: React.FC<LeftPanelProps> = ({
   messages, input, setInput, onSend, onStop, isGenerating, progress, currentPhase, scrollRef,
   projects, currentProjectId, onNewProject, onLoadProject, onDeleteProject,
@@ -506,137 +613,17 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               const isBlueprint     = m.type === 'blueprint';
 
               if (isBlueprint) {
-                const isPending = pendingPlan !== null;
-                const bpPages: string[] = (m as any).pages ?? [];
                 return (
-                  <div key={m.id} style={{
-                    background: 'var(--card)',
-                    border: '1px solid rgba(99,102,241,0.4)',
-                    borderRadius: 12,
-                    overflow: 'hidden',
-                    margin: '8px 0',
-                  }}>
-                    {/* Header */}
-                    <div style={{
-                      padding: '12px 16px',
-                      background: 'rgba(99,102,241,0.08)',
-                      borderBottom: '1px solid rgba(99,102,241,0.2)',
-                      display: 'flex', alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}>
-                      <div>
-                        <div style={{
-                          fontSize: 13, fontWeight: 700,
-                          color: textColor,
-                        }}>
-                          {(m as any).appName}
-                        </div>
-                        <div style={{
-                          fontSize: 11,
-                          color: subText,
-                          marginTop: 2,
-                        }}>
-                          {bpPages.length} screens Â· {(m as any).theme} theme
-                        </div>
-                      </div>
-                      {isPending && (
-                        <div style={{
-                          fontSize: 10, padding: '3px 8px',
-                          borderRadius: 10,
-                          background: 'rgba(251,191,36,0.15)',
-                          color: '#f59e0b',
-                          fontWeight: 600,
-                        }}>
-                          Awaiting confirmation
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Blueprint text */}
-                    <div style={{
-                      padding: '12px 16px',
-                      fontSize: 12,
-                      color: textColor,
-                      lineHeight: 1.6,
-                      maxHeight: isPending ? 400 : 200,
-                      overflowY: 'auto',
-                      whiteSpace: 'pre-wrap',
-                    }}>
-                      {(m as any).blueprintText}
-                    </div>
-
-                    {/* Technical Blueprint â€” collapsible secondary diagnostics */}
-                    {(m as any).technicalBlueprint && JSON.stringify((m as any).technicalBlueprint).length > 20 && (
-                      <details style={{
-                        margin: '0 16px 12px',
-                        borderRadius: 8,
-                        border: `1px solid ${borderColor}`,
-                        overflow: 'hidden',
-                      }}>
-                        <summary style={{
-                          padding: '8px 12px',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: subText,
-                          cursor: 'pointer',
-                          background: 'rgba(99,102,241,0.05)',
-                          userSelect: 'none',
-                        }}>
-                          Technical Blueprint
-                        </summary>
-                        <pre style={{
-                          padding: '10px 12px',
-                          fontSize: 10,
-                          color: subText,
-                          lineHeight: 1.5,
-                          maxHeight: 300,
-                          overflowY: 'auto',
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                          margin: 0,
-                          fontFamily: 'monospace',
-                        }}>
-                          {JSON.stringify((m as any).technicalBlueprint, null, 2)}
-                        </pre>
-                      </details>
-                    )}
-
-                    {/* Buttons â€” only while awaiting confirmation */}
-                    {isPending && (
-                      <div style={{
-                        padding: '12px 16px',
-                        borderTop: `1px solid ${borderColor}`,
-                        display: 'flex', gap: 8,
-                      }}>
-                        <button
-                          onClick={confirmPlan}
-                          style={{
-                            flex: 1, padding: '9px',
-                            borderRadius: 8, cursor: 'pointer',
-                            background: '#6366f1',
-                            border: 'none',
-                            color: '#fff',
-                            fontSize: 13, fontWeight: 600,
-                          }}
-                        >
-                          Build it
-                        </button>
-                        <button
-                          onClick={cancelPlan}
-                          style={{
-                            padding: '9px 16px',
-                            borderRadius: 8, cursor: 'pointer',
-                            background: 'transparent',
-                            border: `1px solid ${borderColor}`,
-                            color: subText,
-                            fontSize: 13,
-                          }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <BlueprintCard
+                    key={m.id}
+                    m={m}
+                    isPending={pendingPlan !== null}
+                    textColor={textColor}
+                    subText={subText}
+                    borderColor={borderColor}
+                    confirmPlan={confirmPlan}
+                    cancelPlan={cancelPlan}
+                  />
                 );
               }
 
