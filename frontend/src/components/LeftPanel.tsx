@@ -91,9 +91,11 @@ interface LeftPanelProps {
   removeComposerContextItem?: (id: string) => void;
   clearComposerContextItems?: () => void;
   // blueprint confirmation
-  pendingPlan?:      object | null;
-  confirmPlan?:      () => void;
-  cancelPlan?:       () => void;
+  pendingPlan?:            object | null;
+  confirmPlan?:            () => void;
+  cancelPlan?:             () => void;
+  onConfirmPlan?:          () => void;
+  onSubmitClarification?:  (text: string) => void;
 }
 
 // â”€â”€ i18n labels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -356,13 +358,6 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
           padding: '12px 16px', borderTop: `1px solid ${borderColor}`,
           display: 'flex', gap: 8,
         }}>
-          <button onClick={confirmPlan} style={{
-            flex: 1, padding: '9px', borderRadius: 8, cursor: 'pointer',
-            background: '#6366f1', border: 'none', color: '#fff',
-            fontSize: 13, fontWeight: 600,
-          }}>
-            Build it
-          </button>
           <button onClick={cancelPlan} style={{
             padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
             background: 'transparent', border: `1px solid ${borderColor}`,
@@ -372,6 +367,238 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
           </button>
         </div>
       )}
+    </div>
+  );
+};
+
+// ── GenerationPlanCard ────────────────────────────────────────────────────────
+// Extracted so it can hold its own isClarifying / clarifyText local state
+// (useState is not allowed inside a .map() callback).
+
+interface GenerationPlanCardProps {
+  m: any;
+  pendingPlan: object | null;
+  textColor: string;
+  subText: string;
+  borderColor: string;
+  isDark: boolean;
+  onConfirmPlan: () => void;
+  onSubmitClarification: (text: string) => void;
+}
+
+const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
+  m, pendingPlan, textColor, subText, borderColor, isDark,
+  onConfirmPlan, onSubmitClarification,
+}) => {
+  const [isClarifying, setIsClarifying] = useState(false);
+  const [clarifyText, setClarifyText]   = useState('');
+
+  const isDone:         boolean = (m as any).buildStatus === 'ready';
+  const isBuilding:     boolean = (m as any).buildStatus === 'building';
+  const steps:          Array<{ id: string; label: string; status: string }> = (m as any).steps ?? [];
+  const pages:          string[]  = (m as any).pages ?? [];
+  const appName:        string    = (m as any).appName ?? '';
+  const progress:       number    = (m as any).progress ?? 0;
+  const streamingCode:  string    = (m as any).streamingCode ?? '';
+
+  // Show confirm UI only while waiting for user decision (blueprint ready, not yet building).
+  const showConfirm = pendingPlan !== null && !isBuilding && !isDone;
+
+  return (
+    <div data-testid="generation-plan-card" style={{
+      background: 'var(--card)',
+      border: `1px solid ${isDone ? 'rgba(34,197,94,0.3)' : 'rgba(99,102,241,0.3)'}`,
+      borderRadius: 12, padding: '14px 16px', margin: '8px 0',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        {isDone ? (
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#22c55e' }}>OK</span>
+        ) : (
+          <div style={{
+            width: 14, height: 14, flexShrink: 0,
+            border: '2px solid rgba(99,102,241,0.3)',
+            borderTopColor: '#6366f1', borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+          }} />
+        )}
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: textColor }}>
+            {isDone
+              ? `${appName || 'App'} ready`
+              : appName ? `Building ${appName}...` : 'Analyzing your idea...'}
+          </div>
+          {isBuilding && (
+            <div style={{ fontSize: 11, color: subText, marginTop: 2 }}>
+              Vite is compiling...
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Steps */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {steps.map(step => (
+          <div key={step.id} style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            fontSize: 12,
+            opacity: step.status === 'pending' ? 0.4 : 1,
+            color: textColor,
+          }}>
+            {step.status === 'done'    && <span style={{ color: '#22c55e', fontSize: 11 }}>✓</span>}
+            {step.status === 'active'  && <div style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: '#6366f1', flexShrink: 0,
+              animation: 'pulse 1.5s ease infinite',
+            }} />}
+            {step.status === 'pending' && <div style={{
+              width: 8, height: 8, borderRadius: '50%',
+              border: '1px solid var(--border)', flexShrink: 0,
+            }} />}
+            {step.label}
+          </div>
+        ))}
+      </div>
+
+      {/* Progress bar */}
+      {!isDone && (
+        <div style={{
+          marginTop: 10, height: 2, borderRadius: 1,
+          background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', overflow: 'hidden',
+        }}>
+          <div style={{
+            height: '100%', width: `${progress}%`,
+            background: '#6366f1', transition: 'width 0.5s ease',
+          }} />
+        </div>
+      )}
+
+      {/* Pages */}
+      {pages.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+          {pages.map(p => (
+            <span key={p} style={{
+              fontSize: 10, padding: '2px 8px', borderRadius: 20,
+              background: isDark ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.08)',
+              color: '#818cf8',
+            }}>{p}</span>
+          ))}
+        </div>
+      )}
+
+      {/* Streaming code — collapsible */}
+      {streamingCode && (
+        <details style={{ marginTop: 10 }}>
+          <summary style={{
+            fontSize: 11, color: subText,
+            cursor: 'pointer', userSelect: 'none',
+          }}>
+            {isDone
+              ? 'View code'
+              : `Generating... (${Math.round(streamingCode.length / 1000)}k chars)`}
+          </summary>
+          <div style={{ position: 'relative', marginTop: 6 }}>
+            <pre style={{
+              padding: 8, background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
+              borderRadius: 6, fontSize: 10, fontFamily: 'monospace',
+              overflow: 'auto', maxHeight: 180,
+              whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+              color: subText, margin: 0,
+            }}>
+              {isDone ? streamingCode.slice(0, 3000) : streamingCode.slice(-2000)}
+            </pre>
+            {isDone && (
+              <button
+                onClick={() => navigator.clipboard.writeText(streamingCode)}
+                style={{
+                  position: 'absolute', top: 6, right: 6,
+                  padding: '3px 8px', fontSize: 10, borderRadius: 4,
+                  border: `1px solid ${borderColor}`,
+                  background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+                  color: subText, cursor: 'pointer',
+                }}
+              >Copy</button>
+            )}
+          </div>
+        </details>
+      )}
+
+      {/* Confirm / Clarify — shown while waiting for user decision */}
+      {showConfirm && (
+        <div style={{
+          marginTop: 12, paddingTop: 12,
+          borderTop: `1px solid ${borderColor}`,
+          display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              data-testid="confirm-plan-btn"
+              onClick={onConfirmPlan}
+              style={{
+                flex: 1, padding: '9px', borderRadius: 8, cursor: 'pointer',
+                background: '#6366f1', border: 'none', color: '#fff',
+                fontSize: 13, fontWeight: 600,
+              }}
+            >
+              ✓ Все верно, делаем
+            </button>
+            <button
+              data-testid="clarify-plan-btn"
+              onClick={() => setIsClarifying(true)}
+              style={{
+                padding: '9px 14px', borderRadius: 8, cursor: 'pointer',
+                background: 'transparent',
+                border: `1px solid ${borderColor}`,
+                color: subText, fontSize: 13,
+              }}
+            >
+              Уточнить детали
+            </button>
+          </div>
+
+          {isClarifying && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <textarea
+                data-testid="clarify-input"
+                value={clarifyText}
+                onChange={e => setClarifyText(e.target.value)}
+                placeholder="Опишите, что нужно изменить в плане..."
+                rows={3}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '8px 10px', borderRadius: 8, fontSize: 12,
+                  background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                  border: `1px solid ${borderColor}`, color: textColor,
+                  resize: 'vertical', outline: 'none',
+                }}
+              />
+              <button
+                data-testid="submit-clarify-btn"
+                onClick={() => {
+                  if (clarifyText.trim()) {
+                    onSubmitClarification(clarifyText.trim());
+                    setIsClarifying(false);
+                    setClarifyText('');
+                  }
+                }}
+                style={{
+                  alignSelf: 'flex-end', padding: '7px 16px',
+                  borderRadius: 8, cursor: 'pointer',
+                  background: '#6366f1', border: 'none',
+                  color: '#fff', fontSize: 12, fontWeight: 600,
+                }}
+              >
+                Отправить
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes spin  { to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+      `}</style>
     </div>
   );
 };
@@ -390,6 +617,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   attachments = [], addAttachment = () => {}, removeAttachment = () => {},
   composerContextItems = [], removeComposerContextItem = () => {}, clearComposerContextItems = () => {},
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
+  onConfirmPlan = confirmPlan, onSubmitClarification = () => {},
 }) => {
   const lang = LABELS[appLanguage] ?? LABELS['en'];
   const t = (key: string) => lang[key] ?? LABELS['en'][key] ?? key;
@@ -628,137 +856,18 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               }
 
               if (isPlan) {
-                const isDone      = (m as any).buildStatus === 'ready';
-                const isBuilding  = (m as any).buildStatus === 'building';
-                const steps: Array<{ id: string; label: string; status: string }> = (m as any).steps ?? [];
-                const pages: string[] = (m as any).pages ?? [];
-                const appName: string = (m as any).appName ?? '';
-                const progress: number = (m as any).progress ?? 0;
-                const streamingCode: string = (m as any).streamingCode ?? '';
                 return (
-                  <div key={m.id} style={{
-                    background: 'var(--card)',
-                    border: `1px solid ${isDone ? 'rgba(34,197,94,0.3)' : 'rgba(99,102,241,0.3)'}`,
-                    borderRadius: 12, padding: '14px 16px', margin: '8px 0',
-                  }}>
-                    {/* Header */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                      {isDone ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#22c55e' }}>OK</span>
-                      ) : (
-                        <div style={{
-                          width: 14, height: 14, flexShrink: 0,
-                          border: '2px solid rgba(99,102,241,0.3)',
-                          borderTopColor: '#6366f1', borderRadius: '50%',
-                          animation: 'spin 0.8s linear infinite',
-                        }} />
-                      )}
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: textColor }}>
-                          {isDone
-                            ? `${appName || 'App'} ready`
-                            : appName ? `Building ${appName}...` : 'Analyzing your idea...'}
-                        </div>
-                        {isBuilding && (
-                          <div style={{ fontSize: 11, color: subText, marginTop: 2 }}>
-                            Vite is compiling...
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Steps */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                      {steps.map(step => (
-                        <div key={step.id} style={{
-                          display: 'flex', alignItems: 'center', gap: 8,
-                          fontSize: 12,
-                          opacity: step.status === 'pending' ? 0.4 : 1,
-                          color: textColor,
-                        }}>
-                          {step.status === 'done' && <span style={{ color: '#22c55e', fontSize: 11 }}>✓</span>}
-                          {step.status === 'active' && <div style={{
-                            width: 8, height: 8, borderRadius: '50%',
-                            background: '#6366f1', flexShrink: 0,
-                            animation: 'pulse 1.5s ease infinite',
-                          }} />}
-                          {step.status === 'pending' && <div style={{
-                            width: 8, height: 8, borderRadius: '50%',
-                            border: '1px solid var(--border)', flexShrink: 0,
-                          }} />}
-                          {step.label}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Progress bar */}
-                    {!isDone && (
-                      <div style={{
-                        marginTop: 10, height: 2, borderRadius: 1,
-                        background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', overflow: 'hidden',
-                      }}>
-                        <div style={{
-                          height: '100%', width: `${progress}%`,
-                          background: '#6366f1', transition: 'width 0.5s ease',
-                        }} />
-                      </div>
-                    )}
-
-                    {/* Pages */}
-                    {pages.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
-                        {pages.map(p => (
-                          <span key={p} style={{
-                            fontSize: 10, padding: '2px 8px', borderRadius: 20,
-                            background: isDark ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.08)',
-                            color: '#818cf8',
-                          }}>{p}</span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Streaming code â€” collapsible */}
-                    {streamingCode && (
-                      <details style={{ marginTop: 10 }}>
-                        <summary style={{
-                          fontSize: 11, color: subText,
-                          cursor: 'pointer', userSelect: 'none',
-                        }}>
-                          {isDone
-                            ? 'View code'
-                            : `Generating... (${Math.round(streamingCode.length / 1000)}k chars)`}
-                        </summary>
-                        <div style={{ position: 'relative', marginTop: 6 }}>
-                          <pre style={{
-                            padding: 8, background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
-                            borderRadius: 6, fontSize: 10, fontFamily: 'monospace',
-                            overflow: 'auto', maxHeight: 180,
-                            whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-                            color: subText, margin: 0,
-                          }}>
-                            {isDone ? streamingCode.slice(0, 3000) : streamingCode.slice(-2000)}
-                          </pre>
-                          {isDone && (
-                            <button
-                              onClick={() => navigator.clipboard.writeText(streamingCode)}
-                              style={{
-                                position: 'absolute', top: 6, right: 6,
-                                padding: '3px 8px', fontSize: 10, borderRadius: 4,
-                                border: `1px solid ${borderColor}`,
-                                background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-                                color: subText, cursor: 'pointer',
-                              }}
-                            >Copy</button>
-                          )}
-                        </div>
-                      </details>
-                    )}
-
-                    <style>{`
-                      @keyframes spin  { to { transform: rotate(360deg); } }
-                      @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-                    `}</style>
-                  </div>
+                  <GenerationPlanCard
+                    key={m.id}
+                    m={m}
+                    pendingPlan={pendingPlan ?? null}
+                    textColor={textColor}
+                    subText={subText}
+                    borderColor={borderColor}
+                    isDark={isDark}
+                    onConfirmPlan={onConfirmPlan}
+                    onSubmitClarification={onSubmitClarification}
+                  />
                 );
               }
 
