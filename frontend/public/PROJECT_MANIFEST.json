@@ -21,7 +21,6 @@
     "components/AppSidebar.tsx",
     "components/BenchmarkDashboard.tsx",
     "components/boundaries/ChatErrorBoundary.tsx",
-    "components/boundaries/PreviewErrorBoundary.tsx",
     "components/ChatPanel.tsx",
     "components/CloudPanel.tsx",
     "components/CollabModal.tsx",
@@ -235,5 +234,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-14T12:26:49.312Z"
+  "last_scan_timestamp": "2026-04-14T12:30:37.414Z"
 }

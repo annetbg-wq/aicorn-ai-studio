@@ -94,9 +94,11 @@ export type ChatAction =
   | { type: 'APPEND'; payload: any }
   | { type: 'APPEND_MANY'; payload: any[] }
   | { type: 'UPDATE_BY_ID'; id: string; patch: Partial<ChatMessage> }
+  | { type: 'UPSERT_BY_ID'; payload: any }
   | { type: 'UPDATE_STEPS'; id: string; stepId: string; stepStatus: string }
   | { type: 'PATCH_LAST'; patch: Partial<ChatMessage>; when?: (msg: ChatMessage) => boolean }
   | { type: 'REMOVE_BY_TYPE'; msgType: string }
+  | { type: 'SET_BLUEPRINT_VISIBLE'; id: string; visible: boolean }
   | { type: 'FILTER'; predicate: (msg: ChatMessage) => boolean };
 
 export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessage[] {
@@ -115,6 +117,16 @@ export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessa
     case 'UPDATE_BY_ID':
       return state.map(msg =>
         msg.id === action.id ? { ...msg, ...action.patch } : msg
+      );
+    case 'UPSERT_BY_ID': {
+      const upserted = normalizeMessage(action.payload, state.length);
+      const exists = state.some(msg => msg.id === upserted.id);
+      if (exists) return state.map(msg => msg.id === upserted.id ? { ...msg, ...upserted } : msg);
+      return [...state, upserted];
+    }
+    case 'SET_BLUEPRINT_VISIBLE':
+      return state.map(msg =>
+        msg.id === action.id ? { ...msg, blueprintVisible: action.visible } : msg
       );
     case 'UPDATE_STEPS':
       return state.map(msg => {

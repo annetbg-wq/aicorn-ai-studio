@@ -1590,18 +1590,20 @@ export const useStudio = () => {
           });
         },
         onPlanReady: (data) => {
-          // Show Blueprint in chat as a message
+          // Synchronous dispatch — no startTransition, no commandBus indirection.
+          // All chat mutations go through the reducer in order.
           const bpId = `blueprint-${Date.now()}`;
-          commandBus.dispatch({ type: 'SHOW_BLUEPRINT', planId: bpId });
-          startTransition(() => {
-            chatAppend({
+          dispatch({
+            type: 'APPEND',
+            payload: {
               role:      'assistant',
               type:      'blueprint',
               id:        bpId,
               timestamp: Date.now(),
               ...data,
-            });
+            },
           });
+          commandBus.dispatch({ type: 'SHOW_BLUEPRINT', planId: bpId });
         },
         waitForConfirmation: (_plan) => new Promise((resolve) => {
           planResolverRef.current = resolve;
@@ -1992,14 +1994,15 @@ export const useStudio = () => {
     const unsubs = [
       commandBus.subscribe('ACCEPT_BLUEPRINT', () => {
         planDecisionRef.current = true;
-        requestAnimationFrame(() => setPendingPlan(null));
+        // Synchronous — no rAF. Pending plan cleared immediately so confirmPlan
+        // cannot fire twice if the user double-clicks.
+        setPendingPlan(null);
       }),
       commandBus.subscribe('REJECT_BLUEPRINT', () => {
         planDecisionRef.current = false;
-        requestAnimationFrame(() => {
-          setPendingPlan(null);
-          chatRemoveByType('blueprint');
-        });
+        setPendingPlan(null);
+        // Direct reducer dispatch — guaranteed sequential after setPendingPlan.
+        dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'blueprint' });
       }),
       // State machine — mirror every command into read-only machineState
       commandBus.subscribeAll((cmd) => {
