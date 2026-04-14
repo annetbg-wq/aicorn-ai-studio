@@ -32,9 +32,6 @@ export default defineConfig({
           try {
             const srcDir = path.resolve(__dirname, 'src');
             const EMPTY_COMPONENT = `export default function Empty() { return null; }\n`;
-            // Files/directories that survive every clear. `components` and `lib`
-            // hold shadcn primitives + the `cn` helper — generated user code
-            // depends on them, so they MUST NOT be deleted across cycles.
             const preserve = new Set([
               'main.tsx',
               'index.css',
@@ -131,13 +128,25 @@ export default defineConfig({
     },
   ],
   server: {
-    port: 3100,
-    strictPort: true,
+    // port and strictPort are intentionally absent — passed via CLI:
+    //   npx vite --port {port} --strictPort
     host: true,
     cors: true,
-    hmr: { overlay: false },
+    hmr: {
+      protocol: 'ws',
+      overlay: false,
+    },
+    watch: {
+      // Polling is required when files are written by an external process
+      // (fs-events are not fired across process boundaries on all platforms).
+      usePolling: true,
+      interval: 100,
+    },
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
+  },
+  build: {
+    sourcemap: true,
   },
 })
