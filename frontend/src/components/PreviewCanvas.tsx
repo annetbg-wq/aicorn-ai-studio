@@ -6,7 +6,7 @@ import {
   FilePlus, Trash2, ZoomIn, ZoomOut, Maximize2, Download,
 } from 'lucide-react';
 import type { FileMap } from '../hooks/useStudio';
-import { SandpackView } from './SandpackPreview';
+
 import { CloudPanel }   from './CloudPanel';
 
 const LANG_COLOR: Record<string, string> = {
@@ -860,6 +860,7 @@ interface PreviewCanvasProps {
   // Preview lifecycle (from useStudio via EngineWorkspace)
   previewLifecycle?:      string;
   previewBlockedReason?:  string | null;
+  projectId:              string;
 }
 
 /* ---- Main component ---- */
@@ -876,7 +877,9 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   apiKey,
   previewLifecycle,
   previewBlockedReason,
+  projectId,
 }) => {
+  const iframeUrl = `/preview/${projectId}`;
   const [tab, setTab] = useState<TabId>('preview');
 
   const TH = {
@@ -986,25 +989,9 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             bgStyle={bgStyle}
           >
             <DeviceFrame device={device}>
-              <SandpackView
-                files={files}
-                activeFile={activeFile}
-                setActiveFile={setActiveFile}
-                theme={currentTheme === 'light' ? 'light' : 'dark'}
-                studioTheme={currentTheme}
-                device={device}
-                projectId={currentProjectId}
-                onError={addLog}
-                onRollback={onRollback}
-                onPreviewReady={currentSnapshotId && markSnapshotStable
-                  ? () => markSnapshotStable(currentSnapshotId)
-                  : undefined
-                }
-                isAutoFixing={isAutoFixing}
-                isGenerating={isGenerating}
-                apiKey={apiKey}
-                previewLifecycle={previewLifecycle}
-                previewBlockedReason={previewBlockedReason}
+              <iframe
+                src={iframeUrl}
+                className="w-full h-full border-0"
               />
             </DeviceFrame>
           </ZoomableCanvas>
