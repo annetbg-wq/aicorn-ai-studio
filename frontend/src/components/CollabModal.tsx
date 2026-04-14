@@ -56,7 +56,7 @@ export const CollabModal: React.FC<CollabModalProps> = ({
 
   const handleCreate = async () => {
     if (!userName.trim()) return;
-    localStorage.setItem('COLLAB_NAME', userName.trim());
+    try { localStorage.setItem('COLLAB_NAME', userName.trim()); } catch { /* quota */ }
     const roomId = generateRoomId();
     setNewRoomId(roomId);
     setConnecting(true);
@@ -69,7 +69,7 @@ export const CollabModal: React.FC<CollabModalProps> = ({
 
   const handleJoin = async () => {
     if (!userName.trim() || !roomIdInput.trim()) return;
-    localStorage.setItem('COLLAB_NAME', userName.trim());
+    try { localStorage.setItem('COLLAB_NAME', userName.trim()); } catch { /* quota */ }
     setConnecting(true);
 
     CollabService.join(roomIdInput.trim().toUpperCase(), userName.trim(), files, onFilesChange, (state) => {

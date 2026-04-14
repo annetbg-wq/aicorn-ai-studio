@@ -2,16 +2,21 @@ import React, { Suspense, lazy } from 'react';
 import { RootLayout }           from './layouts/RootLayout';
 import { AppSidebar }           from './components/AppSidebar';
 import ArchitectDashboard       from './modules/architect/ArchitectDashboard';
-const EngineWorkspace    = lazy(() => import('./modules/engine/EngineWorkspace').then(m => ({ default: m.EngineWorkspace })));
+const EngineWorkspace    = lazy(() => lazyWithRetry(() => import('./modules/engine/EngineWorkspace')).then(m => ({ default: m.EngineWorkspace })));
 
-const Dashboard          = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
-const ProjectsScreen     = lazy(() => import('./components/ProjectsScreen').then(m => ({ default: m.ProjectsScreen })));
-const PlatinumFigma      = lazy(() => import('./components/PlatinumFigma').then(m => ({ default: m.PlatinumFigma })));
-const AgentLabPanel      = lazy(() => import('./components/AgentLabPanel').then(m => ({ default: m.AgentLabPanel })));
-const AnalyticsDashboard = lazy(() => import('./modules/analytics').then(m => ({ default: m.AnalyticsDashboard })));
-const SettingsModal      = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
-const DeployModal        = lazy(() => import('./components/DeployModal').then(m => ({ default: m.DeployModal })));
-const CollabModal        = lazy(() => import('./components/CollabModal').then(m => ({ default: m.CollabModal })));
+const Dashboard          = lazy(() => lazyWithRetry(() => import('./components/Dashboard')).then(m => ({ default: m.Dashboard })));
+const ProjectsPage       = lazy(() => lazyWithRetry(() => import('./pages/ProjectsPage')));
+const PlatinumFigma      = lazy(() => lazyWithRetry(() => import('./components/PlatinumFigma')).then(m => ({ default: m.PlatinumFigma })));
+const AgentLabPanel      = lazy(() => lazyWithRetry(() => import('./components/AgentLabPanel')).then(m => ({ default: m.AgentLabPanel })));
+const BenchmarkDashboard    = lazy(() => lazyWithRetry(() => import('./components/BenchmarkDashboard')));
+const SupabaseConsolePanel  = lazy(() => lazyWithRetry(() => import('./components/SupabaseConsolePanel')).then(m => ({ default: m.SupabaseConsolePanel })));
+const CodeStudioWorkspace = lazy(() => lazyWithRetry(() => import('./modules/code-studio/CodeStudioWorkspace')));
+const AnalyticsDashboard = lazy(() => lazyWithRetry(() => import('./modules/analytics')).then(m => ({ default: m.AnalyticsDashboard })));
+const SettingsModal      = lazy(() => lazyWithRetry(() => import('./components/SettingsModal')).then(m => ({ default: m.SettingsModal })));
+const DeployModal        = lazy(() => lazyWithRetry(() => import('./components/DeployModal')).then(m => ({ default: m.DeployModal })));
+const CollabModal        = lazy(() => lazyWithRetry(() => import('./components/CollabModal')).then(m => ({ default: m.CollabModal })));
+const DiffPreview        = lazy(() => lazyWithRetry(() => import('./components/DiffPreview')).then(m => ({ default: m.DiffPreview })));
+
 
 const PageLoader = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -20,20 +25,61 @@ const PageLoader = () => (
   </div>
 );
 import { GlobalErrorBoundary } from './components/GlobalErrorBoundary';
-import { AuthProvider }         from './contexts/AuthContext';
+import { StudioToast }          from './components/StudioToast';
+import { StudioTerminal }       from './components/StudioTerminal';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useStudio }            from './hooks/useStudio';
+import { LoginPage }            from './pages/LoginPage';
 import { useProjectSync }      from './hooks/useProjectSync';
 import { useUIStore }          from './hooks/useUIStore';
 import { supabase }             from './lib/supabase';
 import { storageService }          from './services/storageService';
+import { ConfigService }           from './services/ConfigService';
 import { FigmaOAuthService }       from './services/FigmaOAuthService';
 import { metricsService }       from './services/MetricsService';
 import { ShareService }            from './services/ShareService';
+import { isCreatorMode }          from './services/internalAccess';
 import type { ModuleId, ViewId } from './shared/types';
+
+const CODE_STUDIO_INTENT_PREFIX = '__OPEN_CODE_STUDIO__';
+const CODE_STUDIO_INPUT_KEY = 'AIC_CODE_STUDIO_INITIAL_INPUT';
+const LAZY_RELOAD_KEY = 'AIC_LAZY_RELOAD_DONE';
+
+function lazyWithRetry<T>(importer: () => Promise<T>): Promise<T> {
+  return importer().then((module) => {
+    try {
+      sessionStorage.removeItem(LAZY_RELOAD_KEY);
+    } catch {
+      // no-op
+    }
+    return module;
+  }).catch((error) => {
+    const msg = String((error as Error)?.message ?? error ?? '');
+    const isDynamicImportError = /Failed to fetch dynamically imported module|Importing a module script failed/i.test(msg);
+    if (!isDynamicImportError) throw error;
+
+    let alreadyReloaded = false;
+    try {
+      alreadyReloaded = sessionStorage.getItem(LAZY_RELOAD_KEY) === '1';
+    } catch {
+      alreadyReloaded = false;
+    }
+    if (!alreadyReloaded) {
+      try {
+        sessionStorage.setItem(LAZY_RELOAD_KEY, '1');
+      } catch {
+        // no-op
+      }
+      window.location.reload();
+    }
+    throw error;
+  });
+}
 
 export default function App() {
   const studio  = useStudio();
   const uiStore = useUIStore();
+  const creatorMode = isCreatorMode();
 
   // ── Local snapshot export / restore (Survival Backup System) ───────────────
   const _projectName = React.useMemo(
@@ -79,6 +125,76 @@ export default function App() {
     };
   }, []);
 
+  // ── Global console capture → Stability Terminal ──────────────────────────
+  // Intercepts console.error / console.warn / window errors permanently,
+  // forwards to window.__stabilityLog (registered by DevModePanel on mount).
+  React.useEffect(() => {
+    const origError = console.error.bind(console);
+    const origWarn  = console.warn.bind(console);
+
+    const fmt = (args: unknown[]) =>
+      args.map(a => {
+        if (a instanceof Error) return `${a.name}: ${a.message}${a.stack ? '\n' + a.stack.split('\n').slice(1, 4).join('\n') : ''}`;
+        if (typeof a === 'object') { try { return JSON.stringify(a); } catch { return String(a); } }
+        return String(a);
+      }).join(' ');
+
+    console.error = (...args: unknown[]) => {
+      origError(...args);
+      const msg = fmt(args);
+      if (/Warning: React does not recognize|Each child in a list/.test(msg)) return;
+      try {
+        (window as any).__stabilityLog?.({
+          level: 'error', source: 'console',
+          message: msg.slice(0, 120),
+          detail: msg.length > 120 ? msg : undefined,
+        });
+      } catch {}
+    };
+
+    console.warn = (...args: unknown[]) => {
+      origWarn(...args);
+      const msg = fmt(args);
+      if (/Warning: React/.test(msg)) return;
+      try {
+        (window as any).__stabilityLog?.({
+          level: 'warn', source: 'console',
+          message: msg.slice(0, 120),
+          detail: msg.length > 120 ? msg : undefined,
+        });
+      } catch {}
+    };
+
+    const onStabilityError = (e: ErrorEvent) => {
+      try {
+        (window as any).__stabilityLog?.({
+          level: 'error', source: 'window',
+          message: e.message,
+          detail: e.filename + ':' + e.lineno,
+        });
+      } catch {}
+    };
+
+    const onUnhandledStability = (e: PromiseRejectionEvent) => {
+      try {
+        (window as any).__stabilityLog?.({
+          level: 'error', source: 'promise',
+          message: String(e.reason),
+        });
+      } catch {}
+    };
+
+    window.addEventListener('error', onStabilityError);
+    window.addEventListener('unhandledrejection', onUnhandledStability);
+
+    return () => {
+      console.error = origError;
+      console.warn  = origWarn;
+      window.removeEventListener('error', onStabilityError);
+      window.removeEventListener('unhandledrejection', onUnhandledStability);
+    };
+  }, []);
+
   const themes = React.useMemo(() => ({
     dark:   { bg: 'bg-[#050505]', border: 'border-white/5',  panel: 'bg-[#080808]', text: 'text-white/90', card: 'bg-white/[0.03]' },
     medium: { bg: 'bg-[#121212]', border: 'border-white/10', panel: 'bg-[#181818]', text: 'text-white/80', card: 'bg-white/[0.05]' },
@@ -90,10 +206,35 @@ export default function App() {
   const [showDeploy,     setShowDeploy]     = React.useState(false);
   const [showCollab,     setShowCollab]     = React.useState(false);
   const [cloudAvailable, setCloudAvailable] = React.useState(false);
+  const [codeStudioInitialIdea, setCodeStudioInitialIdea] =
+    React.useState<{ title: string; description: string } | null>(null);
+  const handleOpenInCodeStudio = React.useCallback((idea: {
+    title: string;
+    description: string;
+  }) => {
+    setCodeStudioInitialIdea(idea);
+    try { localStorage.setItem(CODE_STUDIO_INPUT_KEY, `${idea.title}: ${idea.description}`); } catch { /* ignore quota */ }
+    setView('code-studio');
+  }, []);
+
+
+  // ── Ctrl+` navigates to terminal view (except inside Code Studio) ────────────
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === '`') {
+        e.preventDefault();
+        if (view !== 'code-studio') setView(prev => prev === 'terminal' ? 'dashboard' : 'terminal');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [view]);
 
   // ── Init storageService + subscribe to connectivity ────────────────────────
   React.useEffect(() => {
     localStorage.removeItem('SELECTED_MODEL');
+    void ConfigService.loadFromBackend();
+    void ConfigService.loadProviderKeysFromBackend();
     const unsub = storageService.onSyncStatusChange(setCloudAvailable);
     storageService.init(); // async; updates _available + notifies listeners
     return unsub;
@@ -158,6 +299,9 @@ export default function App() {
     if (id === 'figma')     setView('figma');
     if (id === 'architect') setView('architect');
     if (id === 'projects')  setView('projects');
+    if (id === 'benchmark')    setView('benchmark');
+    if (id === 'code-studio' && creatorMode) setView('code-studio');
+    if (id === 'db-console')   setView('db-console');
   };
 
   const handleLoadProject = (p: any) => {
@@ -166,48 +310,106 @@ export default function App() {
   };
 
   const handleStartBlueprint = (text: string) => {
-    studio.setInput(text);
+    studio.addComposerContextFromPlan(null, text, 'manual');
     setView('engine');
   };
 
-  const handleLaunchWithPlan = React.useCallback((plan: any, intent: string, source?: 'chat' | 'weekly-feed' | 'niche') => {
+  const handleLaunchWithPlan = React.useCallback((plan: any, intent: string, source?: 'chat' | 'weekly-feed' | 'niche' | 'weekly-feed-code-studio') => {
+    const fromWeeklyCodeStudio = source === 'weekly-feed-code-studio' || intent.startsWith(CODE_STUDIO_INTENT_PREFIX);
+    if (fromWeeklyCodeStudio) {
+      const cleanedIntent = intent.startsWith(CODE_STUDIO_INTENT_PREFIX)
+        ? intent.slice(CODE_STUDIO_INTENT_PREFIX.length)
+        : intent;
+      handleOpenInCodeStudio({
+        title: String(plan?.appName ?? ''),
+        description: String(plan?.description ?? cleanedIntent ?? ''),
+      });
+      return;
+    }
     setView('engine');
     studio.launchWithPlan(plan, intent, source);
-  }, [studio]);
+  }, [studio, handleOpenInCodeStudio]);
 
   // ── Modal openers — stable refs ───────────────────────────────────────────
   const handleDeploy = React.useCallback(() => setShowDeploy(true), []);
   const handleCollab = React.useCallback(() => setShowCollab(true), []);
 
-  // ── Share (Vercel CLI deploy) ─────────────────────────────────────────────
+  // ── Share — instant Supabase snapshot link (no Vercel deploy required) ──────
   const [isDeploying, setIsDeploying] = React.useState(false);
+  const [shareUrl,    setShareUrl]    = React.useState<string | null>(null);
+
   const handleShare = React.useCallback(async () => {
     if (Object.keys(studio.files).length === 0) return alert('Сначала создайте что-нибудь!');
     setIsDeploying(true);
+    setShareUrl(null);
     try {
-      const result = await ShareService.deployToVercel();
+      // Try Supabase instant share first
+      const thumbnail = studio.currentProjectId
+        ? (await import('./lib/screenshotCache')).getScreenshot(studio.currentProjectId)
+        : null;
+
+      const result = await ShareService.createShareLink(studio.files, {
+        title:     (studio as any).projectName ?? 'Studio Project',
+        thumbnail: thumbnail ?? undefined,
+        projectId: studio.currentProjectId ?? undefined,
+      });
+
       if (result.ok && result.url) {
-        await navigator.clipboard.writeText(result.url);
-        window.open(result.url, '_blank');
-        alert(`Deployed! URL copied:\n${result.url}`);
+        const fullUrl = window.location.origin + result.url;
+        setShareUrl(fullUrl);
+        await navigator.clipboard.writeText(fullUrl).catch(() => {});
+        alert(`Share link ready!\n${fullUrl}\n\n(Copied to clipboard · expires in 7 days)`);
       } else {
-        alert(`Deploy failed: ${result.error ?? 'Unknown error'}`);
+        alert(`Share failed: ${result.error ?? 'Unknown error'}`);
       }
     } catch (e: any) {
-      alert(`Deploy error: ${e?.message ?? e}`);
+      alert(`Share error: ${e?.message ?? e}`);
     } finally {
       setIsDeploying(false);
     }
-  }, [studio.files]);
+  }, [studio.files, studio.currentProjectId]);
 
   // ── Shared-project route (/share/:id) ─────────────────────────────────────
   React.useEffect(() => {
     const checkPath = async () => {
       const path = window.location.pathname;
-      if (path.startsWith('/share/')) {
-        const id = path.split('/')[2];
-        const { data } = await supabase.from('projects').select('code').eq('id', id).single();
-        if (data) setSharedCode(data.code);
+      if (!path.startsWith('/share/')) return;
+      const id = path.split('/')[2];
+      if (!id) return;
+
+      // Try shared_snapshots first (new path — share_id lookup)
+      const { data: snap } = await supabase
+        .from('shared_snapshots')
+        .select('html_entry, files')
+        .eq('share_id', id)
+        .single();
+      if (snap) {
+        if (snap.html_entry) {
+          setSharedCode(snap.html_entry);
+          return;
+        }
+        // Fallback: extract /index.html from files jsonb
+        const filesMap = snap.files as Record<string, string> | null;
+        if (filesMap) {
+          const html = filesMap['/index.html'] ?? filesMap['index.html'] ?? null;
+          if (html) { setSharedCode(html); return; }
+        }
+      }
+
+      // Legacy fallback: old projects table
+      const { data: legacy } = await supabase
+        .from('user_projects')
+        .select('code_snapshot')
+        .eq('id', id)
+        .single();
+      if (legacy?.code_snapshot) {
+        try {
+          const parsed = JSON.parse(legacy.code_snapshot as string) as Record<string, string>;
+          const html = parsed['/index.html'] ?? parsed['index.html'] ?? null;
+          if (html) setSharedCode(html);
+        } catch {
+          setSharedCode(legacy.code_snapshot as string);
+        }
       }
     };
     checkPath();
@@ -221,17 +423,22 @@ export default function App() {
     : view === 'figma'      ? 'figma'
     : view === 'architect'  ? 'architect'
     : view === 'projects'   ? 'projects'
+    : view === 'benchmark'    ? 'benchmark'
+    : view === 'code-studio' && creatorMode ? 'code-studio'
+    : view === 'terminal'    ? 'terminal'
+    : view === 'db-console'  ? 'db-console'
     : 'dashboard';
 
   return (
     <AuthProvider>
+    <AuthGate>
     <GlobalErrorBoundary>
     <RootLayout>
       {/* NOTE: NO single outer Suspense here — each lazy component has its own.
           A single Suspense wrapping everything would unmount EngineWorkspace
           (and its iframe) whenever any other lazy view loads for the first time,
           causing Vite HMR removeChild crashes. */}
-      <div className={`flex h-screen w-full overflow-hidden transition-colors duration-500 ${themes[studio.theme].bg}`}>
+      <div className={`flex h-full w-full max-w-none overflow-hidden transition-colors duration-500 ${themes[studio.theme].bg}`}>
 
         {/* ── Vertical module sidebar — always visible ── */}
         <AppSidebar
@@ -265,6 +472,7 @@ export default function App() {
               currentProjectId={studio.currentProjectId ?? null}
               totalVersions={studio.totalVersions ?? 0}
               currentVersion={studio.currentVersion ?? 0}
+              lastStableVersion={studio.lastStableVersion}
               messages={studio.messages}
               input={studio.input}
               setInput={studio.setInput}
@@ -308,12 +516,21 @@ export default function App() {
               apiKey={studio.apiKey}
               addLog={studio.addLog}
               isAutoFixing={studio.isAutoFixing ?? false}
+              onRollback={studio.rollbackToStable}
+              onRetry={studio.onSend}
               attachments={studio.attachments}
               addAttachment={studio.addAttachment}
               removeAttachment={studio.removeAttachment}
+              composerContextItems={studio.composerContextItems}
+              removeComposerContextItem={studio.removeComposerContextItem}
+              clearComposerContextItems={studio.clearComposerContextItems}
               pendingPlan={studio.pendingPlan}
               confirmPlan={studio.confirmPlan}
               cancelPlan={studio.cancelPlan}
+              studioPhase={studio.studioPhase}
+              studioError={studio.studioError}
+              previewLifecycle={studio.previewLifecycle}
+              previewBlockedReason={studio.previewBlockedReason}
             />
           </Suspense>
         </div>
@@ -374,15 +591,79 @@ export default function App() {
           <div className="flex flex-1 overflow-hidden"
                style={{ animation: 'viewFadeIn 0.28s ease' }}>
             <Suspense fallback={<PageLoader />}>
-              <ProjectsScreen
-                projects={studio.projects ?? []}
-                currentProjectId={studio.currentProjectId ?? null}
-                onLoadProject={handleLoadProject}
-                onDeleteProject={studio.onDeleteProject}
-                onNewProject={studio.onNewProject}
-                onRefreshProjects={studio.refreshProjects}
+              <ProjectsPage
                 theme={studio.theme}
+                currentProjectId={studio.currentProjectId ?? null}
+                onLoadProject={(project) => {
+                  studio.loadProject(project);
+                  setView('engine');
+                }}
+                onNewProject={() => {
+                  studio.onNewProject();
+                  setView('engine');
+                }}
               />
+            </Suspense>
+          </div>
+        )}
+
+        {view === 'benchmark' && (
+          <div className="flex flex-1 overflow-hidden"
+               style={{ animation: 'viewFadeIn 0.28s ease' }}>
+            <Suspense fallback={<PageLoader />}>
+              <BenchmarkDashboard
+                apiKey={studio.apiKey ?? ''}
+                selectedModel={studio.selectedModel ?? ''}
+              />
+            </Suspense>
+          </div>
+        )}
+
+        {creatorMode && view === 'code-studio' && (
+          <div className="flex flex-1 overflow-hidden"
+               style={{ animation: 'viewFadeIn 0.28s ease' }}>
+            <Suspense fallback={<PageLoader />}>
+              <CodeStudioWorkspace
+                theme={studio.theme}
+                files={studio.files ?? {}}
+                setFiles={studio.setFiles}
+                activeFile={studio.activeFile ?? ''}
+                setActiveFile={studio.setActiveFile}
+                apiKey={studio.apiKey ?? ''}
+                addLog={studio.addLog}
+                initialInput={codeStudioInitialIdea
+                  ? `${codeStudioInitialIdea.title}: ${codeStudioInitialIdea.description}`
+                  : undefined}
+                onBack={() => {
+                  setCodeStudioInitialIdea(null);
+                  setView('dashboard');
+                }}
+              />
+            </Suspense>
+          </div>
+        )}
+
+        {view === 'terminal' && (
+          <div className="flex flex-1 overflow-hidden"
+               style={{ animation: 'viewFadeIn 0.28s ease' }}>
+            <StudioTerminal
+              logs={studio.logs}
+              modules={[
+                { name: 'LLM',     status: studio.isGenerating ? 'ok' : studio.apiKey ? 'ok' : 'error' },
+                { name: 'Preview', status: 'ok' },
+                { name: 'Cloud',   status: cloudAvailable ? 'ok' : 'idle' },
+              ]}
+              supabaseOk={cloudAvailable}
+              onClear={studio.clearLogs}
+            />
+          </div>
+        )}
+
+        {view === 'db-console' && (
+          <div className="flex flex-1 overflow-hidden"
+               style={{ animation: 'viewFadeIn 0.28s ease' }}>
+            <Suspense fallback={<PageLoader />}>
+              <SupabaseConsolePanel theme={studio.theme} />
             </Suspense>
           </div>
         )}
@@ -398,8 +679,10 @@ export default function App() {
                 projects={studio.projects ?? []}
                 onEnterEngine={() => setView('engine')}
                 onNavigateFigma={() => setView('figma')}
+                onNavigateCodeStudio={creatorMode ? () => setView('code-studio') : undefined}
                 onLoadProject={handleLoadProject}
                 onStartBlueprint={handleStartBlueprint}
+                onLaunchWithPlan={(plan, intent, source) => handleLaunchWithPlan(plan, intent, source)}
                 appLanguage={studio.appLanguage}
               />
             </Suspense>
@@ -428,6 +711,17 @@ export default function App() {
             removeFigmaAccount={studio.removeFigmaAccount}
             agentConfigs={studio.agentConfigs}
             setAgentConfig={studio.setAgentConfig}
+          />
+        </Suspense>
+      )}
+
+      {studio.pendingDiff && (
+        <Suspense fallback={null}>
+          <DiffPreview
+            diffs={studio.pendingDiff}
+            theme={studio.theme}
+            onApply={studio.approveDiff}
+            onReject={studio.rejectDiff}
           />
         </Suspense>
       )}
@@ -539,8 +833,29 @@ export default function App() {
           to   { opacity: 1; transform: scale(1);    }
         }
       `}</style>
+
+      {/* Global terminal is now a sidebar-navigated full-page view (view === 'terminal') */}
+      <StudioToast />
     </RootLayout>
     </GlobalErrorBoundary>
+    </AuthGate>
     </AuthProvider>
   );
+}
+
+/** Gates the app behind authentication. Shows LoginPage when signed out. */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-[#050505]">
+        <div className="w-5 h-5 border-2 border-white/10 border-t-blue-400 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) return <LoginPage />;
+
+  return <>{children}</>;
 }

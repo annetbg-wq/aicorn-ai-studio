@@ -1,0 +1,154 @@
+You are a market analyst tracking emerging opportunities in digital products.
+Week 16 of 2026.
+
+Analyze 3 trending niches RIGHT NOW — specifically what is growing THIS week based on:
+- Recent regulatory changes
+- New technology releases
+- Seasonal patterns
+- Emerging consumer behaviors
+- Underserved demographics
+
+For each niche, generate a COMPLETE product architecture plan for the best product opportunity within it.
+
+Each plan must be as detailed as a senior product architect's output — including:
+- productStrategy (coreAction, retentionLoop, paywall if needed)
+- userJourney (onboarding steps if needed with specific questions and options, firstSession description)
+- ALL pages including Onboarding (if needed) and Settings
+- dataModel with realistic seedData (3 domain-specific examples, never "Item 1")
+- uxPatterns and responsiveness
+
+This plan will be sent DIRECTLY to the code generator — skipping the Architect step.
+Every page must have a full uiSpec (100+ words).
+Onboarding must have specific questions with real options (not placeholders).
+Seed data must have 3 realistic domain-specific examples.
+
+Use this EXACT schema:
+
+{
+  "appName": "Human readable product name — specific, not generic",
+  "description": "One sentence: the core value proposition",
+  "theme": "dark-slate|trust|warm|neon|bloom",
+  "targetUser": "Specific person: role, context, pain point",
+  "productStrategy": {
+    "coreAction": "The ONE thing this app does better than anything else",
+    "retentionLoop": "What brings the user back daily/weekly",
+    "businessModel": "free|freemium|subscription|one-time",
+    "paywall": {
+      "needed": false,
+      "trigger": "After 5 saved items / After 7-day trial / After 3 exports",
+      "lockedFeature": "What feature is behind the paywall",
+      "upgradeMessage": "Specific, benefit-focused upgrade prompt"
+    }
+  },
+  "userJourney": {
+    "onboarding": {
+      "needed": false,
+      "reason": "Why this app needs onboarding — what user data is required",
+      "steps": [
+        {
+          "question": "What is your main goal?",
+          "type": "single-choice|multi-choice|text-input|date-picker",
+          "options": ["Option A", "Option B", "Option C"],
+          "storesIn": "userProfile.goal"
+        }
+      ],
+      "completionAction": "After onboarding → navigate to /home with personalized content"
+    },
+    "firstSession": "What the user sees and does in their first 5 minutes",
+    "returningSession": "What the user sees when they come back tomorrow"
+  },
+  "layout": {
+    "type": "single|tabs|sidebar|dashboard|wizard",
+    "navigation": "none|top-nav|bottom-tabs|sidebar|stepper",
+    "primaryColor": "The emotional color for this product"
+  },
+  "uxPatterns": {
+    "emptyStates": true,
+    "loadingSkeletons": false,
+    "searchAndFilter": false,
+    "animations": "subtle"
+  },
+  "responsiveness": {
+    "primaryDevice": "mobile|tablet|desktop",
+    "mobileFirst": true,
+    "maxWidth": "max-w-md for mobile apps, max-w-6xl for desktop tools"
+  },
+  "pages": [
+    {
+      "path": "/onboarding",
+      "name": "Onboarding",
+      "file": "pages/Onboarding.tsx",
+      "purpose": "Collect minimum user data to personalize the experience",
+      "isMainScreen": false,
+      "showInNav": false,
+      "guard": "show only if !localStorage.getItem('onboarding_complete')",
+      "uiSpec": "Multi-step wizard. Step indicator. Large tappable answer buttons. 100+ words describing every element."
+    },
+    {
+      "path": "/",
+      "name": "Home",
+      "file": "pages/Home.tsx",
+      "purpose": "Main workspace",
+      "isMainScreen": true,
+      "showInNav": true,
+      "guard": "redirect to /onboarding if !onboarding_complete",
+      "uiSpec": "DETAILED description 100+ words — every section top to bottom, every interactive element, empty state, mobile layout"
+    },
+    {
+      "path": "/settings",
+      "name": "Settings",
+      "file": "pages/Settings.tsx",
+      "purpose": "User preferences, account, subscription status",
+      "isMainScreen": false,
+      "showInNav": true,
+      "uiSpec": "Profile section, Preferences, Subscription (if paid), Data export/clear, App info."
+    }
+  ],
+  "authFlow": {
+    "type": "none|local-only|supabase",
+    "localFirst": true,
+    "reason": "Why this app does or doesn't need authentication"
+  },
+  "dataModel": {
+    "entities": [
+      {
+        "name": "EntityName",
+        "fields": "id: string, field: type",
+        "storage": "localStorage key: 'key_name'"
+      }
+    ],
+    "seedData": {
+      "needed": true,
+      "reason": "App must not feel empty on first launch",
+      "examples": [
+        "3 realistic domain-specific sample items"
+      ]
+    },
+    "sharedState": "What context/state lives in App.tsx"
+  },
+  "criticalUiRules": ["Specific rule 1", "Specific rule 2"],
+  "shadcnComponents": ["Button", "Card", "Input"],
+  "icons": ["Home", "Settings", "Plus"]
+}
+
+Also add these fields:
+{
+  "id": "kebab-case-unique-id",
+  "marketContext": "Why this niche is hot RIGHT NOW — specific reason with a concrete trigger",
+  "targetAudience": "Specific person in this niche",
+  "painPoint": "The exact problem the product solves",
+  "competitorGap": "What existing solutions in this niche are missing",
+  "generatedAt": "2026-04-11T00:08:39.231Z"
+}
+
+RULES:
+- Be specific: not "AI tools" but "AI tools for independent insurance adjusters"
+- marketContext must name a real recent trigger (regulation, tech release, seasonal event)
+- competitorGap must be a real weakness, not just "better UX"
+- No generic niches like "health", "finance", "productivity"
+- onboarding.needed = true only if app is meaningfully different based on user input
+- showInNav: false for Onboarding and Paywall screens
+- seedData.needed = true for any app with lists or content
+- NEVER use words: landing page, SaaS, MVP
+
+Output: JSON array of 3 plan objects. No markdown. No explanation.

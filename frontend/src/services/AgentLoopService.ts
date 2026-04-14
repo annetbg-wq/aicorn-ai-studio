@@ -1265,4 +1265,46 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
     }
     return count ?? 0;
   }
+
+  // ── Cleanup stalled building sessions ────────────────────────────────────
+  //
+  // Sessions stuck in 'building' with updated_at older than STALL_MINUTES
+  // are considered stalled (process died / tab closed mid-build).
+  // Moves them to 'failed' with a stalled_timeout reason.
+
+  static readonly STALL_MINUTES = 30;
+
+  static async cleanupStalledSessions(): Promise<number> {
+    const stallCutoff = new Date(
+      Date.now() - AgentLoopService.STALL_MINUTES * 60 * 1000,
+    ).toISOString();
+
+    // Find stalled sessions
+    const { data: stalled, error: fetchErr } = await supabase
+      .from('agent_sessions')
+      .select('id')
+      .eq('status', 'building')
+      .lt('updated_at', stallCutoff);
+
+    if (fetchErr || !stalled?.length) return 0;
+
+    const ids = stalled.map((s: { id: string }) => s.id);
+
+    const { error: updateErr } = await supabase
+      .from('agent_sessions')
+      .update({
+        status:        'failed',
+        review_report: JSON.stringify({ reason: 'stalled_timeout', stall_minutes: AgentLoopService.STALL_MINUTES }),
+        updated_at:    new Date().toISOString(),
+      })
+      .in('id', ids);
+
+    if (updateErr) {
+      console.error('[AgentLoopService] cleanupStalledSessions failed:', updateErr);
+      return 0;
+    }
+
+    console.info(`[AgentLoopService] Archived ${ids.length} stalled building session(s)`);
+    return ids.length;
+  }
 }

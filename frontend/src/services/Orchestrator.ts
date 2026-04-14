@@ -5,7 +5,7 @@
  *   1. Local regex (zero cost)  →  2. Lightweight model  →  3. Main model
  * Max 2 API attempts per request. Budget guard blocks calls at 90% spent.
  *
- * Primitive types (ChatMessage, FileOperation, AgentPhase, etc.) are
+ * Primitive types (LLMMessage, FileOperation, AgentPhase, etc.) are
  * defined in shared/projectModel.ts and re-exported here for backward compat.
  */
 
@@ -25,6 +25,7 @@ import {
   type FileDiff,
   type ChatRole,
   type ContentPart,
+  type LLMMessage,
   type ChatMessage,
   type UsageData,
   type AgentPhase,
@@ -40,6 +41,7 @@ export type {
   FileDiff,
   ChatRole,
   ContentPart,
+  LLMMessage,
   ChatMessage,
   UsageData,
   AgentPhase,
@@ -318,7 +320,7 @@ function buildRequiredFilesBlock(manifest: import('../shared/projectModel').Prod
 This project has ${routes.length} routes. You MUST generate ALL files below in a SINGLE response.
 Missing any file will break the preview.
 
-  App.tsx                           ← entry + BrowserRouter + all routes
+  App.tsx                           ← entry + HashRouter + all routes
   index.css                         ← global styles
   routes.json                       ← route manifest
 ${fileLines}
@@ -348,7 +350,7 @@ ALLOWED FILES (only these are permitted):
 FORBIDDEN (will be rejected by the guard — do NOT generate):
   ❌ routes.json                — no route manifest
   ❌ pages/ directory           — no page files
-  ❌ <Routes>, <Route>          — no multi-page routing (single use of BrowserRouter with one route is OK only if necessary)
+  ❌ <Routes>, <Route>          — no multi-page routing (single use of HashRouter with one route is OK only if necessary)
   ❌ router shell / layout wrapper that switches between pages
   ❌ Multiple <Route> elements  — this is a SINGLE page app
   ❌ useNavigate() for page transitions
@@ -412,7 +414,7 @@ RULE 2 — export default App is REQUIRED:
   ❌ function App() { ... }  ← no export = blank screen
 
 RULE 3 — Import everything you use:
-  ✅ import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom'
+  ✅ import { HashRouter, Routes, Route, Link, useNavigate } from 'react-router-dom'
   ✅ import { motion } from 'framer-motion'
   ❌ <Link to="/">  ← without import = ReferenceError
 
@@ -617,11 +619,16 @@ Animations — use framer-motion or Tailwind transition/animate utilities:
   MULTI-PAGE ROUTING
 ═══════════════════════════════════════════════════
 
-App.tsx = entry + BrowserRouter only. Every component/page/hook lives in its own file.
-ALWAYS BrowserRouter — NEVER HashRouter (sandbox has SPA fallback).
+Routing layers (keep in sync):
+  1. App.tsx HashRouter — RUNTIME authority. <Routes>/<Route> drive navigation.
+  2. pages/ files       — each page file corresponds to exactly one route.
+  3. routes.json        — SIDECAR metadata. Does NOT drive bootstrap.
+
+App.tsx = entry + HashRouter only. Every component/page/hook lives in its own file.
+ALWAYS HashRouter — NEVER BrowserRouter (preview sandbox uses hash-based routing for iframe compatibility).
 Pages → pages/ directory. Navigation → Link or useNavigate, never <a href>.
 
-routes.json is REQUIRED alongside pages/ (not used to control routing — BrowserRouter does that):
+routes.json is REQUIRED alongside pages/ (sidecar metadata — not used to control routing):
 <!--FILE:/routes.json-->
 { "version": 1, "routes": [
   { "path": "/",      "filePath": "pages/HomePage.tsx",  "title": "Home",     "isHome": true  },
@@ -805,11 +812,12 @@ export class Orchestrator {
   /** Returns the chat-completions endpoint URL for each provider. */
   static getEndpoint(provider: ApiProvider | string): string {
     switch (provider) {
-      case 'anthropic': return 'https://api.anthropic.com/v1/messages';
-      case 'openai':    return 'https://api.openai.com/v1/chat/completions';
-      case 'google':    return 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-      case 'deepseek':  return 'https://api.deepseek.com/v1/chat/completions';
-      default:          return 'https://openrouter.ai/api/v1/chat/completions';
+      case 'anthropic':     return 'https://api.anthropic.com/v1/messages';
+      case 'openai':        return 'https://api.openai.com/v1/chat/completions';
+      case 'google':        return 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+      case 'deepseek':      return 'https://api.deepseek.com/v1/chat/completions';
+      case 'claude-bridge': return 'http://localhost:3107/chat';
+      default:              return 'https://openrouter.ai/api/v1/chat/completions';
     }
   }
 
@@ -1052,7 +1060,7 @@ Rules:
   // ---- Main chat ----
 
   static async chat(
-    history:         ChatMessage[],
+    history:         LLMMessage[],
     files:           Record<string, string>,
     apiKey:          string,
     modelId:         string,
@@ -1413,7 +1421,7 @@ Rules:
 
   static async run(config: {
     intent:         string;
-    history:        ChatMessage[];
+    history:        LLMMessage[];
     files:          Record<string, string>;
     apiKey:         string;
     modelId:        string;
@@ -1567,6 +1575,8 @@ Rules:
   /**
    * Single non-streaming LLM call — Anthropic Messages API.
    * Separates system messages, uses x-api-key header + anthropic-version.
+   * Prompt caching: system prompt is split into stable (cacheable) + dynamic parts.
+   * Cache hit/miss is logged via metricsService.
    */
   private static async _rawCompleteAnthropic(
     messages: { role: string; content: string }[],
@@ -1578,19 +1588,28 @@ Rules:
     const userMsgs    = messages.filter(m => m.role !== 'system');
     const endpoint    = baseUrl.replace(/\/$/, '') + '/messages';
 
+    // ── Prompt caching: mark stable system prompt as cacheable ──────────────
+    // The system prompt is typically large and stable — mark it for server-side
+    // caching so repeated calls in the same session don't re-tokenize it.
+    // Anthropic charges for the cache write once, then 10% of read cost on hits.
+    const systemBlock = systemParts
+      ? [{ type: 'text', text: systemParts, cache_control: { type: 'ephemeral' } }]
+      : undefined;
+
     const bodyObj: Record<string, unknown> = {
       model,
-      messages:   userMsgs,
-      max_tokens: 10000,
+      messages:    userMsgs,
+      max_tokens:  10000,
       temperature: 0.2,
     };
-    if (systemParts) bodyObj.system = systemParts;
+    if (systemBlock) bodyObj.system = systemBlock;
 
     const resp = await llmFetch(
       endpoint,
       {
         'x-api-key':         apiKey.trim(),
         'anthropic-version': '2023-06-01',
+        'anthropic-beta':    'prompt-caching-2024-07-31',
         'content-type':      'application/json',
       },
       JSON.stringify(bodyObj),
@@ -1598,6 +1617,73 @@ Rules:
     if (!resp.ok) {
       const body = await resp.text().catch(() => '');
       throw new Error(`${resp.status} ${resp.statusText}: ${body.slice(0, 200)}`);
+    }
+    const data = await resp.json();
+
+    // ── Cache metrics: log hit/miss from Anthropic usage response ───────────
+    const usage = data.usage as Record<string, number> | undefined;
+    if (usage) {
+      const cacheRead    = usage.cache_read_input_tokens    ?? 0;
+      const cacheWrite   = usage.cache_creation_input_tokens ?? 0;
+      const cacheStatus  = cacheRead > 0 ? 'HIT' : cacheWrite > 0 ? 'MISS(write)' : 'MISS';
+      console.info(`[Anthropic cache] ${cacheStatus} | read=${cacheRead} write=${cacheWrite} input=${usage.input_tokens ?? 0} output=${usage.output_tokens ?? 0}`);
+      metricsService.record({
+        phase:        'orchestrator',
+        model,
+        inputTokens:  usage.input_tokens  ?? 0,
+        outputTokens: usage.output_tokens ?? 0,
+        extra: {
+          event:      'anthropic_cache',
+          cacheStatus,
+          cacheRead,
+          cacheWrite,
+        },
+      });
+    }
+
+    return (data.content as Array<{ type: string; text?: string }> | undefined)
+      ?.find(c => c.type === 'text')?.text ?? '';
+  }
+
+  /**
+   * Single non-streaming LLM call — local Claude bridge at :3107.
+   * Bridge accepts { message: string, model: string } and returns
+   * { content: [{ type: 'text', text: string }] }.
+   */
+  private static async _rawCompleteBridge(
+    messages: { role: string; content: string }[],
+    model:    string,
+    endpoint: string,
+  ): Promise<string> {
+    const systemParts = messages
+      .filter(m => m.role === 'system')
+      .map(m => m.content)
+      .join('\n\n');
+    const userParts = messages
+      .filter(m => m.role !== 'system')
+      .map(m => {
+        const text = typeof m.content === 'string'
+          ? m.content
+          : (m.content as Array<{ type: string; text?: string }>)
+              .filter(b => b.type === 'text')
+              .map(b => b.text ?? '')
+              .join('\n');
+        return `[${m.role === 'assistant' ? 'Assistant' : 'User'}]\n${text}`;
+      })
+      .join('\n\n');
+
+    const message = systemParts
+      ? `[System]\n${systemParts}\n\n${userParts}`
+      : userParts;
+
+    const resp = await fetch(endpoint, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ message, model: model || 'claude-sonnet-4-6' }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      throw new Error(`Claude bridge ${resp.status}: ${body.slice(0, 200)}`);
     }
     const data = await resp.json();
     return (data.content as Array<{ type: string; text?: string }> | undefined)
@@ -1643,6 +1729,12 @@ Rules:
     // ── Attempt 1: primary ───────────────────────────────────────────────────
     let lastError: Error;
     try {
+      if ((cfg.provider as string) === 'claude-bridge') {
+        return await withOrchestratorTimeout(
+          this._rawCompleteBridge(allMessages, modelId, this.getEndpoint('claude-bridge')),
+          `callWithFallback slot=${agentSlot} model=${modelId}`,
+        );
+      }
       return await withOrchestratorTimeout(
         this._rawComplete(allMessages, modelId, apiKey, this.getEndpoint(cfg.provider)),
         `callWithFallback slot=${agentSlot} model=${modelId}`,

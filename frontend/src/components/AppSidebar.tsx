@@ -6,8 +6,9 @@
  */
 
 import React, { useState } from 'react';
-import { LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, Zap, FlaskConical, BarChart2, FolderOpen } from 'lucide-react';
+import { LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, Zap, FlaskConical, BarChart2, FolderOpen, TestTube2, Code2, TerminalSquare, Database } from 'lucide-react';
 import type { ModuleId, ViewId } from '../shared/types';
+import { isCreatorMode } from '../services/internalAccess';
 import { WeeklyFeedPanel } from './WeeklyFeedPanel';
 import type { IdeaPlan } from './WeeklyFeedPanel';
 
@@ -25,7 +26,11 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'figma',     icon: Figma,         label: 'Figma Platinum',     available: true  },
   { id: 'agentlab',  icon: FlaskConical,  label: 'Agent Lab',          available: true  },
   { id: 'analytics', icon: BarChart2,     label: 'Analytics',          available: true  },
-  { id: 'cloud',     icon: Cloud,         label: 'Cloud & Backend',    available: false },
+  { id: 'benchmark',    icon: TestTube2,     label: 'Quality',            available: true  },
+  { id: 'code-studio', icon: Code2,          label: 'Code Studio',        available: true  },
+  { id: 'terminal',    icon: TerminalSquare, label: 'Terminal',           available: true  },
+  { id: 'db-console',  icon: Database,       label: 'DB Console',         available: true  },
+  { id: 'cloud',        icon: Cloud,         label: 'Cloud & Backend',    available: false },
   { id: 'package',   icon: Rocket,        label: 'Packaging & Ship',   available: false },
   { id: 'growth',    icon: TrendingUp,    label: 'Growth & Marketing', available: false },
 ];
@@ -38,7 +43,11 @@ interface AppSidebarProps {
   contextHealthPct:  number;
   cloudAvailable:    boolean;
   onStartBlueprint:  (text: string) => void;
-  onLaunchWithPlan?: (plan: IdeaPlan, intent: string) => void;
+  onLaunchWithPlan?: (
+    plan: IdeaPlan,
+    intent: string,
+    source?: 'chat' | 'weekly-feed' | 'niche' | 'weekly-feed-code-studio',
+  ) => void;
   appLanguage?:      string;
 }
 
@@ -49,6 +58,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 }) => {
   const [tooltip,  setTooltip]  = useState<string | null>(null);
   const [feedOpen, setFeedOpen] = useState(false);
+  const creatorMode = isCreatorMode();
+  const visibleNavItems = creatorMode
+    ? NAV_ITEMS
+    : NAV_ITEMS.filter(item => item.id !== 'code-studio');
 
   return (
     <>
@@ -87,7 +100,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
         {/* ── Module icons ── */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-          {NAV_ITEMS.map(item => {
+          {visibleNavItems.map(item => {
             const Icon       = item.icon;
             const isSelected = activeModule === item.id;
             return (

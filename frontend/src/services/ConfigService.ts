@@ -16,14 +16,19 @@ export interface AgentConfig {
   fallback2Provider?: string;   // label from NATIVE_PROVIDERS (e.g. 'Anthropic', 'Custom...')
   fallback2ModelId?:  string;
   fallback2BaseUrl?:  string;
+  // Per-stage max token overrides (loaded from backend/agent-config.json)
+  maxTokens?:         Record<string, number>;
 }
 
+const DEFAULT_GENERAL_MODEL_ID = 'openai/gpt-4o-mini';
+const DEFAULT_BUILD_MODEL_ID = 'xiaomi/mimo-v2-pro';
+
 const AGENT_DEFAULTS: Record<string, AgentConfig> = {
-  agent_primary: { provider: 'openrouter', modelId: '' },
-  agent_fix:     { provider: 'openrouter', modelId: '' },
-  agent_spec:    { provider: 'google',     modelId: '' },
-  agent_build:   { provider: 'openrouter', modelId: '' },
-  agent_qa:      { provider: 'google',     modelId: '' },
+  agent_primary: { provider: 'openrouter', modelId: DEFAULT_GENERAL_MODEL_ID },
+  agent_fix:     { provider: 'openrouter', modelId: DEFAULT_GENERAL_MODEL_ID },
+  agent_spec:    { provider: 'openrouter', modelId: DEFAULT_GENERAL_MODEL_ID },
+  agent_build:   { provider: 'openrouter', modelId: DEFAULT_BUILD_MODEL_ID },
+  agent_qa:      { provider: 'openrouter', modelId: DEFAULT_GENERAL_MODEL_ID },
 };
 
 /**
@@ -114,6 +119,7 @@ export const ConfigService = {
   setApiKey(v: string): void {
     set(K.API_KEY, v);
     if (v.trim()) void this.saveKeyToCloud(K.API_KEY, v);
+    if (v.trim()) void this.saveProviderKey('openrouter', v);
   },
 
   // ── AI Model ─────────────────────────────────────────────────────────────
@@ -190,6 +196,7 @@ export const ConfigService = {
     if (!storageKey) return;
     set(storageKey, value);
     if (value.trim()) void this.saveKeyToCloud(storageKey, value);
+    if (value.trim()) void this.saveProviderKey(provider, value);
   },
 
   /**
@@ -274,13 +281,18 @@ export const ConfigService = {
 
   resolveModel(slot: AgentSlot): string {
     const agentKey = SLOT_TO_AGENT_KEY[slot];
+    const slotDefaultModel = agentKey ? (AGENT_DEFAULTS[agentKey]?.modelId ?? '') : '';
 
     // a) slot-specific stored config
     if (agentKey) {
       const raw = get(`AGENT_CONFIG_${agentKey}`);
       if (raw) {
-        try { const cfg = JSON.parse(raw); if (cfg?.modelId) return cfg.modelId; } catch { /* ignore */ }
+        try {
+          const cfg = JSON.parse(raw);
+          if (typeof cfg?.modelId === 'string' && cfg.modelId.trim()) return cfg.modelId;
+        } catch { /* ignore */ }
       }
+      if (slotDefaultModel) return slotDefaultModel;
     }
 
     // b) primary agent stored config
@@ -293,7 +305,11 @@ export const ConfigService = {
     const engineModel = get(K.ENGINE_MODEL);
     if (engineModel) return engineModel;
 
-    return '';
+    // d) globally selected model (SELECTED_MODEL — set via UI model picker)
+    const selectedModel = get(K.MODEL);
+    if (selectedModel) return selectedModel;
+
+    return DEFAULT_GENERAL_MODEL_ID;
   },
 
   // ── Agent configs (5-agent system) ───────────────────────────────────────
@@ -339,6 +355,44 @@ export const ConfigService = {
     const value = JSON.stringify(config);
     set(key, value);
     void this.saveKeyToCloud(key, value);
+    void this.saveToBackend(agentId, config);
+  },
+
+  // ── Per-stage max token limits ───────────────────────────────────────────
+  //
+  //   Priority: AGENT_CONFIG_{agentId}.maxTokens[stage]  →  built-in defaults
+  //   These defaults match the values in backend/agent-config.json so that
+  //   a fresh install without a config file still behaves identically.
+
+  getMaxTokens(agentId: string, stage: string): number {
+    const DEFAULTS: Record<string, Record<string, number>> = {
+      agent_primary: {
+        clarifier:          6000,
+        architect_landing:  8000,
+        architect_app:     12000,
+        architect_superapp:16000,
+        tech_lead:         10000,
+      },
+      agent_build: {
+        coder_landing:  8000,
+        coder_app:     16000,
+        coder_superapp:32000,
+      },
+      agent_fix: {
+        autofix: 4000,
+      },
+    };
+
+    const raw = get(`AGENT_CONFIG_${agentId}`);
+    if (raw) {
+      try {
+        const cfg = JSON.parse(raw) as Partial<AgentConfig>;
+        const stageVal = cfg.maxTokens?.[stage];
+        if (typeof stageVal === 'number' && stageVal > 0) return stageVal;
+      } catch { /* ignore */ }
+    }
+
+    return DEFAULTS[agentId]?.[stage] ?? 4000;
   },
 
   // ── Helper: Get API key by provider (generic) ──────────────────────────
@@ -407,6 +461,120 @@ export const ConfigService = {
     } catch (err) {
       // При любой ошибке (404, PGRST205, network и т.д.) тихо падаем на localStorage
       void err;
+    }
+  },
+
+  // ── Backend .env provider key sync ───────────────────────────────────────
+
+  /**
+   * Saves a provider API key to the backend .env file via POST /provider-keys.
+   * Also stores in localStorage as a fallback.
+   */
+  async saveProviderKey(provider: string, key: string): Promise<void> {
+    // Always update localStorage first (instant, no network)
+    const storageKey = PROVIDER_KEYS[provider];
+    if (storageKey) set(storageKey, key);
+    try {
+      await fetch('http://localhost:3107/provider-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, key }),
+      });
+    } catch {
+      // backend not running — localStorage-only save is fine
+    }
+  },
+
+  /**
+   * Loads all provider API keys from the backend (.env via /provider-key/:provider)
+   * and writes them into localStorage.  Runs once on app startup.
+   */
+  async loadProviderKeysFromBackend(): Promise<void> {
+    const providers = Object.keys(PROVIDER_KEYS);
+    try {
+      const results = await Promise.allSettled(
+        providers.map(async (provider) => {
+          const res = await fetch(`http://localhost:3107/provider-key/${provider}`);
+          if (!res.ok) return;
+          const data = await res.json() as { key?: string };
+          if (data.key) {
+            const storageKey = PROVIDER_KEYS[provider];
+            if (storageKey) set(storageKey, data.key);
+          }
+        }),
+      );
+      const loaded = results.filter(r => r.status === 'fulfilled').length;
+      if (loaded > 0) console.log('[ConfigService] Loaded provider keys from backend .env');
+    } catch {
+      // backend not running — silently fall back to localStorage
+    }
+  },
+
+  // ── Backend agent-config.json sync ───────────────────────────────────────
+
+  /**
+   * Loads all agent configs from the local backend (GET /agent-config)
+   * and writes each one into localStorage under AGENT_CONFIG_{agentId}.
+   * Called once on app startup so the disk file is authoritative.
+   */
+  async loadFromBackend(): Promise<void> {
+    try {
+      const res = await fetch('http://localhost:3107/agent-config');
+      if (!res.ok) return;
+      const fileData = await res.json() as Record<string, unknown>;
+
+      const toSync: Array<{ agentId: string; config: AgentConfig }> = [];
+
+      for (const [agentId, fileConfig] of Object.entries(fileData)) {
+        if (!fileConfig || typeof fileConfig !== 'object') continue;
+        const lsKey = `AGENT_CONFIG_${agentId}`;
+        const lsRaw = get(lsKey);
+
+        if (lsRaw !== null) {
+          // localStorage has a value (user set it via UI).
+          // Push it to the file if it differs — localStorage is the user's intent.
+          try {
+            const lsCfg = JSON.parse(lsRaw) as AgentConfig;
+            const lsNorm   = JSON.stringify(JSON.parse(lsRaw));
+            const fileNorm = JSON.stringify(fileConfig);
+            if (lsNorm !== fileNorm) {
+              toSync.push({ agentId, config: lsCfg });
+            }
+          } catch {
+            // Corrupted localStorage entry — fall back to file value
+            set(lsKey, JSON.stringify(fileConfig));
+          }
+        } else {
+          // Slot is empty in localStorage — populate from file
+          set(lsKey, JSON.stringify(fileConfig));
+        }
+      }
+
+      // Push any localStorage-diverged values back to the file
+      if (toSync.length > 0) {
+        await Promise.allSettled(toSync.map(({ agentId, config }) => this.saveToBackend(agentId, config)));
+        console.log(`[ConfigService] Synced ${toSync.length} agent config(s) from localStorage → backend`);
+      } else {
+        console.log('[ConfigService] Agent configs in sync with backend');
+      }
+    } catch {
+      // backend not running or unreachable — silently fall back to localStorage
+    }
+  },
+
+  /**
+   * Persists a single agent config update to the backend file
+   * (POST /agent-config) in addition to localStorage.
+   */
+  async saveToBackend(agentId: string, config: AgentConfig): Promise<void> {
+    try {
+      await fetch('http://localhost:3107/agent-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, config }),
+      });
+    } catch {
+      // backend not running — localStorage-only save is fine
     }
   },
 

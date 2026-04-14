@@ -1,8 +1,16 @@
 /**
- * useStudio.ts — v3 AGENTIC (Restoration Enhanced)
+ * useStudio.ts — v4 DECOMPOSED
+ *
+ * Domain hooks extracted:
+ *   useFigmaState    — Figma identity, sync, Design DNA, Project Hub, Engine
+ *   useSettingsState  — API keys, models, theme, auto-route, agent configs
+ *
+ * This file remains the public facade — all consumers still call useStudio()
+ * and get the same return shape.
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo, startTransition, useReducer } from 'react';
+import type { LogEntry } from '../components/StudioTerminal';
 import {
   chatReducer,
   normalizeMessages,
@@ -17,26 +25,21 @@ import {
   type PhaseEvent,
   type UsageData,
 } from '../services/Orchestrator';
-// All chat-to-generation requests are routed through GenerationPipeline.run().
-// import { GenerationPipeline } from '../services/GenerationPipeline';
-// import { MinimalPipeline as GenerationPipeline } from '../services/MinimalPipeline';
 import { SimpleGeneration as GenerationPipeline } from '../services/SimpleGeneration';
 import type { ProjectPlan } from '../services/SimpleGeneration';
+import {
+  classifyIdea,
+  fallbackClassify,
+  buildDesignSystemPrompt,
+  type ClassificationResult,
+} from '../services/designSystem';
 import { ResourceManager } from '../services/ai/resourceManager';
 import { CollabService } from '../services/CollabService';
-import { IdentityService } from '../services/IdentityService';
-import type { FigmaAccount } from '../services/IdentityService';
-import { FigmaClient } from '../services/FigmaClient';
-import type { AccessResult } from '../services/FigmaClient';
 import { ConfigService } from '../services/ConfigService';
-import type { AgentConfig } from '../services/ConfigService';
 import { FigmaService } from '../services/FigmaService';
-import type { ProjectTheme, SyncProgress, TargetMarket, AuditStrictness } from '../services/FigmaService';
-import { ProjectStore } from '../services/ProjectStore';
-import type { FigmaProject } from '../services/ProjectStore';
 import { useAuth } from '../contexts/AuthContext';
-import { AIEngineService } from '../services/AIEngineService';
-import type { EngineStatus, ValidationResult } from '../services/AIEngineService';
+import { commandBus } from '../services/studioCommandBus';
+import { transition, INITIAL_STATE, type StudioState as MachineState } from '../services/studioStateMachine';
 import { ScannerService } from '../services/ScannerService';
 import type { ComponentRegistry } from '../services/ScannerService';
 import { ProjectStorage } from '../services/ProjectStorage';
@@ -44,26 +47,52 @@ import type { ProjectMeta, StoredProject, ProjectRevision } from '../services/Pr
 import { ProjectManager } from '../services/ProjectManager';
 import type { Project } from '../services/ProjectManager';
 import { ProjectRepository } from '../services/ProjectRepository';
+import { BenchmarkService } from '../services/benchmark/BenchmarkService';
+import { revisionManager } from '../services/RevisionManager';
+import { clearPreview as gatewayClearPreview } from '../services/PreviewWriteGateway';
+import { safeSetItem } from '../lib/safeStorage';
+import { getLocalDevAgentProvider, isLocalDevAgentEnabled } from '../services/devAgentMode';
+import type { FileDiff } from '../components/DiffPreview';
 import {
   projectGraphToFileMap,
   fileMapToProjectGraph,
   type ProjectGraph,
   type PreviewLifecycleStage,
 } from '../shared/projectModel';
+import { useFigmaState } from './useFigmaState';
+import { useSettingsState } from './useSettingsState';
 
 export type DeviceType = 'mobile' | 'tablet' | 'web';
 export type FileMap     = Record<string, string>;
+
+/**
+ * Snapshot status lifecycle (mirrors RevisionManager glossary):
+ *   candidate → stable
+ *
+ *   candidate — AI generation wrote this snapshot; preview iframe has NOT
+ *               confirmed it. Never used as crash-recovery fallback.
+ *   stable    — The iframe mounted without errors (markSnapshotStable called).
+ *               Eligible as crash-recovery fallback on next startup.
+ *   undefined — Legacy snapshot (pre-status-tracking). Treated as stable.
+ */
+export type SnapshotStatus = 'candidate' | 'stable';
+
+/** Returns true if a snapshot is considered stable (explicit or legacy). */
+export function isSnapshotStable(s: Snapshot): boolean {
+  return !s.status || s.status === 'stable';
+}
 
 export interface Snapshot {
   id:        string;
   files:     FileMap;
   label:     string;
   createdAt: string;
+  /** 1-indexed position in the undo/redo history (= historyIndex + 1). */
   version:   number;
-  /** candidate = written by AI turn, not yet confirmed by iframe-ready.
-   *  stable    = iframe mounted without errors within the grace window.
-   *  Existing snapshots without status are treated as stable (legacy compat). */
-  status?:   'candidate' | 'stable';
+  /** See SnapshotStatus type for canonical lifecycle. */
+  status?:   SnapshotStatus;
+  /** RevisionManager revision id — enables preview restore on undo/redo. */
+  revisionId?: string;
 }
 
 export interface Attachment {
@@ -73,6 +102,16 @@ export interface Attachment {
   data:         string;           // base64 data URI for images/PDFs, raw text for others
   mimeType:     string;
   textContent?: string;           // extracted text for PDFs
+}
+
+export interface ComposerContextItem {
+  id:        string;
+  source:    'weekly-feed' | 'niche' | 'dashboard' | 'manual';
+  title:     string;
+  intent:    string;
+  summary:   string;
+  createdAt: number;
+  plan?:     ProjectPlan;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -159,6 +198,22 @@ function addRevision(
   return [rev, ...current];
 }
 
+interface PendingProjectSave {
+  projectId: string;
+  projectTitle: string;
+  finalFiles: FileMap;
+  chatHistoryToSave: any[];
+  userPrompt: string;
+  source: 'chat' | 'weekly-feed' | 'niche';
+  effectiveModel: string;
+  generationStartMs: number;
+  generationLogs: string[];
+  generationErrors: string[];
+  plan: ProjectPlan | null;
+  planTheme: string;
+  reqUsage: UsageData;
+}
+
 // ── hook ─────────────────────────────────────────────────────────────────────
 
 export const useStudio = () => {
@@ -206,6 +261,7 @@ export const useStudio = () => {
   // Blueprint confirmation — set when Architect plan is ready, cleared on confirm/cancel.
   // resolver lives in a ref (not state) so resolve() fires only after React commits the cleanup.
   const [pendingPlan, setPendingPlan] = useState<{
+    id:            string;
     plan:          object;
     blueprintText: string;
     technicalBlueprint?: object | null;
@@ -215,6 +271,11 @@ export const useStudio = () => {
   } | null>(null);
   const planResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const planDecisionRef = useRef<boolean | null>(null);
+
+  // Diff review — set when edit candidate is compiled and has significant changes.
+  // Resolver receives the selected file paths (partial apply) or false (reject all).
+  const [pendingDiff, setPendingDiff] = useState<FileDiff[] | null>(null);
+  const diffResolverRef = useRef<((result: string[] | false) => void) | null>(null);
 
   // ── files ─────────────────────────────────────────────────────────────────
   // On startup always restore from the last *stable* snapshot to avoid showing
@@ -234,12 +295,9 @@ export const useStudio = () => {
       const snap = snaps.find(s => s.id === stableId);
       if (snap) return normalizeToFileMap(snap.files);
     }
-    // 2. Walk backwards to find the last snapshot with status === 'stable'
-    //    (or no status — treated as stable for legacy compatibility)
+    // 2. Walk backwards to find the last stable snapshot (see isSnapshotStable)
     for (let i = snaps.length - 1; i >= 0; i--) {
-      if (!snaps[i].status || snaps[i].status === 'stable') {
-        return normalizeToFileMap(snaps[i].files);
-      }
+      if (isSnapshotStable(snaps[i])) return normalizeToFileMap(snaps[i].files);
     }
     // 3. No stable snapshot at all — fall back to LAST_FILES / LAST_CODE
     return normalizeToFileMap(
@@ -311,12 +369,12 @@ export const useStudio = () => {
       if (idx !== -1) return idx;
     }
     for (let i = s.length - 1; i >= 0; i--) {
-      if (!s[i].status || s[i].status === 'stable') return i;
+      if (isSnapshotStable(s[i])) return i;
     }
     return s.length - 1;
   });
 
-  const addSnapshot = useCallback((newFiles: FileMap, label: string) => {
+  const addSnapshot = useCallback((newFiles: FileMap, label: string, revId?: string) => {
     // Compute snapshot data eagerly so we can call all setters at the same level
     // (never call setState inside another setState updater — that creates render-phase
     // updates which can corrupt the hooks linked list and trigger "Should have a queue").
@@ -329,10 +387,11 @@ export const useStudio = () => {
       createdAt: new Date().toISOString(),
       version,
       status: 'candidate',
+      revisionId: revId ?? revisionManager.getActiveRevisionId() ?? undefined,
     };
     const updated = [...base, snap];
-    localStorage.setItem('SNAPSHOTS', JSON.stringify(updated));
-    localStorage.setItem('CURRENT_SNAPSHOT_ID', snap.id);
+    safeSetItem('SNAPSHOTS', JSON.stringify(updated));
+    safeSetItem('CURRENT_SNAPSHOT_ID', snap.id);
     setSnapshots(updated);
     setCurrentSnapshotId(snap.id);
     setHistoryIndex(updated.length - 1);
@@ -342,10 +401,17 @@ export const useStudio = () => {
     const restored = normalizeToFileMap(snap.files);
     setFiles(restored);
     setCurrentSnapshotId(snap.id);
-    localStorage.setItem('CURRENT_SNAPSHOT_ID', snap.id);
+    safeSetItem('CURRENT_SNAPSHOT_ID', snap.id);
     const idx = snapshots.findIndex(s => s.id === snap.id);
     if (idx !== -1) setHistoryIndex(idx);
     if (!restored[activeFile]) setActiveFile(Object.keys(restored)[0] ?? DEFAULT_FILENAME);
+
+    // Flush to preview via RevisionManager so the iframe updates
+    if (snap.revisionId) {
+      revisionManager.restoreRevision(snap.revisionId).catch(err => {
+        console.warn('[useStudio] revision restore failed, falling back to files state:', err);
+      });
+    }
   }, [snapshots, activeFile]);
 
   const undo = useCallback(() => {
@@ -375,6 +441,16 @@ export const useStudio = () => {
     localStorage.removeItem('STABLE_SNAPSHOT_ID');
   }, []);
 
+  /** rollbackToStable — restore the last snapshot marked as 'stable'.
+   *  Called when the user clicks "Rollback" after a preview failure. */
+  const rollbackToStable = useCallback(() => {
+    const sid = stableSnapshotId;
+    if (!sid) return;
+    const snap = snapshots.find(s => s.id === sid);
+    if (!snap) return;
+    restoreSnapshot(snap);
+  }, [stableSnapshotId, snapshots, restoreSnapshot]);
+
   /**
    * markSnapshotStable — called by the preview when iframe-ready fires without
    * errors. Promotes `snapshotId` from candidate → stable and writes
@@ -388,35 +464,97 @@ export const useStudio = () => {
       const updated = prev.map(s =>
         s.id === snapshotId ? { ...s, status: 'stable' as const } : s
       );
-      localStorage.setItem('SNAPSHOTS', JSON.stringify(updated));
+      safeSetItem('SNAPSHOTS', JSON.stringify(updated));
       return updated;
     });
     setStableSnapshotId(snapshotId);
-    localStorage.setItem('STABLE_SNAPSHOT_ID', snapshotId);
+    safeSetItem('STABLE_SNAPSHOT_ID', snapshotId);
     // Mark the active generation-plan card as ready (iframe loaded without errors)
     if (currentPlanMsgIdRef.current) {
       chatUpdate(currentPlanMsgIdRef.current, { buildStatus: 'ready' });
     }
     // Preview lifecycle — iframe loaded successfully
     setPreviewLifecycle('preview-ready');
+    commitPendingProjectSaveRef.current('preview-ready');
   }, []);
 
-  const currentVersion  = historyIndex + 1 || snapshots.length;
-  const totalVersions   = snapshots.length;
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  SEMANTIC GLOSSARY — revision / version / snapshot disambiguation
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  //  1. SNAPSHOT (this layer — useStudio undo/redo)
+  //     - A full file-map checkpoint in the undo/redo history.
+  //     - snapshotIndex:      1-indexed position of the user in history.
+  //     - snapshotCount:      total number of snapshots.
+  //     - lastStableSnapshot: index of the most recent snapshot whose iframe
+  //                           mounted without errors (crash-recovery fallback).
+  //     - Snapshot.status:    'candidate' (untested) → 'stable' (iframe ok).
+  //
+  //  2. BUILD REVISION (RevisionManager layer)
+  //     - A UUID-scoped compile cycle for Vite HMR preview.
+  //     - candidateRevisionId: in-flight build being compiled.
+  //     - activeRevisionId:    last successfully compiled build (shown in iframe).
+  //     - Also called "buildId" in the preview-timeline.
+  //     - One snapshot can link to one build revision via Snapshot.revisionId.
+  //
+  //  3. PROJECT REVISION (persistence layer — ProjectStorage)
+  //     - A full file snapshot saved to StoredProject.revisions[].
+  //     - Max 5 per project. Shown in ProjectsScreen as "versions".
+  //     - Completely separate from snapshots and build revisions.
+  //
+  //  4. PROJECT RECORD VERSION (Supabase layer — ProjectRepository)
+  //     - ProjectRecord.version: optimistic concurrency counter.
+  //     - Incremented on each DB save. Not user-visible. Not related to any
+  //       of the above.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** 1-indexed position of the user in undo/redo history. UI: "snap #N". */
+  const snapshotIndex  = historyIndex + 1 || snapshots.length;
+  /** Total number of snapshots in undo/redo history. */
+  const snapshotCount  = snapshots.length;
+
+  /**
+   * 1-indexed version of the most recent *stable* snapshot (iframe mounted
+   * without errors). This is the crash-recovery fallback and the true
+   * "last good" state shown with the green checkmark in EngineTopBar.
+   *
+   * Returns undefined when no stable snapshot exists yet.
+   */
+  const lastStableSnapshotIndex: number | undefined = useMemo(() => {
+    for (let i = snapshots.length - 1; i >= 0; i--) {
+      if (isSnapshotStable(snapshots[i])) return snapshots[i].version;
+    }
+    return undefined;
+  }, [snapshots]);
+
+  // ── backward-compat aliases (deprecated — use canonical names above) ────
+  const currentVersion    = snapshotIndex;
+  const totalVersions     = snapshotCount;
+  const lastStableVersion = lastStableSnapshotIndex;
 
   // ── logs ──────────────────────────────────────────────────────────────────
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
 
-  const addLog = useCallback((msg: string) => {
+  const addLog = useCallback((msg: string, level: LogEntry['level'] = 'info') => {
     const time = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setLogs(prev => [...prev.slice(-199), `[${time}] ${msg}`]);
+    setLogs(prev => [...prev.slice(-199), { level, message: msg, time }]);
+    // Forward to Stability Terminal (DevModePanel)
+    try {
+      (window as any).__stabilityLog?.({
+        level: level === 'warn' ? 'warn' : level === 'error' ? 'error' : 'info',
+        source: 'studio',
+        message: msg,
+      });
+    } catch { /* ignore */ }
   }, []);
 
   const clearLogs = useCallback(() => setLogs([]), []);
 
   const downloadLogs = useCallback(() => {
     if (logs.length === 0) return;
-    const content = `AIC-RG Studio — Event Log\n${'─'.repeat(40)}\n${logs.join('\n')}`;
+    const content = `AIC-RG Studio — Event Log\n${'─'.repeat(40)}\n${
+      logs.map(l => `[${l.time}] ${l.level.toUpperCase()}: ${l.message}`).join('\n')
+    }`;
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -438,6 +576,70 @@ export const useStudio = () => {
   }, []);
 
   const clearAttachments = useCallback(() => setAttachments([]), []);
+
+  const removeComposerContextItem = useCallback((id: string) => {
+    setComposerContextItems(prev => prev.filter(item => item.id !== id));
+  }, []);
+
+  const clearComposerContextItems = useCallback(() => {
+    setComposerContextItems([]);
+  }, []);
+
+  const addComposerContextFromPlan = useCallback((
+    plan: ProjectPlan | null | undefined,
+    intent: string,
+    source: 'weekly-feed' | 'niche' | 'dashboard' | 'manual' = 'weekly-feed',
+  ) => {
+    const appName = (plan?.appName ?? '').trim();
+    const title = appName || intent.slice(0, 64) || 'Imported context';
+    const summaryParts: string[] = [];
+    if (plan?.description) summaryParts.push(String(plan.description));
+    if (plan?.targetUser) summaryParts.push(`Target: ${String(plan.targetUser)}`);
+    if (source === 'niche' && (plan as any)?.competitorGap) {
+      summaryParts.push(`Gap: ${String((plan as any).competitorGap)}`);
+    }
+    const summary = summaryParts.join(' · ').slice(0, 320);
+    const normalizedIntent = intent.trim();
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+    const id = `${source}:${slug}:${Date.now()}`;
+
+    setComposerContextItems(prev => {
+      const duplicateIndex = prev.findIndex(item =>
+        item.source === source &&
+        item.title.toLowerCase() === title.toLowerCase() &&
+        item.intent.trim() === normalizedIntent,
+      );
+      const next = duplicateIndex >= 0
+        ? [...prev.slice(0, duplicateIndex), ...prev.slice(duplicateIndex + 1)]
+        : [...prev];
+      next.push({
+        id,
+        source,
+        title,
+        intent: normalizedIntent,
+        summary,
+        createdAt: Date.now(),
+        plan: plan ?? undefined,
+      });
+      return next.slice(-6);
+    });
+
+    if (source === 'weekly-feed' || source === 'niche') {
+      setGenerationSource(source);
+    }
+
+    if (plan?.pages?.length) {
+      if (plan.pages.length >= 8) setGenerationMode('superapp');
+      else if (plan.pages.length <= 1) setGenerationMode('landing');
+      else setGenerationMode('app');
+    }
+
+    setInput(prev => {
+      const trimmed = prev.trim();
+      if (trimmed.length > 0) return prev;
+      return normalizedIntent;
+    });
+  }, []);
 
   // ── projects ──────────────────────────────────────────────────────────────
   const [projects, setProjects] = useState<ProjectMeta[]>(() =>
@@ -470,109 +672,36 @@ export const useStudio = () => {
   const [showSettings,    setShowSettings]    = useState(false);
   const [isGenerating,    setIsGenerating]    = useState(false);
   const [device,          setDevice]          = useState<DeviceType>('web');
-  const [theme,           setThemeState]      = useState<'dark' | 'medium' | 'light'>(() => ConfigService.getTheme());
+  // ── Settings (extracted hook) ───────────────────────────────────────────────
+  const settings = useSettingsState();
+  const { apiKey, setApiKey, selectedModel, setSelectedModel, theme, setTheme,
+          fullContextMode, setFullContextMode, autoRoute, setAutoRoute,
+          appLanguage, setAppLanguage, agentConfigs, setAgentConfig } = settings;
+
   const [progress,        setProgress]        = useState(0);
-  const [apiKey,          setApiKeyState]     = useState(() => ConfigService.getApiKey());
-  const [selectedModel,   setModelState]      = useState(() => ConfigService.resolveModel('chat'));
-  const [fullContextMode, setFullCtxState]    = useState(() => ConfigService.getFullContext());
   const [currentPhase,    setCurrentPhase]    = useState<string>('');
-  const [autoRoute,       setAutoRouteRaw]    = useState<boolean>(() => ConfigService.getAutoRoute());
+  const [machineState,    setMachineState]    = useState<MachineState>(INITIAL_STATE);
   const [generationMode,  setGenerationMode]  = useState<'landing' | 'app' | 'superapp'>('app');
   const [generationSource, setGenerationSource] = useState<'chat' | 'weekly-feed' | 'niche'>('chat');
+  const [designClassification, setDesignClassification] = useState<ClassificationResult | null>(null);
+  const [composerContextItems, setComposerContextItems] = useState<ComposerContextItem[]>([]);
 
 
-  // ── Immediate-write setters (write to localStorage synchronously) ──────────
-
-  const setApiKey = useCallback((v: string) => {
-    ConfigService.setApiKey(v);
-    setApiKeyState(v);
-  }, []);
-
-  const setSelectedModel = useCallback((v: string) => {
-    setModelState(v);
-  }, []);
-
-  const setTheme = useCallback((v: 'dark' | 'medium' | 'light') => {
-    ConfigService.setTheme(v);
-    setThemeState(v);
-  }, []);
-
-  const setFullContextMode = useCallback((v: boolean) => {
-    ConfigService.setFullContext(v);
-    setFullCtxState(v);
-  }, []);
-
-  const setAutoRoute = useCallback((v: boolean) => {
-    ConfigService.setAutoRoute(v);
-    setAutoRouteRaw(v);
-  }, []);
-
-  // ── Figma identity ─────────────────────────────────────────────────────────
-  const [figmaAccounts,     setFigmaAccounts]     = useState<FigmaAccount[]>(() => IdentityService.getAll());
-  const [figmaLink,         setFigmaLink]         = useState('');
-  const [figmaAccessResult, setFigmaAccessResult] = useState<AccessResult | null>(null);
-  const [figmaValidating,   setFigmaValidating]   = useState(false);
-
-  const addFigmaAccount = useCallback(async (draft: Omit<FigmaAccount, 'id' | 'addedAt'>) => {
-    const userInfo = await FigmaClient.getUserInfo(draft.token);
-    const enriched = userInfo ? { ...draft, userInfo } : draft;
-    IdentityService.add(enriched);
-    setFigmaAccounts(IdentityService.getAll());
-  }, []);
-
-  const removeFigmaAccount = useCallback((id: string) => {
-    IdentityService.remove(id);
-    setFigmaAccounts(IdentityService.getAll());
-  }, []);
-
-  /** Re-read figmaAccounts from IdentityService (call after OAuth completes). */
-  const refreshFigmaAccounts = useCallback(() => {
-    setFigmaAccounts(IdentityService.getAll());
-  }, []);
-
-  const validateFigmaLink = useCallback(async (url: string) => {
-    setFigmaValidating(true);
-    const result = await FigmaClient.validateAccess(url);
-    setFigmaAccessResult(result);
-    setFigmaValidating(false);
-  }, []);
-
-  // ── Background Engine config (ISOLATED from chat) ─────────────────────────
-  // These are read from ConfigService directly at validation time — changing
-  // the chat model never affects the engine model.
-  const [engineApiKey,  setEngineApiKeyState]  = useState(() => ConfigService.getEngineApiKey());
-  const [engineModelId, setEngineModelIdState] = useState(() => ConfigService.getEngineModel());
-  const [engineStatus,  setEngineStatus]       = useState<EngineStatus>('idle');
-  const [engineResult,  setEngineResult]       = useState<ValidationResult | null>(null);
-
-  // ── 5-agent system ────────────────────────────────────────────────────────
-  const [agentConfigs, setAgentConfigsState] = useState(() => ({
-    primary: ConfigService.getAgentConfig('agent_primary'),
-    fix:     ConfigService.getAgentConfig('agent_fix'),
-    spec:    ConfigService.getAgentConfig('agent_spec'),
-    build:   ConfigService.getAgentConfig('agent_build'),
-    qa:      ConfigService.getAgentConfig('agent_qa'),
-  }));
+  // ── Figma state (extracted hook) ─────────────────────────────────────────────
+  const figma = useFigmaState(addLog);
+  const { figmaAccounts, addFigmaAccount, removeFigmaAccount, refreshFigmaAccounts,
+          figmaLink, setFigmaLink, figmaAccessResult, validateFigmaLink, figmaValidating,
+          currentProjectTheme, syncProgress, syncFigmaUrl, syncSource, startFigmaSync,
+          targetMarket, setTargetMarket, auditStrictness, setAuditStrictness,
+          figmaProjects, activeFigmaProjectId,
+          saveFigmaProject, loadFigmaProject, deleteFigmaProject,
+          markFigmaProjectSynced, clearFigmaSync,
+          engineApiKey, setEngineApiKey, engineModelId, setEngineModelId,
+          engineStatus, engineResult } = figma;
 
   // ── ScannerService (Fusion Protocol) ───────────────────────────────────────
   const [componentRegistry, setComponentRegistry] = useState<ComponentRegistry | null>(null);
   const scanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const setEngineApiKey = useCallback((v: string) => {
-    ConfigService.setEngineApiKey(v);
-    setEngineApiKeyState(v);
-  }, []);
-
-  const setEngineModelId = useCallback((v: string) => {
-    ConfigService.setEngineModel(v);
-    setEngineModelIdState(v);
-  }, []);
-
-  const setAgentConfig = useCallback((agentId: string, config: AgentConfig) => {
-    ConfigService.setAgentConfig(agentId, config);
-    const key = agentId.replace('agent_', '') as keyof typeof agentConfigs;
-    setAgentConfigsState(prev => ({ ...prev, [key]: config }));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── ScannerService: auto-scan project files (debounced 3 s) ──────────────
   useEffect(() => {
@@ -587,144 +716,24 @@ export const useStudio = () => {
     };
   }, [files]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Figma Design DNA sync ─────────────────────────────────────────────────
-  const [currentProjectTheme, setCurrentProjectTheme] = useState<ProjectTheme | null>(null);
-  const [syncProgress, setSyncProgress] = useState<SyncProgress>({ step: 'idle', message: '', pct: 0 });
-  const [syncFigmaUrl, setSyncFigmaUrl] = useState<string | undefined>();
-  const [syncSource,   setSyncSource]   = useState<'proxy' | 'direct' | null>(null);
-  const [targetMarket,    setTargetMarket]    = useState<TargetMarket>('USA');
-  const [auditStrictness, setAuditStrictness] = useState<AuditStrictness>('normal');
-
-  const startFigmaSync = useCallback(async (fileUrl: string) => {
-    setSyncFigmaUrl(undefined);
-    const result = await FigmaService.startSyncProcess(fileUrl, setSyncProgress, {
-      targetMarket,
-      auditStrictness,
-    });
-    if (result.ok) {
-      setCurrentProjectTheme(result.theme);
-      setSyncFigmaUrl(result.figmaUrl);
-      setSyncSource(result.syncSource ?? 'direct');
-
-      // ── Silent background engine validation ─────────────────────────────
-      // Runs AFTER sync completes, fully non-blocking (no await).
-      // Uses ConfigService.getEngineApiKey() / getEngineModel() directly —
-      // NEVER touches selectedModel or apiKey from chat state.
-      const nodes = result.theme.visualNodes ?? [];
-      if (nodes.length > 0 && !AIEngineService.isBusy) {
-        setEngineStatus('validating');
-        AIEngineService.validate(
-          nodes,
-          result.theme,
-          (status, msg) => {
-            setEngineStatus(status);
-            addLog(`[Engine] ${msg}`);
-          },
-        ).then(vr => {
-          setEngineResult(vr);
-          setEngineStatus(vr.ok ? 'done' : 'error');
-          // If engine pruned noise nodes, silently update the visual tree
-          if (vr.ok && vr.cleanedNodes.length < nodes.length) {
-            const removed = nodes.length - vr.cleanedNodes.length;
-            setCurrentProjectTheme(prev =>
-              prev ? { ...prev, visualNodes: vr.cleanedNodes } : prev,
-            );
-            addLog(`[Engine] ✓ Pruned ${removed} noise node(s) from MirrorCanvas`);
-          }
-        }).catch(err => {
-          setEngineStatus('error');
-          addLog(`[Engine] ✗ ${err?.message ?? 'Unknown error'}`);
-        });
-      }
-    }
-  }, [targetMarket, auditStrictness, addLog]);
-
   const addSystemMessage = useCallback((content: string) => {
     chatAppend({ role: 'assistant', content });
   }, [chatAppend]);
-
-  // ── Figma Project Hub ──────────────────────────────────────────────────────
-  const [figmaProjects,        setFigmaProjects]        = useState<FigmaProject[]>(() => ProjectStore.getAll());
-  const [activeFigmaProjectId, setActiveFigmaProjectId] = useState<string | null>(null);
-
-  /** Upsert a project from the current sync state. Returns the new id. */
-  const saveFigmaProject = useCallback((projectName?: string): string | null => {
-    if (!currentProjectTheme) return null;
-    const name = projectName?.trim() || 'Untitled Project';
-    // Re-use existing entry for same file key (update instead of duplicate)
-    const existing = figmaProjects.find(p => p.fileKey === currentProjectTheme.figmaFileKey);
-    const id       = existing?.id ?? crypto.randomUUID();
-    const project: FigmaProject = {
-      id,
-      name,
-      fileKey:     currentProjectTheme.figmaFileKey,
-      figmaUrl:    syncFigmaUrl,
-      theme:       currentProjectTheme,
-      status:      'imported',
-      createdAt:   existing?.createdAt ?? Date.now(),
-      updatedAt:   Date.now(),
-      accentColor: currentProjectTheme.colors[0]?.hex,
-    };
-    ProjectStore.save(project);
-    setFigmaProjects(ProjectStore.getAll());
-    setActiveFigmaProjectId(id);
-    return id;
-  }, [currentProjectTheme, syncFigmaUrl, figmaProjects]);
-
-  /** Restore a previously saved project (no network request). */
-  const loadFigmaProject = useCallback((project: FigmaProject) => {
-    setCurrentProjectTheme(project.theme);
-    if (project.figmaUrl) {
-      setSyncFigmaUrl(project.figmaUrl);
-      setFigmaLink(project.figmaUrl);
-    }
-    setFigmaAccessResult(null);
-    setActiveFigmaProjectId(project.id);
-    setSyncProgress({ step: 'done', message: 'Loaded from Project Hub', pct: 100 });
-    const updated: FigmaProject = { ...project, status: 'active', updatedAt: Date.now() };
-    ProjectStore.save(updated);
-    setFigmaProjects(ProjectStore.getAll());
-  }, []);
-
-  const deleteFigmaProject = useCallback((id: string) => {
-    ProjectStore.delete(id);
-    setFigmaProjects(ProjectStore.getAll());
-    if (activeFigmaProjectId === id) setActiveFigmaProjectId(null);
-  }, [activeFigmaProjectId]);
-
-  const markFigmaProjectSynced = useCallback((id: string) => {
-    const p = ProjectStore.get(id);
-    if (!p) return;
-    ProjectStore.save({ ...p, status: 'synced', updatedAt: Date.now() });
-    setFigmaProjects(ProjectStore.getAll());
-  }, []);
-
-  /** Clear all Figma sync state for a fresh import. */
-  const clearFigmaSync = useCallback(() => {
-    setFigmaLink('');
-    setFigmaAccessResult(null);
-    setCurrentProjectTheme(null);
-    setSyncFigmaUrl(undefined);
-    setSyncProgress({ step: 'idle', message: '', pct: 0 });
-    setActiveFigmaProjectId(null);
-  }, []);
-
-  const [appLanguage, setAppLanguageRaw] = useState<string>(() => ConfigService.getLanguage());
-
-  const setAppLanguage = useCallback((lang: string) => {
-    ConfigService.setLanguage(lang);
-    setAppLanguageRaw(lang);
-  }, []);
 
   const scrollRef          = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const consecutiveErrors  = useRef(0);
   const lastErrorTime      = useRef(0);
+  const networkRetryCountRef   = useRef(0);
+  const networkRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks the active generation-plan message ID so markSnapshotStable can set buildStatus:'ready'
   const currentPlanMsgIdRef = useRef<string | null>(null);
+  const commitPendingProjectSaveRef = useRef<(reason: 'preview-ready' | 'manual-no-preview') => boolean>(() => false);
 
   // ── Preview lifecycle — honest completion handshake ───────────────────────
   const [previewLifecycle, setPreviewLifecycle] = useState<PreviewLifecycleStage>('idle');
+  /** Human-readable reason when previewLifecycle === 'blocked'. Null otherwise. */
+  const [previewBlockedReason, setPreviewBlockedReason] = useState<string | null>(null);
 
   // ── Level 2: Auto-fixer ───────────────────────────────────────────────────
   const fixAttemptsRef   = useRef(0);
@@ -743,14 +752,204 @@ export const useStudio = () => {
     return id ? loadBilling(id).tokens : 0;
   });
 
+  // Generated project is persisted only after preview success,
+  // or after explicit user confirmation if preview failed/blocked.
+  const pendingProjectSaveRef = useRef<PendingProjectSave | null>(null);
+  const pendingSavePromptShownRef = useRef(false);
+
+  const commitPendingProjectSave = useCallback((reason: 'preview-ready' | 'manual-no-preview') => {
+    const pending = pendingProjectSaveRef.current;
+    if (!pending) return false;
+    pendingProjectSaveRef.current = null;
+    pendingSavePromptShownRef.current = false;
+
+    const reqTokens = pending.reqUsage.promptTokens + pending.reqUsage.completionTokens;
+    if (reqTokens > 0) {
+      const reqCost = calcCost(pending.effectiveModel, pending.reqUsage);
+      setProjectCost((prev: number) => {
+        const next = prev + reqCost;
+        const savedTokens = (loadBilling(pending.projectId).tokens || 0) + reqTokens;
+        safeSetItem(`BILLING_${pending.projectId}`, JSON.stringify({ cost: next, tokens: savedTokens }));
+        return next;
+      });
+      setProjectTokens((prev: number) => prev + reqTokens);
+    }
+
+    const existing = ProjectStorage.getProject(pending.projectId);
+    const revisionPatch = {
+      prompt:     pending.userPrompt,
+      source:     pending.source,
+      files:      pending.finalFiles,
+      modelId:    pending.effectiveModel,
+      durationMs: Date.now() - pending.generationStartMs,
+      pagesCount: pending.plan?.pages?.length ?? 0,
+    };
+    let newRevisions: ProjectRevision[] | null = null;
+    if (existing) {
+      newRevisions = addRevision(existing, revisionPatch);
+      if (!newRevisions) {
+        chatAppend({
+          role: 'assistant',
+          content: [
+            '\u26A0\uFE0F **Version limit reached**',
+            '',
+            `Project "${pending.projectTitle}" already has 5 saved versions.`,
+            'Open the Projects page \u2192 select this project \u2192 History tab',
+            'to delete old versions before saving new ones.',
+            '',
+            'Your changes were applied to the preview but not saved as a new version.',
+          ].join('\n'),
+          timestamp: Date.now(),
+        });
+      }
+    }
+
+    if (existing) {
+      try {
+        ProjectManager.saveFiles(pending.projectId, {
+          ...existing.files,
+          ...pending.finalFiles,
+        });
+      } catch (saveErr: unknown) {
+        addLog(`[Project] ${(saveErr as Error)?.message ?? 'File save failed'}`);
+      }
+      const afterFilesSave = ProjectStorage.getProject(pending.projectId);
+      if (afterFilesSave) {
+        ProjectStorage.saveProject({
+          ...afterFilesSave,
+          chatHistory:    pending.chatHistoryToSave,
+          updatedAt:      new Date().toISOString(),
+          intent:         pending.userPrompt,
+          source:         pending.source,
+          plan:           pending.plan ?? afterFilesSave.plan ?? undefined,
+          logs:           pending.generationLogs,
+          errors:         pending.generationErrors.filter(e => e.includes('❌') || e.toLowerCase().includes('error')),
+          pagesCount:     pending.plan?.pages?.length ?? afterFilesSave.pagesCount ?? 0,
+          modelId:        pending.effectiveModel,
+          durationMs:     Date.now() - pending.generationStartMs,
+          generationMode,
+          billingCost:    projectCost,
+          billingTokens:  projectTokens,
+          revisions:      newRevisions ?? afterFilesSave.revisions,
+        });
+      }
+    } else {
+      const firstRevision: ProjectRevision = {
+        id:           crypto.randomUUID(),
+        prompt:       pending.userPrompt,
+        source:       pending.source,
+        files:        pending.finalFiles,
+        createdAt:    new Date().toISOString(),
+        modelId:      pending.effectiveModel,
+        durationMs:   Date.now() - pending.generationStartMs,
+        isBookmarked: false,
+        pagesCount:   pending.plan?.pages?.length ?? 0,
+      };
+      const fallback: StoredProject = {
+        id:             pending.projectId,
+        name:           pending.projectTitle,
+        description:    pending.userPrompt.slice(0, 120),
+        theme:          pending.planTheme,
+        createdAt:      new Date().toISOString(),
+        updatedAt:      new Date().toISOString(),
+        files:          pending.finalFiles,
+        chatHistory:    pending.chatHistoryToSave,
+        intent:         pending.userPrompt,
+        source:         pending.source,
+        plan:           pending.plan ?? undefined,
+        logs:           pending.generationLogs,
+        errors:         pending.generationErrors.filter(e => e.includes('❌') || e.toLowerCase().includes('error')),
+        pagesCount:     pending.plan?.pages?.length ?? 0,
+        modelId:        pending.effectiveModel,
+        durationMs:     Date.now() - pending.generationStartMs,
+        generationMode,
+        billingCost:    projectCost,
+        billingTokens:  projectTokens,
+        revisions:      [firstRevision],
+      };
+      const ok = ProjectStorage.saveProject(fallback);
+      if (!ok) addLog('[Project] Storage full â€” project not saved');
+    }
+
+    setCurrentProjectId(pending.projectId);
+    setProjects(ProjectStorage.listProjects());
+
+    const existingForCloud = ProjectStorage.getProject(pending.projectId);
+    ProjectRepository.saveProject({
+      id:          pending.projectId,
+      name:        pending.projectTitle,
+      userId:      authUser?.id ?? 'anonymous',
+      description: pending.userPrompt.slice(0, 120),
+      theme:       pending.planTheme,
+      files:       existingForCloud?.files
+                     ? { ...existingForCloud.files, ...pending.finalFiles }
+                     : pending.finalFiles,
+      chatHistory: pending.chatHistoryToSave,
+      createdAt:   existingForCloud?.createdAt ?? new Date().toISOString(),
+      updatedAt:   new Date().toISOString(),
+      version:     1,
+      intent:         pending.userPrompt,
+      source:         pending.source,
+      plan:           pending.plan ?? undefined,
+      logs:           pending.generationLogs,
+      errors:         pending.generationErrors.filter(e => e.includes('❌') || e.toLowerCase().includes('error')),
+      pagesCount:     pending.plan?.pages?.length ?? 0,
+      modelId:        pending.effectiveModel,
+      durationMs:     Date.now() - pending.generationStartMs,
+      generationMode,
+      billingCost:    projectCost,
+      billingTokens:  projectTokens,
+      revisions:      existingForCloud?.revisions ?? [],
+    } as any).catch((err: any) => addLog(`[Project] Cloud save error: ${err}`));
+
+    addLog(
+      reason === 'preview-ready'
+        ? `[Project] Saved after preview ready: ${pending.projectTitle}`
+        : `[Project] Saved without preview (confirmed): ${pending.projectTitle}`,
+    );
+    return true;
+  }, [addLog, authUser?.id, generationMode, projectCost, projectTokens]);
+  commitPendingProjectSaveRef.current = commitPendingProjectSave;
+
+  useEffect(() => {
+    if (isGenerating) return;
+    if (!pendingProjectSaveRef.current) return;
+    if (previewLifecycle !== 'failed' && previewLifecycle !== 'blocked') return;
+    if (pendingSavePromptShownRef.current) return;
+
+    pendingSavePromptShownRef.current = true;
+    const pending = pendingProjectSaveRef.current;
+    const ok = window.confirm(
+      `Превью не загрузилось.\n\nСохранить проект "${pending?.projectTitle ?? 'Untitled'}" для дальнейшей работы?`,
+    );
+    if (ok) {
+      commitPendingProjectSave('manual-no-preview');
+      chatAppend({
+        role: 'assistant',
+        content: 'Проект сохранён без превью. Вы сможете продолжить работу позже.',
+        timestamp: Date.now(),
+      });
+    } else {
+      pendingProjectSaveRef.current = null;
+      pendingSavePromptShownRef.current = false;
+      addLog('[Project] User skipped save because preview did not load');
+      chatAppend({
+        role: 'assistant',
+        content: 'Проект не сохранён, так как превью не загрузилось.',
+        timestamp: Date.now(),
+      });
+    }
+  }, [previewLifecycle, isGenerating, commitPendingProjectSave, addLog, chatAppend]);
+
   // ── persist (data only — config keys are written immediately by their setters) ──
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    localStorage.setItem('CHAT_HISTORY',  JSON.stringify(messages));
+    safeSetItem('CHAT_HISTORY',  JSON.stringify(messages));
     // Persist the derived `files` value — includes graph-derived files when graph is set.
-    localStorage.setItem('LAST_FILES',    JSON.stringify(files));
-    localStorage.setItem('LAST_CODE',     getPrimaryCode(files));
-    if (currentProjectId) localStorage.setItem('CURRENT_PROJECT_ID', currentProjectId);
+    safeSetItem('LAST_FILES',    JSON.stringify(files));
+    safeSetItem('LAST_CODE',     getPrimaryCode(files));
+    if (currentProjectId) safeSetItem('CURRENT_PROJECT_ID', currentProjectId);
+    else localStorage.removeItem('CURRENT_PROJECT_ID');
   }, [messages, files, currentProjectId]); // `files` is a useMemo — stable ref unless projectGraph or filesRaw changes
 
   // ── auto-scroll ───────────────────────────────────────────────────────────
@@ -825,6 +1024,9 @@ export const useStudio = () => {
 
   // ── project actions ───────────────────────────────────────────────────────
   const createNewProject = useCallback(() => {
+    pendingProjectSaveRef.current = null;
+    pendingSavePromptShownRef.current = false;
+    currentPlanMsgIdRef.current = null;
     // Auto-save the current project before clearing so history is not lost
     if (currentProjectId && Object.keys(_latestFilesRef.current).length > 0) {
       const existing = ProjectStorage.getProject(currentProjectId);
@@ -839,24 +1041,37 @@ export const useStudio = () => {
       }
     }
     pendingHistoryClear.current = true;
+    setInput('');
     chatReset();
+    setPendingClarification(null);
+    setPendingPlan(null);
+    setPendingDiff(null);
+    setIsGenerating(false);
+    setProgress(0);
+    setCurrentPhase('');
     setFiles({});
     setCurrentProjectId(null);
     setProjectCost(0);
     setProjectTokens(0);
+    setGenerationSource('chat');
     clearSnapshots();
     clearLogs();
     clearAttachments();
+    clearComposerContextItems();
     setPreviewLifecycle('idle');
     localStorage.removeItem('CHAT_HISTORY');
     localStorage.removeItem('LAST_FILES');
     localStorage.removeItem('LAST_CODE');
+    localStorage.removeItem('CURRENT_PROJECT_ID');
     Orchestrator.resetSession();
     // Clear preview-app/src/ so next generation starts fresh
-    fetch('/__clear_preview', { method: 'POST' }).catch(() => {});
-  }, [currentProjectId, clearSnapshots, clearLogs, clearAttachments, addLog]);
+    gatewayClearPreview({ source: 'useStudio.createNewProject' }).catch(() => {});
+  }, [currentProjectId, clearSnapshots, clearLogs, clearAttachments, clearComposerContextItems, addLog]);
 
   const loadProject = useCallback(async (project: { id: string }) => {
+    pendingProjectSaveRef.current = null;
+    pendingSavePromptShownRef.current = false;
+    clearComposerContextItems();
     addLog(`[Project] Loading ${project.id.slice(0, 8)}…`);
     try {
       // Supabase first, localStorage fallback
@@ -965,7 +1180,7 @@ export const useStudio = () => {
       addLog(`[Project] ${(err as Error)?.message ?? 'Failed to create project'}`);
       return null;
     }
-  }, [addLog]);
+  }, [addLog, clearComposerContextItems]);
 
   const refreshProjects = useCallback(() => {
     setProjects(ProjectStorage.listProjects());
@@ -1030,16 +1245,36 @@ export const useStudio = () => {
   _publishRef.current = _publishImpl;
   const publishProject = useCallback((): Promise<string | null> => _publishRef.current(), []);
 
+  const classifyAndStore = useCallback(async (
+    idea: string,
+    apiKeyToUse: string,
+  ): Promise<ClassificationResult> => {
+    try {
+      const result = await classifyIdea(idea, apiKeyToUse);
+      setDesignClassification(result);
+      console.log(`[design] Classified: ${result.category} / ${result.style} (${Math.round(result.confidence * 100)}%)`);
+      return result;
+    } catch {
+      const fallback = fallbackClassify(idea);
+      setDesignClassification(fallback);
+      console.log(`[design] Fallback: ${fallback.category} / ${fallback.style}`);
+      return fallback;
+    }
+  }, []);
+
   // ── handleSend ────────────────────────────────────────────────────────────
   const _sendImpl = async () => {
-    if (!input.trim() || isGenerating) return;
+    if ((input.trim().length === 0 && composerContextItems.length === 0 && attachments.length === 0) || isGenerating) return;
     setGenerationSource('chat');
     const startMs = Date.now();
+
+    const devAgentProvider = getLocalDevAgentProvider();
+    const devAgentActive = devAgentProvider !== 'off';
 
     // ── Effective API key: use provider key for primary agent, global key as fallback
     const effectiveApiKey = ConfigService.getKeyForAgent('primary') || apiKey;
 
-    if (!effectiveApiKey) {
+    if (!devAgentActive && !effectiveApiKey) {
       alert('Добавь OpenRouter API Key в настройках!');
       setShowSettings(true);
       return;
@@ -1059,21 +1294,83 @@ export const useStudio = () => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    pendingProjectSaveRef.current = null;
+    pendingSavePromptShownRef.current = false;
     fixAttemptsRef.current = 0;  // reset auto-fix counter for this generation
     setIsGenerating(true);
     setProgress(5);
     setCurrentPhase('think');
     setPreviewLifecycle('generating');
+    setPreviewBlockedReason(null);
+    commandBus.dispatch({ type: 'START_GENERATION', intent: input, plan: {} });
     addLog('─'.repeat(40));
 
     // (planning is handled inside GenerationPipeline via onPlan callback)
 
-    const userPrompt = input;
+    const userPrompt = input.trim();
+    const hasComposerContext = composerContextItems.length > 0;
+    const documentAttachmentContext = attachments
+      .filter(a => a.type === 'pdf' || a.type === 'text' || a.type === 'code')
+      .map((a, index) => {
+        const body = (a.textContent ?? a.data ?? '').replace(/\s+/g, ' ').trim();
+        const excerpt = body.slice(0, 800);
+        return `${index + 1}. ${a.name}${excerpt ? `: ${excerpt}` : ''}`;
+      });
+    const attachmentContextText = documentAttachmentContext.length > 0
+      ? [
+          'ATTACHMENT CONTEXT (provided by user):',
+          ...documentAttachmentContext,
+        ].join('\n')
+      : '';
+    const contextPackText = hasComposerContext
+      ? [
+          'CONTEXT PACK (selected by user):',
+          ...composerContextItems.map((item, index) => {
+            const lines = [
+              `${index + 1}. [${item.source}] ${item.title}`,
+              item.intent ? `Intent: ${item.intent}` : '',
+              item.summary ? `Notes: ${item.summary}` : '',
+            ].filter(Boolean);
+            return lines.join('\n');
+          }),
+        ].join('\n\n')
+      : '';
+    const generationModeLabel =
+      generationMode === 'landing' ? 'Landing page'
+      : generationMode === 'superapp' ? 'Super app'
+      : 'Application';
+    const languageLabelMap: Record<string, string> = {
+      ru: 'Russian',
+      en: 'English',
+      es: 'Spanish',
+      de: 'German',
+      fr: 'French',
+      zh: 'Chinese',
+    };
+    const buildPreferencesText = [
+      'BUILD PREFERENCES (user-selected defaults):',
+      `- Project type: ${generationModeLabel}`,
+      `- Interface language: ${languageLabelMap[appLanguage] ?? appLanguage}`,
+    ].join('\n');
+    const baseIntent = [
+      userPrompt || (hasComposerContext ? 'Continue with selected context pack.' : ''),
+      buildPreferencesText,
+      contextPackText,
+      attachmentContextText,
+    ].filter(Boolean).join('\n\n');
+    const effectiveSource: 'chat' | 'weekly-feed' | 'niche' =
+      composerContextItems.length === 1 &&
+      (composerContextItems[0].source === 'weekly-feed' || composerContextItems[0].source === 'niche')
+        ? composerContextItems[0].source
+        : generationSource;
+    const prebuiltPlanFromContext = composerContextItems.length === 1
+      ? composerContextItems[0].plan
+      : undefined;
     const generationStartMs = Date.now();
     const generationLogs: string[] = [];
     const generationErrors: string[] = [];
 
-    let messageContent: any = userPrompt;
+    let messageContent: any = userPrompt || 'Use selected context pack.';
     const imageAttachments = attachments.filter(a => a.type === 'image');
     if (imageAttachments.length > 0) {
       messageContent = [
@@ -1081,7 +1378,7 @@ export const useStudio = () => {
           type: 'image_url',
           image_url: { url: a.data },
         })),
-        { type: 'text', text: userPrompt },
+        { type: 'text', text: userPrompt || 'Use selected context pack.' },
       ];
     }
 
@@ -1154,7 +1451,7 @@ export const useStudio = () => {
     // ── Auto-routing: select optimal model for this task ──────────────────
     let effectiveModel = resolvedPrimary;
     if (autoRoute) {
-      const decision = ResourceManager.selectModel(userPrompt, contextFiles);
+      const decision = ResourceManager.selectModel(baseIntent || userPrompt, contextFiles);
       effectiveModel  = decision.model.id;
       addLog(`🤖 ${decision.reason}`);
       addLog(`   Cost tier: ${ResourceManager.tierLabel(decision.tier)} · ~$${decision.model.costPer1k.toFixed(4)}/1k tokens`);
@@ -1176,27 +1473,29 @@ export const useStudio = () => {
       const existingCodeCount = Object.keys(filesSnapshot).filter(
         k => /\.(tsx?|jsx?)$/.test(k) && !k.startsWith('_'),
       ).length;
-      let effectiveIntent = userPrompt;
+      let effectiveIntent = baseIntent;
 
       if (pendingClarification) {
-        effectiveIntent = pendingClarification + '\n\nUser clarification: ' + userPrompt;
+        effectiveIntent = pendingClarification + '\n\nUser clarification: ' + (userPrompt || 'Continue');
         setPendingClarification(null);
         addLog('[Clarifier] Intent enriched with user clarification');
-      } else if (existingCodeCount === 0) {
+      } else if (existingCodeCount === 0 && !devAgentActive) {
         addLog('[Clarifier] Analyzing intent clarity...');
         const clarResult = await GenerationPipeline.clarify({
-          intent: userPrompt,
+          intent: effectiveIntent || userPrompt,
           apiKey: effectiveApiKey,
           signal: controller.signal,
         });
         if (clarResult && clarResult.questions.length > 0) {
-          chatUpdate(planMsgId, {
-            role: 'assistant',
-            type: 'clarification',
-            content: clarResult.questions.join('\n'),
-            questions: clarResult.questions,
+          startTransition(() => {
+            chatUpdate(planMsgId, {
+              role: 'assistant',
+              type: 'clarification',
+              content: clarResult.questions.join('\n'),
+              questions: clarResult.questions,
+            });
           });
-          setPendingClarification(userPrompt);
+          setPendingClarification(effectiveIntent);
           addLog('[Clarifier] Waiting for user clarification');
           return; // finally block resets isGenerating / progress
         }
@@ -1205,23 +1504,42 @@ export const useStudio = () => {
 
       // Vision analysis is now handled inside GenerationPipeline.run() via config.attachments.
 
+      // Classify idea for design system
+      const classification = devAgentActive
+        ? fallbackClassify(effectiveIntent)
+        : await classifyAndStore(effectiveIntent, effectiveApiKey);
+
+      if (devAgentActive) {
+        addLog(`[handleSend] ${devAgentProvider} dev agent active: skipped OpenRouter classification`);
+      }
+      const designPrompt = buildDesignSystemPrompt({
+        category: classification.category,
+        style: classification.style,
+        idea: effectiveIntent,
+        classification,
+      });
+
       console.log('[DEBUG] pipeline input files:', Object.keys(contextWithTheme));
-      const result = await GenerationPipeline.run({
-        intent:    effectiveIntent,
+      const runOnce = (intentArg: string, modelArg: string) => GenerationPipeline.run({
+        intent:    intentArg,
         history,
         files:     contextWithTheme,
         apiKey:    effectiveApiKey,
-        modelId:   effectiveModel,
+        modelId:   modelArg,
         fixModelId: agentConfigs.fix.modelId || ConfigService.resolveModel('fix'),
+        designSystemPrompt: designPrompt,
         // Enable single-page safe mode on genesis (no existing code files).
         // This prevents the model from generating broken multi-page output
         // on the very first request when there's no context to ground on.
         singlePageSafeMode: existingCodeCount === 0,
         generationMode,
         attachments: capturedAttachments,
+        prebuiltPlan: prebuiltPlanFromContext,
         onStream: (streamText) => {
           // Update streamingCode on the plan card (replaces old last-message overwrite)
-          updatePlan({ streamingCode: streamText });
+          startTransition(() => {
+            updatePlan({ streamingCode: streamText });
+          });
         },
         onFiles: (ops: FileOperation[]) => {
           const base = optimisticFiles ?? filesSnapshot; // accumulate across multiple onFiles calls
@@ -1243,12 +1561,14 @@ export const useStudio = () => {
           }
         },
         onPhase: (event: PhaseEvent) => {
-          setProgress(event.progress);
-          setCurrentPhase(event.phase);
-          if (event.phase === 'think')  { updateStep('think', 'done'); updateStep('architect', 'active'); updatePlan({ progress: 20 }); }
-          if (event.phase === 'code')   { updateStep('architect', 'done'); updateStep('code', 'active'); updatePlan({ progress: 40 }); }
-          if (event.phase === 'verify') { updateStep('code', 'done'); updateStep('theme', 'active'); updatePlan({ progress: 80 }); }
-          if (event.phase === 'idle')   { updateStep('theme', 'done'); updateStep('save', 'done'); updatePlan({ progress: 100, buildStatus: 'building' }); }
+          startTransition(() => {
+            setProgress(event.progress);
+            setCurrentPhase(event.phase);
+            if (event.phase === 'think')  { updateStep('think', 'done'); updateStep('architect', 'active'); updatePlan({ progress: 20 }); }
+            if (event.phase === 'code')   { updateStep('architect', 'done'); updateStep('code', 'active'); updatePlan({ progress: 40 }); }
+            if (event.phase === 'verify') { updateStep('code', 'done'); updateStep('theme', 'active'); updatePlan({ progress: 80 }); }
+            if (event.phase === 'idle')   { updateStep('theme', 'done'); updateStep('save', 'done'); updatePlan({ progress: 100, buildStatus: 'building' }); }
+          });
         },
         onLog: (msg: string) => {
           addLog(msg);
@@ -1262,24 +1582,31 @@ export const useStudio = () => {
           if (steps.length > 0) {
             addLog(`[PLAN] ${steps.length} pages: ${steps.join(', ')}`);
           }
-          updatePlan({
-            appName: appName ?? '',
-            pages:   steps,
+          startTransition(() => {
+            updatePlan({
+              appName: appName ?? '',
+              pages:   steps,
+            });
           });
         },
         onPlanReady: (data) => {
           // Show Blueprint in chat as a message
-          chatAppend({
-            role:      'assistant',
-            type:      'blueprint',
-            id:        `blueprint-${Date.now()}`,
-            timestamp: Date.now(),
-            ...data,
+          const bpId = `blueprint-${Date.now()}`;
+          commandBus.dispatch({ type: 'SHOW_BLUEPRINT', planId: bpId });
+          startTransition(() => {
+            chatAppend({
+              role:      'assistant',
+              type:      'blueprint',
+              id:        bpId,
+              timestamp: Date.now(),
+              ...data,
+            });
           });
         },
         waitForConfirmation: (_plan) => new Promise((resolve) => {
           planResolverRef.current = resolve;
           setPendingPlan({
+            id:            `plan_${Date.now()}`,
             plan:          _plan,
             blueprintText: '', // already shown via onPlanReady
             technicalBlueprint: null, // already shown via onPlanReady
@@ -1288,15 +1615,45 @@ export const useStudio = () => {
             pages:         ((_plan as any).pages ?? []).map((p: any) => p.name ?? p),
           });
         }),
+        waitForDiffReview: (diffs) => new Promise<string[] | false>((resolve) => {
+          diffResolverRef.current = resolve;
+          setPendingDiff(diffs);
+        }),
         signal:   controller.signal,
         onUsage:  (usage: UsageData) => {
           reqUsage = usage;
-          const cost = calcCost(effectiveModel, usage);
+          const cost = calcCost(modelArg, usage);
           setSessionCost(prev => prev + cost);
           setSessionTokens(prev => prev + usage.promptTokens + usage.completionTokens);
         },
         language: appLanguage,
       });
+
+      let result;
+      try {
+        result = await runOnce(effectiveIntent, effectiveModel);
+      } catch (firstErr: any) {
+        const firstErrMsg = String(firstErr?.message ?? '');
+        const isTimeout = /timed out|timeout/i.test(firstErrMsg);
+        if (!isTimeout || controller.signal.aborted) throw firstErr;
+
+        const fallbackModel = agentConfigs.fix.modelId || ConfigService.resolveModel('fix') || effectiveModel;
+        const compactContextPack = hasComposerContext
+          ? [
+              'CONTEXT PACK (compact):',
+              ...composerContextItems.map((item, index) => `${index + 1}. [${item.source}] ${item.title}`),
+            ].join('\n')
+          : '';
+        const retryIntent = [
+          userPrompt || 'Continue with selected context.',
+          buildPreferencesText,
+          compactContextPack,
+        ].filter(Boolean).join('\n\n');
+
+        addLog(`[Retry] Timeout on ${effectiveModel}. Retrying once with ${fallbackModel}.`, 'warn');
+        startTransition(() => updatePlan({ buildStatus: 'generating', streamingCode: '' }));
+        result = await runOnce(retryIntent, fallbackModel);
+      }
 
       if (result.status === 'cancelled') {
         addLog('[Generation] Cancelled by user');
@@ -1307,11 +1664,23 @@ export const useStudio = () => {
       }
 
       if (result.status === 'failed') {
-        addLog(`[GenerationPipeline] failed result returned: ${result.error ?? result.message}`);
-        chatPatchLast({
-          role: 'assistant',
-          type: 'text',
-          content: result.message || `❌ Ошибка: ${result.error ?? 'Generation failed'}`,
+        const failMsg = result.error ?? result.message ?? '';
+        commandBus.dispatch({ type: 'GENERATION_FAILED', error: failMsg });
+        const isParseFailure = /parse/i.test(failMsg) || failMsg.includes('No parseable');
+        if (isParseFailure) {
+          addLog('LLM returned invalid format — no parseable artifact found', 'error');
+        } else {
+          addLog(`[GenerationPipeline] failed: ${failMsg}`, 'error');
+        }
+        startTransition(() => {
+          chatPatchLast({
+            role: 'assistant',
+            type: 'text',
+            content: isParseFailure
+              ? '❌ **LLM returned invalid format.** The model response could not be parsed into code files. Please retry.'
+              : result.message || `❌ Ошибка: ${failMsg}`,
+            retryable: true,
+          });
         });
         setProgress(100);
         setCurrentPhase('');
@@ -1321,6 +1690,7 @@ export const useStudio = () => {
 
       // Success — reset error counter
       consecutiveErrors.current = 0;
+      commandBus.dispatch({ type: 'GENERATION_COMPLETE', result });
 
       // Progress bar — critical, applied immediately
       setProgress(100);
@@ -1336,6 +1706,29 @@ export const useStudio = () => {
           ? projectGraphToFileMap(result.graph)
           : optimisticFiles)
         ?? (result.operations.length > 0 ? applyOperations(files, result.operations) : files);
+
+      // ── Benchmark quality check ────────────────────────────────────────────
+      const benchmark = BenchmarkService.check(finalFiles, (result as any)?.plan);
+      addLog(`[Benchmark] Score: ${benchmark.score}/100`);
+      benchmark.warnings.forEach(w => addLog(`[Benchmark] ⚠ ${w}`));
+      if (!benchmark.passed) {
+        benchmark.blockers.forEach(b => addLog(`[Benchmark] ❌ ${b}`));
+        startTransition(() => {
+          chatAppend({
+            role: 'assistant',
+            type: 'text',
+            content: [
+              '❌ Generation quality check failed:',
+              ...benchmark.blockers.map(b => `• ${b}`),
+              '',
+              'Please try again or rephrase your prompt.',
+            ].join('\n'),
+          });
+        });
+        setCurrentPhase('');
+        setPreviewLifecycle('failed');
+        return;
+      }
 
       // Non-critical UI updates — startTransition lets React apply them as one batch
       // without intermediate renders that could leave the iframe in an inconsistent state.
@@ -1394,16 +1787,21 @@ export const useStudio = () => {
       // Files are written; now waiting for iframe-ready / iframe-error handshake.
       const severity = result.qualitySummary?.severity;
       if (severity === 'blocking') {
-        setPreviewLifecycle('blocked');
         const blockers = result.qualitySummary?.blockers ?? [];
-        chatAppend({
-          role: 'assistant',
-          content: `⚠️ Files were generated, but preview is blocked.\n\n${blockers.map(b => `• ${b}`).join('\n')}`,
+        const reason = blockers.join('; ') || 'Quality check failed';
+        setPreviewLifecycle('blocked');
+        setPreviewBlockedReason(reason);
+        startTransition(() => {
+          chatAppend({
+            role: 'assistant',
+            content: `⚠️ Files were generated, but preview is blocked.\n\n${blockers.map(b => `• ${b}`).join('\n')}`,
+          });
         });
-        addLog(`[Preview] Blocked: ${blockers.join('; ')}`);
+        addLog(`[Preview] Blocked: ${reason}`);
       } else {
         // Not blocking — wait for iframe handshake
         setPreviewLifecycle('committing');
+        setPreviewBlockedReason(null);
       }
 
       // Preview is handled by preview-app on port 3100 via Vite HMR.
@@ -1416,186 +1814,41 @@ export const useStudio = () => {
         planName: (result as any)?.plan?.appName,
         userPrompt: userPrompt?.slice(0, 50),
       });
+      const ideaTitle =
+        effectiveSource !== 'chat'
+          ? userPrompt.split(':')[0]?.trim()?.slice(0, 80)
+          : '';
       const projectTitle =
-        capturedAppName
+        ideaTitle
+        || capturedAppName
         || (result as any)?.planAppName
         || (result as any)?.plan?.appName
         || userPrompt?.slice(0, 40)
         || 'New Project';
-      let projectId = currentProjectId;
+      const projectId = currentProjectId ?? crypto.randomUUID();
 
-      // Pre-assign project record for new projects (genesis — no existing code files).
-      const isNewProject = Object.keys(filesSnapshot).filter(
-        k => /\.(tsx?|jsx?)$/.test(k) && !k.startsWith('_'),
-      ).length === 0;
-      if (isNewProject && !projectId) {
-        try {
-          const newProj = ProjectManager.create({
-            name:        projectTitle,
-            description: userPrompt.slice(0, 120),
-            theme:       result.planTheme ?? 'dark-slate',
-          });
-          ProjectManager.setCurrent(newProj.id);
-          projectId = newProj.id;
-          setCurrentProjectId(newProj.id);
-          addLog(`[Project] Created: ${newProj.name} (${newProj.id.slice(0, 8)}…)`);
-        } catch (projErr: unknown) {
-          // Storage full / limit reached — fall back to ephemeral UUID so billing still works
-          addLog(`[Project] ${(projErr as Error)?.message ?? 'Could not persist project'}`);
-          projectId = crypto.randomUUID();
-          setCurrentProjectId(projectId);
-        }
-      }
-
-      // ── Persist project billing (now that projectId is known) ────────────
-      if (reqUsage.promptTokens > 0 || reqUsage.completionTokens > 0) {
-        const reqCost   = calcCost(effectiveModel, reqUsage);
-        const reqTokens = reqUsage.promptTokens + reqUsage.completionTokens;
-        setProjectCost((prev: number) => {
-          const next = prev + reqCost;
-          const savedTokens = (loadBilling(projectId ?? '').tokens || 0) + reqTokens;
-          localStorage.setItem(`BILLING_${projectId}`, JSON.stringify({ cost: next, tokens: savedTokens }));
-          return next;
-        });
-        setProjectTokens((prev: number) => prev + reqTokens);
-      }
-
-      // ── Save / update project in ProjectStorage ───────────────────────────
-      if (Object.keys(finalFiles).length > 0 && projectId) {
-        const chatHistoryToSave: any[] = [
-          ...history,
-          { role: 'assistant' as const, content: result.message || '✓ Готово' },
-        ];
-        const existing = ProjectStorage.getProject(projectId);
-
-        // ── Revision management ──────────────────────────────────────────
-        const revisionPatch = {
-          prompt:     userPrompt,
-          source:     generationSource,
-          files:      finalFiles,
-          modelId:    effectiveModel,
-          durationMs: Date.now() - generationStartMs,
-          pagesCount: (result as any).plan?.pages?.length ?? 0,
+      if (Object.keys(finalFiles).length > 0) {
+        pendingProjectSaveRef.current = {
+          projectId,
+          projectTitle,
+          finalFiles,
+          chatHistoryToSave: [
+            ...history,
+            { role: 'assistant' as const, content: result.message || '✅ Готово' },
+          ],
+          userPrompt,
+          source: effectiveSource,
+          effectiveModel,
+          generationStartMs,
+          generationLogs: [...generationLogs],
+          generationErrors: [...generationErrors],
+          plan: ((result as any).plan ?? null) as ProjectPlan | null,
+          planTheme: result.planTheme ?? 'dark-slate',
+          reqUsage,
         };
-        let newRevisions: ProjectRevision[] | null = null;
-        if (existing) {
-          newRevisions = addRevision(existing, revisionPatch);
-          if (!newRevisions) {
-            // Limit reached — warn user but still save files
-            chatAppend({
-              role: 'assistant',
-              content: [
-                '\u26A0\uFE0F **Version limit reached**',
-                '',
-                `Project "${projectTitle}" already has 5 saved versions.`,
-                'Open the Projects page \u2192 select this project \u2192 History tab',
-                'to delete old versions before saving new ones.',
-                '',
-                'Your changes were applied to the preview but not saved as a new version.',
-              ].join('\n'),
-              timestamp: Date.now(),
-            });
-          }
-        }
-
-        if (existing) {
-          // Project record already exists (created above for genesis, or carried over from
-          // previous generation) — update files via ProjectManager and patch chatHistory.
-          try {
-            ProjectManager.saveFiles(projectId, { ...existing.files, ...finalFiles });
-          } catch (saveErr: unknown) {
-            addLog(`[Project] ${(saveErr as Error)?.message ?? 'File save failed'}`);
-          }
-          // chatHistory lives in StoredProject (outside ProjectManager.Project scope).
-          const afterFilesSave = ProjectStorage.getProject(projectId);
-          if (afterFilesSave) {
-            ProjectStorage.saveProject({
-              ...afterFilesSave,
-              chatHistory:    chatHistoryToSave,
-              updatedAt:      new Date().toISOString(),
-              intent:         userPrompt,
-              source:         generationSource,
-              plan:           (result as any).plan ?? afterFilesSave.plan ?? null,
-              logs:           generationLogs,
-              errors:         generationErrors.filter(e => e.includes('❌') || e.toLowerCase().includes('error')),
-              pagesCount:     (result as any).plan?.pages?.length ?? afterFilesSave.pagesCount ?? 0,
-              modelId:        effectiveModel,
-              durationMs:     Date.now() - generationStartMs,
-              generationMode,
-              billingCost:    projectCost,
-              billingTokens:  projectTokens,
-              revisions:      newRevisions ?? afterFilesSave.revisions,
-            });
-          }
-        } else {
-          // EDIT mode but no stored project record yet — create one via ProjectStorage directly.
-          const firstRevision: ProjectRevision = {
-            id:           crypto.randomUUID(),
-            prompt:       userPrompt,
-            source:       generationSource,
-            files:        finalFiles,
-            createdAt:    new Date().toISOString(),
-            modelId:      effectiveModel,
-            durationMs:   Date.now() - generationStartMs,
-            isBookmarked: false,
-            pagesCount:   (result as any).plan?.pages?.length ?? 0,
-          };
-          const fallback: StoredProject = {
-            id:             projectId,
-            name:           projectTitle,
-            description:    userPrompt.slice(0, 120),
-            theme:          result.planTheme ?? 'dark-slate',
-            createdAt:      new Date().toISOString(),
-            updatedAt:      new Date().toISOString(),
-            files:          finalFiles,
-            chatHistory:    chatHistoryToSave,
-            intent:         userPrompt,
-            source:         generationSource,
-            plan:           (result as any).plan ?? null,
-            logs:           generationLogs,
-            errors:         generationErrors.filter(e => e.includes('❌') || e.toLowerCase().includes('error')),
-            pagesCount:     (result as any).plan?.pages?.length ?? 0,
-            modelId:        effectiveModel,
-            durationMs:     Date.now() - generationStartMs,
-            generationMode,
-            billingCost:    projectCost,
-            billingTokens:  projectTokens,
-            revisions:      [firstRevision],
-          };
-          const ok = ProjectStorage.saveProject(fallback);
-          if (!ok) addLog('[Project] Storage full — project not saved');
-        }
-        setProjects(ProjectStorage.listProjects());
-
-        // ── Cloud save via ProjectRepository (non-blocking, Supabase) ─────────
-        const existingForCloud = ProjectStorage.getProject(projectId);
-        ProjectRepository.saveProject({
-          id:          projectId,
-          name:        projectTitle,
-          userId:      authUser?.id ?? 'anonymous',
-          description: userPrompt.slice(0, 120),
-          theme:       result.planTheme ?? 'dark-slate',
-          files:       existingForCloud?.files
-                         ? { ...existingForCloud.files, ...finalFiles }
-                         : finalFiles,
-          chatHistory: chatHistoryToSave,
-          createdAt:   existingForCloud?.createdAt ?? new Date().toISOString(),
-          updatedAt:   new Date().toISOString(),
-          version:     1,
-          // Extended metadata (v2) — forwarded to code_snapshot via ProjectRepository
-          intent:         userPrompt,
-          source:         generationSource,
-          plan:           (result as any).plan ?? null,
-          logs:           generationLogs,
-          errors:         generationErrors.filter(e => e.includes('❌') || e.toLowerCase().includes('error')),
-          pagesCount:     (result as any).plan?.pages?.length ?? 0,
-          modelId:        effectiveModel,
-          durationMs:     Date.now() - generationStartMs,
-          generationMode,
-          billingCost:    projectCost,
-          billingTokens:  projectTokens,
-          revisions:      existingForCloud?.revisions ?? [],
-        } as any).catch((err: any) => addLog(`[Project] Cloud save error: ${err}`));
+        pendingSavePromptShownRef.current = false;
+        addLog(`[Project] Save queued: waiting for preview (${projectTitle})`);
+        setComposerContextItems([]);
       }
 
     } catch (err: any) {
@@ -1611,16 +1864,43 @@ export const useStudio = () => {
         return;
       }
 
+      // Network error — auto-retry once after 3 s
+      const isNetworkError = err instanceof TypeError &&
+        /fetch|network|ERR_|failed to fetch/i.test(err.message ?? '');
+
+      if (isNetworkError && networkRetryCountRef.current < 1) {
+        networkRetryCountRef.current += 1;
+        addLog('Connection lost — retrying in 3 s…', 'error');
+        chatPatchLast({
+          role: 'assistant',
+          type: 'text',
+          content: '🔌 **Connection lost.** Retrying in 3 seconds…',
+        });
+        if (networkRetryTimeoutRef.current) clearTimeout(networkRetryTimeoutRef.current);
+        networkRetryTimeoutRef.current = setTimeout(() => {
+          networkRetryCountRef.current = 0;
+          _sendRef.current();
+        }, 3000);
+        setCurrentPhase('');
+        setPreviewLifecycle('failed');
+        return;
+      }
+
       // Real error — track for spam protection
       consecutiveErrors.current += 1;
       lastErrorTime.current = Date.now();
+      networkRetryCountRef.current = 0;
+      commandBus.dispatch({ type: 'GENERATION_FAILED', error: err?.message ?? 'Unknown error' });
 
       console.error('Studio Error:', err);
-      addLog(`❌ Ошибка #${consecutiveErrors.current}: ${err?.message ?? 'Неизвестная ошибка'}`);
+      addLog(`${isNetworkError ? 'Connection lost' : 'Error'} #${consecutiveErrors.current}: ${err?.message ?? 'Unknown error'}`, 'error');
       chatPatchLast({
         role: 'assistant',
         type: 'text',
-        content: `❌ Ошибка: ${err?.message ?? 'Проверь API Key.'}`,
+        content: isNetworkError
+          ? '🔌 **Connection lost.** Check your internet and retry.'
+          : `❌ Ошибка: ${err?.message ?? 'Проверь API Key.'}`,
+        retryable: true,
       });
       setCurrentPhase('');
       setPreviewLifecycle('failed');
@@ -1635,124 +1915,46 @@ export const useStudio = () => {
   const handleSend = useCallback(() => _sendRef.current(), []);
 
   // ── launchWithPlan ────────────────────────────────────────────────────────
-  const launchWithPlan = useCallback(async (plan: ProjectPlan, intent: string, source?: 'chat' | 'weekly-feed' | 'niche') => {
-    setGenerationSource(source ?? 'weekly-feed');
-    const effectiveApiKey = ConfigService.getKeyForAgent('primary') || apiKey;
-    if (!effectiveApiKey) {
-      alert('Добавь API Key в настройках!');
-      setShowSettings(true);
-      return;
-    }
-    if (isGenerating) return;
-
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setIsGenerating(true);
-    setProgress(5);
-    setCurrentPhase('think');
-    setPreviewLifecycle('generating');
-    addLog('─'.repeat(40));
-
-    // Show user prompt in chat so the conversation has context
-    chatAppend({ role: 'user', content: intent, timestamp: Date.now() });
-
-    // Add chat context
+  // Unified UX: external idea sources enrich chat context; generation starts
+  // only when user sends from the chat composer.
+  const launchWithPlan = useCallback(async (
+    plan: ProjectPlan,
+    intent: string,
+    source?: 'chat' | 'weekly-feed' | 'niche',
+  ) => {
+    const mappedSource: 'weekly-feed' | 'niche' | 'dashboard' =
+      source === 'niche' ? 'niche' : source === 'weekly-feed' ? 'weekly-feed' : 'dashboard';
+    addComposerContextFromPlan(plan, intent, mappedSource);
     addSystemMessage(
-      `🚀 Запускаю **${plan.appName}** из банка идей.\n\nArchitect пропущен — план уже готов на основе актуальных рыночных данных.`,
+      `🧩 Context added: **${plan.appName || 'Imported idea'}**. Review and press Send to generate with this context pack.`,
     );
-
-    const effectiveModel = ConfigService.resolveModel('primary');
-    let optimisticFiles: FileMap | null = null;
-    const filesSnapshot = { ...files };
-
-    try {
-      const result = await GenerationPipeline.run({
-        intent,
-        history:  messages,
-        files:    filesSnapshot,
-        apiKey:   effectiveApiKey,
-        modelId:  effectiveModel,
-        fixModelId: agentConfigs.fix.modelId || ConfigService.resolveModel('fix'),
-        singlePageSafeMode: Object.keys(files).length === 0,
-        generationMode: 'app',
-        prebuiltPlan: plan,
-        onStream: (streamText) => {
-          chatPatchLast({ role: 'assistant', content: streamText || '...' });
-        },
-        onFiles: (ops: FileOperation[]) => {
-          const base = optimisticFiles ?? filesSnapshot;
-          const applied = applyOperations(base, ops);
-          optimisticFiles = applied;
-          setFilesRaw(applied);
-          const first = ops.find(o => o.op !== 'delete');
-          if (first && 'name' in first) setActiveFile((first as { name: string }).name);
-        },
-        onPhase: (event: PhaseEvent) => {
-          setProgress(event.progress);
-          setCurrentPhase(event.phase);
-        },
-        onLog:  addLog,
-        onPlan: (steps) => {
-          if (steps.length > 1) {
-            addLog(`[PLAN] ${steps.length} steps identified:`);
-            steps.forEach((step, i) => addLog(`  ${i + 1}. ${step}`));
-          }
-        },
-        signal: controller.signal,
-      });
-
-      if (result.status !== 'failed') {
-        const finalFiles = result.graph.files.length > 0
-          ? projectGraphToFileMap(result.graph)
-          : (optimisticFiles ?? filesSnapshot);
-        setFilesRaw(finalFiles);
-        setProjectGraph(result.graph);
-        addSnapshot(finalFiles, plan.appName);
-        chatPatchLast({ role: 'assistant', content: result.message || '✓ Готово' });
-        // Preview lifecycle — files written, waiting for iframe handshake
-        const severity = result.qualitySummary?.severity;
-        if (severity === 'blocking') {
-          setPreviewLifecycle('blocked');
-          chatAppend({
-            role: 'assistant',
-            content: `⚠️ Files were generated, but preview is blocked.\n\n${(result.qualitySummary?.blockers ?? []).map(b => `• ${b}`).join('\n')}`,
-          });
-        } else {
-          setPreviewLifecycle('committing');
-        }
-      } else {
-        setPreviewLifecycle('failed');
-        addLog(`[launchWithPlan] failed: ${result.error ?? result.message}`);
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        addLog('[launchWithPlan] aborted by user');
-      } else {
-        addLog(`[launchWithPlan] error: ${err}`);
-      }
-    } finally {
-      abortControllerRef.current = null;
-      setIsGenerating(false);
-      setTimeout(() => setProgress(0), 1200);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKey, isGenerating, files, messages, agentConfigs, addLog, addSystemMessage, addSnapshot]);
+  }, [addComposerContextFromPlan, addSystemMessage]);
 
   const onSettings = useCallback(() => setShowSettings(true), []);
 
   const confirmPlan = useCallback(() => {
-    planDecisionRef.current = true;
-    setPendingPlan(null);
-  }, []);
+    commandBus.dispatch({ type: 'ACCEPT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
+  }, [pendingPlan]);
 
   const cancelPlan = useCallback(() => {
-    planDecisionRef.current = false;
-    setPendingPlan(null);
-    // Remove blueprint message from chat
-    chatRemoveByType('blueprint');
-  }, [chatRemoveByType]);
+    commandBus.dispatch({ type: 'REJECT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
+  }, [pendingPlan]);
+
+  const approveDiff = useCallback((selectedPaths: string[]) => {
+    if (diffResolverRef.current) {
+      diffResolverRef.current(selectedPaths);
+      diffResolverRef.current = null;
+    }
+    setPendingDiff(null);
+  }, []);
+
+  const rejectDiff = useCallback(() => {
+    if (diffResolverRef.current) {
+      diffResolverRef.current(false);
+      diffResolverRef.current = null;
+    }
+    setPendingDiff(null);
+  }, []);
 
   // Resolve the waitForConfirmation promise AFTER React has committed the
   // pendingPlan cleanup.  pendingPlan === null is the commit signal.
@@ -1778,8 +1980,34 @@ export const useStudio = () => {
         planResolverRef.current = null;
         planDecisionRef.current = null;
       }
+      if (diffResolverRef.current) {
+        diffResolverRef.current(false);
+        diffResolverRef.current = null;
+      }
     };
   }, []);
+
+  // ── useStudioCommands — CommandBus → React state bridge ─────────────────
+  useEffect(() => {
+    const unsubs = [
+      commandBus.subscribe('ACCEPT_BLUEPRINT', () => {
+        planDecisionRef.current = true;
+        requestAnimationFrame(() => setPendingPlan(null));
+      }),
+      commandBus.subscribe('REJECT_BLUEPRINT', () => {
+        planDecisionRef.current = false;
+        requestAnimationFrame(() => {
+          setPendingPlan(null);
+          chatRemoveByType('blueprint');
+        });
+      }),
+      // State machine — mirror every command into read-only machineState
+      commandBus.subscribeAll((cmd) => {
+        setMachineState(prev => transition(prev, cmd));
+      }),
+    ];
+    return () => unsubs.forEach(fn => fn());
+  }, [chatRemoveByType]);
 
   const studioMemo = useMemo(() => ({
     isGenerating,
@@ -1792,10 +2020,14 @@ export const useStudio = () => {
     projects, currentProjectId, currentProject, snapshots,
     fullContextMode, setFullContextMode,
     selectedModel, setSelectedModel,
-    currentVersion, totalVersions,
+    // Canonical snapshot-layer names
+    snapshotIndex, snapshotCount, lastStableSnapshotIndex,
+    // Deprecated aliases (backward compat for existing consumers)
+    currentVersion, totalVersions, lastStableVersion,
     currentSnapshotId, historyIndex,
     logs, addLog, clearLogs, downloadLogs,
     attachments, addAttachment, removeAttachment, clearAttachments,
+    composerContextItems, addComposerContextFromPlan, removeComposerContextItem, clearComposerContextItems,
     handleSend,
     onSend: handleSend,
     launchWithPlan,
@@ -1814,6 +2046,7 @@ export const useStudio = () => {
     restoreSnapshot,
     onRestoreSnapshot: restoreSnapshot,
     markSnapshotStable,
+    rollbackToStable,
     clearSnapshots,
     stableSnapshotId,
     undo,
@@ -1830,6 +2063,8 @@ export const useStudio = () => {
     // generation mode
     generationMode, setGenerationMode,
     generationSource, setGenerationSource,
+    designClassification,
+    classifyAndStore,
     // language
     appLanguage, setAppLanguage,
     // billing
@@ -1860,16 +2095,23 @@ export const useStudio = () => {
     isAutoFixing,
     // preview lifecycle — honest completion handshake
     previewLifecycle,
+    previewBlockedReason,
     // blueprint confirmation
     pendingPlan, confirmPlan, cancelPlan,
+    // diff review
+    pendingDiff, approveDiff, rejectDiff,
+    // state machine (read-only)
+    studioPhase: machineState.phase,
+    studioError: machineState.error ?? null,
   }), [
     // state — re-memoize only when actual data changes
     // messages/input intentionally excluded — returned directly below
     files, activeFile, theme, apiKey, selectedModel,
-    isGenerating, device, progress, currentPhase, fullContextMode, autoRoute, generationMode, previewLifecycle,
+    isGenerating, device, progress, currentPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, machineState,
+    designClassification,
     projectGraph,
     snapshots, historyIndex, currentProjectId, currentProject, currentSnapshotId, stableSnapshotId,
-    projects, showSettings, logs, attachments,
+    projects, showSettings, logs, attachments, composerContextItems,
     sessionCost, sessionTokens, projectCost, projectTokens,
     appLanguage,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1880,14 +2122,15 @@ export const useStudio = () => {
     targetMarket, auditStrictness,
     engineApiKey, engineModelId, engineStatus, engineResult,
     componentRegistry,
-    pendingPlan,
+    pendingPlan, pendingDiff,
     // stable callbacks (useCallback — listed for ESLint correctness, never change)
     setInput, setDevice, setTheme, setApiKey, setSelectedModel, setFullContextMode, setAutoRoute, setGenerationMode,
-    setActiveFile, addSnapshot, restoreSnapshot, undo, redo, clearSnapshots, markSnapshotStable,
+    setActiveFile, addSnapshot, restoreSnapshot, undo, redo, clearSnapshots, markSnapshotStable, rollbackToStable,
     addLog, clearLogs, downloadLogs,
     addAttachment, removeAttachment, clearAttachments,
+    addComposerContextFromPlan, removeComposerContextItem, clearComposerContextItems,
     createNewProject, createProject, switchProject, loadProject, deleteProject, refreshProjects, stopGeneration,
-    handleSend, launchWithPlan, publishProject,
+    handleSend, launchWithPlan, publishProject, classifyAndStore,
     onSettings, setShowSettings,
     addFigmaAccount, removeFigmaAccount, refreshFigmaAccounts, validateFigmaLink,
     setEngineApiKey, setEngineModelId, setAgentConfig,
@@ -1895,6 +2138,7 @@ export const useStudio = () => {
     saveFigmaProject, loadFigmaProject, deleteFigmaProject, markFigmaProjectSynced, clearFigmaSync,
     setAppLanguage, setFigmaLink, setTargetMarket, setAuditStrictness,
     confirmPlan, cancelPlan,
+    approveDiff, rejectDiff,
   ]);
 
   // messages / input / setInput returned directly (not memoized) so their

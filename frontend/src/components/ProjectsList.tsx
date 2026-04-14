@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import type { ProjectMeta } from '../services/ProjectManager';
+import type { ProjectMetaLegacy } from '../services/ProjectManager';
 
 interface ProjectsListProps {
-  projects:         ProjectMeta[];
+  projects:         ProjectMetaLegacy[];
   currentProjectId: string | null;
   onSwitch:         (id: string) => void;
   onDelete:         (id: string) => void;

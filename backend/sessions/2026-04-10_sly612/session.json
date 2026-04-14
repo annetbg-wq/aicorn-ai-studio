@@ -1,0 +1,35 @@
+{
+  "sessionId": "2026-04-10_sly612",
+  "projectSummary": {
+    "idea": "",
+    "stack": "",
+    "implementedFeatures": [],
+    "currentVersion": "v1",
+    "knownIssues": [],
+    "lastUpdated": "2026-04-10T23:59:38.461Z"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "Reply with exactly OK"
+    },
+    {
+      "role": "assistant",
+      "content": "OK\n"
+    }
+  ],
+  "fullHistory": [
+    {
+      "role": "user",
+      "content": "Reply with exactly OK"
+    },
+    {
+      "role": "assistant",
+      "content": "OK\n"
+    }
+  ],
+  "model": "claude-sonnet-4-6",
+  "createdAt": "2026-04-10T23:59:11.440Z",
+  "updatedAt": "2026-04-10T23:59:38.462Z",
+  "requestCount": 1
+}

@@ -56,25 +56,13 @@ Implement:
 
 <!--FILE:/App.tsx-->
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { HomePage } from './pages/HomePage';
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-      </Routes>
-    </BrowserRouter>
+    <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
+      <h1>App ready</h1>
+    </main>
   );
-}
-<!--/FILE-->
-
-<!--FILE:/pages/HomePage.tsx-->
-import React from 'react';
-
-export function HomePage() {
-  return <div>Home</div>;
 }
 <!--/FILE-->
 
@@ -246,57 +234,14 @@ IMPORTANT FOR MULTI-FILE:
 - File order does not matter for React/TSX module loading; every file must explicitly export/import what it uses
 
 ══════════════════════════════════════════════════════
-  MULTI-PAGE APPS
+  MULTI-SCREEN APPS
 ══════════════════════════════════════════════════════
 
-When building apps with multiple pages/screens:
+When the requested product needs multiple screens:
 
-REQUIRED structure:
-- App.tsx — contains BrowserRouter + Routes (entry point, export default)
-- src/pages/Home.tsx — export default function Home()
-- src/pages/About.tsx — export default function About()
-- (any page files the app needs)
-
-REQUIRED pattern in App.tsx:
-<!--FILE:App.tsx-->
-import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import Home from './src/pages/Home';
-import About from './src/pages/About';
-
-export default function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/about" element={<About />} />
-      </Routes>
-    </BrowserRouter>
-  );
-}
-<!--/FILE-->
-<!--FILE:src/pages/Home.tsx-->
-import React from 'react';
-import { Link } from 'react-router-dom';
-
-export default function Home() {
-  return (
-    <div>
-      <h1>Home</h1>
-      <Link to="/about">About</Link>
-    </div>
-  );
-}
-<!--/FILE-->
-
-Navigation between pages:
-import { Link } from 'react-router-dom';
-<Link to="/about">About</Link>
-
-Programmatic navigation:
-import { useNavigate } from 'react-router-dom';
-const navigate = useNavigate();
-navigate('/about');
+- Use \`react-router-dom\` with route names/paths that match the product domain.
+- Do NOT force generic \`Home/About\` scaffolds.
+- Router is optional for single-screen apps.
 
 CRITICAL PATTERN — BrowserRouter must wrap the tree ABOVE any component
 that calls useLocation, useNavigate, useParams, or useMatch.
@@ -335,11 +280,12 @@ NEVER use:
 Multi-file output: use <!--FILE:/path--> for each file.
 
 ══════════════════════════════════════════════════════
-  ARCHITECTURE — MULTI-FILE DEFAULT
+  ARCHITECTURE — CONTRACT
 ══════════════════════════════════════════════════════
 
-Multi-file is the default. App.tsx is orchestration-only (BrowserRouter + Routes).
-Every component and page lives in its own file under components/ or pages/.
+Multi-file architecture is preferred for non-trivial apps.
+App.tsx should stay composition-focused and avoid becoming a giant monolith.
+Choose routing only when the requested UX actually needs route transitions.
 
 ══════════════════════════════════════════════════════
   BUILDER MODULE v2 — SYSTEM INTEGRATOR ENGINE
@@ -781,13 +727,13 @@ class PromptRegistry {
   setPrompt(agent: AgentName, prompt: string): void {
     const all = this.getAll();
     all[agent] = prompt;
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(all));
+    try { localStorage.setItem(this.STORAGE_KEY, JSON.stringify(all)); } catch { /* quota */ }
   }
 
   resetPrompt(agent: AgentName): void {
     const all = this.getAll();
     delete all[agent];
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(all));
+    try { localStorage.setItem(this.STORAGE_KEY, JSON.stringify(all)); } catch { /* quota */ }
   }
 
   isModified(agent: AgentName): boolean {

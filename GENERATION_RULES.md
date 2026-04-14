@@ -10,10 +10,10 @@
 - `export default function App()` is **required** in App.tsx.
 
 ## Architecture
-- **Multi-file is the default.** App.tsx is orchestration-only (BrowserRouter + Routes).
-- Every component and page lives in its own file under `components/` or `pages/`.
-- Multi-page routing uses `react-router-dom` (BrowserRouter, Routes, Route, Link, useNavigate).
-- `useState`-based navigation is NOT a substitute for react-router-dom.
+- Architecture must follow the requested product shape (single-screen, multi-screen, wizard, dashboard, etc.).
+- Do **not** force a canned `Home/About` structure or router boilerplate when the request does not require it.
+- For multi-screen flows, use `react-router-dom`; for single-screen flows, router is optional.
+- Keep `App.tsx` minimal and composition-focused; place feature UI in dedicated files when that improves clarity.
 
 ## Heuristic checker (Orchestrator.heuristicCheck)
 Only flags real JSX errors:
@@ -30,6 +30,7 @@ Only performs safe, non-destructive fixes:
 Intentionally does NOT strip: imports, exports, TypeScript.
 
 ## Preview runtime compatibility
-- `_bootstrap.tsx` discovers the default export from App.tsx via ESM import.
-- `routes.json` is a manifest stored alongside source files; it is NOT used to control bootstrap.
-- BrowserRouter in App.tsx handles all SPA routing — the sandbox has a catch-all fallback.
+- `preview-app` is a **shell-only runtime** and must stay neutral.
+- `preview-app/src/App.tsx` is baseline shell UI only (no demo pages, no baked-in app routing).
+- Generated source written into preview is the only UI authority for the mounted app.
+- Build readiness is signaled by `preview-mounted` with a matching `buildId`.

@@ -46,7 +46,24 @@
       "Bash(node -e \":*)",
       "Bash(grep -n \"SandpackView\\\\|SandpackPreview\" c:/ai_studio/frontend/src/**/*.tsx)",
       "Bash(grep -n \"PreviewCanvas\" c:/ai_studio/frontend/src/**/*.tsx)",
-      "Bash(echo \"Exit: $?\")"
+      "Bash(echo \"Exit: $?\")",
+      "Bash(find \"c:\\\\ai_studio\\\\frontend\\\\src\" -name \"*.tsx\" -exec grep -l \"React.memo\" {} \\\\;)",
+      "Bash(npx vitest:*)",
+      "Bash(where.exe claude:*)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(node -e \"const {tmpdir}=require\\('os'\\); console.log\\(tmpdir\\(\\)\\)\")",
+      "Bash(powershell.exe -NoProfile -Command '[System.Environment]::Version; $PSVersionTable.PSVersion')",
+      "Bash(codex --help)",
+      "Bash(where.exe codex:*)",
+      "Bash(\"C:/Users/Pavel Kornilov/AppData/Roaming/npm/claude.cmd\" --version)",
+      "Bash(node -e \"const {spawnSync}=require\\('child_process'\\); const r=spawnSync\\('C:/Users/Pavel Kornilov/AppData/Local/Programs/cursor/resources/app.asar.unpacked/node_modules/.bin/codex',['exec','--help'],{encoding:'utf8',shell:false,timeout:6000}\\); console.log\\(r.stdout||r.stderr||r.error\\)\")",
+      "Bash(ls c:/ai_studio/backend/*.json)",
+      "Bash(ls c:/ai_studio/*.json)",
+      "Bash(node -e \"require\\('./backend/auth-token.ts'\\)\")",
+      "Bash(npx ts-node:*)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(powershell -Command \"Get-Content 'c:\\\\ai_studio\\\\preview-app\\\\src\\\\__build_id.ts'\")",
+      "Bash(echo \"FRONTEND_EXIT=$?\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\Pavel Kornilov\\.claude\\projects\\c--ai-studio"

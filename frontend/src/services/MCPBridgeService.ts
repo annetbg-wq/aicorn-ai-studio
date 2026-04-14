@@ -80,6 +80,34 @@ function extractComponents(allCode: string): CanvasComponent[] {
   return result;
 }
 
+// ── Push delta types ──────────────────────────────────────────────────────────
+
+export interface FileDelta {
+  path:    string;
+  status:  'added' | 'modified' | 'unchanged';
+  oldSize: number;    // byte count before push
+  newSize: number;    // byte count current
+  snippet: string;    // first 200 chars of current content
+}
+
+export interface PushDiff {
+  deltas:         FileDelta[];
+  changedCount:   number;
+  addedCount:     number;
+  unchangedCount: number;
+  totalFiles:     number;
+}
+
+const LAST_PUSHED_KEY = 'MCP_LAST_PUSHED_FILES';
+
+function hashContent(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  }
+  return h;
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 export const MCPBridgeService = {
@@ -202,5 +230,76 @@ export const MCPBridgeService = {
     a.download = `canvas-manifest-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  },
+
+  /**
+   * Compare current files against the last-pushed snapshot to produce a delta.
+   * Used in Push Delta mode to show the user what changed before pushing.
+   */
+  buildPushDiff(currentFiles: FileMap): PushDiff {
+    const lastPushed = this.getLastPushedFiles();
+    const deltas: FileDelta[] = [];
+
+    const allPaths = new Set([...Object.keys(currentFiles), ...Object.keys(lastPushed)]);
+
+    for (const path of allPaths) {
+      const current = currentFiles[path] ?? '';
+      const previous = lastPushed[path] ?? '';
+      if (!current) continue; // file deleted — skip
+
+      const status: FileDelta['status'] =
+        !previous         ? 'added' :
+        hashContent(current) !== hashContent(previous) ? 'modified' :
+        'unchanged';
+
+      deltas.push({
+        path,
+        status,
+        oldSize: previous.length,
+        newSize: current.length,
+        snippet: current.slice(0, 200).replace(/\s+/g, ' '),
+      });
+    }
+
+    deltas.sort((a, b) => {
+      const order = { modified: 0, added: 1, unchanged: 2 };
+      return order[a.status] - order[b.status];
+    });
+
+    return {
+      deltas,
+      changedCount:   deltas.filter(d => d.status === 'modified').length,
+      addedCount:     deltas.filter(d => d.status === 'added').length,
+      unchangedCount: deltas.filter(d => d.status === 'unchanged').length,
+      totalFiles:     deltas.length,
+    };
+  },
+
+  /** Persist the current file state as the "last pushed" baseline. */
+  markPushed(files: FileMap): void {
+    try {
+      localStorage.setItem(LAST_PUSHED_KEY, JSON.stringify(files));
+    } catch { /* quota */ }
+  },
+
+  /** Load the last-pushed file snapshot from localStorage. */
+  getLastPushedFiles(): FileMap {
+    try {
+      const raw = localStorage.getItem(LAST_PUSHED_KEY);
+      return raw ? (JSON.parse(raw) as FileMap) : {};
+    } catch {
+      return {};
+    }
+  },
+
+  /** True if there are any changed/added files vs last push. */
+  hasPendingChanges(files: FileMap): boolean {
+    const last = this.getLastPushedFiles();
+    if (Object.keys(last).length === 0) return true; // never pushed
+    for (const [path, content] of Object.entries(files)) {
+      const prev = last[path] ?? '';
+      if (hashContent(content) !== hashContent(prev)) return true;
+    }
+    return false;
   },
 };

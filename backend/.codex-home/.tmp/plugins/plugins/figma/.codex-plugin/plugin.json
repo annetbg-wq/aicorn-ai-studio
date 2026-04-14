@@ -1,0 +1,47 @@
+{
+  "name": "figma",
+  "version": "2.0.7",
+  "description": "Plugin that includes the Figma MCP server and Skills for common workflows.",
+  "author": {
+    "name": "Figma",
+    "url": "https://www.figma.com"
+  },
+  "homepage": "https://github.com/figma/mcp-server-guide",
+  "repository": "https://github.com/figma/mcp-server-guide",
+  "license": "LicenseRef-Figma-Developer-Terms",
+  "keywords": [
+    "figma",
+    "design-to-code",
+    "ui-implementation",
+    "code-connect",
+    "design-system"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks.json",
+  "apps": "./.app.json",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Figma",
+    "shortDescription": "Design-to-code workflows powered by Figma MCP",
+    "longDescription": "Figma workflows for implementing designs in code, creating Code Connect templates and mappings, generating or updating Figma designs, building design system libraries, and creating project-specific design system rules with the official Figma MCP server.",
+    "developerName": "Figma",
+    "category": "Design",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://www.figma.com",
+    "privacyPolicyURL": "https://www.figma.com/legal/privacy/",
+    "termsOfServiceURL": "https://www.figma.com/legal/developer-terms/",
+    "defaultPrompt": [
+      "Inspect a Figma design and implement it in code",
+      "Create Code Connect templates for my components",
+      "Build or update a screen in Figma"
+    ],
+    "brandColor": "#0D99FF",
+    "composerIcon": "./assets/figma-small.svg",
+    "logo": "./assets/figma.png",
+    "screenshots": []
+  }
+}

@@ -21,7 +21,7 @@ import type { StoredProject } from './ProjectStorage';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
-export interface ProjectMeta {
+export interface ProjectMetaLegacy {
   id:          string;
   name:        string;
   theme:       string;
@@ -32,7 +32,7 @@ export interface ProjectMeta {
 }
 
 /** Full project — files but NOT chatHistory (that lives in ProjectStorage). */
-export interface Project extends ProjectMeta {
+export interface Project extends ProjectMetaLegacy {
   files: Record<string, string>;
 }
 
@@ -47,7 +47,7 @@ export class ProjectManager {
   // ── Read ────────────────────────────────────────────────────────────────────
 
   /** All projects (metadata only, no files — fast). */
-  static getAll(): ProjectMeta[] {
+  static getAll(): ProjectMetaLegacy[] {
     return ProjectStorage.listProjects();
   }
 
@@ -79,7 +79,7 @@ export class ProjectManager {
    * Throws if the 20-project limit is reached or localStorage is full.
    */
   static create(
-    meta: Omit<ProjectMeta, 'id' | 'createdAt' | 'updatedAt'>,
+    meta: Omit<ProjectMetaLegacy, 'id' | 'createdAt' | 'updatedAt'>,
   ): Project {
     const all = this.getAll();
     if (all.length >= MAX_PROJECTS) {

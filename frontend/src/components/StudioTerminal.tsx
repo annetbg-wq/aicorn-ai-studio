@@ -72,17 +72,13 @@ export const StudioTerminal: React.FC<StudioTerminalProps> = ({
   return (
     <div
       style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: isMinimized ? 40 : 220,
+        width: '100%',
+        height: '100%',
         background: '#050505',
         borderTop: '1px solid rgba(255,255,255,0.1)',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: 50,
-        transition: 'height 0.2s ease',
+        overflow: 'hidden',
       }}
     >
       {/* Header */}

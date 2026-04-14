@@ -1,0 +1,73 @@
+{
+  "technicalBlueprint": {
+    "appShell": {
+      "routingStrategy": "Single-page app using react-router with only the root path `/`; fallback route redirects to `/` to keep the shell deterministic.",
+      "stateStrategy": "No shared context required; keep any temporary UI flags (e.g., loading placeholders while fetching future data) inside `App.tsx` with `useState` so later expansion can lift state upward if needed.",
+      "persistenceStrategy": "Persistence not required; do not touch `localStorage` until the product plan specifies actual data to store.",
+      "guardStrategy": "No guards or auth gates; render content immediately because the plan does not define gated flows."
+    },
+    "fileStructure": [
+      {
+        "file": "src/App.tsx",
+        "purpose": "Owns the entire UI: applies dark-slate theme via root container classes, renders the descriptive Card copy, and places Button/Input placeholders referenced by the plan."
+      },
+      {
+        "file": "src/index.tsx",
+        "purpose": "Bootstraps React, mounts the Router, and ensures global CSS/theme tokens are available."
+      },
+      {
+        "file": "src/theme.css",
+        "purpose": "Holds dark-slate palette tokens (background, surface, text) so `App.tsx` can use semantic class names."
+      }
+    ],
+    "componentContracts": [
+      {
+        "file": "src/App.tsx",
+        "responsibility": "Entire experience: load the single route, apply the dark-slate aesthetic, and render the descriptive content the plan calls “Продолжи.”",
+        "mustRender": [
+          "Full-viewport container with dark-slate background",
+          "Card highlighting the app description text (“Продолжи”) and target user (“General user”)",
+          "Input field (shadcn Input) ready for future expansion but currently inert",
+          "Primary Button (shadcn Button) visually anchored under the Input",
+          "Optional Home icon near the title to reflect the icon list"
+        ],
+        "uses": [
+          "react-router-dom `Routes`/`Route` to render the single page",
+          "shadcn/ui `Card`, `CardHeader`, `CardContent`, `Input`, `Button`",
+          "lucide-react `Home` icon or equivalent set listed in the plan"
+        ],
+        "localState": [
+          "Placeholder `inputValue` state (string) so the Input is controlled even without business logic",
+          "Optional `isReady` boolean if we later need to gate rendering until theme tokens load; default true for now"
+        ],
+        "sideEffects": [
+          "None initially; component simply renders static content with controlled input"
+        ]
+      }
+    ],
+    "dataFlow": {
+      "entities": [],
+      "seedData": {
+        "needed": false,
+        "variable": "",
+        "notes": ""
+      }
+    },
+    "criticalPaths": [
+      {
+        "name": "Initial render",
+        "steps": [
+          "Router loads `/` and mounts `App.tsx`",
+          "App applies dark-slate container classes and displays the Card copy",
+          "User focuses the Input (controlled by local state but no submission yet)",
+          "Button remains visually primary but does not trigger business logic until plan expands"
+        ]
+      }
+    ],
+    "implementationRisks": [
+      "Plan omits concrete interactions; keep Button/Input wired but inert to avoid inventing flows.",
+      "Dark-slate theme tokens must ship before component render to prevent flash of unstyled light theme.",
+      "Homeless assets (Home icon, shadcn components) must be imported from consistent libraries to avoid bundle bloat when the plan scales."
+    ]
+  }
+}

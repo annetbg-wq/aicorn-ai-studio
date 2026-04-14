@@ -318,6 +318,30 @@ export class ExportAdapter {
   }
 
   /**
+   * downloadZipFromFileTree() — trigger browser download of a ZIP archive
+   * directly from an ExportFileTree (path → content map), without requiring
+   * a full ProjectGraph.
+   *
+   * Use this when you already have a flat file map (e.g. from a revision
+   * snapshot or when calling from ExportService).
+   *
+   * @param fileTree  path → UTF-8 content map
+   * @param zipName   Base name without extension
+   */
+  static downloadZipFromFileTree(fileTree: ExportFileTree, zipName: string): void {
+    const zipBytes = ExportAdapter._buildZip(fileTree);
+    ExportAdapter._triggerDownload(zipBytes, `${zipName}.zip`, 'application/zip');
+  }
+
+  /**
+   * buildZipBytes() — build ZIP bytes from an ExportFileTree without triggering
+   * a browser download.  Useful for upload flows (Vercel, GitHub).
+   */
+  static buildZipBytes(fileTree: ExportFileTree): Uint8Array {
+    return ExportAdapter._buildZip(fileTree);
+  }
+
+  /**
    * downloadZip() — trigger browser download of a ZIP archive.
    *
    * Uses a minimal RFC 4.4 STORE encoder — no external dependencies.

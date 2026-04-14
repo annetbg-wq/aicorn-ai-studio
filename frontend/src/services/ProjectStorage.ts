@@ -4,6 +4,15 @@
  * Full project (aic-proj-{id}): complete StoredProject including files + chatHistory.
  */
 
+import { scanBeforePreviewLoad } from './projectCorruptionScan';
+import {
+  clearPreview,
+  writeBatch,
+  writeBuildMarker,
+  writeFile,
+} from './PreviewWriteGateway';
+import type { ProjectMeta } from '../shared/projectModel';
+
 export interface ProjectRevision {
   id:           string;    // crypto.randomUUID()
   prompt:       string;    // prompt for this iteration
@@ -42,7 +51,8 @@ export interface StoredProject {
   revisions?:      ProjectRevision[];              // max 5, newest first
 }
 
-export type ProjectMeta = Omit<StoredProject, 'files' | 'chatHistory' | 'logs' | 'plan' | 'revisions'>;
+// ProjectMeta is the canonical type — re-exported from shared/projectModel.ts.
+export type { ProjectMeta } from '../shared/projectModel';
 
 export class ProjectStorage {
   private static readonly META_KEY = 'aic-project-meta';
@@ -97,9 +107,9 @@ export class ProjectStorage {
 
   /** Deletes a project and removes it from the meta index. */
   static deleteProject(id: string): void {
-    localStorage.removeItem(`aic-proj-${id}`);
+    try { localStorage.removeItem(`aic-proj-${id}`); } catch { /* ignore */ }
     const meta = this.listProjects().filter(m => m.id !== id);
-    localStorage.setItem(this.META_KEY, JSON.stringify(meta));
+    try { localStorage.setItem(this.META_KEY, JSON.stringify(meta)); } catch { /* ignore */ }
   }
 
   /**
@@ -107,22 +117,29 @@ export class ProjectStorage {
    * 1. Clearing old generated files via /__clear_preview
    * 2. Writing the project theme to index.css
    * 3. Writing all project files via /__write_preview (parallel batches)
+   * 4. (Optional) Writing __build_id.ts LAST so the preview-app HMR accept hook
+   *    posts a `preview-mounted` message tied to this build cycle.
    */
-  static async loadToPreview(project: StoredProject): Promise<void> {
-    const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
-      const timer = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Preview bridge timeout after ${ms}ms`)), ms),
-      );
-      return Promise.race([promise, timer]);
+  static async loadToPreview(project: StoredProject, buildId?: string): Promise<void> {
+    // ── Pre-load corruption scan ─────────────────────────────────
+    // Detects artifact-envelope JSON and other corruption BEFORE any
+    // preview writes. If critical corruption found, abort the load
+    // entirely — preserving whatever is currently in preview (last-good).
+    const scan = scanBeforePreviewLoad(project.id, project.files ?? {}, 'ProjectStorage.loadToPreview');
+    if (!scan.safe) {
+      const msg = `[ProjectStorage] Blocked corrupted project load: ${scan.reason}`;
+      console.error(msg, scan.findings);
+      throw new Error(msg);
+    }
+
+    const gwOpts = {
+      source: 'ProjectStorage.loadToPreview',
+      buildId,
+      projectId: project.id,
     };
 
     // Step 1: Clear old files
-    await withTimeout(
-      fetch('/__clear_preview', { method: 'POST' }).then(r => {
-        if (!r.ok) throw new Error(`clear_preview failed: ${r.status}`);
-      }),
-      5000,
-    );
+    await clearPreview(gwOpts);
 
     // Step 2: Apply theme (best-effort — don't block on failure)
     if (project.theme) {
@@ -150,37 +167,28 @@ export class ProjectStorage {
               '  -webkit-font-smoothing: antialiased;',
               '}',
             ].join('\n');
-            await fetch('/__write_preview', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path: 'index.css', content: fullCss }),
-            });
+            await writeFile('index.css', fullCss, gwOpts);
           }
         }
       } catch { /* theme apply is best-effort */ }
     }
 
-    // Step 3: Write all project files in parallel batches
-    const entries = Object.entries(project.files);
-    const BATCH_SIZE = 5;
+    // Step 3: Write all project files in parallel batches.
+    // __build_id.ts is excluded by writeBatch. index.css is skipped here
+    // because it was already written with the theme in step 2.
+    const filesWithoutCss = Object.fromEntries(
+      Object.entries(project.files).filter(([p]) => {
+        const clean = p.startsWith('/') ? p.slice(1) : p;
+        const norm = clean.startsWith('src/') ? clean.slice(4) : clean;
+        return norm !== 'index.css';
+      }),
+    );
+    await writeBatch(filesWithoutCss, gwOpts);
 
-    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-      const batch = entries.slice(i, i + BATCH_SIZE);
-      await withTimeout(
-        Promise.all(batch.map(([filePath, content]) => {
-          let cleanPath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
-          cleanPath = cleanPath.startsWith('src/') ? cleanPath.slice(4) : cleanPath;
-          if (!cleanPath || cleanPath === 'index.css') return Promise.resolve();
-          return fetch('/__write_preview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: cleanPath, content }),
-          }).then(r => {
-            if (!r.ok) throw new Error(`write_preview failed for ${cleanPath}: ${r.status}`);
-          });
-        })),
-        8000,
-      );
+    // Step 4: Write the build marker LAST. preview-app's main.tsx HMR accept hook
+    // posts `preview-mounted` with this buildId, settling the parent's waitForReady.
+    if (buildId) {
+      await writeBuildMarker(buildId, gwOpts);
     }
   }
 }

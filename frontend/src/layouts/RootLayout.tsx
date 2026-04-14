@@ -10,7 +10,7 @@ interface RootLayoutProps {
 
 export const RootLayout: React.FC<RootLayoutProps> = ({ children }) => (
   <div
-    className="min-h-screen text-white selection:bg-white/20 overflow-hidden flex flex-col relative"
+    className="h-screen w-full text-white selection:bg-white/20 overflow-hidden flex flex-col relative"
     style={{
       backgroundColor: '#f3f4f6',
       backgroundImage: 'none',
@@ -18,9 +18,9 @@ export const RootLayout: React.FC<RootLayoutProps> = ({ children }) => (
     }}
   >
     {/* Safe area top (mobile) */}
-    <div className="h-[env(safe-area-inset-top)] bg-transparent" />
+    <div className="h-[env(safe-area-inset-top)] bg-transparent flex-shrink-0" />
 
-    <main className="flex-1 flex relative overflow-hidden">
+    <main className="flex-1 flex relative overflow-hidden min-h-0 w-full">
       {children}
     </main>
 

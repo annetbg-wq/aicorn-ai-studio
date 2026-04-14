@@ -12,6 +12,11 @@
 
 import { supabase } from '../lib/supabase';
 import { ProjectStorage } from './ProjectStorage';
+import { previewController, previewLog, setTimelineContext } from './PreviewController';
+import { revisionManager } from './RevisionManager';
+import { schedulePostReadyCheck, cancelPendingCheck } from './WhiteScreenDetector';
+import { showToast } from './toastBus';
+import { safeSetItem } from '../lib/safeStorage';
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -28,7 +33,7 @@ export interface ProjectRecord {
   userId?:     string;
 }
 
-export interface ProjectMeta {
+export interface ProjectMetaSummary {
   id:        string;
   name:      string;
   theme:     string;
@@ -47,7 +52,7 @@ export const ProjectRepository = {
 
   // ── Список проектов (только метаданные — быстро) ─────────────────────────
 
-  async listProjects(): Promise<ProjectMeta[]> {
+  async listProjects(): Promise<ProjectMetaSummary[]> {
     // Сначала пробуем Supabase
     try {
       const { data, error } = await supabase
@@ -57,14 +62,14 @@ export const ProjectRepository = {
         .limit(50);
 
       if (!error && data) {
-        const meta: ProjectMeta[] = data.map(row => ({
+        const meta: ProjectMetaSummary[] = data.map(row => ({
           id:        row.id,
           name:      row.name,
           theme:     (row.code_snapshot as any)?.theme ?? 'dark-slate',
           updatedAt: row.last_sync_at,
           version:   row.version ?? 1,
         }));
-        localStorage.setItem(LOCAL_META_KEY, JSON.stringify(meta));
+        safeSetItem(LOCAL_META_KEY, JSON.stringify(meta));
         return meta;
       }
     } catch { /* fall through */ }
@@ -72,7 +77,7 @@ export const ProjectRepository = {
     // Fallback: localStorage кэш
     try {
       const cached = localStorage.getItem(LOCAL_META_KEY);
-      if (cached) return JSON.parse(cached) as ProjectMeta[];
+      if (cached) return JSON.parse(cached) as ProjectMetaSummary[];
     } catch { /* fall through */ }
 
     // Last resort: legacy ProjectStorage meta
@@ -182,6 +187,7 @@ export const ProjectRepository = {
       } catch (err) {
         // Fallback: сохранить в localStorage через ProjectStorage
         console.warn('[ProjectRepository] Falling back to localStorage:', err);
+        showToast('Working offline — changes saved locally', 'warn');
         ProjectStorage.saveProject({
           id:          project.id,
           name:        project.name,
@@ -209,11 +215,11 @@ export const ProjectRepository = {
 
     // Обновить метаданные в localStorage кэше
     try {
-      const cached: ProjectMeta[] = JSON.parse(
+      const cached: ProjectMetaSummary[] = JSON.parse(
         localStorage.getItem(LOCAL_META_KEY) ?? '[]'
       );
       const idx = cached.findIndex(p => p.id === project.id);
-      const meta: ProjectMeta = {
+      const meta: ProjectMetaSummary = {
         id:        project.id,
         name:      project.name,
         theme:     project.theme,
@@ -240,10 +246,10 @@ export const ProjectRepository = {
 
     // Убрать из метаданных кэша
     try {
-      const cached: ProjectMeta[] = JSON.parse(
+      const cached: ProjectMetaSummary[] = JSON.parse(
         localStorage.getItem(LOCAL_META_KEY) ?? '[]'
       );
-      localStorage.setItem(LOCAL_META_KEY,
+      safeSetItem(LOCAL_META_KEY,
         JSON.stringify(cached.filter(p => p.id !== id))
       );
     } catch { /* non-fatal */ }
@@ -251,21 +257,59 @@ export const ProjectRepository = {
 
   // ── Загрузить проект в preview-app ───────────────────────────────────────
   // Delegates to ProjectStorage.loadToPreview which has battle-tested theme CSS
-  // handling (proper Tailwind wrapper, @layer base, etc.)
+  // handling (proper Tailwind wrapper, @layer base, etc.).
+  //
+  // The cycle is fully gated by a buildId handshake:
+  //   1. notifyCompiling(buildId) — UI shows compiling overlay
+  //   2. ProjectStorage.loadToPreview(record, buildId) — clear + write files,
+  //      then write __build_id.ts LAST
+  //   3. revisionManager.waitForReady(buildId) — only resolves when the preview
+  //      iframe posts a `preview-mounted` message with the matching buildId
+  //   4. notifyReady(buildId) | notifyFailed(error)
+  //
+  // The previous optimistic notifyReady() (which fired before the iframe had
+  // mounted the new code) has been removed.
 
   async loadToPreview(project: ProjectRecord): Promise<void> {
-    await ProjectStorage.loadToPreview({
-      id:          project.id,
-      name:        project.name,
-      description: project.description,
-      theme:       project.theme,
-      files:       project.files,
-      chatHistory: project.chatHistory as Array<{ role: string; content: string }>,
-      createdAt:   project.createdAt,
-      updatedAt:   project.updatedAt,
-    });
-    // Signal Vite HMR after files are written
-    await new Promise(r => setTimeout(r, 1500));
-    window.dispatchEvent(new CustomEvent('force-preview-reload'));
+    const buildId = crypto.randomUUID();
+    setTimelineContext({ projectId: project.id });
+    cancelPendingCheck();
+    previewController.notifyCompiling(buildId);
+    previewLog('repository_load_to_preview_start', { buildId, projectId: project.id });
+
+    try {
+      await ProjectStorage.loadToPreview({
+        id:          project.id,
+        name:        project.name,
+        description: project.description,
+        theme:       project.theme,
+        files:       project.files,
+        chatHistory: project.chatHistory as Array<{ role: string; content: string }>,
+        createdAt:   project.createdAt,
+        updatedAt:   project.updatedAt,
+      }, buildId);
+
+      const result = await revisionManager.waitForReady(buildId);
+      if (result.success) {
+        previewController.notifyReady(buildId, 'repository_load_to_preview');
+        schedulePostReadyCheck(buildId);
+        previewLog('repository_load_to_preview_done', { buildId, projectId: project.id });
+      } else {
+        previewController.notifyFailed(
+          result.errors?.join('\n') ?? 'Preview load timeout',
+          buildId,
+        );
+        previewLog('repository_load_to_preview_failed', {
+          buildId,
+          projectId: project.id,
+          errors: result.errors,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      previewController.notifyFailed(msg, buildId);
+      previewLog('repository_load_to_preview_failed', { buildId, projectId: project.id, error: msg });
+      throw err;
+    }
   },
 };

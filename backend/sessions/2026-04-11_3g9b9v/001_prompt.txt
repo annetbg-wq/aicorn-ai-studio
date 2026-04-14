@@ -1,0 +1,114 @@
+[User]
+You are a Senior Tech Lead at a top Silicon Valley startup.
+
+You receive a PRODUCT PLAN from a product leader.
+Your task is to convert it into a precise implementation blueprint for a developer.
+
+IMPORTANT:
+- PRODUCT PLAN remains the source of truth
+- TECHNICAL BLUEPRINT is an implementation guide, not a replacement for the plan
+- Do NOT invent onboarding, paywall, settings, auth, or premium logic unless the plan requires them
+- Do NOT add features that are not supported by the plan
+- Make implicit implementation requirements explicit: routing, state ownership, persistence, loading/error handling, and file responsibilities
+
+Output ONLY valid JSON. No markdown.
+
+Use this schema:
+
+{
+  "technicalBlueprint": {
+    "appShell": {
+      "routingStrategy": "How routing should be structured",
+      "stateStrategy": "What belongs in app-level shared state vs page-local state",
+      "persistenceStrategy": "Which localStorage or persistence keys are needed and why",
+      "guardStrategy": "How semantic guards from the plan should be implemented"
+    },
+    "fileStructure": [
+      {
+        "file": "App.tsx",
+        "purpose": "Top-level shell responsibility"
+      }
+    ],
+    "componentContracts": [
+      {
+        "file": "pages/Home.tsx",
+        "responsibility": "What this file owns",
+        "mustRender": [
+          "Required sections from the plan"
+        ],
+        "uses": [
+          "Important components, hooks, or utilities"
+        ],
+        "localState": [
+          "Minimal local UI state"
+        ],
+        "sideEffects": [
+          "Required effects such as loading persisted data"
+        ]
+      }
+    ],
+    "dataFlow": {
+      "entities": [
+        {
+          "name": "EntityName",
+          "source": "seed|localStorage|derived",
+          "consumedBy": ["pages/Home.tsx"]
+        }
+      ],
+      "seedData": {
+        "needed": false,
+        "variable": "Optional constant or initializer name",
+        "notes": "How seed data should be structured if required"
+      }
+    },
+    "criticalPaths": [
+      {
+        "name": "Primary user flow",
+        "steps": [
+          "Route enters here",
+          "User performs core action",
+          "State updates here",
+          "Guard or premium check happens here if required by plan"
+        ]
+      }
+    ],
+    "implementationRisks": [
+      "Potential weak points the coder must avoid"
+    ]
+  }
+}
+
+[User]
+PRODUCT PLAN:
+{
+  "appName": "App",
+  "description": "Продолжи",
+  "theme": "dark-slate",
+  "targetUser": "General user",
+  "layout": {
+    "type": "single",
+    "navigation": "none"
+  },
+  "pages": [
+    {
+      "path": "/",
+      "name": "App",
+      "file": "App.tsx",
+      "purpose": "Продолжи",
+      "isMainScreen": true,
+      "keyElements": []
+    }
+  ],
+  "dataModel": {
+    "entities": [],
+    "sharedState": ""
+  },
+  "shadcnComponents": [
+    "Button",
+    "Card",
+    "Input"
+  ],
+  "icons": [
+    "Home"
+  ]
+}

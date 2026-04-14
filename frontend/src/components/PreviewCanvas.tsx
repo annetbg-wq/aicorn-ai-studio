@@ -539,27 +539,138 @@ const CodePanel: React.FC<{
 
 /* ---- Mini panels ---- */
 
-const AnalyticsPanel = () => {
-  const pv=[42,78,55,91,67,83,110,95,120,88,140,105];
-  const max=Math.max(...pv);
+// ── ObservabilityPanel — real generation traces ─────────────────────────────
+
+import { generationTracer } from '../services/GenerationTracer';
+import type { GenerationTrace, TraceSpan } from '../services/GenerationTracer';
+
+const SpanRow: React.FC<{ span: TraceSpan; depth: number }> = ({ span, depth }) => {
+  const [open, setOpen] = useState(false);
+  const hasChildren = span.children.length > 0;
+  const c = span.status === 'ok' ? '#30d158' : span.status === 'warn' ? '#ffd60a' : span.status === 'error' ? '#ff453a' : '#888';
+  const indent = depth * 12;
   return (
-    <div style={{ width:'100%', height:'100%', overflowY:'auto', padding:24, background:'#060606', boxSizing:'border-box' }}>
-      <h2 style={{ fontSize:14, fontWeight:600, marginBottom:20, color:'rgba(255,255,255,0.7)' }}>Analytics Overview</h2>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:24 }}>
-        {[{l:'Page Views',v:'12,840',d:'+14%',up:true},{l:'Avg Session',v:'2m 34s',d:'+6%',up:true},{l:'Bounce Rate',v:'38.2%',d:'-3%',up:false}].map(k=>(
-          <div key={k.l} style={{ borderRadius:16, padding:16, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ fontSize:10, marginBottom:4, color:'rgba(255,255,255,0.25)' }}>{k.l}</div>
-            <div style={{ fontSize:18, fontWeight:700, marginBottom:4, color:'rgba(255,255,255,0.85)' }}>{k.v}</div>
-            <div style={{ fontSize:10, fontWeight:600, color:k.up?'#30d158':'#ff453a' }}>{k.d}</div>
+    <>
+      <div
+        onClick={() => hasChildren && setOpen(o => !o)}
+        style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 12px', paddingLeft: 12 + indent, cursor: hasChildren ? 'pointer' : 'default',
+                 borderBottom:'1px solid rgba(255,255,255,0.03)', background: depth === 0 ? 'rgba(255,255,255,0.015)' : 'transparent' }}
+      >
+        <div style={{ width:6, height:6, borderRadius:'50%', background:c, flexShrink:0 }}/>
+        <span style={{ flex:1, fontSize:11, color:'rgba(255,255,255,0.7)', fontFamily:'monospace' }}>{span.name}</span>
+        {span.durationMs !== undefined && (
+          <span style={{ fontSize:10, color:'rgba(255,255,255,0.25)', fontFamily:'monospace' }}>{span.durationMs}ms</span>
+        )}
+        {hasChildren && (
+          <span style={{ fontSize:9, color:'rgba(255,255,255,0.3)' }}>{open ? '▾' : '▸'}</span>
+        )}
+      </div>
+      {open && span.children.map((ch, i) => <SpanRow key={i} span={ch} depth={depth + 1} />)}
+    </>
+  );
+};
+
+const TraceCard: React.FC<{ trace: GenerationTrace }> = ({ trace }) => {
+  const [open, setOpen] = useState(false);
+  const outcome = trace.outcome;
+  const oc = outcome === 'ok' ? '#30d158' : outcome === 'warn' ? '#ffd60a' : '#ff453a';
+  const date = new Date(trace.startedAt).toLocaleTimeString();
+
+  return (
+    <div style={{ borderRadius:14, border:'1px solid rgba(255,255,255,0.07)', marginBottom:8, overflow:'hidden' }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer', background:'rgba(255,255,255,0.02)' }}
+      >
+        <div style={{ width:8, height:8, borderRadius:'50%', background:oc, flexShrink:0 }}/>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,0.8)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {trace.intent.slice(0, 60)}
+          </div>
+          <div style={{ fontSize:9, color:'rgba(255,255,255,0.25)', marginTop:2 }}>
+            {date} · {trace.mode.toUpperCase()} · {trace.model.split('/').pop()?.slice(0, 20)}
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:10, fontSize:10, color:'rgba(255,255,255,0.35)', flexShrink:0 }}>
+          {trace.e2eMs !== undefined && <span>{(trace.e2eMs / 1000).toFixed(1)}s</span>}
+          {trace.fileCount !== undefined && <span>{trace.fileCount}f</span>}
+          {trace.ttftMs !== undefined && <span>ttft:{trace.ttftMs}ms</span>}
+        </div>
+        <span style={{ fontSize:9, color:'rgba(255,255,255,0.3)', marginLeft:4 }}>{open ? '▾' : '▸'}</span>
+      </div>
+      {open && (
+        <div style={{ background:'rgba(0,0,0,0.2)' }}>
+          {trace.errorSummary && (
+            <div style={{ padding:'8px 14px', fontSize:10, color:'#ff453a', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+              ✗ {trace.errorSummary}
+            </div>
+          )}
+          {trace.spans.map((span, i) => <SpanRow key={i} span={span} depth={0} />)}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AnalyticsPanel = () => {
+  const [traces, setTraces] = useState<GenerationTrace[]>(() =>
+    generationTracer.getRecent(20).reverse(),
+  );
+
+  useEffect(() => {
+    const handler = () => setTraces(generationTracer.getRecent(20).reverse());
+    window.addEventListener('studio-trace', handler);
+    return () => window.removeEventListener('studio-trace', handler);
+  }, []);
+
+  const ok      = traces.filter(t => t.outcome === 'ok').length;
+  const errored = traces.filter(t => t.outcome === 'error').length;
+  const avgE2e  = traces.filter(t => t.e2eMs !== undefined).reduce((a, t) => a + (t.e2eMs ?? 0), 0) / (traces.length || 1);
+  const avgTtft = traces.filter(t => t.ttftMs !== undefined).reduce((a, t) => a + (t.ttftMs ?? 0), 0) / (traces.filter(t => t.ttftMs !== undefined).length || 1);
+
+  return (
+    <div style={{ width:'100%', height:'100%', overflowY:'auto', padding:20, background:'#060606', boxSizing:'border-box' }}>
+      <h2 style={{ fontSize:13, fontWeight:600, marginBottom:16, color:'rgba(255,255,255,0.7)' }}>Generation Traces</h2>
+
+      {/* Summary stats */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:16 }}>
+        {[
+          { l:'Total', v: traces.length },
+          { l:'Success', v: ok, clr:'#30d158' },
+          { l:'Failed', v: errored, clr: errored > 0 ? '#ff453a' : undefined },
+          { l:'Avg E2E', v: traces.length ? `${(avgE2e/1000).toFixed(1)}s` : '—' },
+        ].map(s => (
+          <div key={s.l} style={{ borderRadius:12, padding:'10px 12px', background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ fontSize:9, color:'rgba(255,255,255,0.25)', marginBottom:4 }}>{s.l}</div>
+            <div style={{ fontSize:16, fontWeight:700, color: s.clr ?? 'rgba(255,255,255,0.85)' }}>{s.v}</div>
           </div>
         ))}
       </div>
-      <div style={{ borderRadius:16, padding:16, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-        <div style={{ fontSize:11, fontWeight:600, marginBottom:12, color:'rgba(255,255,255,0.35)' }}>Page Views — Last 12 days</div>
-        <div style={{ display:'flex', alignItems:'flex-end', gap:4, height:80 }}>
-          {pv.map((v,i)=><div key={i} style={{ flex:1, height:`${(v/max)*100}%`, background:'linear-gradient(to top,#4f46e5,#818cf8)', borderRadius:'3px 3px 0 0' }}/>)}
+
+      {/* TTFT */}
+      {traces.length > 0 && avgTtft > 0 && (
+        <div style={{ marginBottom:12, padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)', fontSize:10, color:'rgba(255,255,255,0.4)' }}>
+          Avg time-to-first-token: <strong style={{ color:'rgba(255,255,255,0.7)' }}>{Math.round(avgTtft)}ms</strong>
         </div>
-      </div>
+      )}
+
+      {/* Trace list */}
+      {traces.length === 0 ? (
+        <div style={{ textAlign:'center', padding:40, color:'rgba(255,255,255,0.2)', fontSize:12 }}>
+          No traces yet — run a generation to see the pipeline breakdown
+        </div>
+      ) : (
+        traces.map(t => <TraceCard key={t.id} trace={t} />)
+      )}
+
+      {traces.length > 0 && (
+        <button
+          onClick={() => { generationTracer.clear(); setTraces([]); }}
+          style={{ marginTop:8, width:'100%', padding:'8px 0', borderRadius:10, border:'1px solid rgba(255,69,58,0.3)', background:'rgba(255,69,58,0.06)', color:'rgba(255,69,58,0.7)', fontSize:11, cursor:'pointer' }}
+        >
+          Clear traces
+        </button>
+      )}
     </div>
   );
 };
@@ -604,64 +715,110 @@ const DesignPanel: React.FC<{ currentTheme: 'dark'|'medium'|'light' }> = ({ curr
   );
 };
 
+import { runSecurityAudit } from '../services/SecurityAuditService';
+import type { AuditFinding, DependencyRisk } from '../services/SecurityAuditService';
+
+const SEV_CLR: Record<string, string> = {
+  critical: '#ff453a', high: '#ff9f0a', medium: '#ffd60a', info: '#0a84ff',
+};
+const SEV_BG: Record<string, string> = {
+  critical: 'rgba(255,69,58,0.12)', high: 'rgba(255,159,10,0.12)',
+  medium: 'rgba(255,214,10,0.12)', info: 'rgba(10,132,255,0.12)',
+};
+
 const SecurityPanel: React.FC<{ files: FileMap }> = ({ files }) => {
-  const allCode = Object.values(files).join('\n');
+  const [report, setReport] = useState(() =>
+    runSecurityAudit(files as Record<string, string>, '_preview'),
+  );
 
-  const apiKeyPattern   = /(?:sk-|AIzaSy|AKIA|Bearer\s+)[A-Za-z0-9\-_]{20,}/;
-  const evalPattern     = /\beval\s*\(/;
-  const innerHtmlPattern = /\.innerHTML\s*=/;
-  const hardcodedUrlPattern = /https?:\/\/[a-zA-Z0-9\-._]+\.[a-z]{2,}\/[^\s"'`>]{30,}/;
+  useEffect(() => {
+    setReport(runSecurityAudit(files as Record<string, string>, '_preview'));
+  }, [files]);
 
-  const hasApiKey    = apiKeyPattern.test(allCode);
-  const hasEval      = evalPattern.test(allCode);
-  const hasInnerHTML = innerHtmlPattern.test(allCode);
-  const hasLongUrl   = hardcodedUrlPattern.test(allCode);
-  const fileCount    = Object.keys(files).length;
-
-  const checks = [
-    { n: 'API Keys / Secrets', s: hasApiKey ? 'fail' : 'pass',
-      d: hasApiKey ? 'Potential secret found in source code' : 'No exposed API keys detected' },
-    { n: 'eval() Usage',       s: hasEval ? 'fail' : 'pass',
-      d: hasEval ? 'eval() call detected — XSS risk' : 'No eval() calls found' },
-    { n: 'innerHTML Assignment', s: hasInnerHTML ? 'warn' : 'pass',
-      d: hasInnerHTML ? 'innerHTML used — review for XSS' : 'No unsafe innerHTML assignments' },
-    { n: 'Hardcoded URLs',     s: hasLongUrl ? 'warn' : 'pass',
-      d: hasLongUrl ? 'Long hardcoded URL found — consider env config' : 'No suspicious hardcoded URLs' },
-    { n: 'TypeScript Types',   s: /\bany\b/.test(allCode) ? 'warn' : 'pass',
-      d: /\bany\b/.test(allCode) ? 'Untyped `any` usage found' : 'No untyped `any` detected' },
-    { n: 'File Count',         s: fileCount === 0 ? 'warn' : 'pass',
-      d: fileCount === 0 ? 'No files generated yet' : `${fileCount} file${fileCount !== 1 ? 's' : ''} in project` },
-  ];
-
-  const score = Math.round(checks.filter(c => c.s === 'pass').length / checks.length * 100);
-  const clr   = score >= 80 ? '#30d158' : score >= 60 ? '#ffd60a' : '#ff453a';
+  const { summary, findings, depRisks, passed } = report;
+  const score = passed
+    ? summary.medium === 0 ? 100 : Math.max(60, 100 - summary.medium * 5)
+    : Math.max(10, 40 - summary.critical * 10 - summary.high * 5);
+  const clr = score >= 80 ? '#30d158' : score >= 60 ? '#ffd60a' : '#ff453a';
 
   return (
     <div style={{ width:'100%', height:'100%', overflowY:'auto', padding:24, background:'#060606', boxSizing:'border-box' }}>
-      <h2 style={{ fontSize:14, fontWeight:600, marginBottom:20, color:'rgba(255,255,255,0.7)' }}>Security Audit</h2>
-      <div style={{ display:'flex', alignItems:'center', gap:20, marginBottom:24, borderRadius:16, padding:16, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+      <h2 style={{ fontSize:14, fontWeight:600, marginBottom:16, color:'rgba(255,255,255,0.7)' }}>Security Audit</h2>
+
+      {/* Score ring */}
+      <div style={{ display:'flex', alignItems:'center', gap:20, marginBottom:20, borderRadius:16, padding:16, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
         <svg width={72} height={72} viewBox="0 0 80 80">
           <circle cx={40} cy={40} r={32} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={8}/>
           <circle cx={40} cy={40} r={32} fill="none" stroke={clr} strokeWidth={8} strokeDasharray={`${2*Math.PI*32*score/100} ${2*Math.PI*32}`} strokeLinecap="round" transform="rotate(-90 40 40)"/>
           <text x={40} y={40} textAnchor="middle" dominantBaseline="middle" style={{ fontSize:18, fontWeight:800, fill:clr }}>{score}</text>
         </svg>
         <div>
-          <div style={{ fontSize:17, fontWeight:700, color:clr }}>{score>=80?'Good':'Needs Work'}</div>
-          <div style={{ fontSize:12, color:'rgba(255,255,255,0.3)', marginTop:4 }}>{checks.filter(c=>c.s==='pass').length}/{checks.length} passed</div>
+          <div style={{ fontSize:17, fontWeight:700, color:clr }}>{passed ? (score === 100 ? 'Clean' : 'Good') : 'Issues Found'}</div>
+          <div style={{ display:'flex', gap:8, marginTop:6, flexWrap:'wrap' }}>
+            {summary.critical > 0 && <span style={{ fontSize:10, fontWeight:700, color:SEV_CLR.critical }}>{summary.critical} critical</span>}
+            {summary.high > 0 && <span style={{ fontSize:10, fontWeight:700, color:SEV_CLR.high }}>{summary.high} high</span>}
+            {summary.medium > 0 && <span style={{ fontSize:10, color:SEV_CLR.medium }}>{summary.medium} medium</span>}
+            {summary.info > 0 && <span style={{ fontSize:10, color:'rgba(255,255,255,0.3)' }}>{summary.info} info</span>}
+            {Object.values(summary).every(v => v === 0) && <span style={{ fontSize:10, color:'#30d158' }}>No issues</span>}
+          </div>
         </div>
       </div>
-      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-        {checks.map(c=>(
-          <div key={c.n} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', borderRadius:14, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ width:8, height:8, borderRadius:'50%', flexShrink:0, background:c.s==='pass'?'#30d158':c.s==='warn'?'#ffd60a':'#ff453a' }}/>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:12, fontWeight:500, color:'rgba(255,255,255,0.7)' }}>{c.n}</div>
-              <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)' }}>{c.d}</div>
-            </div>
-            <span style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', padding:'2px 8px', borderRadius:999, background:c.s==='pass'?'rgba(48,209,88,0.12)':c.s==='warn'?'rgba(255,214,10,0.12)':'rgba(255,69,58,0.12)', color:c.s==='pass'?'#30d158':c.s==='warn'?'#ffd60a':'#ff453a' }}>{c.s}</span>
+
+      {/* Findings */}
+      {findings.length > 0 && (
+        <>
+          <div style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,0.35)', marginBottom:8, textTransform:'uppercase', letterSpacing:1 }}>
+            Code Findings ({findings.length})
           </div>
-        ))}
-      </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:16 }}>
+            {findings.slice(0, 15).map((f: AuditFinding, i: number) => (
+              <div key={i} style={{ padding:'10px 14px', borderRadius:12, background:'rgba(255,255,255,0.02)', border:`1px solid ${SEV_CLR[f.severity]}30` }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                  <span style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', padding:'2px 7px', borderRadius:999, background:SEV_BG[f.severity], color:SEV_CLR[f.severity] }}>{f.severity}</span>
+                  <span style={{ fontSize:10, fontWeight:500, color:'rgba(255,255,255,0.6)' }}>{f.category}</span>
+                  <span style={{ fontSize:10, color:'rgba(255,255,255,0.2)', marginLeft:'auto', fontFamily:'monospace' }}>{f.file.split('/').pop()}:{f.line}</span>
+                </div>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)' }}>{f.description}</div>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,0.3)', marginTop:3 }}>Fix: {f.fix.slice(0, 80)}</div>
+              </div>
+            ))}
+            {findings.length > 15 && (
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.25)', textAlign:'center', padding:8 }}>
+                +{findings.length - 15} more findings
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Dep risks */}
+      {depRisks.length > 0 && (
+        <>
+          <div style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,0.35)', marginBottom:8, textTransform:'uppercase', letterSpacing:1 }}>
+            Dependency Risks ({depRisks.length})
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {depRisks.map((r: DependencyRisk, i: number) => (
+              <div key={i} style={{ padding:'10px 14px', borderRadius:12, background:'rgba(255,255,255,0.02)', border:`1px solid ${SEV_CLR[r.severity]}30` }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                  <span style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', padding:'2px 7px', borderRadius:999, background:SEV_BG[r.severity], color:SEV_CLR[r.severity] }}>{r.severity}</span>
+                  <span style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,0.7)', fontFamily:'monospace' }}>{r.package}</span>
+                  {r.cve && <span style={{ fontSize:9, color:'rgba(255,255,255,0.25)' }}>{r.cve}</span>}
+                </div>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,0.5)' }}>{r.description.slice(0, 80)}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {findings.length === 0 && depRisks.length === 0 && (
+        <div style={{ textAlign:'center', padding:32, color:'rgba(255,255,255,0.2)', fontSize:12 }}>
+          {Object.keys(files).length === 0
+            ? 'No files to audit — generate a project first'
+            : '✓ No security issues detected'}
+        </div>
+      )}
     </div>
   );
 };
@@ -684,7 +841,9 @@ interface PreviewCanvasProps {
   onExportReactNative?: () => void;
   rnExporting?: boolean;
   rnExportChars?: number;
+  /** @deprecated Snapshot counter — not used in PreviewCanvas render. See useStudio glossary. */
   currentVersion: number;
+  /** @deprecated Snapshot count — not used in PreviewCanvas render. See useStudio glossary. */
   totalVersions: number;
   addLog?:        (msg: string) => void;
   // Architectural context (passed from EngineWorkspace)
@@ -695,6 +854,12 @@ interface PreviewCanvasProps {
   markSnapshotStable?:  (snapshotId: string) => void;
   currentProjectId?:    string | null;
   isAutoFixing?:        boolean;
+  isGenerating?:        boolean;
+  onRollback?:          () => void;
+  apiKey?:              string;
+  // Preview lifecycle (from useStudio via EngineWorkspace)
+  previewLifecycle?:      string;
+  previewBlockedReason?:  string | null;
 }
 
 /* ---- Main component ---- */
@@ -706,6 +871,11 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   addLog, projectName, activeBranch = 'main',
   currentSnapshotId, markSnapshotStable, currentProjectId,
   isAutoFixing = false,
+  isGenerating = false,
+  onRollback,
+  apiKey,
+  previewLifecycle,
+  previewBlockedReason,
 }) => {
   const [tab, setTab] = useState<TabId>('preview');
 
@@ -742,73 +912,8 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   const ctxText  = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
   const ctxStrong = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)';
 
-  // Module readiness (tabs that are stubs get 'planned' badge)
-  const MODULE_STATUS: Record<string, 'active'|'partial'|'planned'> = {
-    preview:   'active',
-    code:      'active',
-    design:    'active',
-    analytics: 'partial',
-    security:  'active',
-    cloud:     'planned',
-  };
-  const STATUS_COLOR: Record<string, string> = {
-    active:  '#4ade80',
-    partial: '#fbbf24',
-    planned: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
-  };
-
   return (
     <div style={{ display:'flex', flexDirection:'column', flex:1, height:'100%', overflow:'hidden' }}>
-
-      {/* ── Context strip: project → branch → revision ── */}
-      <div style={{
-        height: 26, flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 16px',
-        background: isDark ? 'rgba(4,4,8,0.9)' : 'rgba(248,248,252,0.95)',
-        borderBottom: `1px solid ${th.border}`,
-        gap: 4,
-      }}>
-        {/* Breadcrumb */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0, overflow: 'hidden' }}>
-          {projectName ? (
-            <span style={{ fontSize: 10, fontWeight: 600, color: ctxStrong, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 120 }}>
-              {projectName}
-            </span>
-          ) : (
-            <span style={{ fontSize: 10, color: ctxText }}>New Project</span>
-          )}
-          <span style={{ fontSize: 10, color: ctxText, margin: '0 4px' }}>/</span>
-          <GitBranch size={9} color={ctxText} style={{ flexShrink: 0 }} />
-          <span style={{ fontSize: 10, color: ctxText, marginLeft: 3, whiteSpace: 'nowrap' }}>{activeBranch}</span>
-          {currentVersion > 0 && (
-            <>
-              <span style={{ fontSize: 10, color: ctxText, margin: '0 5px' }}>·</span>
-              <GitCommit size={9} color={ctxText} style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: 10, color: ctxStrong, marginLeft: 3, whiteSpace: 'nowrap' }}>
-                rev #{currentVersion}
-              </span>
-            </>
-          )}
-          {totalVersions > 0 && (
-            <>
-              <span style={{ fontSize: 10, color: ctxText, margin: '0 5px' }}>·</span>
-              <CheckCircle size={9} color="#4ade80" style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: 10, color: '#4ade80', marginLeft: 3, whiteSpace: 'nowrap' }}>
-                last good #{totalVersions}
-              </span>
-            </>
-          )}
-        </div>
-
-        {/* Active tab module status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          <div style={{ width: 5, height: 5, borderRadius: '50%', background: STATUS_COLOR[MODULE_STATUS[tab]] }} />
-          <span style={{ fontSize: 9, color: ctxText, whiteSpace: 'nowrap' }}>
-            {MODULE_STATUS[tab]}
-          </span>
-        </div>
-      </div>
 
       {/* Tab bar */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 16px', height:44, background:th.topBg, borderBottom:`1px solid ${th.border}`, flexShrink:0 }}>
@@ -888,12 +993,18 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                 theme={currentTheme === 'light' ? 'light' : 'dark'}
                 studioTheme={currentTheme}
                 device={device}
+                projectId={currentProjectId}
                 onError={addLog}
+                onRollback={onRollback}
                 onPreviewReady={currentSnapshotId && markSnapshotStable
                   ? () => markSnapshotStable(currentSnapshotId)
                   : undefined
                 }
                 isAutoFixing={isAutoFixing}
+                isGenerating={isGenerating}
+                apiKey={apiKey}
+                previewLifecycle={previewLifecycle}
+                previewBlockedReason={previewBlockedReason}
               />
             </DeviceFrame>
           </ZoomableCanvas>

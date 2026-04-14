@@ -132,7 +132,7 @@ export const storageService = {
    * Save manifest: localStorage immediately + Supabase debounced 5 s.
    */
   saveManifest(data: ManifestData): void {
-    localStorage.setItem(MANIFEST_LS_KEY, JSON.stringify(data));
+    try { localStorage.setItem(MANIFEST_LS_KEY, JSON.stringify(data)); } catch { /* quota */ }
     if (!storageService._available) return;
     storageService._debounce('manifest', () => storageService._upsertManifest(data), 5_000);
   },
@@ -343,7 +343,7 @@ export const storageService = {
   },
 
   _saveSyncMeta(id: string, meta: SyncMeta): void {
-    localStorage.setItem(syncMetaKey(id), JSON.stringify(meta));
+    try { localStorage.setItem(syncMetaKey(id), JSON.stringify(meta)); } catch { /* quota */ }
   },
 
   getLastSyncAt(projectId: string): string | null {
