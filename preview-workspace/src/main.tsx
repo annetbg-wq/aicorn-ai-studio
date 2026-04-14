@@ -15,7 +15,7 @@ declare global {
 }
 
 // ── Build handshake ──────────────────────────────────────
-// The parent frame writes preview-app/src/__build_id.ts LAST on every build.
+// The parent frame writes preview-workspace/src/__build_id.ts LAST on every build.
 // Vite HMR replaces that module → the `Root` component below updates its
 // buildId state → `MountReporter` re-runs its effect → postMessage is sent
 // from inside a committed React effect (which fires reliably even when the

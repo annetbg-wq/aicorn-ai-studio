@@ -521,6 +521,7 @@ export default function App() {
               confirmPlan={studio.confirmPlan}
               cancelPlan={studio.cancelPlan}
               onConfirmPlan={studio.onConfirmPlan}
+              onClarifyPlan={studio.onClarifyPlan}
               onSubmitClarification={studio.onSubmitClarification}
               studioPhase={studio.studioPhase}
               studioError={studio.studioError}

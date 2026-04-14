@@ -110,6 +110,7 @@ export type ChatAction =
   | { type: 'RESET'; payload?: any[] }
   | { type: 'APPEND'; payload: any }
   | { type: 'APPEND_MANY'; payload: any[] }
+  | { type: 'CLEAR_PENDING_PLANS' }
   | { type: 'UPDATE_BY_ID'; id: string; patch: Partial<ChatMessage> }
   | { type: 'UPSERT_BY_ID'; payload: any }
   | { type: 'UPDATE_STEPS'; id: string; stepId: string; stepStatus: string }
@@ -147,6 +148,9 @@ export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessa
 
     case 'APPEND_MANY':
       return [...state, ...normalizeMessages(action.payload)];
+
+    case 'CLEAR_PENDING_PLANS':
+      return state.map(msg => ({ ...msg, isPending: false }));
 
     case 'UPDATE_BY_ID':
       return state.map(msg =>

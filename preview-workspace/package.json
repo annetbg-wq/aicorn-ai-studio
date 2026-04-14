@@ -1,9 +1,9 @@
 {
-  "name": "preview-app",
+  "name": "preview-workspace",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --port 3100 --host",
+    "dev": "vite --host",
     "build": "vite build",
     "deploy": "vite build && vercel deploy dist --yes --prod"
   },

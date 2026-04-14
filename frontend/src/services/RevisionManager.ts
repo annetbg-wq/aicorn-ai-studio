@@ -51,7 +51,6 @@ import {
   cancelPendingCheck,
 } from './WhiteScreenDetector';
 
-const PREVIEW_ORIGIN = window.location.origin;
 const MAX_REVISIONS = 20;
 
 /**
@@ -105,6 +104,8 @@ export class RevisionManager {
   /** revisionId → { normalizedPath → content } */
   private store = new Map<string, Record<string, string>>();
 
+  constructor(private previewUrl: string) {}
+
   // ── Public API ─────────────────────────────────────────────────
 
   /**
@@ -143,6 +144,18 @@ export class RevisionManager {
       buildId: id,
       storeSize: this.store.size,
     });
+    return id;
+  }
+
+  async createEmptyCandidate(): Promise<string> {
+    const id = await this.createCandidate();
+    const placeholder = 'export default function App() { return <div>Waiting for generation...</div>; }\n';
+    await this.writeCandidateFile(id, 'App.tsx', placeholder);
+    const result = await this.compileCandidate(id);
+    if (!result.success) {
+      throw new Error(result.errors?.join('\n') || 'Failed to compile empty candidate');
+    }
+    await this.promote(id);
     return id;
   }
 
@@ -254,7 +267,7 @@ export class RevisionManager {
     //    OUR buildId. Stale / foreign messages are rejected.
     const timeoutMs = getCompileTimeout(fileCount);
     previewLog('wait_ready_start', { buildId: revisionId, fileCount, timeoutMs });
-    const result = await waitForReady(revisionId, timeoutMs);
+    const result = await waitForReady(revisionId, timeoutMs, this.previewUrl);
 
     if (result.success) {
       // ── Materialize diagnostic: iframe-mounted → iframe-ready ─
@@ -492,10 +505,12 @@ export class RevisionManager {
 function waitForReady(
   expectedBuildId: string,
   timeoutMs = 45_000,
+  previewUrl = window.location.origin,
 ): Promise<{ success: boolean; errors?: string[] }> {
   return new Promise((resolve) => {
     const errors: string[] = [];
     let settled = false;
+    const previewOrigin = new URL(previewUrl).origin;
 
     const settle = (success: boolean) => {
       if (settled) return;
@@ -512,7 +527,7 @@ function waitForReady(
       if (!type) return;
 
       // Origin gate — only the preview-workspace dev server may finish a cycle.
-      const originOk = e.origin === PREVIEW_ORIGIN;
+      const originOk = e.origin === previewOrigin;
 
       if (type === 'preview-mounted') {
         const msgBuildId = (d as { buildId?: string }).buildId;
@@ -584,4 +599,4 @@ function waitForReady(
 
 // ── Singleton ─────────────────────────────────────────────────────
 
-export const revisionManager = new RevisionManager();
+export const revisionManager = new RevisionManager(window.location.origin);

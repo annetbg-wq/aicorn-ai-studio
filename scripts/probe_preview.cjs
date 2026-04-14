@@ -1,6 +1,11 @@
 // Autonomous preview smoke test.
-// Step 3: open http://localhost:3100 headless, capture console + network, assert no 500.
+// Step 3: open PREVIEW_URL headless, capture console + network, assert no 500.
 const { chromium } = require('playwright');
+const PREVIEW_URL = process.env.PREVIEW_URL;
+
+if (!PREVIEW_URL) {
+  throw new Error('PREVIEW_URL required');
+}
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -26,7 +31,7 @@ const { chromium } = require('playwright');
   let gotoError = null;
   let finalStatus = null;
   try {
-    const resp = await page.goto('http://localhost:3100', {
+    const resp = await page.goto(PREVIEW_URL, {
       waitUntil: 'networkidle',
       timeout: 20000,
     });
@@ -46,7 +51,7 @@ const { chromium } = require('playwright');
     })
     .catch(() => '(eval failed)');
 
-  console.log('=== PROBE 3100 ===');
+  console.log('=== PROBE PREVIEW ===');
   console.log('navigation_error:', gotoError);
   console.log('final_status:', finalStatus);
   console.log('title:', title);

@@ -62,7 +62,7 @@
       "Bash(node -e \"require\\('./backend/auth-token.ts'\\)\")",
       "Bash(npx ts-node:*)",
       "Bash(echo \"EXIT=$?\")",
-      "Bash(powershell -Command \"Get-Content 'c:\\\\ai_studio\\\\preview-app\\\\src\\\\__build_id.ts'\")",
+      "Bash(powershell -Command \"Get-Content 'c:\\\\ai_studio\\\\preview-workspace\\\\src\\\\__build_id.ts'\")",
       "Bash(echo \"FRONTEND_EXIT=$?\")"
     ],
     "additionalDirectories": [
@@ -70,3 +70,4 @@
     ]
   }
 }
+

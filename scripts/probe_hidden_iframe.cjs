@@ -1,11 +1,16 @@
 // Reproduce the real-world failure mode: inject a display:none iframe of the
-// preview-app INSIDE the studio origin (http://localhost:5183), rewrite
+// preview-workspace INSIDE the studio origin (http://localhost:5183), rewrite
 // __build_id.ts via /__write_preview, and assert the studio window receives
 // a `preview-mounted` postMessage with the new buildId within 12 s.
 const { chromium } = require('playwright');
 const { randomUUID } = require('crypto');
 
 const STUDIO_URL = 'http://localhost:5183';
+const PREVIEW_URL = process.env.PREVIEW_URL;
+
+if (!PREVIEW_URL) {
+  throw new Error('PREVIEW_URL required');
+}
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -17,9 +22,9 @@ const STUDIO_URL = 'http://localhost:5183';
   console.log('Loading studio origin…');
   await page.goto(STUDIO_URL, { waitUntil: 'domcontentloaded', timeout: 20_000 });
 
-  // Install a message collector and inject a display:none iframe of preview-app
+  // Install a message collector and inject a display:none iframe of preview-workspace
   // using the EXACT sandbox attrs SandpackPreview uses in production.
-  await page.evaluate(() => {
+  await page.evaluate((previewUrl) => {
     window.__probe = { msgs: [] };
     window.addEventListener('message', (e) => {
       if (!e.data || typeof e.data !== 'object') return;
@@ -28,7 +33,7 @@ const STUDIO_URL = 'http://localhost:5183';
 
     const iframe = document.createElement('iframe');
     iframe.id = 'probe-preview-iframe';
-    iframe.src = 'http://localhost:3100';
+    iframe.src = previewUrl;
     iframe.setAttribute(
       'sandbox',
       'allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts allow-downloads',
@@ -38,9 +43,9 @@ const STUDIO_URL = 'http://localhost:5183';
     iframe.style.height = '600px';
     iframe.style.border = '0';
     document.body.appendChild(iframe);
-  });
+  }, PREVIEW_URL);
 
-  // Give the hidden iframe time to boot the preview-app
+  // Give the hidden iframe time to boot the preview-workspace
   await page.waitForTimeout(3500);
 
   const beforeMsgs = await page.evaluate(() => window.__probe.msgs.length);
