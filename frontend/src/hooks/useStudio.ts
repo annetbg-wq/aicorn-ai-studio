@@ -259,10 +259,6 @@ export const useStudio = () => {
   // React hasn't re-rendered yet (stale closure guard).
   const pendingHistoryClear = useRef(false);
 
-  // Original user intent saved when we pause for clarification questions.
-  // On the next send, it gets merged with the user's answer before generation.
-  const [pendingClarification, setPendingClarification] = useState<string | null>(null);
-
   // Blueprint confirmation — set when Architect plan is ready, cleared on confirm/cancel.
   // resolver lives in a ref (not state) so resolve() fires only after React commits the cleanup.
   const [pendingPlan, setPendingPlan] = useState<{
@@ -1048,7 +1044,6 @@ export const useStudio = () => {
     pendingHistoryClear.current = true;
     setInput('');
     chatReset();
-    setPendingClarification(null);
     setPendingPlan(null);
     setPendingDiff(null);
     setIsGenerating(false);
@@ -1444,28 +1439,36 @@ export const useStudio = () => {
     // Capture before clearing so we can pass to run() below
     const capturedAttachments = [...attachments];
 
-    // Generation-plan card replaces the old '...' placeholder.
-    // Helpers defined here close over planMsgId so they're stable for the run() scope.
-    const planMsgId = `plan-${Date.now()}`;
+    // Reset chat to show conversation history while plan loads.
+    dispatch({ type: 'RESET', payload: history });
+
+    // ── Language detection ────────────────────────────────────────────────────
+    let userLang = /[а-яА-Я]/.test(userPrompt) ? 'ru' : 'en';
+    if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') userLang = 'ru';
+
+    // ── Generate plan immediately — no clarifier step ─────────────────────────
+    const plan = await GenerationPipeline.generatePlan({
+      intent:   userPrompt,
+      userLang,
+      apiKey:   effectiveApiKey,
+      signal:   controller.signal,
+    });
+    console.log('[planner] plan generated, dispatching', plan);
+
+    const planMsgId = crypto.randomUUID();
     currentPlanMsgIdRef.current = planMsgId;
-    dispatch({ type: 'RESET', payload: [...history, {
-      role: 'assistant' as const,
-      type: 'generation-plan',
-      id: planMsgId,
-      timestamp: Date.now(),
-      appName: '',
-      pages: [] as string[],
-      steps: [
-        { id: 'think',     label: 'Analyzing your idea',    status: 'active'  },
-        { id: 'architect', label: 'Designing architecture', status: 'pending' },
-        { id: 'code',      label: 'Writing code',           status: 'pending' },
-        { id: 'theme',     label: 'Applying theme',         status: 'pending' },
-        { id: 'save',      label: 'Saving project',         status: 'pending' },
-      ],
-      progress: 0,
-      buildStatus: 'generating' as const,
+    dispatch({ type: 'APPEND', payload: {
+      id:           planMsgId,
+      role:         'assistant' as const,
+      type:         'generation-plan',
+      timestamp:    Date.now(),
+      appName:      plan.appName,
+      pages:        plan.pages,
+      steps:        plan.steps,
+      progress:     0,
+      buildStatus:  'generating' as const,
       streamingCode: '',
-    }] });
+    } });
     const updateStep = (stepId: string, stepStatus: string) =>
       dispatch({ type: 'UPDATE_STEPS', id: planMsgId, stepId, stepStatus });
     const updatePlan = (patch: object) =>
@@ -1516,49 +1519,12 @@ export const useStudio = () => {
       let reqUsage: UsageData = { promptTokens: 0, completionTokens: 0 };
       let capturedAppName = '';
 
-      // ── Clarifier step ─────────────────────────────────────────────────────
-      // Only runs on new-app requests (no existing .tsx/.ts files).
-      // If the intent is vague, shows questions and waits for the next send.
-      // If pendingClarification is set, the user is answering those questions —
-      // merge original intent + answer, then proceed to generation.
-      const existingCodeCount = Object.keys(filesSnapshot).filter(
-        k => /\.(tsx?|jsx?)$/.test(k) && !k.startsWith('_'),
-      ).length;
-      let effectiveIntent = baseIntent;
-
-      if (pendingClarification) {
-        effectiveIntent = pendingClarification + '\n\nUser clarification: ' + (userPrompt || 'Continue');
-        setPendingClarification(null);
-        addLog('[Clarifier] Intent enriched with user clarification');
-      } else if (existingCodeCount === 0 && !devAgentActive) {
-        addLog('[Clarifier] Analyzing intent clarity...');
-        const clarResult = await GenerationPipeline.clarify({
-          intent: effectiveIntent || userPrompt,
-          apiKey: effectiveApiKey,
-          signal: controller.signal,
-        });
-        if (clarResult && clarResult.questions.length > 0) {
-          startTransition(() => {
-            chatUpdate(planMsgId, {
-              role: 'assistant',
-              type: 'clarification',
-              content: clarResult.questions.join('\n'),
-              questions: clarResult.questions,
-            });
-          });
-          setPendingClarification(effectiveIntent);
-          addLog('[Clarifier] Waiting for user clarification');
-          return; // finally block resets isGenerating / progress
-        }
-        addLog('[Clarifier] Intent is clear — proceeding to generation');
-      }
-
       // Vision analysis is now handled inside GenerationPipeline.run() via config.attachments.
 
       // Classify idea for design system
       const classification = devAgentActive
-        ? fallbackClassify(effectiveIntent)
-        : await classifyAndStore(effectiveIntent, effectiveApiKey);
+        ? fallbackClassify(baseIntent)
+        : await classifyAndStore(baseIntent, effectiveApiKey);
 
       if (devAgentActive) {
         addLog(`[handleSend] ${devAgentProvider} dev agent active: skipped OpenRouter classification`);
@@ -1566,7 +1532,7 @@ export const useStudio = () => {
       const designPrompt = buildDesignSystemPrompt({
         category: classification.category,
         style: classification.style,
-        idea: effectiveIntent,
+        idea: baseIntent,
         classification,
       });
 
@@ -1688,7 +1654,7 @@ export const useStudio = () => {
 
       let result;
       try {
-        result = await runOnce(effectiveIntent, effectiveModel);
+        result = await runOnce(baseIntent, effectiveModel);
       } catch (firstErr: any) {
         const firstErrMsg = String(firstErr?.message ?? '');
         const isTimeout = /timed out|timeout/i.test(firstErrMsg);
