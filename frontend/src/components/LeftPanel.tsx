@@ -95,6 +95,7 @@ interface LeftPanelProps {
   confirmPlan?:            () => void;
   cancelPlan?:             () => void;
   onConfirmPlan?:          (plan: object) => void;
+  onClarifyPlan?:          (messageId: string) => void;
   onSubmitClarification?:  (text: string) => void;
 }
 
@@ -281,12 +282,13 @@ interface BlueprintCardProps {
   textColor: string;
   subText: string;
   borderColor: string;
-  confirmPlan: () => void;
+  onConfirmPlan: (plan: object) => void;
+  onClarifyPlan: (messageId: string) => void;
   cancelPlan: () => void;
 }
 
 const BlueprintCard: React.FC<BlueprintCardProps> = ({
-  m, isPending, textColor, subText, borderColor, confirmPlan, cancelPlan,
+  m, isPending, textColor, subText, borderColor, onConfirmPlan, onClarifyPlan, cancelPlan,
 }) => {
   // Visibility guard — keeps fiber in the tree but renders nothing.
   // This prevents the insertBefore crash that occurs when a node is removed
@@ -327,7 +329,11 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
         lineHeight: 1.6, maxHeight: isPending ? 400 : 200,
         overflowY: 'auto', whiteSpace: 'pre-wrap',
       }}>
-        {m.blueprintText}
+        {m.blueprintText && (
+          <div dangerouslySetInnerHTML={{
+            __html: String(m.blueprintText).replace(/\[object Object\]/g, ''),
+          }} />
+        )}
       </div>
 
       {m.technicalBlueprint && JSON.stringify(m.technicalBlueprint).length > 20 && (
@@ -354,10 +360,32 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
       )}
 
       {isPending && (
-        <div style={{
-          padding: '12px 16px', borderTop: `1px solid ${borderColor}`,
-          display: 'flex', gap: 8,
-        }}>
+        <div
+          data-testid="generation-plan-card"
+          style={{ padding: '12px 16px', borderTop: `1px solid ${borderColor}`, display: 'flex', gap: 8 }}
+        >
+          <button
+            data-testid="confirm-plan-btn"
+            onClick={() => onConfirmPlan(m.pendingPlan || m.technicalBlueprint)}
+            style={{
+              flex: 1, padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
+              background: '#6366f1', border: 'none', color: '#fff',
+              fontSize: 13, fontWeight: 600,
+            }}
+          >
+            Все верно
+          </button>
+          <button
+            data-testid="clarify-plan-btn"
+            onClick={() => onClarifyPlan(String(m.id ?? ''))}
+            style={{
+              padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
+              background: 'transparent', border: `1px solid ${borderColor}`,
+              color: subText, fontSize: 13,
+            }}
+          >
+            Уточнить
+          </button>
           <button onClick={cancelPlan} style={{
             padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
             background: 'transparent', border: `1px solid ${borderColor}`,
@@ -706,7 +734,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   attachments = [], addAttachment = () => {}, removeAttachment = () => {},
   composerContextItems = [], removeComposerContextItem = () => {}, clearComposerContextItems = () => {},
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
-  onConfirmPlan = () => confirmPlan(), onSubmitClarification = () => {},
+  onConfirmPlan = () => confirmPlan(), onClarifyPlan = () => {}, onSubmitClarification = () => {},
 }) => {
   const lang = LABELS[appLanguage] ?? LABELS['en'];
   const t = (key: string) => lang[key] ?? LABELS['en'][key] ?? key;
@@ -934,11 +962,12 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                   <BlueprintCard
                     key={m.id}
                     m={m}
-                    isPending={pendingPlan !== null}
+                    isPending={Boolean((m as any).isPending)}
                     textColor={textColor}
                     subText={subText}
                     borderColor={borderColor}
-                    confirmPlan={confirmPlan}
+                    onConfirmPlan={onConfirmPlan}
+                    onClarifyPlan={onClarifyPlan}
                     cancelPlan={cancelPlan}
                   />
                 );

@@ -11,6 +11,7 @@ module.exports = defineConfig({
   use: {
     baseURL:    process.env.STUDIO_URL ?? 'http://localhost:5183',
     headless:   true,
+    storageState: undefined,
     screenshot: 'only-on-failure',
     video:      'retain-on-failure',
     trace:      'retain-on-failure',
