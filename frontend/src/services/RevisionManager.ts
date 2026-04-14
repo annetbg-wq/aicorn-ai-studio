@@ -30,7 +30,7 @@
  *      ┗━ failure → rollback (discard candidate, restore previous active)
  *
  *  The revisionId doubles as a buildId through the full preview cycle:
- *    clear → write batch → __build_id.ts (last) → preview-app HMR accept →
+ *    clear → write batch → __build_id.ts (last) → preview-workspace HMR accept →
  *    `preview-mounted` postMessage → waitForReady() resolves → notifyReady().
  *
  *  Only a `preview-mounted` message whose buildId matches the current cycle
@@ -151,7 +151,7 @@ export class RevisionManager {
    *
    * ARTIFACT-ENVELOPE GUARD: If the content looks like transport-level
    * artifact JSON rather than source code, the write is rejected with an
-   * error. This prevents poisoned content from reaching preview-app.
+   * error. This prevents poisoned content from reaching preview-workspace.
    */
   async writeCandidateFile(
     revisionId: string,
@@ -185,14 +185,14 @@ export class RevisionManager {
   }
 
   /**
-   * Flush candidate files to preview-app/src/ and wait for Vite verdict.
+   * Flush candidate files to preview-workspace/src/ and wait for Vite verdict.
    *
    * Files are written to disk (Vite HMR picks them up automatically).
    * We listen for `vite:error` / `iframe-error` within a timeout window.
    * If no errors arrive before the timeout — compilation is considered successful.
    */
   /**
-   * Flush candidate files to preview-app/src/ and wait for Vite HMR verdict.
+   * Flush candidate files to preview-workspace/src/ and wait for Vite HMR verdict.
    *
    * On success, sets the internal compiled flag so promote() will accept
    * this revision. On failure, the flag remains unset — promote() will refuse.
@@ -237,7 +237,7 @@ export class RevisionManager {
     previewLog('write_batch_done', { buildId: revisionId, fileCount: Object.keys(files).length });
 
     // ── Materialize diagnostic: sandbox-written ─────────────────
-    // All source files flushed to preview-app/src/ (excluding __build_id.ts
+    // All source files flushed to preview-workspace/src/ (excluding __build_id.ts
     // which was written last inside flushToDisk → bootstrap-written).
     previewController.setDiagnosticStage('sandbox-written', revisionId);
 
@@ -294,7 +294,7 @@ export class RevisionManager {
   }
 
   /**
-   * Write `__build_id.ts` to preview-app/src/. Triggers main.tsx's HMR accept hook,
+   * Write `__build_id.ts` to preview-workspace/src/. Triggers main.tsx's HMR accept hook,
    * which posts the `preview-mounted` message that settles waitForReady.
    * Should be called LAST in any write batch.
    */
@@ -436,7 +436,7 @@ export class RevisionManager {
   // ── Private helpers ────────────────────────────────────────────
 
   /**
-   * Write a batch of files to preview-app/src/ via Vite middleware.
+   * Write a batch of files to preview-workspace/src/ via Vite middleware.
    * If buildId is provided, writes `__build_id.ts` LAST so HMR accept fires
    * after every other module has been replaced.
    */
@@ -478,7 +478,7 @@ export class RevisionManager {
  * Wait for an authoritative `preview-mounted` postMessage scoped to `expectedBuildId`.
  *
  * Acceptance rules (ALL must hold):
- *   - message origin === PREVIEW_ORIGIN (the preview-app dev server)
+ *   - message origin === PREVIEW_ORIGIN (the preview-workspace dev server)
  *   - data.type === 'preview-mounted'
  *   - data.buildId === expectedBuildId
  *
@@ -487,7 +487,7 @@ export class RevisionManager {
  *
  * Hard error channels still settle the wait early:
  *   - `iframe-error` (runtime crash inside preview)
- *   - `vite:error`   (compile error reported by preview-app HMR)
+ *   - `vite:error`   (compile error reported by preview-workspace HMR)
  */
 function waitForReady(
   expectedBuildId: string,
@@ -511,7 +511,7 @@ function waitForReady(
       const type = (d as { type?: string }).type;
       if (!type) return;
 
-      // Origin gate — only the preview-app dev server may finish a cycle.
+      // Origin gate — only the preview-workspace dev server may finish a cycle.
       const originOk = e.origin === PREVIEW_ORIGIN;
 
       if (type === 'preview-mounted') {

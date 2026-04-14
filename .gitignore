@@ -20,3 +20,6 @@ yarn.lock
 all_code.txt
 project_audit.txt
 repomix-output.xml
+
+# Local Codex home cache/content (keep tracked files intact, avoid accidental churn)
+backend/.codex-home/

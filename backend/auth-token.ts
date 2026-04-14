@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { execSync, spawn, spawnSync } from 'child_process';
-import { pushFiles, getPreviewPort } from './preview-manager';
+import { startPreview, pushFiles, getPreviewPort } from './preview-manager';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -1254,6 +1254,26 @@ app.put('/agent-config/reset', (_req, res) => {
 
 // ── Preview push ──────────────────────────────────────────────────────────────
 
+app.post('/api/preview/:projectId/start', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    const port = await startPreview(projectId);
+    res.json({ ready: true, url: `http://127.0.0.1:${port}` });
+  } catch (err) {
+    res.status(500).json({ ready: false, error: String(err) });
+  }
+});
+
+app.get('/api/preview/:projectId/status', (req, res) => {
+  const { projectId } = req.params;
+  const port = getPreviewPort(projectId);
+  if (port === null) {
+    res.json({ ready: false });
+    return;
+  }
+  res.json({ ready: true, url: `http://127.0.0.1:${port}` });
+});
+
 app.post('/api/preview/:projectId/push', async (req, res) => {
   const { projectId } = req.params;
   const { files } = req.body as { files?: { path: string; content: string }[] };
@@ -1265,7 +1285,11 @@ app.post('/api/preview/:projectId/push', async (req, res) => {
 
   try {
     await pushFiles(projectId, files);
-    res.json({ ok: true, url: `/preview/${projectId}` });
+    const port = getPreviewPort(projectId);
+    res.json({
+      ok: true,
+      url: port ? `http://127.0.0.1:${port}` : `/preview/${projectId}`,
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: String(err) });
   }

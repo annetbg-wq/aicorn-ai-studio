@@ -1,12 +1,12 @@
 /**
  * previewGuard — Artifact-envelope poison detector for preview writes.
  *
- * Prevents transport-level artifact JSON from being written into preview-app
+ * Prevents transport-level artifact JSON from being written into preview-workspace
  * source files (e.g. App.tsx). The artifact envelope has this shape:
  *
  *   { "artifact": { "entry": "src/App.tsx", "files": [...] } }
  *
- * If such content reaches preview-app/src/App.tsx, Vite will fail with
+ * If such content reaches preview-workspace/src/App.tsx, Vite will fail with
  * a parse error because it expects JSX/TS, not JSON.
  *
  * This module provides a single shared detector used by every preview
@@ -79,7 +79,7 @@ export interface PreviewWriteRejection {
 }
 
 /**
- * Validate content before writing to preview-app. Returns null if safe,
+ * Validate content before writing to preview-workspace. Returns null if safe,
  * or a rejection record if the content is an artifact envelope.
  *
  * Callers MUST check the return and refuse to write if non-null.

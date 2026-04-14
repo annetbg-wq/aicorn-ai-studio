@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "layout": "none",
+  "layout": "sidebar",
   "routes": [
     {
       "path": "/onboarding",
@@ -12,10 +12,18 @@
     },
     {
       "path": "/",
-      "component": "Home",
-      "filePath": "pages/Home.tsx",
-      "title": "Home",
+      "component": "Dashboard",
+      "filePath": "pages/Dashboard.tsx",
+      "title": "Dashboard",
       "isHome": true,
+      "isProtected": true
+    },
+    {
+      "path": "/projects/:projectId",
+      "component": "ProjectDetails",
+      "filePath": "pages/ProjectDetails.tsx",
+      "title": "ProjectDetails",
+      "isHome": false,
       "isProtected": true
     },
     {
@@ -24,7 +32,7 @@
       "filePath": "pages/Settings.tsx",
       "title": "Settings",
       "isHome": false,
-      "isProtected": false
+      "isProtected": true
     }
   ]
 }

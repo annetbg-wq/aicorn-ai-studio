@@ -7,7 +7,7 @@
  *   3. The same structured logging (previewLog events)
  *   4. The same write contract (fetch → status check → result)
  *
- * Network is stubbed (no running preview-app in vitest).
+ * Network is stubbed (no running preview-workspace in vitest).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

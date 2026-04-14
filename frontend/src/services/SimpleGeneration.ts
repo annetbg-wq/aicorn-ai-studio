@@ -145,7 +145,7 @@ type GenerationMode = 'landing' | 'app' | 'superapp';
  * Detects if a file's content is actually a full artifact envelope JSON
  * rather than real source code. This is a critical guard — if the LLM
  * returns the entire response structure as the body of a single file,
- * we must skip it to prevent writing JSON blobs to preview-app.
+ * we must skip it to prevent writing JSON blobs to preview-workspace.
  */
 function looksLikeArtifactEnvelope(value: string): boolean {
   const t = value.trim();
@@ -2430,7 +2430,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
 
     console.log('[deps] Installing:', toInstall.join(', '));
     try {
-      const base = projectId ? `/preview/${projectId}` : 'http://localhost:3100';
+      const base = projectId ? `/preview/${projectId}` : '/preview/default';
       const response = await fetch(`${base}/__install_deps`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3427,7 +3427,7 @@ Generate the complete application for: ${config.intent}`;
     const routeDrifts = validateAllRouteLayers(graph);
     const changePackage = buildRouteAwareChangePackage(graph, ops, routeDrifts);
 
-    // 10. Return result — preview is handled by Vite HMR on port 3100
+    // 10. Return result — preview is handled by preview-manager lifecycle
     const result: GenerationResult = {
       id: crypto.randomUUID(),
       status: 'complete',
@@ -3518,7 +3518,7 @@ Generate the complete application for: ${config.intent}`;
 
   // ── Level 2: Auto-fixer — called on iframe-error ─────────────────────────
   /**
-   * Reads the broken file from preview-app, asks the 'fix' agent to repair it,
+   * Reads the broken file from preview-workspace, asks the 'fix' agent to repair it,
    * and writes the corrected version back. Returns true if a fix was written.
    */
   static async autoFix(config: {

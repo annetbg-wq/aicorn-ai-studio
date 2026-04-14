@@ -2,7 +2,7 @@
  * VisualEditBridge — Inline visual editing via postMessage between studio and preview iframe.
  *
  * Architecture:
- *   Studio (host)                   Preview iframe (preview-app)
+ *   Studio (host)                   Preview iframe (preview-workspace)
  *   ─────────────────               ─────────────────────────────────
  *   enableSelectionMode() ──────→   activates hover/click overlay
  *                          ←──────  'visual-element-selected' { selector, tag, text, styles }

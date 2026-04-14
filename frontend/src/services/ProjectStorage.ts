@@ -112,11 +112,11 @@ export class ProjectStorage {
   }
 
   /**
-   * Loads a project into preview-app by:
+   * Loads a project into preview-workspace by:
    * 1. Clearing old generated files via /__clear_preview
    * 2. Writing the project theme to index.css
    * 3. Writing all project files via /__write_preview (parallel batches)
-   * 4. (Optional) Writing __build_id.ts LAST so the preview-app HMR accept hook
+   * 4. (Optional) Writing __build_id.ts LAST so the preview-workspace HMR accept hook
    *    posts a `preview-mounted` message tied to this build cycle.
    */
   static async loadToPreview(project: StoredProject, buildId?: string): Promise<void> {

@@ -28,9 +28,9 @@ export default defineConfig({
     {
       name: 'preview-bridge',
       configureServer(server) {
-        const previewSrc = path.join(process.cwd(), '..', 'preview-app', 'src');
+        const previewSrc = path.join(process.cwd(), '..', 'preview-workspace', 'src');
 
-        // Clear all files in preview-app/src except main.tsx and index.css
+        // Clear all files in preview-workspace/src except main.tsx and index.css
         // After clearing, writes a placeholder App.tsx so Vite never breaks
         const PLACEHOLDER_APP = `export default function App() {
   return (
@@ -61,7 +61,7 @@ export default defineConfig({
           }
         });
 
-        // List files in a preview-app/src/ subdirectory
+        // List files in a preview-workspace/src/ subdirectory
         server.middlewares.use('/__list_preview', (req, res) => {
           const url = new URL(req.url!, 'http://localhost');
           const dirPath = url.searchParams.get('path') || '';
@@ -77,7 +77,7 @@ export default defineConfig({
           }
         });
 
-        // Read a single file from preview-app/src/
+        // Read a single file from preview-workspace/src/
         server.middlewares.use('/__read_preview', (req, res) => {
           const url = new URL(req.url!, 'http://localhost');
           const filePath = url.searchParams.get('path') || '';
@@ -92,10 +92,10 @@ export default defineConfig({
           }
         });
 
-        // Deploy preview-app to Vercel via CLI
+        // Deploy preview-workspace to Vercel via CLI
         server.middlewares.use('/__deploy_preview', (req, res) => {
           if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
-          const previewRoot = path.join(process.cwd(), '..', 'preview-app');
+          const previewRoot = path.join(process.cwd(), '..', 'preview-workspace');
           try {
             execSync('npm run build', { cwd: previewRoot, stdio: 'pipe', timeout: 60_000 });
             const output = execSync(
@@ -114,7 +114,7 @@ export default defineConfig({
           }
         });
 
-        // Read ALL user-generated files from preview-app/src/ in one call
+        // Read ALL user-generated files from preview-workspace/src/ in one call
         server.middlewares.use('/__read_all_preview', (_req, res) => {
           try {
             const files: Record<string, string> = {};
@@ -144,7 +144,7 @@ export default defineConfig({
           }
         });
 
-        // Health check — verifies preview-app/src/ is readable and writable
+        // Health check — verifies preview-workspace/src/ is readable and writable
         server.middlewares.use('/__health_preview', (_req, res) => {
           try {
             fs.accessSync(previewSrc, fs.constants.R_OK | fs.constants.W_OK);
@@ -185,7 +185,7 @@ export default defineConfig({
           return false;
         }
 
-        // Write a file to preview-app/src/
+        // Write a file to preview-workspace/src/
         server.middlewares.use('/__write_preview', (req, res) => {
           if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
           let body = '';

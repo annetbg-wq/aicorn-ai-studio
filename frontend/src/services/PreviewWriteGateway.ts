@@ -1,7 +1,7 @@
 /**
- * PreviewWriteGateway — Canonical low-level gateway for ALL writes into preview-app.
+ * PreviewWriteGateway — Canonical low-level gateway for ALL writes into preview-workspace.
  *
- * Every code path that touches preview-app/src/ (via /__write_preview or /__clear_preview)
+ * Every code path that touches preview-workspace/src/ (via /__write_preview or /__clear_preview)
  * MUST go through this module. This ensures:
  *   1. One path normalization rule
  *   2. One poison/content guard (artifact-envelope detection)
@@ -68,7 +68,7 @@ function getWriteTimeout(batchSize: number): number {
 
 /**
  * Canonical path normalization for preview writes.
- * Strips leading `/` and `src/` prefix — the middleware writes into preview-app/src/.
+ * Strips leading `/` and `src/` prefix — the middleware writes into preview-workspace/src/.
  */
 export function normalizePath(p: string): string {
   let clean = p.startsWith('/') ? p.slice(1) : p;
@@ -88,7 +88,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 // ── Single file write ───────────────────────────────────────────────────────
 
 /**
- * Write a single file to preview-app/src/ via the Vite middleware.
+ * Write a single file to preview-workspace/src/ via the Vite middleware.
  *
  * Applies:
  *   1. Path normalization
@@ -222,7 +222,7 @@ export async function writeBatch(
 // ── Build marker write ──────────────────────────────────────────────────────
 
 /**
- * Write `__build_id.ts` to preview-app/src/. Triggers main.tsx's HMR accept hook,
+ * Write `__build_id.ts` to preview-workspace/src/. Triggers main.tsx's HMR accept hook,
  * which posts the `preview-mounted` message that settles waitForReady.
  *
  * This MUST be called LAST in any write batch.
@@ -259,7 +259,7 @@ export async function writeBuildMarker(
 // ── Clear preview ───────────────────────────────────────────────────────────
 
 /**
- * Clear all files from preview-app/src/ via /__clear_preview.
+ * Clear all files from preview-workspace/src/ via /__clear_preview.
  *
  * @param opts.source — caller identification for logging
  * @param opts.buildId — optional, for log correlation

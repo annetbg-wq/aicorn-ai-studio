@@ -157,6 +157,7 @@ export interface EngineWorkspaceProps {
   // ── Preview lifecycle (from useStudio) ────────────────────────
   previewLifecycle?:      string;
   previewBlockedReason?:  string | null;
+  previewUrl?:            string;
 }
 
 
@@ -181,6 +182,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
   studioError = null,
   previewLifecycle,
   previewBlockedReason = null,
+  previewUrl = '',
 }) {
   const isDark = theme !== 'light';
 
@@ -343,6 +345,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             previewLifecycle={previewLifecycle}
             previewBlockedReason={previewBlockedReason}
             projectId={currentProjectId ?? ''}
+            previewUrl={previewUrl}
           />
         </div>
       </div>

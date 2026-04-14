@@ -6,8 +6,8 @@
 SimpleGeneration.run()
   → Architect LLM (plan JSON with thinking)
   → Coder LLM (FILE markers)
-  → writePreviewFile() × N → preview-app/src/
-  → Vite HMR (port 3100) picks up changes
+  → writePreviewFile() × N → per-project preview workspace
+  → preview-manager updates active Vite instance for the project
   → force-preview-reload → SandpackPreview reloads iframe
   → ProjectRepository.saveProject() → Supabase user_projects
   → ProjectStorage.saveProject() → localStorage (legacy + offline fallback)
@@ -63,14 +63,14 @@ On delete: ProjectRepository.deleteProject() + ProjectRepository.listProjects()
 
 - `Orchestrator.run()` — NOT used for generation; only `applyOperations()` for edit mode patches
 - `AgentLoopService` — AgentLab panel only
-- `Figma/PlatinumFigma` — isolated, does not touch preview-app or user_projects
+- `Figma/PlatinumFigma` — isolated, does not touch preview-workspace or user_projects
 - `storageService.saveProject()` — legacy debounced sync, superseded by ProjectRepository
 
-## preview-app/src/ is a WORKING DIRECTORY, not storage
+## preview-workspace/src/ is a WORKING DIRECTORY, not storage
 
 Files written here by SimpleGeneration or ProjectRepository.loadToPreview() are
 ephemeral — Vite HMR serves them live. They are NOT the source of truth.
-After restart, preview-app/src/ is restored only when a project is explicitly loaded.
+After restart, preview-workspace/src/ is restored only when a project is explicitly loaded.
 
 ## Prohibited patterns
 

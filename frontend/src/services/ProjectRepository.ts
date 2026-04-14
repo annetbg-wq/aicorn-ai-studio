@@ -255,7 +255,7 @@ export const ProjectRepository = {
     } catch { /* non-fatal */ }
   },
 
-  // ── Загрузить проект в preview-app ───────────────────────────────────────
+  // ── Загрузить проект в preview-workspace ───────────────────────────────────────
   // Delegates to ProjectStorage.loadToPreview which has battle-tested theme CSS
   // handling (proper Tailwind wrapper, @layer base, etc.).
   //

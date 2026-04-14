@@ -108,7 +108,7 @@ export const ShareService = {
   },
 
   /**
-   * Legacy: deploy preview-app to Vercel via local CLI.
+   * Legacy: deploy preview-workspace to Vercel via local CLI.
    * Requires `vercel` CLI + `vercel login`.
    */
   async deployToVercel(): Promise<ShareResult> {

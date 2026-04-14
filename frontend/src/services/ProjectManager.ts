@@ -146,7 +146,7 @@ export class ProjectManager {
   }
 
   /**
-   * Writes the project files to preview-app/src/ via the Vite bridge.
+   * Writes the project files to preview-workspace/src/ via the Vite bridge.
    * Throws if project not found.
    */
   static async loadToPreview(id: string): Promise<void> {

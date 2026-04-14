@@ -72,6 +72,7 @@
     "index.css",
     "layouts/RootLayout.tsx",
     "lib/bundler.ts",
+    "lib/chat.ts",
     "lib/compiler.ts",
     "lib/safeStorage.ts",
     "lib/screenshotCache.ts",
@@ -235,5 +236,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-14T12:52:05.129Z"
+  "last_scan_timestamp": "2026-04-14T20:58:48.050Z"
 }

@@ -18,8 +18,8 @@ AI-студия для генерации полноценных React-прил�
     → Architect LLM (plan JSON с thinking)
     → Coder LLM (FILE маркеры)
     → parseFileMarkers() → llmFiles
-    → writePreviewFile() × N → preview-app/src/
-    → Vite HMR (порт 3100) подхватывает
+    → writePreviewFile() × N → preview-workspace/src/
+    → preview-manager маршрутизирует проект в выделенный Vite инстанс
     → force-preview-reload → SandpackPreview перезагружает iframe
     → ProjectRepository.saveProject() → Supabase user_projects
 ```
@@ -27,7 +27,7 @@ AI-студия для генерации полноценных React-прил�
 **Всё остальное — не продовый путь:**
 - `Orchestrator.ts` — только `applyOperations()` для edit mode
 - `AgentLoopService` — только AgentLab панель
-- `Figma/PlatinumFigma` — изолирован, не трогает preview-app
+- `Figma/PlatinumFigma` — изолирован, не трогает preview-workspace
 - `storageService` — только sync метрик, не проекты
 
 ---
@@ -40,7 +40,7 @@ AI-студия для генерации полноценных React-прил�
 | Метаданные проектов (кэш) | localStorage `aic_projects_meta` | Быстрый список без сетевого запроса |
 | API ключи, настройки агентов | localStorage через ConfigService | Локальные настройки |
 | Billing per project | localStorage `BILLING_{id}` | Подсчёт токенов |
-| preview-app/src/ | Файловая система (временно) | Рабочая директория Vite, НЕ хранилище |
+| preview-workspace/src/ | Файловая система (временно) | Рабочая директория Vite, НЕ хранилище |
 
 **Правило:** localStorage = кэш. Supabase = правда.
 
@@ -54,8 +54,8 @@ AI-студия для генерации полноценных React-прил�
 - Supabase JS client (`@supabase/supabase-js`)
 - lucide-react иконки
 
-**Preview (preview-app/):**
-- React 18 + TypeScript + Vite (порт 3100)
+**Preview (preview-workspace/):**
+- React 18 + TypeScript + Vite (динамический порт от preview-manager)
 - Tailwind CSS + shadcn/ui (19 компонентов — НЕ ТРОГАТЬ)
 - 5 CSS тем: dark-slate, trust, warm, neon, bloom
 
@@ -122,7 +122,7 @@ Coder реализует:
 ```
 SandpackPreview.tsx:
   <div> (всегда в DOM)
-    <iframe ref=viteIframeRef src="localhost:3100"
+    <iframe ref=viteIframeRef src="preview-url-from-manager"
             display=isReact?block:none />     ← НИКОГДА не unmount
     <iframe ref=srcdocIframeRef
             display=isReact?none:block />     ← НИКОГДА не unmount
@@ -195,10 +195,10 @@ ProjectRepository.saveProject(project)
 
 ## НЕ ТРОГАТЬ
 
-- `preview-app/src/components/ui/` — 19 shadcn компонентов
-- `preview-app/src/lib/utils.ts` — cn() утилита
-- `preview-app/src/main.tsx` — точка входа preview
-- `preview-app/src/themes/` — 5 CSS тем (защищены от clearPreview)
+- `preview-workspace/src/components/ui/` — 19 shadcn компонентов
+- `preview-workspace/src/lib/utils.ts` — cn() утилита
+- `preview-workspace/src/main.tsx` — точка входа preview
+- `preview-workspace/src/themes/` — 5 CSS тем (защищены от clearPreview)
 - `frontend/src/components/ui/` — shadcn компоненты студии
 
 ---
@@ -213,7 +213,7 @@ npm run dev:all
 npx tsc --noEmit
 
 # Студия: http://localhost:5183
-# Preview: http://localhost:3100
+# Preview: динамический URL от preview-manager
 
 # Среда: Windows, PowerShell
 # Команды по одной (не через &&)
@@ -232,7 +232,7 @@ npx tsc --noEmit
 - Запуск из идей с пропуском Architect (prebuiltPlan)
 - Cloud tab (EAS, App Store Connect, Google Play UI)
 - React Native export + Expo Snack preview
-- Product Architect модуль (живые данные из preview-app)
+- Product Architect модуль (живые данные из preview-workspace)
 - Supabase подключён (`[StorageService] Connected ✓`)
 - removeChild crash устранён (изолированные Suspense границы)
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * BlueprintFlow.test.tsx — generation-plan → blueprint → confirm smoke test.
+ * BlueprintFlow.test.tsx — generation-plan confirm flow smoke test.
  *
  * Before first run install deps (not in frontend/package.json yet):
  *   npm i -D @testing-library/react @testing-library/user-event @testing-library/jest-dom jsdom
@@ -11,9 +11,9 @@
 
 import React, { useReducer, useState, useRef } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within, act } from '@testing-library/react';
+import { render, screen, within, act, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';
 
 import { chatReducer, normalizeMessage } from '../../types/chat';
 import type { ChatMessage } from '../../types/chat';
@@ -29,9 +29,25 @@ vi.mock('react-markdown', () => ({
 vi.mock('remark-gfm', () => ({ default: () => {} }));
 
 // lucide-react icons — just render nothing in tests.
-vi.mock('lucide-react', () =>
-  new Proxy({}, { get: () => () => null })
-);
+vi.mock('lucide-react', () => {
+  const Icon = () => null;
+  return {
+    Plus: Icon,
+    Link2: Icon,
+    Camera: Icon,
+    Sparkles: Icon,
+    Paperclip: Icon,
+    History: Icon,
+    X: Icon,
+    Clock: Icon,
+    RotateCcw: Icon,
+    GitBranch: Icon,
+    Undo2: Icon,
+    Redo2: Icon,
+    Square: Icon,
+    Copy: Icon,
+  };
+});
 
 // ── Minimal LeftPanel prop factory ──────────────────────────────────────────
 
@@ -64,30 +80,31 @@ function Harness({
     rawDispatch(action);
   };
 
-  // "Show Blueprint" — simulates onPlanReady firing from GenerationPipeline.
+  // "Show Plan" — simulates a generation-plan message in chat.
   const showBlueprint = () => {
-    const bpId = 'bp-test-1';
+    const planMsgId = 'plan-msg-1';
     dispatch({
       type: 'APPEND',
       payload: normalizeMessage({
-        id:               bpId,
+        id:               planMsgId,
         role:             'assistant',
-        type:             'blueprint',
-        blueprintVisible: true,
-        blueprintText:    'Build a todo app with React.',
-        appName:          'TodoApp',
-        theme:            'dark',
-        pages:            ['Home', 'Settings'],
-        timestamp:        Date.now(),
+        type:             'generation-plan',
         content:          '',
+        appName:          'TodoApp',
+        summary:          'Собираем TODO приложение.',
+        screens:          [{ name: 'Page1', description: { type: 'counter', label: 'Счетчик задач' } }],
+        pages:            ['Home', 'Settings'],
+        steps:            [{ id: 's1', label: 'Планирование', status: 'active' }],
+        progress:         0,
+        buildStatus:      'draft',
+        timestamp:        Date.now(),
       }),
     });
     setPendingPlan({ id: 'plan-1' });
   };
 
   const confirmPlan = () => {
-    // Mirrors useStudio ACCEPT_BLUEPRINT handler — hide then append
-    dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: 'bp-test-1', visible: false });
+    dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'generation-plan' });
     dispatch({ type: 'APPEND', payload: normalizeMessage({
       role: 'assistant', type: 'text', content: '⚙️ Building…', timestamp: Date.now(),
     }) });
@@ -95,15 +112,15 @@ function Harness({
   };
 
   const cancelPlan = () => {
-    dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: 'bp-test-1', visible: false });
+    dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'generation-plan' });
     setPendingPlan(null);
   };
 
   return (
     <>
       {/* Expose helpers to tests via data attrs on trigger buttons */}
-      <button data-testid="trigger-blueprint" onClick={showBlueprint}>
-        Show Blueprint
+      <button data-testid="trigger-plan" onClick={showBlueprint}>
+        Show Plan
       </button>
 
       <ChatErrorBoundary>
@@ -161,23 +178,25 @@ describe('BlueprintFlow — generation-plan → blueprint → confirm', () => {
   });
   afterEach(() => {
     errorSpy.mockRestore();
+    cleanup();
   });
 
-  it('S1: BlueprintCard appears after Show Blueprint', async () => {
+  it('S1: GenerationPlanCard appears after Show Plan', async () => {
     render(<Harness />);
 
-    await user.click(screen.getByTestId('trigger-blueprint'));
+    await user.click(screen.getByTestId('trigger-plan'));
 
-    // BlueprintCard renders the appName
-    expect(screen.getByText('TodoApp')).toBeInTheDocument();
-    expect(screen.getByText('Build it')).toBeInTheDocument();
+    // GenerationPlanCard renders app name, summary and confirm button.
+    expect(screen.getByText(/TodoApp/)).toBeInTheDocument();
+    expect(screen.getByText('Собираем TODO приложение.')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-plan-btn')).toBeInTheDocument();
   });
 
-  it('S2: Clicking Build it does not trigger ChatErrorBoundary', async () => {
+  it('S2: Clicking confirm does not trigger ChatErrorBoundary', async () => {
     render(<Harness />);
 
-    await user.click(screen.getByTestId('trigger-blueprint'));
-    await user.click(screen.getByText('Build it'));
+    await user.click(screen.getByTestId('trigger-plan'));
+    await user.click(screen.getByTestId('confirm-plan-btn'));
 
     // ChatErrorBoundary renders the emoji 💬 only when crashed
     expect(screen.queryByText('💬')).not.toBeInTheDocument();
@@ -186,45 +205,44 @@ describe('BlueprintFlow — generation-plan → blueprint → confirm', () => {
   it('S3: No insertBefore / null-property error text in DOM after confirm', async () => {
     render(<Harness />);
 
-    await user.click(screen.getByTestId('trigger-blueprint'));
-    await user.click(screen.getByText('Build it'));
+    await user.click(screen.getByTestId('trigger-plan'));
+    await user.click(screen.getByTestId('confirm-plan-btn'));
 
     const bodyText = document.body.innerText ?? document.body.textContent ?? '';
     expect(bodyText).not.toContain('insertBefore');
     expect(bodyText).not.toContain('Cannot read properties of null');
   });
 
-  it('S4: BlueprintCard is hidden (not removed) after confirm', async () => {
+  it('S4: Plan card is hidden after confirm', async () => {
     render(<Harness />);
 
-    await user.click(screen.getByTestId('trigger-blueprint'));
-    await user.click(screen.getByText('Build it'));
+    await user.click(screen.getByTestId('trigger-plan'));
+    await user.click(screen.getByTestId('confirm-plan-btn'));
 
     // "Building…" message should appear (appended by confirmPlan)
     expect(screen.getByText('⚙️ Building…')).toBeInTheDocument();
 
-    // "TodoApp" heading should NOT be visible (blueprintVisible=false → return null)
+    // Plan card should no longer be visible after confirm in this harness.
     expect(screen.queryByText('TodoApp')).not.toBeInTheDocument();
   });
 
-  it('S5: Fast double-click on Build it dispatches SET_BLUEPRINT_VISIBLE exactly once', async () => {
+  it('S5: Fast double-click on confirm dispatches REMOVE_BY_TYPE exactly once', async () => {
     const dispatchSpy = vi.fn();
     render(<Harness onDispatch={dispatchSpy} />);
 
-    await user.click(screen.getByTestId('trigger-blueprint'));
+    await user.click(screen.getByTestId('trigger-plan'));
 
-    // Double-click "Build it" as fast as possible
-    const buildBtn = screen.getByText('Build it');
+    // Double-click confirm as fast as possible
+    const buildBtn = screen.getByTestId('confirm-plan-btn');
     await act(async () => {
       await user.dblClick(buildBtn);
     });
 
     const hideActions = dispatchSpy.mock.calls.filter(
-      ([action]) => action.type === 'SET_BLUEPRINT_VISIBLE' && action.visible === false
+      ([action]) => action.type === 'REMOVE_BY_TYPE' && action.msgType === 'generation-plan'
     );
 
-    // confirmPlan hides the blueprint once; second click finds no pendingPlan
-    // and does not call confirmPlan again (button is gone after first click).
+    // confirmPlan removes generation-plan once; second click should not add another removal.
     expect(hideActions.length).toBe(1);
   });
 });
