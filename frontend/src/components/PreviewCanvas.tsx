@@ -118,7 +118,7 @@ const ZoomableCanvas: React.FC<ZoomableCanvasProps> = ({
         width: '100%', height: '100%',
         minHeight: 200,
         position: 'relative',
-        overflow: 'hidden',
+        overflow: 'visible',
         cursor: draggable ? 'grab' : 'default',
         userSelect: 'none',
         ...bgStyle,
@@ -194,34 +194,40 @@ const DEVICE_SPECS: Record<DevKey, {
   outerBg: string; outerShadow: string; outerOverflow: 'hidden' | 'visible';
   cl: number; ct: number; cw: number; ch: number; cr: number | string;
 }> = {
+  // viewport 1440×900 — thin ring makes the frame visible on dark canvas
   desktop: {
-    outerW: 1280, outerH: 800, outerR: 12,
-    outerBg: 'transparent',
-    outerShadow: '0 32px 100px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.07)',
+    outerW: 1440, outerH: 900, outerR: 12,
+    outerBg: '#0d0d14',
+    outerShadow: '0 32px 100px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.12)',
     outerOverflow: 'hidden',
-    // No chrome bars — iframe fills the full frame
-    cl: 0, ct: 0, cw: 1280, ch: 800, cr: 12,
+    cl: 0, ct: 0, cw: 1440, ch: 900, cr: 12,
   },
+  // viewport 390×844 (iPhone 14/15 logical resolution)
+  // outer adds 2px side bezel + 54px status bar + 36px home indicator
   iphone: {
-    outerW: 393, outerH: 852, outerR: 54,
+    outerW: 394, outerH: 934, outerR: 54,
     outerBg: 'linear-gradient(160deg,#8a8a8e 0%,#58585a 50%,#3a3a3c 100%)',
     outerShadow: '0 0 0 1px rgba(255,255,255,0.18), 0 50px 140px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.15)',
     outerOverflow: 'visible',
-    cl: 2, ct: 54, cw: 389, ch: 762, cr: 50,
+    cl: 2, ct: 54, cw: 390, ch: 844, cr: 50,
   },
+  // viewport 412×915 (Pixel 9 Pro logical resolution)
+  // outer adds 2px side bezel + 62px top chrome + 32px chin
   pixel: {
-    outerW: 393, outerH: 852, outerR: 48,
+    outerW: 416, outerH: 1009, outerR: 48,
     outerBg: 'linear-gradient(145deg,#4a4a4e 0%,#2a2a2c 100%)',
     outerShadow: '0 0 0 1px rgba(255,255,255,0.18), 0 50px 140px rgba(0,0,0,0.9)',
     outerOverflow: 'visible',
-    cl: 2, ct: 62, cw: 389, ch: 786, cr: '40px 40px 0 0',
+    cl: 2, ct: 62, cw: 412, ch: 915, cr: '40px 40px 0 0',
   },
+  // viewport 810×1080 (iPad Pro 11" / iPad Air landscape-ish)
+  // outer adds 4px side bezel + 28px status bar + 26px home bar
   ipad: {
-    outerW: 834, outerH: 1194, outerR: 20,
+    outerW: 818, outerH: 1134, outerR: 20,
     outerBg: 'linear-gradient(160deg,#6c6c70 0%,#4a4a4c 60%,#3a3a3c 100%)',
     outerShadow: '0 0 0 1px rgba(255,255,255,0.14), 0 40px 120px rgba(0,0,0,0.8)',
     outerOverflow: 'visible',
-    cl: 4, ct: 28, cw: 826, ch: 1144, cr: 16,
+    cl: 4, ct: 28, cw: 810, ch: 1080, cr: 16,
   },
 };
 
@@ -879,7 +885,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   previewBlockedReason,
   projectId,
 }) => {
-  const iframeUrl = `/preview/${projectId}`;
+  const iframeUrl = projectId ? `/preview/${projectId}` : '';
   const [tab, setTab] = useState<TabId>('preview');
 
   const TH = {
@@ -912,6 +918,90 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   const isDraggable = false; // desktop uses 1:1 scroll, mobile uses ZoomableCanvas (drag disabled)
 
   const isDark = currentTheme !== 'light';
+  const isPrototypingPhase =
+    previewLifecycle === 'generating' ||
+    previewLifecycle === 'validating' ||
+    previewLifecycle === 'committing' ||
+    previewLifecycle === 'materializing';
+  const isPreviewReady =
+    previewLifecycle === 'preview-ready' ||
+    previewLifecycle === 'degraded';
+  const [hasPreviewReady, setHasPreviewReady] = useState(false);
+  useEffect(() => {
+    setHasPreviewReady(false);
+  }, [projectId]);
+  useEffect(() => {
+    if (isPreviewReady) setHasPreviewReady(true);
+  }, [isPreviewReady]);
+  const canShowIframe = isPreviewReady || hasPreviewReady;
+  const showEmptySplash =
+    !projectId ||
+    (!isGenerating && currentVersion === 0 && Object.keys(files).length === 0);
+  const showBlockedSplash =
+    !!projectId &&
+    !isGenerating &&
+    (previewLifecycle === 'blocked' || previewLifecycle === 'failed');
+  const showPrototypingSplash =
+    !!projectId &&
+    !showEmptySplash &&
+    !showBlockedSplash &&
+    (!canShowIframe || isGenerating || isPrototypingPhase);
+  const [countdownSec, setCountdownSec] = useState(0);
+  const [protoProgress, setProtoProgress] = useState(0);
+  const splashWasVisibleRef = useRef(false);
+  const countdownStartRef = useRef(18);
+
+  const phaseLabel =
+    previewLifecycle === 'generating' ? 'Кодируем интерфейс' :
+    previewLifecycle === 'validating' ? 'Проверяем связность проекта' :
+    previewLifecycle === 'committing' ? 'Сохраняем ревизию прототипа' :
+    previewLifecycle === 'materializing' ? 'Запускаем живое превью' :
+    'Подготавливаем окружение превью';
+
+  useEffect(() => {
+    if (showPrototypingSplash && !splashWasVisibleRef.current) {
+      const start =
+        previewLifecycle === 'materializing' ? 8 :
+        previewLifecycle === 'committing' ? 11 :
+        previewLifecycle === 'validating' ? 14 : 18;
+      countdownStartRef.current = start;
+      setCountdownSec(start);
+      setProtoProgress(0);
+    }
+
+    if (!showPrototypingSplash && splashWasVisibleRef.current) {
+      setCountdownSec(0);
+      setProtoProgress(100);
+    }
+
+    splashWasVisibleRef.current = showPrototypingSplash;
+  }, [showPrototypingSplash, previewLifecycle]);
+
+  useEffect(() => {
+    if (!showPrototypingSplash) return;
+
+    const timer = window.setInterval(() => {
+      setCountdownSec((prev) => {
+        const phase = previewLifecycle ?? (isGenerating ? 'generating' : 'idle');
+        const step =
+          phase === 'generating' ? 0.14 :
+          phase === 'validating' ? 0.28 :
+          phase === 'committing' ? 0.45 :
+          phase === 'materializing' ? 0.9 : 0.2;
+
+        const nextRaw = Math.max(0, Number((prev - step).toFixed(2)));
+        const next = isPreviewReady ? nextRaw : Math.max(1, nextRaw);
+        const start = Math.max(1, countdownStartRef.current);
+        const pct = Math.min(99, Math.max(0, ((start - next) / start) * 100));
+        setProtoProgress(isPreviewReady && next <= 0 ? 100 : pct);
+        return next;
+      });
+    }, 300);
+
+    return () => window.clearInterval(timer);
+  }, [showPrototypingSplash, previewLifecycle, isGenerating, isPreviewReady]);
+
+  const countdownText = String(isPreviewReady ? 0 : Math.max(1, Math.ceil(countdownSec))).padStart(2, '0');
   const ctxText  = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
   const ctxStrong = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)';
 
@@ -978,23 +1068,196 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             S1: All devices share the same ZoomableCanvas → DeviceFrame → SandpackView
             fiber path. Device switch changes only props (autoFit, device) — React
             never unmounts SandpackView regardless of desktop↔mobile transitions. */}
-        <div style={{ position:'absolute', inset:0, display: tab === 'preview' ? 'block' : 'none' }}>
-          <ZoomableCanvas
-            draggable={false}
-            initZoom={0.55}
-            autoFit={{
-              w: (DEVICE_SPECS[device as DevKey] ?? DEVICE_SPECS.desktop).outerW,
-              h: (DEVICE_SPECS[device as DevKey] ?? DEVICE_SPECS.desktop).outerH,
-            }}
-            bgStyle={bgStyle}
-          >
-            <DeviceFrame device={device}>
-              <iframe
-                src={iframeUrl}
-                className="w-full h-full border-0"
-              />
-            </DeviceFrame>
-          </ZoomableCanvas>
+        <div style={{ position:'absolute', inset:0, display: tab === 'preview' ? 'flex' : 'none', flexDirection:'column' }}>
+          {showPrototypingSplash ? (
+            <div style={{
+              flex: 1, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              background: th.canvasBg, textAlign: 'center',
+              userSelect: 'none',
+            }}>
+              <style>{`
+                @keyframes _pc_pulse {
+                  0%,100% { opacity: 1; transform: scale(1); }
+                  50%      { opacity: 0.62; transform: scale(0.94); }
+                }
+                @keyframes _pc_float {
+                  0%,100% { transform: translateY(0px); opacity: 0.8; }
+                  50%      { transform: translateY(-4px); opacity: 1; }
+                }
+                @keyframes _pc_sheen {
+                  0%   { transform: translateX(-120%); }
+                  100% { transform: translateX(220%); }
+                }
+              `}</style>
+              <div style={{ animation: '_pc_pulse 2.4s ease-in-out infinite', marginBottom: 14 }}>
+                <svg width="52" height="52" viewBox="0 0 16 16" fill="none">
+                  <rect x="1" y="1" width="5.5" height="5.5" rx="1.5" fill="#f97316" opacity="0.95"/>
+                  <rect x="9.5" y="1" width="5.5" height="5.5" rx="1.5" fill="#f97316" opacity="0.45"/>
+                  <rect x="1" y="9.5" width="5.5" height="5.5" rx="1.5" fill="#f97316" opacity="0.45"/>
+                  <rect x="9.5" y="9.5" width="5.5" height="5.5" rx="1.5" fill="#f97316" opacity="0.95"/>
+                </svg>
+              </div>
+              <div style={{
+                fontSize: 15, fontWeight: 600,
+                color: isDark ? 'rgba(255,255,255,0.76)' : '#1D1D1F',
+                marginBottom: 7,
+              }}>
+                AIC-RG Studio
+              </div>
+              <div style={{
+                fontSize: 13,
+                color: isDark ? 'rgba(251,146,60,0.9)' : '#ea580c',
+                animation: '_pc_float 1.8s ease-in-out infinite',
+                letterSpacing: '0.02em',
+                marginBottom: 14,
+              }}>
+                {phaseLabel}
+              </div>
+
+              <div style={{
+                width: 280,
+                borderRadius: 12,
+                border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
+                background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.65)',
+                backdropFilter: 'blur(6px)',
+                padding: '12px 12px 10px',
+              }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: 8,
+                }}>
+                  <span style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
+                    До появления preview
+                  </span>
+                  <span style={{
+                    fontSize: 14,
+                    fontVariantNumeric: 'tabular-nums',
+                    color: isDark ? '#fed7aa' : '#9a3412',
+                    fontWeight: 700,
+                  }}>
+                    {countdownText}с
+                  </span>
+                </div>
+
+                <div style={{
+                  position: 'relative',
+                  height: 8,
+                  borderRadius: 999,
+                  overflow: 'hidden',
+                  background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)',
+                }}>
+                  <div style={{
+                    width: `${protoProgress}%`,
+                    height: '100%',
+                    borderRadius: 999,
+                    transition: 'width 260ms linear',
+                    background: 'linear-gradient(90deg,#fb923c 0%,#f97316 55%,#ea580c 100%)',
+                  }} />
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%)',
+                    animation: '_pc_sheen 1.6s linear infinite',
+                    pointerEvents: 'none',
+                  }} />
+                </div>
+              </div>
+            </div>
+          ) : showBlockedSplash ? (
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: th.canvasBg,
+              textAlign: 'center',
+              padding: '0 20px',
+            }}>
+              <div style={{
+                width: 16, height: 16, borderRadius: '50%',
+                background: '#f97316', opacity: 0.9, marginBottom: 12,
+              }} />
+              <div style={{
+                fontSize: 15,
+                fontWeight: 600,
+                color: isDark ? 'rgba(255,255,255,0.78)' : '#1D1D1F',
+                marginBottom: 6,
+              }}>
+                Превью временно недоступно
+              </div>
+              <div style={{
+                fontSize: 12,
+                color: isDark ? 'rgba(255,255,255,0.36)' : '#86868B',
+                lineHeight: 1.6,
+                maxWidth: 420,
+              }}>
+                {previewBlockedReason || 'Собираем стабильную ревизию. Экран появится автоматически после восстановления.'}
+              </div>
+            </div>
+          ) : showEmptySplash ? (
+            <div style={{
+              flex: 1, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              background: th.canvasBg, textAlign: 'center',
+              userSelect: 'none',
+            }}>
+              <style>{`
+                @keyframes _pc_pulse {
+                  0%,100% { opacity: 1; transform: scale(1); }
+                  50%      { opacity: 0.6; transform: scale(0.92); }
+                }
+                @keyframes _pc_fade_in {
+                  from { opacity: 0; transform: translateY(8px); }
+                  to   { opacity: 1; transform: translateY(0); }
+                }
+              `}</style>
+              <div style={{ animation: '_pc_pulse 2.4s ease-in-out infinite', marginBottom: 20 }}>
+                <svg width="52" height="52" viewBox="0 0 16 16" fill="none">
+                  <rect x="1"   y="1"   width="5.5" height="5.5" rx="1.5" fill="#f97316" opacity="0.95"/>
+                  <rect x="9.5" y="1"   width="5.5" height="5.5" rx="1.5" fill="#f97316" opacity="0.45"/>
+                  <rect x="1"   y="9.5" width="5.5" height="5.5" rx="1.5" fill="#f97316" opacity="0.45"/>
+                  <rect x="9.5" y="9.5" width="5.5" height="5.5" rx="1.5" fill="#f97316" opacity="0.95"/>
+                </svg>
+              </div>
+              <div style={{
+                animation: '_pc_fade_in 0.6s ease both',
+                fontSize: 16, fontWeight: 600,
+                color: isDark ? 'rgba(255,255,255,0.75)' : '#1D1D1F',
+                marginBottom: 8, letterSpacing: '0.01em',
+              }}>
+                AIC-RG Studio
+              </div>
+              <div style={{
+                animation: '_pc_fade_in 0.6s 0.1s ease both',
+                fontSize: 13,
+                color: isDark ? 'rgba(255,255,255,0.28)' : '#86868B',
+                lineHeight: 1.6,
+              }}>
+                Опишите идею ниже или выберите<br/>в сайдбаре
+              </div>
+            </div>
+          ) : canShowIframe ? (
+            <ZoomableCanvas
+              draggable={false}
+              initZoom={0.55}
+              autoFit={{
+                w: (DEVICE_SPECS[device as DevKey] ?? DEVICE_SPECS.desktop).outerW,
+                h: (DEVICE_SPECS[device as DevKey] ?? DEVICE_SPECS.desktop).outerH,
+              }}
+              bgStyle={bgStyle}
+            >
+              <DeviceFrame device={device}>
+                <iframe
+                  src={iframeUrl}
+                  title="preview"
+                  style={{ display: 'block', width: '100%', height: '100%', border: 'none' }}
+                />
+              </DeviceFrame>
+            </ZoomableCanvas>
+          ) : (
+            <div style={{ flex: 1, background: th.canvasBg }} />
+          )}
         </div>
 
         {/* Code — ALWAYS mounted to preserve editor state across tab switches */}
