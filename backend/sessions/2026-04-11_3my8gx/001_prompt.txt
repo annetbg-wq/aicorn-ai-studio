@@ -1,0 +1,647 @@
+[User]
+You are editing an existing React application.
+The user wants a SPECIFIC change. Apply ONLY what they asked for.
+
+CURRENT APPLICATION FILES:
+<!--EXISTING_FILE:App.tsx-->
+import { useMemo, useState } from "react";
+import type { CheckedState } from "@radix-ui/react-checkbox";
+import { CalendarDays, CheckCircle2, GripVertical, Home } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+
+type TaskStatus = "backlog" | "inProgress" | "review" | "done";
+type TaskPriority = "low" | "medium" | "high";
+
+type Subtask = {
+  id: string;
+  title: string;
+  done: boolean;
+};
+
+type Task = {
+  id: string;
+  title: string;
+  project: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: string;
+  completed: boolean;
+  description: string;
+  subtasks: Subtask[];
+};
+
+type FilterKey = "all" | "today" | "overdue";
+
+const statusColumns: { key: TaskStatus; label: string; helper: string }[] = [
+  { key: "backlog", label: "Бэклог", helper: "Идеи и входящие" },
+  { key: "inProgress", label: "В работе", helper: "Сейчас делаем" },
+  { key: "review", label: "Ревью", helper: "Нужна проверка" },
+  { key: "done", label: "Готово", helper: "Закрытые задачи" },
+];
+
+const filters: { key: FilterKey; label: string }[] = [
+  { key: "all", label: "Все" },
+  { key: "today", label: "Сегодня" },
+  { key: "overdue", label: "Просрочено" },
+];
+
+const priorityCopy: Record<TaskPriority, { label: string; tone: string }> = {
+  high: { label: "Высокий", tone: "bg-destructive/10 text-destructive" },
+  medium: { label: "Средний", tone: "bg-secondary text-secondary-foreground" },
+  low: { label: "Низкий", tone: "bg-muted text-muted-foreground" },
+};
+
+const initialTasks: Task[] = [
+  {
+    id: "t1",
+    title: "Собрать отчёт для совета директоров",
+    project: "Aster Analytics",
+    status: "inProgress",
+    priority: "high",
+    dueDate: "2026-04-11",
+    completed: false,
+    description: "Собери ключевые метрики за неделю и добавь выводы по гипотезам роста.",
+    subtasks: [
+      { id: "t1s1", title: "Обновить сводку MRR", done: true },
+      { id: "t1s2", title: "Согласовать диаграммы с дизайном", done: false },
+      { id: "t1s3", title: "Добавить блок рисков", done: false },
+    ],
+  },
+  {
+    id: "t2",
+    title: "Подготовить бэклог следующего спринта",
+    project: "FlowOps",
+    status: "backlog",
+    priority: "medium",
+    dueDate: "2026-04-10",
+    completed: false,
+    description: "Свести обратную связь от поддержки и сформировать уточнённые user stories.",
+    subtasks: [
+      { id: "t2s1", title: "Сверить приоритеты с продуктом", done: false },
+      { id: "t2s2", title: "Оценить сложность c командой", done: false },
+    ],
+  },
+  {
+    id: "t3",
+    title: "Сверстать раздел \"Фокус недели\"",
+    project: "Marketing Hub",
+    status: "review",
+    priority: "medium",
+    dueDate: "2026-04-09",
+    completed: false,
+    description: "Полировка канбан-доски на лендинге и проверка адаптива перед релизом.",
+    subtasks: [
+      { id: "t3s1", title: "Настроить карточки для mobile", done: true },
+      { id: "t3s2", title: "Добавить иллюстрации", done: true },
+      { id: "t3s3", title: "Проверить контраст", done: false },
+    ],
+  },
+  {
+    id: "t4",
+    title: "Отправить еженедельный дайджест клиентам",
+    project: "App Community",
+    status: "done",
+    priority: "low",
+    dueDate: "2026-04-07",
+    completed: true,
+    description: "Готовый дайджест согласован, осталось проконтролировать доставку.",
+    subtasks: [
+      { id: "t4s1", title: "Запустить кампанию в ESP", done: true },
+      { id: "t4s2", title: "Проверить CTR через сутки", done: true },
+    ],
+  },
+  {
+    id: "t5",
+    title: "Настроить автоматизацию QA для нового сервиса",
+    project: "Infra Circle",
+    status: "inProgress",
+    priority: "high",
+    dueDate: "2026-04-08",
+    completed: false,
+    description: "Поднять витринные тесты и связать их с nightly пайплайном.",
+    subtasks: [
+      { id: "t5s1", title: "Определить критичный сценарий", done: true },
+      { id: "t5s2", title: "Добавить smoke-тесты", done: false },
+      { id: "t5s3", title: "Настроить отчёт в Slack", done: false },
+    ],
+  },
+  {
+    id: "t6",
+    title: "Обновить playbook поддержки",
+    project: "Care Desk",
+    status: "backlog",
+    priority: "low",
+    dueDate: "2026-04-06",
+    completed: false,
+    description: "Собрать новые сценарии для AI-чата и дописать макросы ответов.",
+    subtasks: [
+      { id: "t6s1", title: "Собрать типовые кейсы", done: false },
+      { id: "t6s2", title: "Сверить тон общения", done: false },
+    ],
+  },
+];
+
+const toDate = (value: string) => new Date(`${value}T00:00:00`);
+const formatDate = (value: string) =>
+  new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" }).format(toDate(value));
+
+export default function App() {
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [orderedIds, setOrderedIds] = useState<string[]>(() => initialTasks.map((task) => task.id));
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [note, setNote] = useState("");
+  const [noteError, setNoteError] = useState("");
+  const [noteSaved, setNoteSaved] = useState(false);
+
+  const now = new Date();
+  const todayISO = now.toISOString().slice(0, 10);
+  const todayDate = toDate(todayISO);
+
+  const completedCount = tasks.filter((task) => task.completed).length;
+  const progressValue = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
+
+  const quickTasks = useMemo(() => {
+    return orderedIds
+      .map((id) => tasks.find((task) => task.id === id))
+      .filter((task): task is Task => Boolean(task));
+  }, [orderedIds, tasks]);
+
+  const filteredQuickTasks = useMemo(() => {
+    return quickTasks.filter((task) => {
+      if (filter === "today") {
+        return task.dueDate === todayISO;
+      }
+      if (filter === "overdue") {
+        return toDate(task.dueDate) < todayDate && !task.completed;
+      }
+      return true;
+    });
+  }, [quickTasks, filter, todayISO, todayDate]);
+
+  const handleNoteSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (note.trim().length < 5) {
+      setNoteError("Введите не менее 5 символов, чтобы заметка была полезной.");
+      setNoteSaved(false);
+      return;
+    }
+    setNoteError("");
+    setNote("");
+    setNoteSaved(true);
+    window.setTimeout(() => setNoteSaved(false), 1800);
+  };
+
+  const toggleTaskComplete = (taskId: string, next: boolean) => {
+    setTasks((prev) =>
+      prev.map((task) => {
+        if (task.id !== taskId) {
+          return task;
+        }
+        const updatedSubtasks = task.subtasks.map((subtask) => ({
+          ...subtask,
+          done: next ? true : subtask.done,
+        }));
+        return {
+          ...task,
+          completed: next,
+          status: next ? "done" : task.status === "done" ? "inProgress" : task.status,
+          subtasks: updatedSubtasks,
+        };
+      })
+    );
+  };
+
+  const toggleSubtask = (taskId: string, subtaskId: string, next: boolean) => {
+    setTasks((prev) =>
+      prev.map((task) => {
+        if (task.id !== taskId) {
+          return task;
+        }
+        const updatedSubtasks = task.subtasks.map((subtask) =>
+          subtask.id === subtaskId ? { ...subtask, done: next } : subtask
+        );
+        const allDone = updatedSubtasks.every((subtask) => subtask.done);
+        return {
+          ...task,
+          subtasks: updatedSubtasks,
+          completed: allDone,
+          status: allDone ? "done" : task.status === "done" ? "inProgress" : task.status,
+        };
+      })
+    );
+  };
+
+  const handleDragStart = (taskId: string) => (event: React.DragEvent<HTMLDivElement>) => {
+    event.dataTransfer.setData("text/plain", taskId);
+    event.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDrop = (targetId: string) => (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const sourceId = event.dataTransfer.getData("text/plain");
+    if (!sourceId || sourceId === targetId) {
+      return;
+    }
+    setOrderedIds((prev) => {
+      if (!prev.includes(sourceId)) {
+        return prev;
+      }
+      const nextOrder = prev.filter((id) => id !== sourceId);
+      const targetIndex = nextOrder.indexOf(targetId);
+      if (targetIndex === -1) {
+        nextOrder.push(sourceId);
+        return [...nextOrder];
+      }
+      nextOrder.splice(targetIndex, 0, sourceId);
+      return [...nextOrder];
+    });
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  };
+
+  const isOverdue = (task: Task) => toDate(task.dueDate) < todayDate && !task.completed;
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <main className="mx-auto flex max-w-5xl flex-col gap-8 px-4 py-10">
+        <section className="animate-in fade-in slide-in-from-right-4 duration-250">
+          <Card className="bg-card shadow-sm">
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-primary/15 p-3 text-primary">
+                  <Home className="h-6 w-6" />
+                </div>
+                <div>
+                  <CardTitle className="text-2xl">App · Таск-менеджер</CardTitle>
+                  <CardDescription className="text-base text-muted-foreground">
+                    Продолжи: аккуратно нарастим функциональность для General user и сохраним чистый интерфейс.
+                  </CardDescription>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-xl bg-muted px-4 py-2 text-sm text-muted-foreground">
+                <CheckCircle2 className="h-4 w-4" />
+                Прогресс недели · {progressValue}%
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-muted-foreground">Быстрая заметка</div>
+                <form onSubmit={handleNoteSubmit} className="flex flex-col gap-3 sm:flex-row">
+                  <Input
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder="Зафиксируйте идею или важный блок задач"
+                    className="min-h-[48px] flex-1"
+                  />
+                  <Button
+                    type="submit"
+                    className="min-h-[48px] flex-1 transition-all duration-200 active:scale-95 sm:flex-none"
+                  >
+                    Сохранить мысль
+                  </Button>
+                </form>
+                {noteError && <p className="text-sm text-destructive">{noteError}</p>}
+                {noteSaved && (
+                  <p className="text-sm font-medium text-primary animate-in fade-in zoom-in-50 duration-200">
+                    Заметка зафиксирована, можно продолжать.
+                  </p>
+                )}
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <span>Выполнено задач</span>
+                  <span>
+                    {completedCount}/{tasks.length}
+                  </span>
+                </div>
+                <Progress value={progressValue} className="h-2" />
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-250">
+          <header className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold">Список фокуса</h2>
+              <p className="text-sm text-muted-foreground">Перетаскивайте карточки и отмечайте чекбоксы, чтобы держать приоритеты под контролем.</p>
+            </div>
+            <div className="flex gap-2">
+              {filters.map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  variant={filter === option.key ? "default" : "ghost"}
+                  className="rounded-full px-4 py-2 text-sm transition-all duration-200"
+                  onClick={() => setFilter(option.key)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </header>
+          <div role="list" className="space-y-4">
+            {filteredQuickTasks.length === 0 ? (
+              <div className="animate-in fade-in zoom-in-95 duration-500 delay-100 rounded-2xl border border-dashed border-border bg-card px-6 py-12 text-center text-muted-foreground">
+                <div className="text-4xl mb-3">📝</div>
+                <p className="text-base font-semibold">Пока нет задач в этой выборке</p>
+                <p className="text-sm">Сбросьте фильтр или добавьте новую карточку, чтобы начать.</p>
+              </div>
+            ) : (
+              filteredQuickTasks.map((task, index) => {
+                const completedSubtasks = task.subtasks.filter((subtask) => subtask.done).length;
+                const totalSubtasks = task.subtasks.length;
+                const columnProgress = totalSubtasks
+                  ? Math.round((completedSubtasks / totalSubtasks) * 100)
+                  : task.completed
+                  ? 100
+                  : 0;
+                return (
+                  <article
+                    key={task.id}
+                    role="listitem"
+                    draggable
+                    onDragStart={handleDragStart(task.id)}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop(task.id)}
+                    aria-grabbed={false}
+                    className="group rounded-2xl border border-border bg-card p-4 shadow-sm transition-all duration-200 hover:shadow-md"
+                    style={{ animationDelay: `${index * 50}ms` }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <GripVertical className="mt-1 h-4 w-4 text-muted-foreground" />
+                      <Checkbox
+                        checked={task.completed}
+                        onCheckedChange={(checked: CheckedState) => toggleTaskComplete(task.id, checked === true)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-base font-semibold leading-tight">{task.title}</p>
+                          <Badge variant="outline" className={`${priorityCopy[task.priority].tone} capitalize`}>
+                            {priorityCopy[task.priority].label}
+                          </Badge>
+                          <Badge variant="secondary">{task.project}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{task.description}</p>
+                        <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-muted-foreground">
+                          <div className={`rounded-full px-3 py-1 ${isOverdue(task) ? "bg-destructive/10 text-destructive" : "bg-muted"}`}>
+                            {isOverdue(task) ? "Просрочено" : `До ${formatDate(task.dueDate)}`}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <CalendarDays className="h-4 w-4" />
+                            {formatDate(task.dueDate)}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <CheckCircle2 className="h-4 w-4" />
+                            {completedSubtasks}/{totalSubtasks} подзадач
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Progress value={columnProgress} className="h-1.5" />
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Прогресс</span>
+                            <span>{columnProgress}%</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          {task.subtasks.length === 0 ? (
+                            <div className="rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">
+                              Подзадачи пока не заведены.
+                            </div>
+                          ) : (
+                            task.subtasks.map((subtask) => (
+                              <div key={subtask.id} className="flex items-start gap-2 pl-6">
+                                <Checkbox
+                                  checked={subtask.done}
+                                  onCheckedChange={(checked: CheckedState) =>
+                                    toggleSubtask(task.id, subtask.id, checked === true)
+                                  }
+                                  className="mt-[2px]"
+                                />
+                                <p className={`text-sm ${subtask.done ? "text-muted-foreground line-through" : "text-foreground"}`}>
+                                  {subtask.title}
+                                </p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        <section className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-250">
+          <header className="flex flex-col gap-2">
+            <h2 className="text-xl font-semibold">Канбан-лента</h2>
+            <p className="text-sm text-muted-foreground">Раскладываем задачи по статусам, чтобы видеть узкие места.</p>
+          </header>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {statusColumns.map((column) => {
+              const columnTasks = tasks.filter((task) => task.status === column.key);
+              return (
+                <div
+                  key={column.key}
+                  className="rounded-2xl border border-border bg-card p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-base font-semibold">{column.label}</p>
+                      <p className="text-sm text-muted-foreground">{column.helper}</p>
+                    </div>
+                    <Badge variant="outline" className="text-sm">
+                      {columnTasks.length}
+                    </Badge>
+                  </div>
+                  <Separator className="my-4" />
+                  {columnTasks.length === 0 ? (
+                    <div className="animate-in fade-in zoom-in-95 duration-500 delay-100 rounded-xl border border-dashed border-border bg-muted/60 px-3 py-6 text-center text-muted-foreground">
+                      <div className="text-3xl mb-2">🗂️</div>
+                      <p className="text-sm font-medium">Нет карточек</p>
+                      <p className="text-xs">Перетащите задачу сюда, когда она попадёт в этот этап.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                      {columnTasks.map((task, index) => (
+                        <article
+                          key={task.id}
+                          className="animate-in fade-in slide-in-from-bottom-2 duration-300 rounded-2xl border border-border bg-background/80 p-3 hover:shadow-md"
+                          style={{ animationDelay: `${index * 40}ms` }}
+                        >
+                          <p className="text-sm font-semibold truncate">{task.title}</p>
+                          <p className="text-xs text-muted-foreground line-clamp-2">{task.description}</p>
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span className="rounded-full bg-muted px-2 py-0.5">{formatDate(task.dueDate)}</span>
+                            <span className={`rounded-full px-2 py-0.5 ${priorityCopy[task.priority].tone}`}>
+                              {priorityCopy[task.priority].label}
+                            </span>
+                            <span className="rounded-full bg-secondary/40 px-2 py-0.5 text-secondary-foreground">
+                              {task.project}
+                            </span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+
+RULES:
+1. Output ONLY files that need modification as a JSON artifact:
+```json
+{
+  "artifact": {
+    "entry": "src/App.tsx",
+    "files": [
+      { "path": "src/pages/Dashboard.tsx", "content": "...full modified file..." }
+    ]
+  }
+}
+```
+2. Include ONLY files you are modifying. Do NOT include unchanged files.
+3. Each file's content must be the COMPLETE file, not a diff or patch.
+4. PRESERVE all existing functionality, state, imports, and types.
+5. Use the same design tokens and shadcn components as the existing code.
+6. DO NOT change navigation structure unless explicitly asked.
+7. DO NOT rename or restructure files unless explicitly asked.
+8. If adding a new feature: add it to the appropriate existing page,
+   or create a new page AND update App.tsx routing.
+
+
+══════════════════════════════════════════════════════
+  USE THESE PRE-INSTALLED COMPONENTS. THIS IS MANDATORY.
+══════════════════════════════════════════════════════
+
+import { Button } from "@/components/ui/button"
+  <Button>Primary action</Button>
+  <Button variant="destructive">Delete</Button>
+  <Button variant="outline" size="sm">Edit</Button>
+  <Button variant="ghost" size="icon"><X className="h-4 w-4" /></Button>
+
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
+  <Card>
+    <CardHeader><CardTitle>Title</CardTitle><CardDescription>Desc</CardDescription></CardHeader>
+    <CardContent>Body</CardContent>
+    <CardFooter><Button>Save</Button></CardFooter>
+  </Card>
+
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+  <div className="space-y-2"><Label htmlFor="x">Name</Label><Input id="x" placeholder="..." /></div>
+
+import { Badge } from "@/components/ui/badge"
+  <Badge>Active</Badge> <Badge variant="destructive">Error</Badge> <Badge variant="outline">Draft</Badge>
+
+import { Textarea } from "@/components/ui/textarea"
+import { Separator } from "@/components/ui/separator"
+import { Progress } from "@/components/ui/progress"
+  <Progress value={66} />
+import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
+
+COLOR TOKENS (MANDATORY — never use raw colors):
+  bg-background text-foreground          → main surfaces
+  bg-card text-card-foreground           → card surfaces
+  bg-muted text-muted-foreground         → subdued elements
+  bg-accent text-accent-foreground       → highlights
+  bg-destructive text-destructive-foreground → danger
+  border-border                          → all borders
+
+RULES:
+  ✗ NEVER <button className="bg-blue-600"> → ✓ <Button>
+  ✗ NEVER <input className="border...">   → ✓ <Input>
+  ✗ NEVER bg-gray-900, bg-slate-800       → ✓ bg-background, bg-card
+  ✗ NEVER text-gray-400                   → ✓ text-muted-foreground
+
+
+═══ DESIGN SYSTEM CONTEXT ═══
+Category: Dating & Social (Знакомства)
+Style: Colorful Vibrant (Яркий и красочный)
+App Idea: Verified Android Identity Console. Guides indie Android teams through Google’s new developer verification, package registration, and advanced sideloading flow so releases keep shipping.. Market context: Google has opened Android developer verification to all developers this March and starts surfacing Android Developer Verifier in April while mandating registration before the September 30 rollout in Brazil, Indonesia, Singapore, and Thailand plus adding a 24-hour advanced sideloading wait, so teams need compliance tooling immediately. ([developer.android.com](https://developer.android.com/developer-verification?utm_source=openai))
+
+═══ COLOR PALETTE ═══
+Primary: #e11d48
+Secondary: #fb7185
+Accent: #f97316
+Background: #fff1f2
+Surface: #ffffff
+Text: #1e1b1b
+
+═══ TYPOGRAPHY ═══
+Heading Font: Inter
+Body Font: Inter
+
+
+═══ STYLE GUIDE ═══
+DESIGN LANGUAGE: Colorful Vibrant
+- Use bold gradient backgrounds: linear-gradient with category primary + secondary
+- Surface: white cards on colored background, or semi-transparent
+- Accent: vibrant complementary colors, not just one color
+- Typography: Inter 700/800 for headings, round feel
+- Border radius: 16-20px cards, pill buttons (9999px), 12px inputs
+- Shadows: colored shadows matching primary (box-shadow 0 8px 25px primary at 30%)
+- Gradients: use on buttons, heroes, badges, progress bars
+- Icons: slightly larger 20-24px, colorful or white on colored bg
+- Animations: bouncy micro-interactions (spring easing)
+- Use emoji or colorful illustrations as accents
+- Categories: color-code different sections
+- Buttons: gradient fill, white text, slight shadow
+- Cards: white with colored left border or gradient header strip
+- High contrast ratios, accessible despite vibrancy
+
+═══ UI PATTERNS TO USE ═══
+- swipe-card
+- match-animation
+- photo-grid
+- compatibility-score
+- like-dislike
+- super-like
+- blur-preview
+- distance-badge
+
+═══ REFERENCE APPS ═══
+Study these for inspiration: Tinder, Bumble, Hinge, OkCupid, Badoo
+
+═══ ANIMATION PROFILE ═══
+Expressive animations: spring physics, celebration effects, engaging micro-interactions.
+
+═══ TECHNICAL REQUIREMENTS ═══
+- React functional components with TypeScript
+- Tailwind CSS for all styling
+- Import icons from lucide-react
+- Use inline styles ONLY for dynamic values (colors from palette above)
+- No external image URLs — use gradient placeholders or emoji
+- Component must be self-contained, no external dependencies beyond React/Tailwind/lucide-react
+- Export default the main component
+- Include realistic sample data (5-10 items minimum)
+- Responsive: works on mobile (375px) and desktop (1280px)
+
+[User]
+Verified Android Identity Console. Guides indie Android teams through Google’s new developer verification, package registration, and advanced sideloading flow so releases keep shipping.. Market context: Google has opened Android developer verification to all developers this March and starts surfacing Android Developer Verifier in April while mandating registration before the September 30 rollout in Brazil, Indonesia, Singapore, and Thailand plus adding a 24-hour advanced sideloading wait, so teams need compliance tooling immediately. ([developer.android.com](https://developer.android.com/developer-verification?utm_source=openai))

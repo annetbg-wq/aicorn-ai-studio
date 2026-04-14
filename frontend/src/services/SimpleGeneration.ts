@@ -1,17 +1,30 @@
 /**
  * SimpleGeneration — self-contained generation service.
  *
- * Writes files directly to preview-app/src/ via /__write_preview endpoint.
- * Vite HMR on port 3100 picks up changes automatically.
- * No sandbox, no revisions, no bootstrap, no materialization.
+ * Files are buffered into a RevisionManager candidate, compiled via Vite HMR,
+ * then promoted to active (or rejected, preserving last-good preview).
  */
 
 import { llmFetchStream, llmFetch } from './LLMProxy';
 import { ConfigService } from './ConfigService';
 import type { AgentSlot } from './ConfigService';
 import { Orchestrator } from './Orchestrator';
+import { compileWithRetry } from './compileGuard';
+import { validateImports, formatUnresolved } from './importValidator';
+import {
+  buildManifestFromPlan,
+  parseManifest,
+  mergeManifest,
+  generateAppTsx,
+  extractAppTsxContext,
+  manifestToPromptBlock,
+  MANIFEST_PATH,
+  type RouteManifest,
+} from './RouteManifestService';
+import { parseArtifact, convertLegacyFiles, parseFileMarkers } from './artifactParser';
+import type { ArtifactContract } from '../types/artifact';
 import type {
-  ChatMessage,
+  LLMMessage,
   FileOperation,
   PhaseEvent,
   UsageData,
@@ -23,8 +36,21 @@ import type {
   ChangePackage,
   FileBlueprint,
   ProductManifest,
+  DependencySpec,
 } from '../shared/projectModel';
+import { syncRoutes, validateAllRouteLayers } from '../shared/projectModel';
 import { GenerationQualityService } from './benchmark/GenerationQualityService';
+import { metricsService } from './MetricsService';
+import { revisionManager } from './RevisionManager';
+import { previewController, previewLog, setTimelineContext } from './PreviewController';
+import { commandBus } from './studioCommandBus';
+import { getLocalDevAgentProvider, syncLocalDevAgentMode } from './devAgentMode';
+import { buildFileDiff } from '../components/DiffPreview';
+import type { FileDiff } from '../components/DiffPreview';
+import { generationTracer } from './GenerationTracer';
+import { projectMemory } from './ProjectMemoryService';
+import { envSecretsService, buildEnvPromptInstructions } from './EnvSecretsService';
+import { runQualityGates, formatQualityReport } from './QualityGateService';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -72,8 +98,9 @@ export interface ProjectPlan {
 
 export interface PipelineRunConfig {
   intent:         string;
-  history:        ChatMessage[];
+  history:        LLMMessage[];
   files:          Record<string, string>;
+  designSystemPrompt?: string;
   apiKey:         string;
   modelId:        string;
   fixModelId?:    string;
@@ -91,6 +118,8 @@ export interface PipelineRunConfig {
     pages:         string[];
   }) => void;
   waitForConfirmation?: (plan: object) => Promise<boolean>;
+  /** Returns selected file paths (partial apply) or false (reject all). */
+  waitForDiffReview?:  (diffs: FileDiff[]) => Promise<string[] | false>;
   signal?:        AbortSignal;
   onUsage?:       (data: UsageData) => void;
   language?:      string;
@@ -108,6 +137,52 @@ export interface PipelineRunConfig {
     textContent?: string;   // pre-extracted text for PDFs
   }>;
   [key: string]: unknown;
+}
+
+type GenerationMode = 'landing' | 'app' | 'superapp';
+
+/**
+ * Detects if a file's content is actually a full artifact envelope JSON
+ * rather than real source code. This is a critical guard — if the LLM
+ * returns the entire response structure as the body of a single file,
+ * we must skip it to prevent writing JSON blobs to preview-app.
+ */
+function looksLikeArtifactEnvelope(value: string): boolean {
+  const t = value.trim();
+  if (!t.startsWith('{') || !t.endsWith('}')) return false;
+  return /"artifact"\s*:/.test(t) && /"files"\s*:/.test(t) &&
+         /"path"\s*:/.test(t) && /"content"\s*:/.test(t);
+}
+
+function toDependencySpecs(deps: string[]): DependencySpec[] {
+  return deps
+    .map((raw) => raw.trim())
+    .filter(Boolean)
+    .map((raw) => {
+      let name = raw;
+      let version: string | undefined;
+
+      if (raw.startsWith('@')) {
+        const splitAt = raw.lastIndexOf('@');
+        if (splitAt > 0) {
+          name = raw.slice(0, splitAt);
+          version = raw.slice(splitAt + 1) || undefined;
+        }
+      } else if (raw.includes('@')) {
+        const [pkg, ...rest] = raw.split('@');
+        name = pkg;
+        version = rest.join('@') || undefined;
+      }
+
+      return {
+        id: `npm:${name}`,
+        name,
+        kind: 'npm' as const,
+        version,
+        importedBy: [],
+        isDevDependency: false,
+      };
+    });
 }
 
 // ─── Architect Prompt (Step 1 — planning only) ─────────────────────────────
@@ -217,8 +292,8 @@ Use this schema exactly:
   "pages": [
     {
       "path": "/",
-      "name": "Home",
-      "file": "pages/Home.tsx",
+      "name": "Dashboard",
+      "file": "pages/Dashboard.tsx",
       "purpose": "What the user accomplishes here",
       "isMainScreen": true,
       "showInNav": true,
@@ -278,8 +353,34 @@ Use this schema exactly:
   ],
 
   "shadcnComponents": ["Button", "Card", "Input"],
-  "icons": ["Home", "Settings", "Plus"]
+  "icons": ["LayoutDashboard", "Settings", "Plus"]
 }
+
+PRODUCT QUALITY PRINCIPLES:
+Think like a product designer, not a developer.
+
+1. REAL CONTENT
+Every app needs content that makes it feel real on first launch.
+Decide what seed data makes sense for this specific product.
+A recipe app needs real recipes. A finance app needs real transactions.
+A social app needs real profiles. Match the domain authentically.
+Include this decision in your plan so Coder knows what to populate.
+
+2. VISUAL AUTHENTICITY
+Decide what images this product genuinely needs.
+Use https://source.unsplash.com/WIDTHxHEIGHT/?keyword for real photos.
+Use https://i.pravatar.cc/150?u=name for avatars.
+Never use placeholder images — they make products look unfinished.
+Include image decisions in uiSpec for each page that needs visuals.
+
+3. MOTION AND FEEL
+Decide which interactions benefit from animation in this product.
+Subtle motion (100-300ms) makes apps feel responsive and alive.
+Over-animation makes apps feel distracting.
+Include animation decisions in uiSpec only where they add value.
+
+Include all content, image, and animation decisions in blueprint.uiSpec and plan.pages[].keyElements.
+Coder implements exactly what Architect decided — no more, no less.
 
 CRITICAL RULES:
 
@@ -455,45 +556,104 @@ RULES:
 - NEVER output markdown — only raw JSON after </thinking>.
 - Use shadcn Select (not native <select>) for all dropdowns.
 - Use shadcn Dialog/Sheet for overlays — never custom position:fixed divs.
+
+Include a "fileArchitecture" array in the root of your JSON output listing EVERY file the coder should generate:
+  "fileArchitecture": [
+    { "path": "src/contexts/UserContext.tsx", "role": "context", "purpose": "Global user state and persistence" },
+    { "path": "src/data/categories.ts", "role": "data", "purpose": "Expense categories with icons" },
+    { "path": "src/hooks/useTransactions.ts", "role": "hook", "purpose": "CRUD for transactions" },
+    { "path": "src/components/layout/AppLayout.tsx", "role": "component", "purpose": "Layout wrapper with TabBar" },
+    { "path": "src/components/TransactionItem.tsx", "role": "component", "purpose": "Single transaction row" },
+    { "path": "src/pages/Dashboard.tsx", "role": "page", "purpose": "Main dashboard screen" },
+    { "path": "src/App.tsx", "role": "entry", "purpose": "Router, providers, guards" }
+  ]
+This is a flat manifest of ALL files — contexts, data, utils, hooks, layout, components, pages, and App.tsx.
+The coder MUST generate every file listed here in the JSON artifact.
 `;
 
 // ─── Coder System Prompt (Step 2 — code generation) ────────────────────────
+
 
 const SYSTEM_PROMPT = `You are a senior frontend developer building production-quality React applications.
 
 TECH STACK:
 - React 18 + TypeScript + Tailwind CSS
 - lucide-react for icons
-- react-router-dom for multi-page routing (BrowserRouter, Routes, Route, Link, useNavigate)
+- react-router-dom when multi-screen navigation is needed (Routes, Route, Link, useNavigate)
 - framer-motion for animations (optional, use sparingly)
 - Pre-installed shadcn/ui components (see cheatsheet below)
 
+PRE-INSTALLED PACKAGES (available without additional installation — use freely):
+  react, react-dom, react-router-dom, typescript, tailwindcss,
+  lucide-react, framer-motion, clsx, class-variance-authority, tailwind-merge,
+  @radix-ui/react-avatar, @radix-ui/react-checkbox, @radix-ui/react-dialog,
+  @radix-ui/react-dropdown-menu, @radix-ui/react-label, @radix-ui/react-progress,
+  @radix-ui/react-select, @radix-ui/react-separator, @radix-ui/react-slot,
+  @radix-ui/react-switch, @radix-ui/react-tabs, @radix-ui/react-toast,
+  @radix-ui/react-tooltip, html2canvas, @emotion/is-prop-valid
+
+DEPENDENCY RULES:
+- ONLY use packages from the PRE-INSTALLED list above, unless absolutely necessary.
+- If you need a package NOT in the list, add it to the "dependencies" array in the artifact.
+- NEVER import from packages that aren't pre-installed or in your dependencies array.
+- For charts: implement with SVG/CSS — do NOT add chart libraries unless explicitly requested.
+- For maps: use plain iframe with OpenStreetMap — do NOT add map libraries unless explicitly requested.
+- For dates: use native Intl.DateTimeFormat — do NOT add date-fns/dayjs unless explicitly requested.
+
 OUTPUT FORMAT:
-<!--FILE:path-->
-code here
-<!--FILE:next-path-->
-code here
-<!--/FILE-->
 
-Paths are relative to src/: "App.tsx", "pages/Dashboard.tsx", "components/TaskItem.tsx"
+CRITICAL: Return your output as a JSON artifact wrapped in \`\`\`json fences.
 
-APP ARCHITECTURE (adapt to the BUILD PLAN below):
+Format:
+\`\`\`json
+{
+  "artifact": {
+    "entry": "src/App.tsx",
+    "files": [
+      { "path": "src/App.tsx", "content": "... full file code ..." },
+      { "path": "src/pages/Dashboard.tsx", "content": "... full file code ..." },
+      { "path": "src/components/Header.tsx", "content": "... full file code ..." }
+    ],
+    "routes": ["/", "/settings"],
+    "dependencies": ["react-router-dom", "lucide-react"]
+  }
+}
+\`\`\`
 
-IF the plan has 1 page:
-  - App.tsx contains everything: state, UI, logic
-  - No router needed
-  - No pages/ directory
+RULES FOR JSON ARTIFACT:
+- Every file's "content" must be the COMPLETE source code as a single string
+- Use \\n for newlines inside content strings
+- Escape quotes inside content with \\"
+- "path" is relative to src/: "src/App.tsx", "src/pages/Dashboard.tsx"
+- "entry" is the main file that mounts the app (usually "src/App.tsx")
+- Include ALL files: pages, components, hooks, contexts, data
+- Do NOT include index.css, lib/utils.ts, or components/ui/* — they exist already
+- Output ONLY the JSON artifact. No explanation before or after.
 
-IF the plan has 2-4 pages:
-  - App.tsx = BrowserRouter + Routes + shared state
-  - Each page in pages/ directory
-  - Navigation component if layout.navigation !== "none"
+APP ARCHITECTURE (adapt to GENERATION_MODE + BUILD PLAN below):
 
-IF the plan has 5+ pages:
-  - App.tsx = BrowserRouter + Routes + context provider for shared state
-  - Each page in pages/
-  - Sidebar or top navigation component in components/
-  - Shared components in components/
+- GENERATION_MODE is provided below as one of: "landing" | "app" | "superapp".
+
+IF GENERATION_MODE === "landing":
+  - Single-page App.tsx is allowed
+  - Router is optional
+  - pages/ directory is optional
+
+IF GENERATION_MODE === "app":
+  - Multi-file architecture is MANDATORY
+  - App.tsx is orchestration-only: providers + routing only if the plan needs multiple routes
+  - Do NOT place all UI/state/logic in App.tsx
+  - Generate pages/ with at least 2 screens
+  - Generate reusable components/ for shared UI pieces
+
+IF GENERATION_MODE === "superapp":
+  - Multi-file architecture is MANDATORY
+  - App.tsx is orchestration-only: providers + routes + guards
+  - Do NOT place all UI/state/logic in App.tsx
+  - Generate pages/ with at least 8 screens
+  - Generate contexts/, components/, and domain-specific modules as needed
+
+For non-landing modes, NEVER return a single-file app.
 
 STATE MANAGEMENT:
   - Use React useState/useReducer for all state
@@ -513,8 +673,7 @@ FILE GENERATION ORDER (follow this EXACTLY for complex plans with architecture s
 
   Each file must be COMPLETE and SELF-CONTAINED.
   Each file must have proper TypeScript interfaces — no \`any\`.
-  Each <!--FILE:path--> block must be independently compilable.
-  Do NOT split a file across multiple <!--FILE:--> markers.
+  Each file in the artifact must be independently compilable.
 
 QUALITY REQUIREMENTS:
   - EVERY list must handle the empty state (show icon + helpful message)
@@ -547,6 +706,7 @@ BANNED:
   - Do NOT use window.location for navigation — use react-router-dom Link/useNavigate
   - Do NOT write TODO comments — implement everything fully
   - Do NOT create placeholder pages with just a heading — every page must work
+  - Do NOT use \<!--FILE:--\> markers — use the JSON artifact format above
 
 SEED DATA:
   If the BUILD PLAN contains architecture.dataFiles — generate them with REAL sample data.
@@ -1061,7 +1221,7 @@ Use this schema:
     ],
     "componentContracts": [
       {
-        "file": "pages/Home.tsx",
+        "file": "pages/Dashboard.tsx",
         "responsibility": "What this file owns",
         "mustRender": [
           "Required sections from the plan"
@@ -1082,7 +1242,7 @@ Use this schema:
         {
           "name": "EntityName",
           "source": "seed|localStorage|derived",
-          "consumedBy": ["pages/Home.tsx"]
+          "consumedBy": ["pages/Dashboard.tsx"]
         }
       ],
       "seedData": {
@@ -1124,78 +1284,38 @@ function stripFences(text: string): string {
   return s.trim();
 }
 
-function parseFileMarkers(raw: string): Record<string, string> {
-  // Strip outer markdown fences
-  let cleaned = raw.trim();
-  cleaned = cleaned.replace(/^```\w*\s*\n?/, '').replace(/\n?\s*```$/, '');
+function extractFirstJsonObject(raw: string): string | null {
+  const text = stripFences(raw);
+  const start = text.indexOf('{');
+  if (start < 0) return null;
 
-  const files: Record<string, string> = {};
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
 
-  // Find all <!--FILE:path--> marker positions
-  const markerRe = /<!--FILE:(\/?.+?)-->/g;
-  const markers: Array<{ path: string; index: number }> = [];
-  let m: RegExpExecArray | null;
-  while ((m = markerRe.exec(cleaned)) !== null) {
-    markers.push({ path: m[1].trim(), index: m.index + m[0].length });
-  }
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
 
-  if (markers.length === 0) {
-    // Fallback: try markdown fenced blocks with filenames
-    const fenceRe = /```(?:tsx?|jsx?)\s+(?:\/\/\s*)?([\w/.+-]+\.(?:tsx?|jsx?))\s*\n([\s\S]*?)```/g;
-    let fm: RegExpExecArray | null;
-    while ((fm = fenceRe.exec(cleaned)) !== null) {
-      let path = fm[1].trim();
-      if (!path.startsWith('/')) path = '/' + path;
-      const content = fm[2].trim();
-      if (content.length > 0) files[path] = content;
-    }
-    // Last resort: entire response as App.tsx
-    if (Object.keys(files).length === 0 && cleaned.length > 50) {
-      const stripped = stripFences(cleaned);
-      files['/App.tsx'] = /(?:import |export |function |const )/.test(stripped)
-        ? stripped : cleaned;
-    }
-    return files;
-  }
-
-  // Extract content between consecutive markers (handles missing <!--/FILE-->)
-  for (let i = 0; i < markers.length; i++) {
-    const start = markers[i].index;
-    const end = i + 1 < markers.length
-      ? cleaned.lastIndexOf('<!--FILE:', markers[i + 1].index - 1)
-      : cleaned.length;
-
-    let content = cleaned.slice(start, end).trim();
-
-    // Remove ALL FILE markers and trailing prose from content
-    content = content.replace(/<!--\/?FILE[^>]*-->/g, '').trim();
-
-    // Strip markdown fences inside content
-    content = content.replace(/^```\w*\s*\n?/, '').replace(/\n?\s*```$/, '');
-    content = content.trim();
-
-    // Remove trailing non-code prose (LLM sometimes adds descriptions after code)
-    const lastCodeChar = Math.max(
-      content.lastIndexOf('}'),
-      content.lastIndexOf(';'),
-      content.lastIndexOf('>')
-    );
-    if (lastCodeChar > 0 && lastCodeChar < content.length - 1) {
-      const trailing = content.slice(lastCodeChar + 1).trim();
-      if (trailing && /^[A-Z\-\*]/.test(trailing)) {
-        content = content.slice(0, lastCodeChar + 1);
-      }
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
     }
 
-    if (content.length > 0) {
-      let path = markers[i].path;
-      if (!path.startsWith('/')) path = '/' + path;
-      files[path] = content;
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') depth++;
+    if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
     }
   }
-
-  return files;
+  return null;
 }
+
 
 // ─── SSE Stream Reader ──────────────────────────────────────────────────────
 
@@ -1250,25 +1370,63 @@ async function readStream(
   return full;
 }
 
-// ─── Preview App Direct Write ──────────────────────────────────────────────
+// writePreviewFile removed — all writes go through RevisionManager
 
-async function writePreviewFile(filePath: string, content: string): Promise<void> {
-  const cleanPath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
-  // Strip src/ prefix if present — the endpoint writes into preview-app/src/
-  const withoutSrc = cleanPath.startsWith('src/') ? cleanPath.slice(4) : cleanPath;
-  console.log(`[SimpleGeneration] writePreviewFile: "${filePath}" → preview-app/src/${withoutSrc}`);
-  const resp = await fetch('/__write_preview', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: withoutSrc, content }),
-  });
-  if (!resp.ok) {
-    throw new Error(`Write failed: ${resp.status}`);
-  }
-}
+// ─── Streaming File Tracker ────────────────────────────────────────────────
 
-async function clearPreview(): Promise<void> {
-  await fetch('/__clear_preview', { method: 'POST' });
+/**
+ * Wraps the onStream callback to detect <!--FILE:path--> markers in real time.
+ * Reports incremental file progress via PreviewController so the preview overlay
+ * can show "Generating src/pages/Dashboard.tsx… (3/8 files)".
+ */
+function createFileTracker(
+  originalOnStream: (delta: string) => void,
+  totalExpected: number,
+): { onChunk: (delta: string) => void; finalise: () => string[] } {
+  let accumulated = '';
+  let currentFile: string | null = null;
+  const completedFiles: string[] = [];
+
+  return {
+    onChunk(delta: string) {
+      accumulated += delta;
+      originalOnStream(delta);
+
+      // Detect <!--FILE:path--> opening markers incrementally.
+      // When a new marker appears the *previous* file's content is complete.
+      const markers = [...accumulated.matchAll(/<!--FILE:([^>]+)-->/g)];
+      if (markers.length === 0) return;
+
+      const latest = markers[markers.length - 1][1].trim();
+      if (latest !== currentFile) {
+        if (currentFile && !completedFiles.includes(currentFile)) {
+          completedFiles.push(currentFile);
+        }
+        currentFile = latest;
+        previewController.notifyGenerating({
+          currentFile: latest,
+          completedFiles: [...completedFiles],
+          totalExpected,
+        });
+      }
+    },
+
+    /** Call after stream ends to mark the last file as complete and return all files. */
+    finalise(): string[] {
+      if (currentFile && !completedFiles.includes(currentFile)) {
+        completedFiles.push(currentFile);
+      }
+      // Notify final state: all files done
+      if (completedFiles.length > 0) {
+        previewController.notifyGenerating({
+          currentFile: '',
+          completedFiles: [...completedFiles],
+          totalExpected,
+        });
+      }
+      return [...completedFiles];
+    },
+  };
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -1289,9 +1447,45 @@ function cleanCoderMessage(raw: string, fallback = 'Generated files and updated 
   text = text.replace(/```[\s\S]*?```/g, '');
   // 4. Strip leftover markdown headings that are just section labels
   text = text.replace(/^##\s+[^\n]*$/gm, '');
-  // 5. Collapse whitespace
+  // 5. Drop common presentation HTML tags and dangling single-tag artifacts
+  text = text.replace(/<\/?(strong|em|b|i|u|span|div|p|br)\b[^>]*>/gi, '');
+  if (/^\s*<\/?[a-z][^>]*>\s*$/i.test(text)) text = '';
+  if (/^\s*<[^>\n]*\s*$/i.test(text)) text = '';
+  // 6. Collapse whitespace
   text = text.replace(/\n{3,}/g, '\n\n').trim();
   return text.length > 5 ? text.slice(0, 300) : fallback;
+}
+
+function contentPartToText(content: string | Array<{ type?: string; text?: string }>): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text ?? '')
+    .join('\n');
+}
+
+function buildRecentHistoryContext(
+  history: LLMMessage[] | undefined,
+  maxMessages = 8,
+  maxChars = 1600,
+): string {
+  if (!history || history.length === 0) return '';
+  const recent = history.slice(-maxMessages);
+  const chunks: string[] = [];
+
+  for (const msg of recent) {
+    const raw = contentPartToText(msg.content as string | Array<{ type?: string; text?: string }>);
+    const text = raw.trim();
+    if (!text || text === '...') continue;
+    const clipped = text.length > 320 ? `${text.slice(0, 320)}…` : text;
+    const role = msg.role === 'assistant' ? 'Assistant' : msg.role === 'user' ? 'User' : 'System';
+    chunks.push(`[${role}]\n${clipped}`);
+  }
+
+  const combined = chunks.join('\n\n');
+  if (combined.length <= maxChars) return combined;
+  return combined.slice(combined.length - maxChars);
 }
 
 function djb2(s: string): string {
@@ -1340,11 +1534,14 @@ function emptyManifest(intent: string): ProductManifest {
 }
 
 function emptyChangePackage(graph: ProjectGraph, ops: FileOperation[]): ChangePackage {
+  // Use graph routes when available — don't throw them away
+  const routes = graph.routes ?? [];
+  const isMultiPage = graph.manifest?.isMultiPage ?? routes.length > 1;
   return {
     plan: [],
     graph,
     fileOperations: ops,
-    routeManifest: { routes: [], isMultiPage: false },
+    routeManifest: { routes, isMultiPage },
     dependencies: [],
     previewMeta: { entryFile: 'src/App.tsx', capabilities: [] },
     guardResults: {
@@ -1365,6 +1562,22 @@ function emptyChangePackage(graph: ProjectGraph, ops: FileOperation[]): ChangePa
   };
 }
 
+/** Build a ChangePackage with route validation drift hints. */
+function buildRouteAwareChangePackage(
+  graph: ProjectGraph,
+  ops: FileOperation[],
+  routeDrifts: import('../shared/projectModel').RouteDriftEntry[],
+): ChangePackage {
+  const base = emptyChangePackage(graph, ops);
+  if (routeDrifts.length > 0) {
+    base.repairHints = routeDrifts.map(d => ({
+      code: `route-drift-${d.kind}: ${d.detail}`,
+      strategy: 'retry' as const,
+    }));
+  }
+  return base;
+}
+
 /**
  * Normalise LLM file paths to the `src/`-prefixed keys that
  * the code editor expects.
@@ -1375,9 +1588,229 @@ function toSrcKey(path: string): string {
   return p;
 }
 
+function toComponentName(raw: string, fallback = 'Page'): string {
+  const words = String(raw || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const name = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+  const safe = name.replace(/^[^A-Za-z_]+/, '');
+  return safe || fallback;
+}
+
+function buildDefaultPlan(mode: GenerationMode, intent: string): Record<string, unknown> {
+  if (mode === 'landing') {
+    return {
+      appName: 'App',
+      description: intent,
+      theme: 'dark-slate',
+      targetUser: 'General user',
+      layout: { type: 'single', navigation: 'none' },
+      pages: [{ path: '/', name: 'App', file: 'App.tsx', purpose: intent, isMainScreen: true, keyElements: [] }],
+      dataModel: { entities: [], sharedState: '' },
+      shadcnComponents: ['Button', 'Card', 'Input'],
+      icons: ['Home'],
+    };
+  }
+
+  const appPages = mode === 'superapp'
+    ? [
+      { path: '/', name: 'Dashboard', file: 'pages/Dashboard.tsx', purpose: 'Main workspace and overview', isMainScreen: true, showInNav: true, keyElements: [] },
+      { path: '/discover', name: 'Discover', file: 'pages/Discover.tsx', purpose: 'Explore content and recommendations', isMainScreen: false, showInNav: true, keyElements: [] },
+      { path: '/tasks', name: 'Tasks', file: 'pages/Tasks.tsx', purpose: 'Track actionable items and progress', isMainScreen: false, showInNav: true, keyElements: [] },
+      { path: '/messages', name: 'Messages', file: 'pages/Messages.tsx', purpose: 'Inbox and communication surface', isMainScreen: false, showInNav: true, keyElements: [] },
+      { path: '/analytics', name: 'Analytics', file: 'pages/Analytics.tsx', purpose: 'Insights and performance metrics', isMainScreen: false, showInNav: true, keyElements: [] },
+      { path: '/library', name: 'Library', file: 'pages/Library.tsx', purpose: 'Saved resources and history', isMainScreen: false, showInNav: true, keyElements: [] },
+      { path: '/profile', name: 'Profile', file: 'pages/Profile.tsx', purpose: 'User profile and personal settings', isMainScreen: false, showInNav: true, keyElements: [] },
+      { path: '/settings', name: 'Settings', file: 'pages/Settings.tsx', purpose: 'Preferences and app configuration', isMainScreen: false, showInNav: true, keyElements: [] },
+    ]
+    : [
+      { path: '/', name: 'Dashboard', file: 'pages/Dashboard.tsx', purpose: intent, isMainScreen: true, showInNav: true, keyElements: [] },
+      { path: '/settings', name: 'Settings', file: 'pages/Settings.tsx', purpose: 'Preferences and configuration', isMainScreen: false, showInNav: true, keyElements: [] },
+    ];
+
+  return {
+    appName: mode === 'superapp' ? 'Super App' : 'App',
+    description: intent,
+    theme: 'dark-slate',
+    targetUser: 'General user',
+    layout: { type: mode === 'superapp' ? 'sidebar' : 'tabs', navigation: mode === 'superapp' ? 'sidebar' : 'bottom-tabs' },
+    pages: appPages,
+    dataModel: { entities: [], sharedState: '' },
+    shadcnComponents: ['Button', 'Card', 'Input'],
+    icons: ['Home', 'Settings'],
+    fileArchitecture: [
+      { path: 'src/App.tsx', role: 'entry', purpose: 'Router, providers, and app shell' },
+      ...appPages.map((p) => ({ path: `src/${p.file}`, role: 'page', purpose: p.purpose })),
+    ],
+  };
+}
+
+function enforcePlanModeRules(
+  rawPlan: Record<string, unknown>,
+  mode: GenerationMode,
+  intent: string,
+  onLog: (msg: string) => void,
+): Record<string, unknown> {
+  if (mode === 'landing') return rawPlan;
+
+  const plan = JSON.parse(JSON.stringify(rawPlan || {})) as Record<string, any>;
+  const minPages = mode === 'superapp' ? 8 : 2;
+  const defaultPlan = buildDefaultPlan(mode, intent) as Record<string, any>;
+  const defaultPages = Array.isArray(defaultPlan.pages) ? defaultPlan.pages : [];
+
+  const inputPages = Array.isArray(plan.pages) ? plan.pages : [];
+  const normalized = inputPages
+    .map((p: any, idx: number) => {
+      const name = toComponentName(p?.name ?? p?.file ?? `Page${idx + 1}`, `Page${idx + 1}`);
+      const isRoot = String(p?.path ?? '').trim() === '/';
+      const path = typeof p?.path === 'string' && p.path.trim() ? p.path : (idx === 0 ? '/' : `/${name.toLowerCase()}`);
+      const file = String(p?.file ?? '').endsWith('.tsx')
+        ? String(p.file).replace(/^src\//, '').replace(/^\/+/, '')
+        : `pages/${name}.tsx`;
+      const finalFile = /(^|\/)App\.tsx$/.test(file) ? `pages/${name}.tsx` : file;
+
+      return {
+        path,
+        name,
+        file: finalFile.startsWith('pages/') ? finalFile : `pages/${name}.tsx`,
+        purpose: typeof p?.purpose === 'string' && p.purpose.trim() ? p.purpose : `${name} screen for ${intent}`,
+        isMainScreen: typeof p?.isMainScreen === 'boolean' ? p.isMainScreen : isRoot || idx === 0,
+        showInNav: typeof p?.showInNav === 'boolean' ? p.showInNav : true,
+        guard: p?.guard,
+        uiSpec: p?.uiSpec,
+        keyElements: Array.isArray(p?.keyElements) ? p.keyElements : [],
+      };
+    })
+    .filter((p: any, idx: number, arr: any[]) => arr.findIndex((x) => x.path === p.path) === idx);
+
+  while (normalized.length < minPages) {
+    const fallback = defaultPages[normalized.length] ?? {
+      path: `/${normalized.length + 1}`,
+      name: `Page${normalized.length + 1}`,
+      file: `pages/Page${normalized.length + 1}.tsx`,
+      purpose: `Additional screen ${normalized.length + 1}`,
+      isMainScreen: false,
+      showInNav: true,
+      keyElements: [],
+    };
+    normalized.push(fallback);
+  }
+
+  if (normalized.length > 0 && !normalized.some((p: any) => p.path === '/')) {
+    normalized[0].path = '/';
+    normalized[0].isMainScreen = true;
+  }
+
+  plan.pages = normalized;
+  const layout = (typeof plan.layout === 'object' && plan.layout) ? plan.layout : {};
+  plan.layout = {
+    ...layout,
+    type: mode === 'superapp' ? (layout.type ?? 'sidebar') : (layout.type ?? 'tabs'),
+    navigation: mode === 'superapp'
+      ? (layout.navigation && layout.navigation !== 'none' ? layout.navigation : 'sidebar')
+      : (layout.navigation && layout.navigation !== 'none' ? layout.navigation : 'bottom-tabs'),
+  };
+
+  const fileArchitecture = Array.isArray(plan.fileArchitecture) ? [...plan.fileArchitecture] : [];
+  const requiredPaths = new Set<string>(['src/App.tsx', ...normalized.map((p: any) => `src/${String(p.file).replace(/^src\//, '')}`)]);
+  for (const req of requiredPaths) {
+    if (!fileArchitecture.some((f: any) => f?.path === req)) {
+      fileArchitecture.push({
+        path: req,
+        role: req === 'src/App.tsx' ? 'entry' : 'page',
+        purpose: req === 'src/App.tsx' ? 'Router, providers, and app shell' : 'Route page',
+      });
+    }
+  }
+  plan.fileArchitecture = fileArchitecture;
+
+  if (!plan.appName) plan.appName = mode === 'superapp' ? 'Super App' : 'App';
+  if (!plan.description) plan.description = intent;
+  if (!plan.theme) plan.theme = 'dark-slate';
+  if (!plan.shadcnComponents) plan.shadcnComponents = ['Button', 'Card', 'Input'];
+  if (!plan.icons) plan.icons = ['Home', 'Settings'];
+
+  onLog(`[SimpleGeneration] Enforced non-landing architecture (${mode}): ${plan.pages.length} pages, navigation=${plan.layout.navigation}`);
+  return plan;
+}
+
+function buildFallbackAppFromRoutes(
+  routePages: Array<{ path: string; name: string; file: string }>,
+  mode: GenerationMode,
+): string {
+  const imports = routePages.map((p) => {
+    const componentName = toComponentName(p.name || p.file.replace(/\.tsx$/, ''), 'Page');
+    const rel = p.file.replace(/^(src\/)?/, './').replace(/\.tsx$/, '');
+    return `import ${componentName} from '${rel}';`;
+  });
+  const routes = routePages.map((p) => {
+    const componentName = toComponentName(p.name || p.file.replace(/\.tsx$/, ''), 'Page');
+    return `        <Route path="${p.path}" element={<${componentName} />} />`;
+  });
+
+  if (routePages.length === 0) {
+    return [
+      'export default function App() {',
+      '  return (',
+      mode === 'landing'
+        ? '    <div className="min-h-screen bg-background text-foreground" />'
+        : '    <div className="min-h-screen bg-background text-foreground p-8"><p className="text-foreground">App scaffold ready. Continue to refine pages and components.</p></div>',
+      '  );',
+      '}',
+      '',
+    ].join('\n');
+  }
+
+  return [
+    `import { HashRouter, Routes, Route } from 'react-router-dom';`,
+    ...imports,
+    '',
+    'export default function App() {',
+    '  return (',
+    '    <HashRouter>',
+    '      <Routes>',
+    ...routes,
+    '      </Routes>',
+    '    </HashRouter>',
+    '  );',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function ensureRoutePageFiles(
+  llmFiles: Record<string, string>,
+  routePages: Array<{ path: string; name: string; file: string; purpose?: string }>,
+): void {
+  for (const p of routePages) {
+    const componentName = toComponentName(p.name || p.file.replace(/\.tsx$/, ''), 'Page');
+    const key = '/' + p.file.replace(/^src\//, '').replace(/^\/+/, '');
+    if (llmFiles[key]) continue;
+    const title = p.name || componentName;
+    const purpose = (p.purpose && p.purpose.trim()) || `${title} screen`;
+    llmFiles[key] = [
+      `export default function ${componentName}() {`,
+      '  return (',
+      '    <main className="min-h-screen bg-background text-foreground p-6">',
+      `      <h1 className="text-2xl font-semibold">${title}</h1>`,
+      `      <p className="mt-2 text-muted-foreground">${purpose}</p>`,
+      '    </main>',
+      '  );',
+      '}',
+      '',
+    ].join('\n');
+  }
+}
+
 // ─── LLM Call Helper ────────────────────────────────────────────────────────
 
 type ModelSlot = 'primary' | 'build' | 'fix';
+
+const LLM_TIMEOUT_MS = 240_000; // 240 s timeout budget per standard LLM call
+const CLAUDE_MAX_TIMEOUT_MS = 300_000; // 300 s budget for Claude Max bridge responses
 
 async function callLLM(
   systemPrompt: string,
@@ -1406,7 +1839,11 @@ async function callLLM(
     messages,
     stream: true,
     temperature: 0.3,
-    max_tokens: maxTokensOverride ?? (slot === 'build' ? 32000 : 4000),
+    max_tokens: maxTokensOverride ?? (
+      slot === 'build' ? ConfigService.getMaxTokens('agent_build', 'coder_app') :
+      slot === 'fix'   ? ConfigService.getMaxTokens('agent_fix',   'autofix')  :
+                         ConfigService.getMaxTokens('agent_primary', 'clarifier')
+    ),
   });
 
   const headers = {
@@ -1415,27 +1852,103 @@ async function callLLM(
     'HTTP-Referer': window.location.origin,
   };
 
+  let devAgentProvider = getLocalDevAgentProvider();
+  try {
+    const modeResp = await fetch('http://localhost:3107/dev-agent-mode');
+    if (modeResp.ok) {
+      devAgentProvider = syncLocalDevAgentMode(await modeResp.json());
+    }
+  } catch {
+    // bridge unreachable: keep local mode as fallback
+  }
+  const devAgentActive = devAgentProvider !== 'off';
+  const timeoutMs = devAgentActive ? CLAUDE_MAX_TIMEOUT_MS : LLM_TIMEOUT_MS;
+
+  // Merge caller signal with a mode-aware timeout AbortController
+  const timeoutCtrl = new AbortController();
+  const timer = window.setTimeout(() => timeoutCtrl.abort(), timeoutMs);
+  // If the caller already has a signal, abort timeout controller when it fires
+  const onCallerAbort = () => timeoutCtrl.abort();
+  signal?.addEventListener('abort', onCallerAbort);
+
+  const mergedSignal = timeoutCtrl.signal;
+
   // Retry up to 2 times on network errors (ERR_QUIC_PROTOCOL_ERROR, etc.)
   // AbortError (user stop) is not retried.
-  const MAX_RETRIES = 2;
+  const MAX_RETRIES = 3;
   let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      const resp = await llmFetchStream(endpoint, headers, body, signal);
-      const noop = () => {};
-      return await readStream(resp, onStream ?? noop);
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'AbortError') throw err;
-      lastError = err;
-      if (attempt < MAX_RETRIES) {
-        console.warn(`[SimpleGeneration] Network error on attempt ${attempt}, retrying...`, err);
-        // Brief pause before retry — let QUIC connection reset
-        await new Promise(r => setTimeout(r, 1500 * attempt));
+  try {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (mergedSignal.aborted) throw new DOMException('Aborted', 'AbortError');
+        // ── Claude Max override (admin only) ─────────────────
+        if (devAgentActive) {
+          try {
+            // Собираем промпт из messages в текст
+            const promptParts: string[] = [];
+            for (const msg of messages) {
+              const role = msg.role === 'assistant' ? 'Assistant' : 'User';
+              const content = typeof msg.content === 'string'
+                ? msg.content
+                : (msg.content as Array<{type:string;text?:string}>)
+                    .filter(b => b.type === 'text')
+                    .map(b => b.text ?? '')
+                    .join('\n');
+              if (content.trim()) promptParts.push(`[${role}]\n${content}`);
+            }
+            const prompt = promptParts.join('\n\n');
+
+            const bridgeResp = await fetch('http://localhost:3107/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: mergedSignal ?? undefined,
+              body: JSON.stringify({
+                message: prompt,
+                model: devAgentProvider === 'codex' ? 'gpt-5.1-codex' : 'claude-sonnet-4-6',
+              }),
+            });
+
+            if (!bridgeResp.ok) {
+              const err = await bridgeResp.text();
+              throw new Error(`Dev agent bridge ${bridgeResp.status}: ${err.slice(0, 200)}`);
+            }
+
+            const bridgeData = await bridgeResp.json();
+            const result = bridgeData.content?.[0]?.text ?? '';
+            if (onStream) onStream(result);
+            return result;
+          } catch (err) {
+            if (err instanceof DOMException && err.name === 'AbortError') throw err;
+            throw new Error(`[callLLM] ${devAgentProvider} bridge failed: ${String((err as Error)?.message ?? err)}`);
+          }
+        }
+        // ── End Claude Max override ───────────────────────────
+
+        const resp = await llmFetchStream(endpoint, headers, body, mergedSignal);
+        const noop = () => {};
+        return await readStream(resp, onStream ?? noop);
+      } catch (err: unknown) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          // Distinguish timeout from user stop
+          if (signal?.aborted) throw err; // user initiated
+          if (devAgentActive) {
+            throw new Error(`Local ${devAgentProvider} bridge timed out after ${Math.round(timeoutMs / 1000)}s. Try a shorter prompt or rerun.`);
+          }
+          throw new Error('Generation timed out. Automatic retry was attempted. Please retry once more or switch model.');
+        }
+        lastError = err;
+        if (attempt < MAX_RETRIES) {
+          console.warn(`[SimpleGeneration] Network error on attempt ${attempt}, retrying...`, err);
+          // Brief pause before retry — let QUIC connection reset
+          await new Promise(r => setTimeout(r, 1500 * attempt));
+        }
       }
     }
+    throw lastError;
+  } finally {
+    window.clearTimeout(timer);
+    signal?.removeEventListener('abort', onCallerAbort);
   }
-  throw lastError;
 }
 
 // ─── Vision Analysis Helper ──────────────────────────────────────────────────
@@ -1701,6 +2214,7 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
         config.apiKey,
         undefined,
         config.signal,
+        ConfigService.getMaxTokens('agent_primary', 'clarifier'),
       );
     } catch (err) {
       // Re-throw user aborts so the caller's abort handling works correctly.
@@ -1783,9 +2297,84 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
     }
   }
 
+  static async installPreviewDeps(deps: string[]): Promise<void> {
+    if (!deps || deps.length === 0) return;
+
+    const alreadyInstalled = new Set([
+      'react',
+      'react-dom',
+      'typescript',
+      'tailwindcss',
+      'lucide-react',
+      'react-router-dom',
+      'framer-motion',
+      'clsx',
+      'class-variance-authority',
+      'tailwind-merge',
+      '@emotion/is-prop-valid',
+      'html2canvas',
+      'tailwindcss-animate',
+      '@radix-ui/react-avatar',
+      '@radix-ui/react-checkbox',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-dropdown-menu',
+      '@radix-ui/react-label',
+      '@radix-ui/react-progress',
+      '@radix-ui/react-select',
+      '@radix-ui/react-separator',
+      '@radix-ui/react-slot',
+      '@radix-ui/react-switch',
+      '@radix-ui/react-tabs',
+      '@radix-ui/react-toast',
+      '@radix-ui/react-tooltip',
+    ]);
+
+    const toInstall = deps.filter((d) => {
+      const base = d.startsWith('@')
+        ? d.split('@').slice(0, 2).join('@')
+        : d.split('@')[0];
+      return base && !alreadyInstalled.has(base);
+    });
+
+    if (toInstall.length === 0) {
+      console.log('[deps] All dependencies already available');
+      return;
+    }
+
+    console.log('[deps] Installing:', toInstall.join(', '));
+    try {
+      const response = await fetch('http://localhost:3100/__install_deps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packages: toInstall }),
+      });
+      const result = await response.json();
+      console.log('[deps] Install result:', result);
+    } catch (err) {
+      console.warn('[deps] Install failed (non-critical):', err);
+    }
+  }
+
   static async run(config: PipelineRunConfig): Promise<GenerationResult> {
     const startMs = Date.now();
     config.onLog('[SimpleGeneration] starting');
+    const recentHistoryContext = buildRecentHistoryContext(config.history);
+
+    // ── Observability: start generation trace ─────────────────────────────
+    const trace = generationTracer.start({
+      intent:    config.intent,
+      model:     config.modelId,
+      mode:      'new',        // updated below once we know isEditMode
+      projectId: config.projectId,
+    });
+
+    // ── Project memory: load context from prior generations ───────────────
+    const memoryContext = config.projectId
+      ? projectMemory.buildContextPrompt(config.projectId)
+      : '';
+    const envPrompt = config.projectId
+      ? buildEnvPromptInstructions(config.projectId)
+      : '';
 
     // ── Health check — bridge must be available ───────────────────────────
     try {
@@ -1795,6 +2384,11 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
       config.onLog(`[SimpleGeneration] ❌ Preview bridge unavailable: ${e}`);
       throw new Error('Preview app is not running. Start it with npm run dev:all');
     }
+
+    // ── Create revision candidate ─────────────────────────────────────────
+    const revId = await revisionManager.createCandidate();
+    setTimelineContext({ source: 'simple_generation' });
+    config.onLog(`[SimpleGeneration] revision candidate: ${revId}`);
 
     // ── Detect mode: NEW (no project) or EDIT (project exists) ───────────
     let existingFiles: Record<string, string> = {};
@@ -1816,10 +2410,12 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
 
     // EDIT mode requires BOTH: files on disk AND files in useStudio state.
     // If useStudio has no files (singlePageSafeMode=true), user started a new project
-    // → force NEW mode even if old files remain on disk (race with clearPreview).
+    // → force NEW mode even if old files remain on disk.
     const studioHasFiles = !config.singlePageSafeMode;
     const isEditMode = studioHasFiles && Object.keys(existingFiles).length > 0;
     config.onLog(`[SimpleGeneration] Mode: ${isEditMode ? 'EDIT' : 'NEW'} (${Object.keys(existingFiles).length} disk files, studioHasFiles=${studioHasFiles})`);
+    // Update trace with actual mode (we only knew after reading disk)
+    trace.event('mode_detected', { mode: isEditMode ? 'edit' : 'new', diskFiles: Object.keys(existingFiles).length });
 
     // ── Process attachments → build visual / doc context ─────────────────
     let attachmentContext = '';
@@ -1848,38 +2444,172 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
       config.onPhase({ phase: 'code', progress: 30 });
       config.onLog('[SimpleGeneration] EDIT mode — skipping Architect');
 
-      const currentCode = Object.entries(existingFiles)
+      // ── Collect full file context (RevisionManager preferred, disk fallback) ──
+      let contextFiles: Record<string, string> = { ...existingFiles };
+      const activeRevId = revisionManager.getActiveRevisionId();
+      if (activeRevId) {
+        const revFiles = revisionManager.getRevisionFiles(activeRevId);
+        if (revFiles && Object.keys(revFiles).length > 0) {
+          contextFiles = { ...contextFiles, ...revFiles };
+          config.onLog(`[SimpleGeneration] EDIT context: merged ${Object.keys(revFiles).length} revision files`);
+        }
+      }
+
+      // ── Token budget gate: if > 30k tokens (~120k chars), keep only relevant files ──
+      const TOKEN_CHAR_BUDGET = 120_000;
+      const totalChars = Object.values(contextFiles).reduce((s, c) => s + c.length, 0);
+
+      if (totalChars > TOKEN_CHAR_BUDGET) {
+        config.onLog(`[SimpleGeneration] EDIT context too large (${totalChars} chars) — filtering to relevant files`);
+        const intentLower = config.intent.toLowerCase();
+        const allPaths = Object.keys(contextFiles);
+
+        // 1. Files explicitly mentioned in the user's intent
+        const mentionedPaths = allPaths.filter(p => {
+          const baseName = p.replace(/^.*[\\/]/, '').replace(/\.\w+$/, '').toLowerCase();
+          return intentLower.includes(baseName) || intentLower.includes(p.toLowerCase());
+        });
+
+        // 2. Files that import from / are imported by mentioned files
+        const importRelated = new Set<string>();
+        for (const mp of mentionedPaths) {
+          const mpContent = contextFiles[mp];
+          if (!mpContent) continue;
+          // Find what this file imports
+          for (const other of allPaths) {
+            const otherBase = other.replace(/\.\w+$/, '');
+            if (mpContent.includes(otherBase) || mpContent.includes('./' + otherBase)) {
+              importRelated.add(other);
+            }
+          }
+          // Find files that import this file
+          const mpBase = mp.replace(/\.\w+$/, '');
+          for (const other of allPaths) {
+            const otherContent = contextFiles[other];
+            if (otherContent && (otherContent.includes(mpBase) || otherContent.includes('./' + mpBase))) {
+              importRelated.add(other);
+            }
+          }
+        }
+
+        // 3. Build relevant set: App.tsx always + mentioned + import-related
+        const relevant = new Set<string>(['App.tsx']);
+        mentionedPaths.forEach(p => relevant.add(p));
+        importRelated.forEach(p => relevant.add(p));
+
+        const filtered: Record<string, string> = {};
+        for (const p of relevant) {
+          if (contextFiles[p]) filtered[p] = contextFiles[p];
+        }
+        config.onLog(`[SimpleGeneration] EDIT context filtered: ${Object.keys(filtered).length}/${allPaths.length} files`);
+        contextFiles = filtered;
+      }
+
+      const currentCode = Object.entries(contextFiles)
         .map(([p, content]) => `<!--EXISTING_FILE:${p}-->\n${content}`)
         .join('\n\n');
 
-      const editSystemPrompt = `You are editing an existing React application.
+      // ── Read existing route manifest for route-lock ──────────────────
+      const existingManifestRaw = contextFiles['route-manifest.json'] ?? existingFiles['route-manifest.json'] ?? '';
+      const existingManifest = parseManifest(existingManifestRaw);
+      const routeLockBlock = existingManifest ? '\n' + manifestToPromptBlock(existingManifest) + '\n' : '';
+
+      let editSystemPrompt = `You are editing an existing React application.
 The user wants a SPECIFIC change. Apply ONLY what they asked for.
 
-CURRENT APPLICATION:
+CURRENT APPLICATION FILES:
 ${currentCode}
-
+${routeLockBlock}
 RULES:
-1. Output ONLY files that need modification using <!--FILE:path--> format.
-2. DO NOT include files that don't need changes.
-3. PRESERVE all existing functionality, state, imports, and types.
-4. Use the same design tokens and shadcn components as the existing code.
-5. DO NOT change navigation structure unless explicitly asked.
-6. DO NOT rename or restructure files unless explicitly asked.
-7. If adding a new feature: add it to the appropriate existing page,
-   or create a new page AND update App.tsx routing.
-${SHADCN_CHEATSHEET}`;
+1. Output ONLY files that need modification as a JSON artifact:
+\`\`\`json
+{
+  "artifact": {
+    "entry": "src/App.tsx",
+    "files": [
+      { "path": "src/pages/Dashboard.tsx", "content": "...full modified file..." }
+    ]
+  }
+}
+\`\`\`
+2. Include ONLY files you are modifying. Do NOT include unchanged files.
+3. Each file's content must be the COMPLETE file, not a diff or patch.
+4. PRESERVE all existing functionality, state, imports, and types.
+5. Use the same design tokens and shadcn components as the existing code.
+6. DO NOT remove or rename existing routes — only ADD new ones if needed.
+7. DO NOT rename or restructure files unless explicitly asked.
+8. If adding a new page: create the page file AND include App.tsx with the new route added.
+   Do NOT rewrite existing routes — only append the new <Route> element.
+${SHADCN_CHEATSHEET}
 
+⚠ FINAL REMINDER — OUTPUT FORMAT:
+Your ENTIRE response must be ONLY this JSON block. No prose, no explanation:
+\`\`\`json
+{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/...","content":"..."}]}}
+\`\`\`
+DO NOT write "Here's the..." or any text outside the json fence.`;
+
+      if (config.designSystemPrompt) {
+        editSystemPrompt += '\n\n' + config.designSystemPrompt;
+      }
+      // Inject project memory context (known packages, routes, issues)
+      if (memoryContext) {
+        editSystemPrompt += '\n\n' + memoryContext;
+      }
+      // Inject env var instructions
+      if (envPrompt) {
+        editSystemPrompt += '\n\n' + envPrompt;
+      }
+
+      // Track file progress during streaming (total unknown in edit mode → 0)
+      const editTracker = createFileTracker(config.onStream, 0);
+      previewController.notifyGenerating({
+        currentFile: '', completedFiles: [], totalExpected: 0,
+      });
+
+      const editUserPrompt = [
+        `CURRENT USER REQUEST:\n${config.intent}`,
+        attachmentContext ? `\n${attachmentContext}` : '',
+        recentHistoryContext
+          ? `\nRECENT CHAT CONTEXT (continue this same project unless user explicitly asks to pivot):\n${recentHistoryContext}`
+          : '',
+      ].join('\n');
+
+      const closeEditCoder = trace.span('coder_edit', { mode: 'edit' });
       const editRaw = await callLLM(
         editSystemPrompt,
-        config.intent + attachmentContext,
+        editUserPrompt,
         'build',
         config.apiKey,
-        config.onStream,
+        (chunk: string) => { editTracker.onChunk(chunk); trace.markFirstToken(); },
         config.signal,
       );
+      editTracker.finalise();
+      closeEditCoder({ data: { chars: editRaw.length } });
       config.onLog(`[SimpleGeneration] EDIT Coder response: ${editRaw.length} chars`);
 
-      const editLlmFiles = parseFileMarkers(editRaw);
+      const editParseResult = parseArtifact(editRaw);
+      config.onLog(`[SimpleGeneration] EDIT parse: success=${editParseResult.success}, fallback=${editParseResult.fallbackUsed}`);
+      const editDependencies = editParseResult.success && editParseResult.artifact
+        ? (editParseResult.artifact.dependencies ?? [])
+        : [];
+      const editDependencySpecs = toDependencySpecs(editDependencies);
+      const editLlmFiles: Record<string, string> = {};
+      if (editParseResult.success && editParseResult.artifact) {
+        for (const f of editParseResult.artifact.files) {
+          const key = f.path.startsWith('/') ? f.path : '/' + f.path.replace(/^src\//, '');
+          if (looksLikeArtifactEnvelope(f.content)) {
+            config.onLog(`[SimpleGeneration] ⚠ EDIT: Skipped artifact-envelope payload for ${key}`);
+            continue;
+          }
+          editLlmFiles[key] = f.content;
+        }
+      } else {
+        // Legacy fallback
+        const legacy = parseFileMarkers(editRaw);
+        Object.assign(editLlmFiles, legacy);
+        config.onLog('[SimpleGeneration] EDIT: fell back to FILE markers');
+      }
       config.onLog(`[SimpleGeneration] EDIT parsed: ${Object.keys(editLlmFiles).length} files`);
 
       enforceShadcn(editLlmFiles, config.onLog);
@@ -1892,6 +2622,20 @@ ${SHADCN_CHEATSHEET}`;
         }
       }
 
+      // ── Route Manifest: merge new routes and regenerate App.tsx ────────
+      if (existingManifest) {
+        const mergedManifest = mergeManifest(existingManifest, editLlmFiles);
+        if (mergedManifest.routes.length > existingManifest.routes.length) {
+          config.onLog(`[RouteManifest] EDIT: ${mergedManifest.routes.length - existingManifest.routes.length} new route(s) detected`);
+        }
+        // Regenerate App.tsx deterministically from manifest
+        const currentAppTsx = editLlmFiles['/App.tsx'] || contextFiles['App.tsx'] || existingFiles['App.tsx'] || '';
+        const appContext = currentAppTsx ? extractAppTsxContext(currentAppTsx) : { extraImports: [], wrapperStart: [], wrapperEnd: [] };
+        editLlmFiles['/App.tsx'] = generateAppTsx(mergedManifest, appContext);
+        editLlmFiles[MANIFEST_PATH] = JSON.stringify(mergedManifest, null, 2);
+        config.onLog(`[RouteManifest] EDIT: App.tsx regenerated from manifest (${mergedManifest.routes.length} routes)`);
+      }
+
       // Build finalFiles with src/ keys for code editor display
       const editFinalFiles: Record<string, string> = {};
       for (const [p, content] of Object.entries(editLlmFiles)) {
@@ -1901,19 +2645,86 @@ ${SHADCN_CHEATSHEET}`;
       // FileOperations for useStudio (upsert only — existing files untouched)
       const editOps: FileOperation[] = Object.entries(editFinalFiles)
         .map(([name, content]) => ({ op: 'upsert' as const, name, content }));
-      config.onFiles(editOps);
 
-      // Write ONLY changed files — no clearPreview()
+      // Buffer changed files into candidate revision
       config.onPhase({ phase: 'verify', progress: 85 });
       for (const [p, content] of Object.entries(editLlmFiles)) {
-        await writePreviewFile(p, content);
+        await revisionManager.writeCandidateFile(revId, p, content);
+        config.onLog(`[Revision] buffered: ${p} (${content.length} chars)`);
       }
-      config.onLog(`[SimpleGeneration] EDIT: wrote ${Object.keys(editLlmFiles).length} files (preserved ${Object.keys(existingFiles).length})`);
+      config.onLog(`[SimpleGeneration] EDIT: buffered ${Object.keys(editLlmFiles).length} files (preserved ${Object.keys(existingFiles).length})`);
 
-      // Signal preview iframe to reload after Vite HMR recompiles
-      setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('force-preview-reload'));
-      }, 2000);
+      await SimpleGeneration.installPreviewDeps(editDependencies);
+      config.onLog(`[SimpleGeneration] EDIT deps prepared: ${editDependencies.join(', ') || 'none'}`);
+
+      // ── Pre-write import validation ──────────────────────────────────
+      const editUnresolved = validateImports(editLlmFiles, existingFiles);
+      if (editUnresolved.length > 0) {
+        config.onLog(`[ImportValidator] ${editUnresolved.length} unresolved import(s) detected — self-correction will handle`);
+        editUnresolved.forEach(u => config.onLog(`[ImportValidator]   ${u.sourceFile} → '${u.specifier}'`));
+      }
+
+      // Compile candidate — flush to disk + check Vite (with self-correction loop)
+      const editCompiled = await compileWithRetry({
+        revId, apiKey: config.apiKey, onLog: config.onLog, signal: config.signal,
+        callFix: (prompt, sig) => callLLM(
+          'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig,
+        ),
+      });
+      if (editCompiled.success) {
+        // ── Diff review gate: significant edits require user approval ──────
+        // reviewResult: string[] = accepted file paths (partial or full apply), false = reject all
+
+        // Build per-file diffs for review
+        const allFileDiffs: FileDiff[] = [];
+        for (const [p, newContent] of Object.entries(editLlmFiles)) {
+          const oldContent = existingFiles[p] ?? contextFiles[p] ?? '';
+          const diff = buildFileDiff(p, oldContent, newContent);
+          if (diff.changedCount > 0) allFileDiffs.push(diff);
+        }
+
+        // Default: approve all changed files (used when no review callback or no significant diffs)
+        let reviewResult: string[] | false = allFileDiffs.map(d => d.path);
+
+        if (config.waitForDiffReview && allFileDiffs.length > 0) {
+          const significantDiffs = allFileDiffs.filter(d => d.changedCount > 10);
+          if (significantDiffs.length > 0) {
+            config.onLog(`[SimpleGeneration] EDIT: ${significantDiffs.length} file(s) with >10 changed lines — requesting diff review`);
+            reviewResult = await config.waitForDiffReview(allFileDiffs);
+          }
+        }
+
+        if (reviewResult === false) {
+          await revisionManager.rollback();
+          config.onLog('[Revision] candidate rejected by user — rolled back');
+        } else {
+          // Partial apply: restore old content for rejected files in the candidate
+          const selectedSet = new Set(reviewResult);
+          const rejectedFiles = allFileDiffs.filter(d => !selectedSet.has(d.path));
+          if (rejectedFiles.length > 0) {
+            config.onLog(`[SimpleGeneration] Partial apply: restoring ${rejectedFiles.length} rejected file(s)`);
+            for (const diff of rejectedFiles) {
+              const oldContent = existingFiles[diff.path] ?? contextFiles[diff.path] ?? '';
+              // Write old content back to candidate so only selected changes are promoted
+              await revisionManager.writeCandidateFile(revId, diff.path, oldContent);
+            }
+          }
+          await revisionManager.promote(revId);
+          const appliedCount = reviewResult.length;
+          const skippedCount = rejectedFiles.length;
+          config.onLog(
+            skippedCount > 0
+              ? `[Revision] partial promote: ${appliedCount} file(s) applied, ${skippedCount} kept unchanged`
+              : '[Revision] candidate promoted',
+          );
+        }
+      } else {
+        // compileWithRetry already dispatched PREVIEW_FAILED
+        config.onLog(`[Revision] compile failed after ${editCompiled.attempts} attempt(s)`);
+      }
+
+      // Notify editor (code tab) — files always shown regardless of compile result
+      config.onFiles(editOps);
 
       config.onPhase({ phase: 'idle', progress: 100 });
       const editDurationMs = Date.now() - startMs;
@@ -1923,16 +2734,19 @@ ${SHADCN_CHEATSHEET}`;
       const editBlueprints: FileBlueprint[] = Object.entries(editFinalFiles).map(
         ([p, c]) => makeBlueprint(p, c),
       );
+      // Infer routes from page-role files (same as NEW mode)
+      const editInferredRoutes = syncRoutes(editBlueprints, []);
+      const editIsMultiPage = editInferredRoutes.length > 1;
       const editGraph: ProjectGraph = {
         version: 1 as const,
         id: crypto.randomUUID(),
         projectId: config.projectId ?? '',
         revisionId: config.revisionId ?? '',
-        manifest: emptyManifest(config.intent),
+        manifest: { ...emptyManifest(config.intent), isMultiPage: editIsMultiPage },
         files: editBlueprints,
-        routes: [],
+        routes: editInferredRoutes,
         features: [],
-        externalDependencies: [],
+        externalDependencies: editDependencySpecs,
         entryFileId: djb2('src/App.tsx'),
         createdAt: editNow,
         updatedAt: editNow,
@@ -1945,27 +2759,86 @@ ${SHADCN_CHEATSHEET}`;
         operations: editOps,
         message: cleanCoderMessage(editRaw, 'Updated files and refreshing preview.'),
         phase: 'idle' as AgentPhase,
-        usedModel: ConfigService.resolveModel('build') || config.modelId,
-        selfCorrected: false,
-        iterations: 1,
+        usedModel: config.modelId || '',
+        selfCorrected: editCompiled.attempts > 1,
+        iterations: editCompiled.attempts,
         durationMs: editDurationMs,
         createdAt: editNow,
         changePackage: emptyChangePackage(editGraph, editOps),
-        dependencies: [],
+        dependencies: editDependencySpecs,
         previewMeta: { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
         warnings: [],
         repairHints: [],
       };
       editResult.qualitySummary = GenerationQualityService.evaluate(editResult);
       config.onLog(`[SimpleGeneration] quality: ${editResult.qualitySummary.severity} — ${editResult.qualitySummary.summary}`);
+
+      metricsService.logGeneration({
+        generation_id:   editResult.id,
+        intent:          config.intent,
+        model_id:        editResult.usedModel,
+        duration_ms:     editDurationMs,
+        file_count:      editOps.length,
+        parse_success:   editParseResult.success,
+        fallback_used:   editParseResult.fallbackUsed ?? !editParseResult.success,
+        compile_success: editCompiled.success,
+        autofix_needed:  editCompiled.attempts > 1,
+        autofix_success: editCompiled.attempts > 1 && editCompiled.success,
+        error_message:   editCompiled.success ? null : (editCompiled.errors?.join('; ') ?? 'Compile failed'),
+      });
+
+      // ── Project memory: record edit generation ───────────────────────────
+      if (config.projectId) {
+        projectMemory.recordGeneration(config.projectId, {
+          intent:       config.intent,
+          mode:         'edit',
+          files:        editFinalFiles,
+          outcome:      editCompiled.success ? 'success' : 'failed',
+          errors:       editCompiled.errors,
+          stubbed:      editCompiled.errors ? editCompiled.errors.find(e => e.includes('replaced with error stub'))?.match(/(\S+\.tsx)/)?.[1] : undefined,
+        });
+        // Sync detected env vars to EnvSecretsService
+        const { detectEnvVars } = await import('./ProjectMemoryService');
+        const envMap = detectEnvVars(editFinalFiles);
+        envSecretsService.syncDetected(config.projectId, [...envMap.keys()]);
+      }
+
+      // ── Quality gates: run after generation ─────────────────────────────
+      const editQualityReport = runQualityGates({
+        projectId:    config.projectId ?? '_edit',
+        mode:         'edit',
+        files:        editFinalFiles,
+        existingFiles,
+        compileResult: editCompiled,
+        saved:        editCompiled.success,
+      });
+      config.onLog(`[QualityGates] ${formatQualityReport(editQualityReport)}`);
+
+      // ── Trace: finish ────────────────────────────────────────────────────
+      trace.addTokens(0, 0); // token data comes from LLMProxy events if wired
+      trace.finish(
+        editCompiled.success ? 'ok' : 'error',
+        {
+          fileCount:    editOps.length,
+          errorSummary: editCompiled.success ? undefined : editCompiled.errors?.[0]?.slice(0, 200),
+        },
+      );
+
       return editResult;
     }
 
     // ── NEW MODE ──────────────────────────────────────────────────────────
-    const mode = config.generationMode ?? 'app';
+    await revisionManager.fullClearPreview(revId);
+    config.onLog('[SimpleGeneration] NEW mode preflight: preview fully cleared');
+
+    const mode: GenerationMode = config.generationMode ?? 'app';
     config.onLog(`[SimpleGeneration] Generation mode: ${mode}`);
 
-    const coderTokens = mode === 'landing' ? 8000 : mode === 'superapp' ? 32000 : 16000;
+    const coderTokens = mode === 'landing'
+      ? ConfigService.getMaxTokens('agent_build', 'coder_landing')
+      : mode === 'superapp'
+        ? ConfigService.getMaxTokens('agent_build', 'coder_superapp')
+        : ConfigService.getMaxTokens('agent_build', 'coder_app');
 
     let plan: Record<string, unknown>;
 
@@ -1981,17 +2854,31 @@ ${SHADCN_CHEATSHEET}`;
       const architectPrompt = mode === 'landing' ? ARCHITECT_PROMPT_LANDING
                             : mode === 'superapp' ? ARCHITECT_PROMPT_SUPERAPP
                             : ARCHITECT_PROMPT;
-      const architectTokens = mode === 'landing' ? 2000 : mode === 'superapp' ? 6000 : 6000;
+      const architectTokens = mode === 'landing'
+        ? ConfigService.getMaxTokens('agent_primary', 'architect_landing')
+        : mode === 'superapp'
+          ? ConfigService.getMaxTokens('agent_primary', 'architect_superapp')
+          : ConfigService.getMaxTokens('agent_primary', 'architect_app');
 
+      const architectUserPrompt = [
+        `CURRENT USER REQUEST:\n${config.intent}`,
+        attachmentContext ? `\n${attachmentContext}` : '',
+        recentHistoryContext
+          ? `\nRECENT CHAT CONTEXT (preserve existing product direction/theme unless user explicitly asks to change):\n${recentHistoryContext}`
+          : '',
+      ].join('\n');
+
+      const closeArchitect = trace.span('architect', { mode });
       const planRaw = await callLLM(
         architectPrompt,
-        config.intent + attachmentContext,
+        architectUserPrompt,
         'primary',
         config.apiKey,
         undefined,
         config.signal,
         architectTokens,
       );
+      closeArchitect({ data: { chars: planRaw.length } });
 
       try {
         // Log thinking block if present
@@ -2006,28 +2893,22 @@ ${SHADCN_CHEATSHEET}`;
           jsonPart = planRaw.slice(thinkEnd + '</thinking>'.length);
         }
         const cleaned = jsonPart.trim().replace(/^```json?\s*\n?/, '').replace(/\n?```\s*$/, '');
-        plan = JSON.parse(cleaned);
+        plan = JSON.parse(extractFirstJsonObject(cleaned) ?? cleaned);
       } catch {
-        plan = {
-          appName: 'App',
-          description: config.intent,
-          theme: 'dark-slate',
-          targetUser: 'General user',
-          layout: { type: 'single', navigation: 'none' },
-          pages: [{ path: '/', name: 'App', file: 'App.tsx', purpose: config.intent, isMainScreen: true, keyElements: [] }],
-          dataModel: { entities: [], sharedState: '' },
-          shadcnComponents: ['Button', 'Card', 'Input'],
-          icons: ['Home'],
-        };
+        plan = buildDefaultPlan(mode, config.intent);
         config.onLog('[SimpleGeneration] Plan parse failed, using fallback plan');
       }
     }
+    plan = enforcePlanModeRules(plan, mode, config.intent, config.onLog);
     config.onLog(`[SimpleGeneration] Plan: ${JSON.stringify(plan).slice(0, 200)}`);
     console.log('[SimpleGeneration] Architect plan:', plan);
 
     // Feed plan steps to the UI
     const planSteps = (plan.pages as Array<{ name: string }> | undefined)
       ?.map((p) => p.name) ?? ['App'];
+    // Yield to React before dispatching plan update — prevents insertBefore crash
+    // when React is mid-commit from a prior state update (e.g. phase change).
+    await new Promise<void>(r => setTimeout(r, 0));
     config.onPlan(planSteps, (plan.appName as string) ?? '');
 
     // ── Step 1.5: Tech Lead — plan → technical blueprint ───────────────
@@ -2042,7 +2923,7 @@ ${SHADCN_CHEATSHEET}`;
         config.apiKey,
         undefined,
         config.signal,
-        3500,
+        ConfigService.getMaxTokens('agent_primary', 'tech_lead'),
       );
 
       const tbCleaned = techLeadRaw
@@ -2050,12 +2931,13 @@ ${SHADCN_CHEATSHEET}`;
         .replace(/\n?```$/, '')
         .trim();
 
-      const tbParsed = JSON.parse(tbCleaned);
+      const tbParsed = JSON.parse(extractFirstJsonObject(tbCleaned) ?? tbCleaned);
       technicalBlueprint = tbParsed?.technicalBlueprint ?? null;
 
       config.onLog('[SimpleGeneration] Technical blueprint ready');
     } catch (error) {
-      config.onLog('[SimpleGeneration] Tech Lead parse failed — using plan directly');
+      const msg = error instanceof Error ? error.message : String(error);
+      config.onLog(`[SimpleGeneration] Tech Lead parse failed — ${msg}`);
       console.warn('[SimpleGeneration] Tech Lead parse failed', error);
     }
 
@@ -2118,7 +3000,7 @@ ${SHADCN_CHEATSHEET}`;
     const validThemes = ['dark-slate', 'trust', 'warm', 'neon', 'bloom'];
     const selectedTheme = validThemes.includes(themeName) ? themeName : 'dark-slate';
 
-    // Build themed index.css now but write it AFTER clearPreview + LLM files
+    // Build themed index.css now — will be buffered into candidate after LLM files
     // so it always wins over any index.css the LLM may have generated.
     let themedIndexCss: string | null = null;
     try {
@@ -2158,9 +3040,11 @@ ${SHADCN_CHEATSHEET}`;
     config.onPhase({ phase: 'code', progress: 40 });
     config.onLog('[SimpleGeneration] Step 2: Coder generating...');
 
-    const coderSystemPrompt = SYSTEM_PROMPT
+    let coderSystemPrompt = SYSTEM_PROMPT
       + CSS_RECIPES
       + SHADCN_CHEATSHEET
+      + '\n\nGENERATION_MODE:\n'
+      + mode
       + '\n\nPRODUCT PLAN (SOURCE OF TRUTH):\n'
       + JSON.stringify(plan, null, 2)
       + (technicalBlueprint
@@ -2168,15 +3052,44 @@ ${SHADCN_CHEATSHEET}`;
             + JSON.stringify(technicalBlueprint, null, 2)
           : '');
 
+    if (config.designSystemPrompt) {
+      coderSystemPrompt += '\n\n' + config.designSystemPrompt;
+    }
+    // Inject project memory (known packages, env vars, prior issues)
+    if (memoryContext) {
+      coderSystemPrompt += '\n\n' + memoryContext;
+    }
+    // Inject env var instructions
+    if (envPrompt) {
+      coderSystemPrompt += '\n\n' + envPrompt;
+    }
+
+    // Track file progress during streaming
+    const expectedFileCount = (plan.pages as Array<unknown>)?.length ?? 1;
+    const tracker = createFileTracker(config.onStream, expectedFileCount);
+    previewController.notifyGenerating({
+      currentFile: '', completedFiles: [], totalExpected: expectedFileCount,
+    });
+
+    const coderUserPrompt = [
+      `CURRENT USER REQUEST:\n${config.intent}`,
+      recentHistoryContext
+        ? `\nRECENT CHAT CONTEXT (for continuity with prior turns):\n${recentHistoryContext}`
+        : '',
+    ].join('\n');
+
+    const closeNewCoder = trace.span('coder_new', { mode, expectedFiles: expectedFileCount });
     const raw = await callLLM(
       coderSystemPrompt,
-      config.intent,
+      coderUserPrompt,
       'build',
       config.apiKey,
-      config.onStream,
+      (chunk: string) => { tracker.onChunk(chunk); trace.markFirstToken(); },
       config.signal,
       coderTokens,
     );
+    tracker.finalise();
+    closeNewCoder({ data: { chars: raw.length } });
     config.onLog(`[SimpleGeneration] Coder response: ${raw.length} chars`);
 
     // 5. Parse files from LLM output
@@ -2184,43 +3097,134 @@ ${SHADCN_CHEATSHEET}`;
     console.log('[SimpleGeneration] RAW first 500:', raw.slice(0, 500));
     console.log('[SimpleGeneration] RAW last 200:', raw.slice(-200));
 
-    const llmFiles = parseFileMarkers(raw);
+    // Parse artifact (JSON first, FILE markers as fallback)
+    const parseResult = parseArtifact(raw);
+    config.onLog(`[SimpleGeneration] Parse: success=${parseResult.success}, fallback=${parseResult.fallbackUsed}`);
 
-    console.log('[SimpleGeneration] FILE markers found:', Object.keys(llmFiles));
-    for (const [p, c] of Object.entries(llmFiles)) {
-      console.log(`[SimpleGeneration] FILE ${p}: ${c.length} chars, first 80: ${c.slice(0, 80)}`);
-    }
-    config.onLog(`[SimpleGeneration] parsed: ${Object.keys(llmFiles).length} files`);
+    // ── Retry once with explicit error if parse failed ─────────────────────
+    let finalParseResult = parseResult;
+    if (!parseResult.success || !parseResult.artifact) {
+      config.onLog('[SimpleGeneration] ⚠ Parse failed — retrying with explicit format instruction');
 
-    // ── Guard: App.tsx is mandatory — build minimal fallback if LLM skipped it ──
-    const hasAppTsx = '/App.tsx' in llmFiles || '/src/App.tsx' in llmFiles;
-    if (!hasAppTsx) {
-      config.onLog('[SimpleGeneration] ⚠ App.tsx missing from LLM output — generating fallback from plan');
-      const planPages = (plan.pages as Array<{ path: string; name: string; file: string }> | undefined) ?? [];
-      const routePages = planPages.filter(p => p.file !== 'App.tsx' && p.name !== 'App');
+      const retryPrompt = `Your previous response could not be parsed as a JSON artifact.
+The response started with: "${raw.slice(0, 200)}"
 
-      const importLines = routePages.map(p => {
-        const rel = p.file.replace(/^(src\/)?/, './').replace(/\.tsx$/, '');
-        return `import ${p.name} from '${rel}';`;
-      });
-      const routeLines = routePages.map(p =>
-        `        <Route path="${p.path}" element={<${p.name} />} />`
+You MUST respond with ONLY a JSON artifact in this exact format:
+\`\`\`json
+{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/App.tsx","content":"..."}]}}
+\`\`\`
+
+No text before or after. No markdown except the json fence.
+Generate the complete application for: ${config.intent}`;
+
+      const retryRaw = await callLLM(
+        coderSystemPrompt,
+        retryPrompt,
+        'build',
+        config.apiKey,
+        undefined,
+        config.signal,
+        coderTokens,
       );
+      config.onLog(`[SimpleGeneration] Retry response: ${retryRaw.length} chars`);
 
-      llmFiles['/App.tsx'] = [
-        routePages.length > 0 ? `import { BrowserRouter, Routes, Route } from 'react-router-dom';` : '',
-        ...importLines,
-        '',
-        'export default function App() {',
-        '  return (',
-        routePages.length > 0
-          ? `    <BrowserRouter>\n      <Routes>\n${routeLines.join('\n')}\n      </Routes>\n    </BrowserRouter>`
-          : '    <div className="min-h-screen bg-background text-foreground" />',
-        '  );',
-        '}',
-      ].filter(l => l !== '').join('\n') + '\n';
+      const retryResult = parseArtifact(retryRaw);
+      config.onLog(`[SimpleGeneration] Retry parse: success=${retryResult.success}, fallback=${retryResult.fallbackUsed}`);
 
-      config.onLog(`[SimpleGeneration] Fallback App.tsx generated (${routePages.length} routes)`);
+      if (retryResult.success && retryResult.artifact) {
+        finalParseResult = retryResult;
+      }
+    }
+
+    if (!finalParseResult.success || !finalParseResult.artifact) {
+      config.onLog('[SimpleGeneration] ❌ Complete parse failure — no files extracted after retry');
+      config.onPhase({ phase: 'idle', progress: 100 });
+      const now = new Date().toISOString();
+      const failedId = crypto.randomUUID();
+      metricsService.logGeneration({
+        generation_id:   failedId,
+        intent:          config.intent,
+        model_id:        config.modelId || '',
+        duration_ms:     Date.now() - startMs,
+        file_count:      0,
+        parse_success:   false,
+        fallback_used:   finalParseResult.fallbackUsed ?? false,
+        compile_success: false,
+        autofix_needed:  false,
+        autofix_success: false,
+        error_message:   (finalParseResult.error ?? 'Artifact parse failed').slice(0, 500),
+      });
+      return {
+        id: failedId,
+        status: 'failed',
+        graph: { version: 1 as const, id: '', projectId: '', revisionId: '', manifest: emptyManifest(config.intent), files: [], routes: [], features: [], externalDependencies: [], entryFileId: '', createdAt: now, updatedAt: now },
+        operations: [],
+        message: finalParseResult.error ?? 'Parse failure',
+        phase: 'idle' as AgentPhase,
+        usedModel: config.modelId || '',
+        selfCorrected: false, iterations: 1, durationMs: Date.now() - startMs,
+        createdAt: now, dependencies: [], previewMeta: { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
+        warnings: [{ severity: 'error' as const, source: 'integrity' as const, code: 'ARTIFACT_PARSE_FAILED', filePath: '', message: finalParseResult.error ?? 'No parseable artifact' }], repairHints: [],
+        changePackage: emptyChangePackage(
+          { version: 1 as const, id: '', projectId: '', revisionId: '', manifest: emptyManifest(config.intent), files: [], routes: [], features: [], externalDependencies: [], entryFileId: '', createdAt: now, updatedAt: now },
+          [],
+        ),
+      };
+    }
+
+    const artifact: ArtifactContract = finalParseResult.artifact;
+    const artifactDependencies = artifact.dependencies ?? [];
+    const artifactDependencySpecs = toDependencySpecs(artifactDependencies);
+    const entryFile = artifact.entry || 'src/App.tsx';
+
+    // Build legacy llmFiles map (keyed with leading /) for downstream compatibility
+    const llmFiles: Record<string, string> = {};
+    for (const f of artifact.files) {
+      const key = f.path.startsWith('/') ? f.path : '/' + f.path.replace(/^src\//, '');
+      if (looksLikeArtifactEnvelope(f.content)) {
+        config.onLog(`[SimpleGeneration] ⚠ Skipped suspicious file payload for ${key}: content looks like full artifact JSON`);
+        continue;
+      }
+      llmFiles[key] = f.content;
+    }
+
+    if (Object.keys(llmFiles).length === 0) {
+      config.onLog('[SimpleGeneration] ❌ All parsed files were invalid (artifact envelope injected as file content)');
+      throw new Error('Artifact content was injected into file body; retry generation.');
+    }
+
+    config.onLog(`[SimpleGeneration] Entry: ${entryFile}, Files: ${artifact.files.length}`);
+    config.onLog(`[SimpleGeneration] Parsed files: ${Object.keys(llmFiles).join(', ')}`);
+    config.onLog(`[SimpleGeneration] File sizes: ${Object.entries(llmFiles).map(([p, c]) => `${p}:${c.length}`).join(', ')}`);
+
+    // ── Route Manifest: deterministic App.tsx generation ──────────────────────
+    const planPages = (plan.pages as Array<{ path: string; name: string; file: string; isMainScreen?: boolean; guard?: unknown; purpose?: string }> | undefined) ?? [];
+    const routePages = planPages.filter(p => p.file !== 'App.tsx' && p.name !== 'App');
+
+    if (mode !== 'landing') {
+      ensureRoutePageFiles(llmFiles, routePages);
+    }
+
+    if (mode !== 'landing' && routePages.length > 0) {
+      // Build manifest from plan
+      const manifest = buildManifestFromPlan(routePages, plan.layout as { navigation?: string });
+
+      // Extract any context wrappers from LLM's App.tsx (providers, layouts)
+      const llmAppTsx = llmFiles['/App.tsx'] || llmFiles['/src/App.tsx'] || '';
+      const appContext = llmAppTsx ? extractAppTsxContext(llmAppTsx) : { extraImports: [], wrapperStart: [], wrapperEnd: [] };
+
+      // Generate App.tsx DETERMINISTICALLY from manifest
+      llmFiles['/App.tsx'] = generateAppTsx(manifest, appContext);
+      // Store manifest for future EDIT mode
+      llmFiles[MANIFEST_PATH] = JSON.stringify(manifest, null, 2);
+      config.onLog(`[RouteManifest] Generated App.tsx from manifest (${manifest.routes.length} routes, layout=${manifest.layout})`);
+    } else {
+      // Landing mode: keep LLM's App.tsx as-is, but still check it exists
+      const hasAppTsx = '/App.tsx' in llmFiles || '/src/App.tsx' in llmFiles;
+      if (!hasAppTsx) {
+        llmFiles['/App.tsx'] = buildFallbackAppFromRoutes(routePages, mode);
+        config.onLog('[SimpleGeneration] Landing: fallback App.tsx generated');
+      }
     }
 
     // ── Enforce shadcn: validate + auto-fix ─────────────────────
@@ -2235,27 +3239,7 @@ ${SHADCN_CHEATSHEET}`;
     }
     // If App.tsx was dropped by validation, regenerate the minimal fallback
     if (!('/App.tsx' in llmFiles) && !('/src/App.tsx' in llmFiles)) {
-      const planPages = (plan.pages as Array<{ path: string; name: string; file: string }> | undefined) ?? [];
-      const routePages = planPages.filter(p => p.file !== 'App.tsx' && p.name !== 'App');
-      const importLines = routePages.map(p => {
-        const rel = p.file.replace(/^(src\/)?/, './').replace(/\.tsx$/, '');
-        return `import ${p.name} from '${rel}';`;
-      });
-      const routeLines = routePages.map(p =>
-        `        <Route path="${p.path}" element={<${p.name} />} />`
-      );
-      llmFiles['/App.tsx'] = [
-        routePages.length > 0 ? `import { BrowserRouter, Routes, Route } from 'react-router-dom';` : '',
-        ...importLines,
-        '',
-        'export default function App() {',
-        '  return (',
-        routePages.length > 0
-          ? `    <BrowserRouter>\n      <Routes>\n${routeLines.join('\n')}\n      </Routes>\n    </BrowserRouter>`
-          : '    <div className="min-h-screen bg-background text-foreground p-8"><p className="text-foreground">App generated. Start chatting to customise.</p></div>',
-        '  );',
-        '}',
-      ].filter(l => l !== '').join('\n') + '\n';
+      llmFiles['/App.tsx'] = buildFallbackAppFromRoutes(routePages, mode);
       config.onLog('[SimpleGeneration] App.tsx fallback regenerated after validation');
     }
 
@@ -2269,15 +3253,10 @@ ${SHADCN_CHEATSHEET}`;
     // 7. Create FileOperations for useStudio editor display
     const ops: FileOperation[] = Object.entries(finalFiles)
       .map(([name, content]) => ({ op: 'upsert' as const, name, content }));
-    config.onFiles(ops);
 
-    // 8. Write files to preview-app/src/ — Vite HMR picks them up
+    // 8. Buffer files into candidate revision
     config.onPhase({ phase: 'verify', progress: 85 });
 
-    // Clear previous generated files (keeps main.tsx, index.css, components/, lib/, themes/)
-    await clearPreview();
-
-    // Write each LLM-generated file — skip index.css, theme will be applied last
     let writtenCount = 0;
     for (const [path, content] of Object.entries(llmFiles)) {
       const normalised = path.startsWith('/') ? path.slice(1) : path;
@@ -2286,25 +3265,48 @@ ${SHADCN_CHEATSHEET}`;
         config.onLog(`[SimpleGeneration] Skipped LLM index.css (theme will overwrite)`);
         continue;
       }
-      await writePreviewFile(path, content);
+      await revisionManager.writeCandidateFile(revId, path, content);
+      config.onLog(`[Revision] buffered: ${withoutSrc} (${content.length} chars)`);
       writtenCount++;
     }
 
-    // Apply theme last — guaranteed to win over any LLM-generated index.css
+    // Theme last — guaranteed to win over any LLM-generated index.css
     if (themedIndexCss) {
-      await writePreviewFile('/index.css', themedIndexCss);
-      config.onLog(`[SimpleGeneration] Theme applied: ${selectedTheme}`);
-    } else {
-      config.onLog(`[SimpleGeneration] No theme CSS — default index.css preserved`);
+      await revisionManager.writeCandidateFile(revId, '/index.css', themedIndexCss);
+      config.onLog(`[Revision] theme buffered: ${selectedTheme}`);
     }
 
-    config.onLog(`[SimpleGeneration] wrote ${writtenCount} LLM files + theme to preview-app`);
+    config.onLog(`[SimpleGeneration] buffered ${writtenCount} files + theme into candidate`);
 
-    // Signal preview iframe to reload after Vite HMR picks up the new files.
-    // 2 s gives Vite enough time to detect + recompile before the iframe refreshes.
-    setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('force-preview-reload'));
-    }, 2000);
+    await SimpleGeneration.installPreviewDeps(artifactDependencies);
+    config.onLog(`[SimpleGeneration] NEW deps prepared: ${artifactDependencies.join(', ') || 'none'}`);
+
+    // ── Pre-write import validation ────────────────────────────────────
+    const newUnresolved = validateImports(llmFiles);
+    if (newUnresolved.length > 0) {
+      config.onLog(`[ImportValidator] ${newUnresolved.length} unresolved import(s) detected — self-correction will handle`);
+      newUnresolved.forEach(u => config.onLog(`[ImportValidator]   ${u.sourceFile} → '${u.specifier}'`));
+    }
+
+    // Compile candidate — flush to disk + check Vite (with self-correction loop)
+    const closeCompile = trace.span('compile', { files: writtenCount });
+    const compiled = await compileWithRetry({
+      revId, apiKey: config.apiKey, onLog: config.onLog, signal: config.signal,
+      callFix: (prompt, sig) => callLLM(
+        'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig,
+      ),
+    });
+    closeCompile({ status: compiled.success ? 'ok' : 'error', data: { attempts: compiled.attempts } });
+    if (compiled.success) {
+      await revisionManager.promote(revId);
+      config.onLog(`[Revision] candidate promoted (${compiled.attempts} attempt(s))`);
+    } else {
+      // compileWithRetry already dispatched PREVIEW_FAILED
+      config.onLog(`[Revision] compile failed after ${compiled.attempts} attempt(s)`);
+    }
+
+    // Notify editor (code tab) — files always shown regardless of compile result
+    config.onFiles(ops);
 
     config.onPhase({ phase: 'idle', progress: 100 });
     const durationMs = Date.now() - startMs;
@@ -2315,22 +3317,27 @@ ${SHADCN_CHEATSHEET}`;
     const blueprints: FileBlueprint[] = Object.entries(finalFiles).map(
       ([p, c]) => makeBlueprint(p, c),
     );
+    // Infer routes from page-role files (syncRoutes populates Layer 2)
+    const inferredRoutes = syncRoutes(blueprints, []);
+    const isMultiPage = inferredRoutes.length > 1;
     const graph: ProjectGraph = {
       version: 1 as const,
       id: crypto.randomUUID(),
       projectId: config.projectId ?? '',
       revisionId: config.revisionId ?? '',
-      manifest: emptyManifest(config.intent),
+      manifest: { ...emptyManifest(config.intent), isMultiPage },
       files: blueprints,
-      routes: [],
+      routes: inferredRoutes,
       features: [],
-      externalDependencies: [],
-      entryFileId: djb2('src/App.tsx'),
+      externalDependencies: artifactDependencySpecs,
+      entryFileId: djb2(entryFile),
       createdAt: now,
       updatedAt: now,
     };
 
-    const changePackage = emptyChangePackage(graph, ops);
+    // Validate all route layers and collect drift hints
+    const routeDrifts = validateAllRouteLayers(graph);
+    const changePackage = buildRouteAwareChangePackage(graph, ops, routeDrifts);
 
     // 10. Return result — preview is handled by Vite HMR on port 3100
     const result: GenerationResult = {
@@ -2340,20 +3347,84 @@ ${SHADCN_CHEATSHEET}`;
       operations: ops,
       message: cleanCoderMessage(raw),
       phase: 'idle' as AgentPhase,
-      usedModel: ConfigService.resolveModel('build') || config.modelId,
-      selfCorrected: false,
-      iterations: 1,
+      usedModel: config.modelId || '',
+      selfCorrected: compiled.attempts > 1,
+      iterations: compiled.attempts,
       durationMs,
       planTheme: selectedTheme,
       createdAt: now,
       changePackage,
-      dependencies: [],
-      previewMeta: { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
+      dependencies: artifactDependencySpecs,
+      previewMeta: { entryFile, framework: 'react', isMultiPage },
       warnings: [],
       repairHints: [],
     };
     result.qualitySummary = GenerationQualityService.evaluate(result);
     config.onLog(`[SimpleGeneration] quality: ${result.qualitySummary.severity} — ${result.qualitySummary.summary}`);
+
+    metricsService.logGeneration({
+      generation_id:   result.id,
+      intent:          config.intent,
+      model_id:        result.usedModel,
+      duration_ms:     durationMs,
+      file_count:      ops.length,
+      parse_success:   finalParseResult.success,
+      fallback_used:   finalParseResult.fallbackUsed ?? false,
+      compile_success: compiled.success,
+      autofix_needed:  compiled.attempts > 1,
+      autofix_success: compiled.attempts > 1 && compiled.success,
+      error_message:   compiled.success ? null : (compiled.errors?.join('; ') ?? 'Compile failed'),
+    });
+
+    // ── Project memory: record NEW generation ─────────────────────────────
+    if (config.projectId) {
+      // Build route memory from manifest (most reliable source)
+      const planPagesForMemory = (plan.pages as Array<{ path: string; name: string; file: string; purpose?: string }> | undefined) ?? [];
+      const routeMemory = planPagesForMemory.map(p => ({
+        path:      p.path,
+        component: p.name,
+        filePath:  p.file.replace(/^src\//, ''),
+        purpose:   p.purpose ?? '',
+      }));
+      projectMemory.recordGeneration(config.projectId, {
+        appName:  (plan.appName as string) || '',
+        intent:   config.intent,
+        mode:     'new',
+        files:    finalFiles,
+        outcome:  compiled.success ? 'success' : 'failed',
+        errors:   compiled.errors,
+        stubbed:  compiled.errors
+          ? compiled.errors.find(e => e.includes('replaced with error stub'))?.match(/(\S+\.tsx)/)?.[1]
+          : undefined,
+        routes: routeMemory,
+      });
+      // Sync detected env vars
+      const { detectEnvVars } = await import('./ProjectMemoryService');
+      const envMap = detectEnvVars(finalFiles);
+      envSecretsService.syncDetected(config.projectId, [...envMap.keys()]);
+    }
+
+    // ── Quality gates: full pipeline report ───────────────────────────────
+    const qualityReport = runQualityGates({
+      projectId:    config.projectId ?? '_new',
+      mode:         'new',
+      plan,
+      files:        finalFiles,
+      compileResult: compiled,
+      saved:        compiled.success,
+    });
+    config.onLog(`[QualityGates] ${formatQualityReport(qualityReport)}`);
+
+    // ── Trace: finish ──────────────────────────────────────────────────────
+    trace.event('quality_score', { score: qualityReport.score, passedForPublish: qualityReport.passedForPublish });
+    trace.finish(
+      compiled.success ? 'ok' : 'error',
+      {
+        fileCount:    ops.length,
+        errorSummary: compiled.success ? undefined : compiled.errors?.[0]?.slice(0, 200),
+      },
+    );
+
     return result;
   }
 
@@ -2369,6 +3440,25 @@ ${SHADCN_CHEATSHEET}`;
     signal?:  AbortSignal;
   }): Promise<boolean> {
     const log = config.onLog ?? (() => {});
+    const fixStartMs = Date.now();
+
+    // Helper: log metrics and return the success flag
+    const logFix = (success: boolean, errorMsg?: string): boolean => {
+      metricsService.logGeneration({
+        generation_id:   crypto.randomUUID(),
+        intent:          config.errorMsg.slice(0, 200),
+        model_id:        ConfigService.resolveModel('fix') || 'unknown',
+        duration_ms:     Date.now() - fixStartMs,
+        file_count:      success ? 1 : 0,
+        parse_success:   success,
+        fallback_used:   false,
+        compile_success: success,
+        autofix_needed:  true,
+        autofix_success: success,
+        error_message:   errorMsg ?? null,
+      });
+      return success;
+    };
 
     // ── Missing import fast-path ──────────────────────────────────────────────
     // Pattern: Failed to resolve import "./pages/Profile" from "src/App.tsx"
@@ -2398,46 +3488,67 @@ Look at how it is used in the imports and JSX/routes to understand what it shoul
 Create a complete, working React component that fits the app style and design tokens.
 Use the same shadcn components and design patterns visible in the source file.
 
-Output ONLY the file using <!--FILE:${missingPath}--> marker. No explanation.`;
+Output the file as a JSON artifact:
+\`\`\`json
+{"artifact":{"files":[{"path":"${missingPath}","content":"...complete file code..."}]}}
+\`\`\`
+Output ONLY the JSON. No explanation.`;
 
         log(`[AutoFix] Generating missing file: ${missingPath}...`);
         const fixed = await callLLM(fixPrompt, '', 'fix', config.apiKey, undefined, config.signal);
-        const fixedFiles = parseFileMarkers(fixed);
+        const fixParsed = parseArtifact(fixed);
+        const fixedFiles: Record<string, string> = {};
+        if (fixParsed.success && fixParsed.artifact) {
+          for (const f of fixParsed.artifact.files) {
+            fixedFiles[f.path.startsWith('/') ? f.path : '/' + f.path.replace(/^src\//, '')] = f.content;
+          }
+        } else {
+          Object.assign(fixedFiles, parseFileMarkers(fixed));
+        }
 
         if (Object.keys(fixedFiles).length === 0) {
           log(`[AutoFix] No content generated for ${missingPath}`);
-          return false;
+          return logFix(false, `No content generated for ${missingPath}`);
         }
 
+        const fixRevId = await revisionManager.createCandidate();
         for (const [path, content] of Object.entries(fixedFiles)) {
           if (!validateFile(path, content)) continue;
-          await writePreviewFile(path, content);
+          await revisionManager.writeCandidateFile(fixRevId, path, content);
           log(`[AutoFix] ✓ Generated missing file: ${path}`);
         }
-        return true;
+        const fixCompiled = await revisionManager.compileCandidate(fixRevId);
+        if (fixCompiled.success) {
+          await revisionManager.promote(fixRevId);
+          log('[AutoFix] candidate promoted');
+        } else {
+          commandBus.dispatch({ type: 'PREVIEW_FAILED', error: fixCompiled.errors!.join('\n') });
+          log(`[AutoFix] compile failed: ${fixCompiled.errors!.join('; ')}`);
+        }
+        return logFix(fixCompiled.success, fixCompiled.success ? undefined : fixCompiled.errors?.join('; '));
       } catch (e: unknown) {
         if (e instanceof DOMException && e.name === 'AbortError') throw e;
         log(`[AutoFix] Missing-import fix error: ${String(e)}`);
-        return false;
+        return logFix(false, String(e));
       }
     }
 
     const file = extractFileFromError(config.errorMsg);
     if (!file) {
       log('[AutoFix] Could not extract file from error: ' + config.errorMsg.slice(0, 120));
-      return false;
+      return logFix(false, 'Could not extract file from error');
     }
 
     try {
       const resp = await fetch(`/__read_preview?path=${encodeURIComponent(file)}`);
       if (!resp.ok) {
         log(`[AutoFix] Could not read ${file}: ${resp.status}`);
-        return false;
+        return logFix(false, `Could not read ${file}: ${resp.status}`);
       }
       const data = await resp.json() as { content?: string; ok?: boolean };
       if (!data.ok || !data.content) {
         log(`[AutoFix] No content for ${file}`);
-        return false;
+        return logFix(false, `No content for ${file}`);
       }
 
       const fixPrompt = `You are fixing a React/TypeScript compilation error.
@@ -2448,32 +3559,52 @@ ${config.errorMsg.slice(0, 800)}
 FILE: ${file}
 ${data.content}
 
-Output the COMPLETE fixed file using <!--FILE:${file}--> marker format.
+Output the COMPLETE fixed file as a JSON artifact:
+\`\`\`json
+{"artifact":{"files":[{"path":"${file}","content":"...complete fixed file..."}]}}
+\`\`\`
 Fix ONLY the error. Keep all existing functionality and imports.
-Do not add comments explaining the fix.`;
+Do not add comments explaining the fix. Output ONLY the JSON.`;
 
       log(`[AutoFix] Calling fix agent for ${file}...`);
       const fixed = await callLLM(fixPrompt, '', 'fix', config.apiKey, undefined, config.signal);
-      const fixedFiles = parseFileMarkers(fixed);
+      const fixParsed = parseArtifact(fixed);
+      const fixedFiles: Record<string, string> = {};
+      if (fixParsed.success && fixParsed.artifact) {
+        for (const f of fixParsed.artifact.files) {
+          fixedFiles[f.path.startsWith('/') ? f.path : '/' + f.path.replace(/^src\//, '')] = f.content;
+        }
+      } else {
+        Object.assign(fixedFiles, parseFileMarkers(fixed));
+      }
 
       if (Object.keys(fixedFiles).length === 0) {
         log('[AutoFix] No files parsed from fix response');
-        return false;
+        return logFix(false, 'No files parsed from fix response');
       }
 
+      const fixRevId = await revisionManager.createCandidate();
       for (const [path, content] of Object.entries(fixedFiles)) {
         if (!validateFile(path, content)) {
           log(`[AutoFix] Skipping invalid fix output for ${path}`);
           continue;
         }
-        await writePreviewFile(path, content);
+        await revisionManager.writeCandidateFile(fixRevId, path, content);
         log(`[AutoFix] ✓ Wrote fix: ${path}`);
       }
-      return true;
+      const fixCompiled = await revisionManager.compileCandidate(fixRevId);
+      if (fixCompiled.success) {
+        await revisionManager.promote(fixRevId);
+        log('[AutoFix] candidate promoted');
+      } else {
+        commandBus.dispatch({ type: 'PREVIEW_FAILED', error: fixCompiled.errors!.join('\n') });
+        log(`[AutoFix] compile failed: ${fixCompiled.errors!.join('; ')}`);
+      }
+      return logFix(fixCompiled.success, fixCompiled.success ? undefined : fixCompiled.errors?.join('; '));
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') throw e;
       log(`[AutoFix] Error: ${String(e)}`);
-      return false;
+      return logFix(false, String(e));
     }
   }
 }

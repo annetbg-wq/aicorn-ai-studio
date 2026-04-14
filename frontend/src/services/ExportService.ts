@@ -1,13 +1,26 @@
 /**
- * ExportService — Studio → Figma reverse sync.
+ * ExportService — multi-target export facade for AI Studio projects.
  *
- * Builds a machine-readable spec from the current Studio files and the
- * synced ProjectTheme.  The spec maps React components + hex colors found
- * in code back to Figma token names / CSS variables, ready for the
- * AIC-RG Studio Plugin to consume when importing into Figma.
+ * Responsibilities:
+ *   1. buildFigmaSpec / downloadSpec — Studio → Figma reverse sync spec
+ *   2. downloadZip   — export revision files as a self-contained ZIP
+ *                      (includes package.json + vite.config.ts if absent)
+ *   3. deployToVercel — deploy FileMap via Vercel API (delegates to DeployService)
+ *   4. pushToGitHub   — push FileMap to a GitHub repo (delegates to GitHubSyncService
+ *                       after auto-registering GitHubRepoAdapter on first call)
+ *
+ * All three export targets share the same FileMap type so callers can pass
+ * the same snapshot to any combination of outputs.
  */
 
 import type { ProjectTheme } from './FigmaService';
+import { ExportAdapter }    from './adapters/ExportAdapter';
+import type { ExportFileTree } from './adapters/ExportAdapter';
+import { DeployService }    from './DeployService';
+import type { DeployProgress, DeployResult } from './DeployService';
+import { GitHubSyncService } from './GitHubSyncService';
+import type { PushProjectOptions, RepoSyncResult } from './GitHubSyncService';
+import { GitHubRepoAdapter }  from './GitHubRepoAdapter';
 
 export type FileMap = Record<string, string>;
 
@@ -77,6 +90,67 @@ function extractComponents(allCode: string): ComponentEntry[] {
 function countHexOccurrences(code: string, hex: string): number {
   const escaped = hex.replace('#', '\\#');
   return (code.match(new RegExp(escaped, 'gi')) ?? []).length;
+}
+
+// ── ZIP helpers (used when no ProjectGraph is available) ──────────────────────
+
+/** Minimal package.json for a plain React+TS+Vite project */
+function defaultPackageJson(projectName: string, hasTailwind: boolean): string {
+  const devDeps: Record<string, string> = {
+    '@types/react':         '^18.2.0',
+    '@types/react-dom':     '^18.2.0',
+    '@vitejs/plugin-react': '^4.2.1',
+    typescript:             '^5.2.2',
+    vite:                   '^5.0.8',
+  };
+  if (hasTailwind) {
+    devDeps['tailwindcss']  = '^3.4.1';
+    devDeps['autoprefixer'] = '^10.4.17';
+    devDeps['postcss']      = '^8.4.35';
+  }
+  return JSON.stringify({
+    name:    projectName,
+    version: '0.1.0',
+    private: true,
+    type:    'module',
+    scripts: {
+      dev:     'vite',
+      build:   'tsc && vite build',
+      preview: 'vite preview',
+    },
+    dependencies:    { react: '^18.2.0', 'react-dom': '^18.2.0' },
+    devDependencies: devDeps,
+  }, null, 2);
+}
+
+/** Minimal vite.config.ts */
+function defaultViteConfig(hasTailwind: boolean): string {
+  const tailwindImport = hasTailwind
+    ? `import tailwindcss from 'tailwindcss'\nimport autoprefixer from 'autoprefixer'\n`
+    : '';
+  const cssBlock = hasTailwind
+    ? `\n  css: { postcss: { plugins: [tailwindcss, autoprefixer] } },`
+    : '';
+  return `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+${tailwindImport}
+export default defineConfig({
+  plugins: [react()],${cssBlock}
+})
+`;
+}
+
+/** Detect Tailwind usage from raw file content */
+function detectTailwind(files: FileMap): boolean {
+  return Object.values(files).some(c => /tailwind|className=["'][^"']*\s/.test(c));
+}
+
+// ─── GitHub adapter — registered once on first pushToGitHub call ──────────────
+let _githubAdapterRegistered = false;
+function ensureGitHubAdapter(): void {
+  if (_githubAdapterRegistered) return;
+  GitHubSyncService.register(new GitHubRepoAdapter());
+  _githubAdapterRegistered = true;
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -169,5 +243,82 @@ export const ExportService = {
     a.download  = `figma-export-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  },
+
+  // ── ZIP export ──────────────────────────────────────────────────────────────
+
+  /**
+   * Download all revision files as a ZIP archive.
+   *
+   * Automatically injects `package.json` and `vite.config.ts` into the
+   * archive when they are not already present in `files`.
+   *
+   * @param files       FileMap from the revision snapshot
+   * @param projectName Base name used for the ZIP file and package.json `name`
+   */
+  downloadZip(files: FileMap, projectName = 'project'): void {
+    const slug = projectName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const hasTailwind = detectTailwind(files);
+
+    const tree: ExportFileTree = { ...files };
+    if (!tree['package.json'])  tree['package.json']  = defaultPackageJson(slug, hasTailwind);
+    if (!tree['vite.config.ts']) tree['vite.config.ts'] = defaultViteConfig(hasTailwind);
+
+    ExportAdapter.downloadZipFromFileTree(tree, slug);
+  },
+
+  // ── Deploy to Vercel ────────────────────────────────────────────────────────
+
+  /**
+   * Deploy revision files directly to Vercel via the Vercel REST API.
+   *
+   * Delegates to DeployService — see DeployService.deploy() for details.
+   *
+   * @param files      FileMap from the revision snapshot
+   * @param token      Vercel personal access token
+   * @param onProgress Optional progress callback
+   */
+  deployToVercel(
+    files: FileMap,
+    token: string,
+    onProgress: (p: DeployProgress) => void = () => {},
+  ): Promise<DeployResult> {
+    return DeployService.deploy(files, 'vercel', token, onProgress);
+  },
+
+  // ── Push to GitHub ──────────────────────────────────────────────────────────
+
+  /**
+   * Push revision files to a GitHub repository via the Git Data API.
+   *
+   * Automatically injects `package.json` and `vite.config.ts` when absent.
+   * Registers `GitHubRepoAdapter` on first call (idempotent).
+   *
+   * @param files   FileMap from the revision snapshot
+   * @param options Credentials, target repo, strategy, progress callback
+   *
+   * @example
+   *   const result = await ExportService.pushToGitHub(files, {
+   *     credentials: { provider: 'github', accessToken: 'ghp_…', ownerLogin: 'alice' },
+   *     target: { name: 'my-app', owner: 'alice', branch: 'main', createIfMissing: true },
+   *     strategy: 'merge',
+   *     onProgress: p => console.log(p.message),
+   *   });
+   */
+  async pushToGitHub(
+    files: FileMap,
+    options: PushProjectOptions,
+  ): Promise<RepoSyncResult> {
+    ensureGitHubAdapter();
+
+    const hasTailwind = detectTailwind(files);
+    const target      = options.target;
+    const slug        = target.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
+    const tree: ExportFileTree = { ...files };
+    if (!tree['package.json'])   tree['package.json']   = defaultPackageJson(slug, hasTailwind);
+    if (!tree['vite.config.ts']) tree['vite.config.ts'] = defaultViteConfig(hasTailwind);
+
+    return GitHubSyncService.pushProject(tree, options);
   },
 };

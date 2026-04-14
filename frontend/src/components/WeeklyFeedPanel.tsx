@@ -1,32 +1,36 @@
-/**
- * WeeklyFeedPanel — slide-out panel anchored to the right of AppSidebar.
+﻿/**
+ * WeeklyFeedPanel â€” slide-out panel anchored to the right of AppSidebar.
  *
  * 3 tabs:
- *  🔥 Идеи сегодня  — 6 ideas generated daily, each is a full ProjectPlan
- *  📈 Ниши недели   — 5 niches generated weekly, each is a full ProjectPlan
- *  🏦 Банк идей     — saved IdeaPlan items
+ *  ðŸ”¥ Ð˜Ð´ÐµÐ¸ ÑÐµÐ³Ð¾Ð´Ð½Ñ  â€” 6 ideas generated daily, each is a full ProjectPlan
+ *  ðŸ“ˆ ÐÐ¸ÑˆÐ¸ Ð½ÐµÐ´ÐµÐ»Ð¸   â€” 5 niches generated weekly, each is a full ProjectPlan
+ *  ðŸ¦ Ð‘Ð°Ð½Ðº Ð¸Ð´ÐµÐ¹     â€” saved IdeaPlan items
  *
  * Generation via ConfigService.resolveModel('primary') + getKeyForAgent('primary').
- * If no key → shows "Настройте API ключ в Settings".
+ * If no key â†’ shows "ÐÐ°ÑÑ‚Ñ€Ð¾Ð¹Ñ‚Ðµ API ÐºÐ»ÑŽÑ‡ Ð² Settings".
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Loader2, Bookmark, BookmarkCheck, Trash2, RefreshCw, Zap } from 'lucide-react';
 import { ConfigService } from '../services/ConfigService';
 import { GeminiService } from '../services/GeminiService';
+import { getDevAgentChangeEventName, getLocalDevAgentProvider, syncLocalDevAgentMode, type DevAgentProvider } from '../services/devAgentMode';
+import {
+  ensureHotIdeas,
+  ensureNicheIdeas,
+  getIdeaFeedEventName,
+  hasIdeaGenerationAccess,
+  IDEA_FEED_STORAGE_KEYS,
+  loadCachedHotIdeas,
+  loadCachedNiches,
+  type IdeaPlan as SharedIdeaPlan,
+} from '../services/ideaFeedService';
 import { useAuth } from '../contexts/AuthContext';
 import type { ProjectPlan } from '../services/SimpleGeneration';
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-export interface IdeaPlan extends ProjectPlan {
-  id:             string;
-  marketContext:  string;
-  targetAudience: string;
-  painPoint:      string;
-  competitorGap:  string;
-  generatedAt:    string;
-}
+export type IdeaPlan = SharedIdeaPlan;
 
 interface BankItem {
   ideaPlan: IdeaPlan;
@@ -34,15 +38,15 @@ interface BankItem {
   launched: number;
 }
 
-// ── Storage keys ────────────────────────────────────────────────────────────
+// â”€â”€ Storage keys â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const STORAGE_KEYS = {
-  hotIdeas: 'aic_ideas_hot',    // { ideas: IdeaPlan[], date: string }
-  niches:   'aic_ideas_niches', // { ideas: IdeaPlan[], week: string }
-  bank:     'aic_ideas_bank',   // BankItem[]
+  hotIdeas: IDEA_FEED_STORAGE_KEYS.hotIdeas,
+  niches: IDEA_FEED_STORAGE_KEYS.niches,
+  bank: IDEA_FEED_STORAGE_KEYS.bank,
 } as const;
 
-// ── Refresh logic ───────────────────────────────────────────────────────────
+// â”€â”€ Refresh logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function needsHotRefresh(date: string): boolean {
   return new Date(date).toDateString() !== new Date().toDateString();
@@ -58,10 +62,10 @@ function needsNicheRefresh(week: string): boolean {
   return parseInt(week, 10) !== getWeekNumber();
 }
 
-// ── Full Architect plan JSON schema (matches ARCHITECT_PROMPT output) ────────
+// â”€â”€ Full Architect plan JSON schema (matches ARCHITECT_PROMPT output) â”€â”€â”€â”€â”€â”€â”€â”€
 
 const PLAN_SCHEMA = `{
-  "appName": "Human readable product name — specific, not generic",
+  "appName": "Human readable product name â€” specific, not generic",
   "description": "One sentence: the core value proposition",
   "theme": "dark-slate|trust|warm|neon|bloom",
   "targetUser": "Specific person: role, context, pain point",
@@ -81,7 +85,7 @@ const PLAN_SCHEMA = `{
   "userJourney": {
     "onboarding": {
       "needed": false,
-      "reason": "Why this app needs onboarding — what user data is required",
+      "reason": "Why this app needs onboarding â€” what user data is required",
       "steps": [
         {
           "question": "What is your main goal?",
@@ -90,7 +94,7 @@ const PLAN_SCHEMA = `{
           "storesIn": "userProfile.goal"
         }
       ],
-      "completionAction": "After onboarding → navigate to /home with personalized content"
+      "completionAction": "After onboarding â†’ navigate to /home with personalized content"
     },
     "firstSession": "What the user sees and does in their first 5 minutes",
     "returningSession": "What the user sees when they come back tomorrow"
@@ -134,7 +138,7 @@ const PLAN_SCHEMA = `{
       "isMainScreen": true,
       "showInNav": true,
       "guard": "redirect to /onboarding if !onboarding_complete",
-      "uiSpec": "DETAILED description 100+ words — every section top to bottom, every interactive element, empty state, mobile layout"
+      "uiSpec": "DETAILED description 100+ words â€” every section top to bottom, every interactive element, empty state, mobile layout"
     },
     {
       "path": "/settings",
@@ -176,7 +180,7 @@ const PLAN_SCHEMA = `{
   "icons": ["Home", "Settings", "Plus"]
 }`;
 
-// ── Prompts ─────────────────────────────────────────────────────────────────
+// â”€â”€ Prompts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function buildHotIdeasPrompt(): string {
   return `You are a product strategist with real-time internet access and deep knowledge of emerging markets.
@@ -184,14 +188,14 @@ Today is ${new Date().toDateString()}.
 
 Generate 3 fresh product ideas based on current trends, recent news, and emerging user needs.
 
-Each idea must be a COMPLETE product plan in the same JSON format as our Architect agent outputs — including:
+Each idea must be a COMPLETE product plan in the same JSON format as our Architect agent outputs â€” including:
 - productStrategy (coreAction, retentionLoop, paywall if needed)
 - userJourney (onboarding steps if needed with specific questions and options, firstSession description)
 - ALL pages including Onboarding (if needed) and Settings
 - dataModel with realistic seedData (3 domain-specific examples, never "Item 1" or "Sample Task")
 - uxPatterns and responsiveness
 
-This plan will be sent DIRECTLY to the code generator — skipping the Architect step.
+This plan will be sent DIRECTLY to the code generator â€” skipping the Architect step.
 So it must be as detailed as an Architect output.
 Every page must have a full uiSpec (100+ words describing every section, element, empty state, mobile layout).
 Onboarding must have specific questions with options (not placeholders).
@@ -204,8 +208,8 @@ ${PLAN_SCHEMA}
 Also add these fields to each plan object:
 {
   "id": "kebab-case-unique-id",
-  "marketContext": "Why this is relevant RIGHT NOW — cite specific recent trend, news, or event",
-  "targetAudience": "Specific person who needs this — precise, not generic",
+  "marketContext": "Why this is relevant RIGHT NOW â€” cite specific recent trend, news, or event",
+  "targetAudience": "Specific person who needs this â€” precise, not generic",
   "painPoint": "The exact problem being solved",
   "competitorGap": "What existing solutions are missing",
   "generatedAt": "${new Date().toISOString()}"
@@ -229,7 +233,7 @@ function buildNichesPrompt(): string {
   return `You are a market analyst tracking emerging opportunities in digital products.
 Week ${getWeekNumber()} of ${new Date().getFullYear()}.
 
-Analyze 3 trending niches RIGHT NOW — specifically what is growing THIS week based on:
+Analyze 3 trending niches RIGHT NOW â€” specifically what is growing THIS week based on:
 - Recent regulatory changes
 - New technology releases
 - Seasonal patterns
@@ -238,14 +242,14 @@ Analyze 3 trending niches RIGHT NOW — specifically what is growing THIS week b
 
 For each niche, generate a COMPLETE product architecture plan for the best product opportunity within it.
 
-Each plan must be as detailed as a senior product architect's output — including:
+Each plan must be as detailed as a senior product architect's output â€” including:
 - productStrategy (coreAction, retentionLoop, paywall if needed)
 - userJourney (onboarding steps if needed with specific questions and options, firstSession description)
 - ALL pages including Onboarding (if needed) and Settings
 - dataModel with realistic seedData (3 domain-specific examples, never "Item 1")
 - uxPatterns and responsiveness
 
-This plan will be sent DIRECTLY to the code generator — skipping the Architect step.
+This plan will be sent DIRECTLY to the code generator â€” skipping the Architect step.
 Every page must have a full uiSpec (100+ words).
 Onboarding must have specific questions with real options (not placeholders).
 Seed data must have 3 realistic domain-specific examples.
@@ -257,7 +261,7 @@ ${PLAN_SCHEMA}
 Also add these fields:
 {
   "id": "kebab-case-unique-id",
-  "marketContext": "Why this niche is hot RIGHT NOW — specific reason with a concrete trigger",
+  "marketContext": "Why this niche is hot RIGHT NOW â€” specific reason with a concrete trigger",
   "targetAudience": "Specific person in this niche",
   "painPoint": "The exact problem the product solves",
   "competitorGap": "What existing solutions in this niche are missing",
@@ -277,7 +281,7 @@ RULES:
 Output: JSON array of 3 plan objects. No markdown. No explanation.`;
 }
 
-// ── Robust JSON parser (handles truncated LLM responses) ────────────────────
+// â”€â”€ Robust JSON parser (handles truncated LLM responses) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function safeParseJSONArray(raw: string): Record<string, unknown>[] {
   const cleaned = raw
@@ -320,23 +324,70 @@ function safeParseJSONArray(raw: string): Record<string, unknown>[] {
   return objects;
 }
 
-// ── API call (GeminiService with OAuth fallback) ────────────────────────────
+// â”€â”€ API call (GeminiService with OAuth fallback) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function generateIdeas(
   prompt: string,
   count: number,
   googleAccessToken?: string | null,
 ): Promise<IdeaPlan[]> {
-  const text = await GeminiService.generate({
-    prompt,
-    googleAccessToken,
-    maxTokens: 6000,
-    onLog: (msg) => console.log(msg),
-  });
+  const devAgentProvider = getLocalDevAgentProvider();
+  const devAgentActive = devAgentProvider !== 'off';
+
+  let text = '';
+
+  if (devAgentActive) {
+    const bridgeCtrl = new AbortController();
+    const bridgeTimeoutMs = 180_000;
+    const bridgeTimer = window.setTimeout(() => bridgeCtrl.abort(), bridgeTimeoutMs);
+    let bridgeResp: Response;
+    try {
+      bridgeResp = await fetch('http://localhost:3107/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: bridgeCtrl.signal,
+        body: JSON.stringify({
+          message: prompt,
+          model: devAgentProvider === 'codex' ? 'gpt-5.1-codex' : 'claude-sonnet-4-6',
+        }),
+      });
+    } catch (err: unknown) {
+      if ((err as { name?: string })?.name === 'AbortError') {
+        throw new Error(`Local ${devAgentProvider} bridge timed out after ${Math.round(bridgeTimeoutMs / 1000)}s.`);
+      }
+      throw err;
+    } finally {
+      window.clearTimeout(bridgeTimer);
+    }
+
+    if (!bridgeResp.ok) {
+      const err = await bridgeResp.text();
+      throw new Error(`Dev agent bridge ${bridgeResp.status}: ${err.slice(0, 200)}`);
+    }
+
+    const bridgeData = await bridgeResp.json() as { content?: Array<{ text?: string }> };
+    text = bridgeData.content?.[0]?.text ?? '';
+    if (!text.trim()) {
+      throw new Error('Dev agent bridge returned empty response');
+    }
+    console.log(`[WeeklyFeed] ${devAgentProvider} bridge used for idea generation`);
+  }
+
+  if (!text.trim()) {
+    text = await GeminiService.generate({
+      prompt,
+      googleAccessToken,
+      maxTokens: 6000,
+      onLog: (msg: string) => console.log(msg),
+    });
+  }
 
   const raw = safeParseJSONArray(text.trim());
+  if (raw.length === 0) {
+    throw new Error('Model returned an invalid ideas payload');
+  }
 
-  // Validate and cap — spread all fields (including new productStrategy/userJourney/etc.)
+  // Validate and cap â€” spread all fields (including new productStrategy/userJourney/etc.)
   // then normalize the required ones so TypeScript is satisfied.
   return raw.slice(0, count).map(r => ({
     ...r,
@@ -363,7 +414,7 @@ async function generateIdeas(
   } as IdeaPlan));
 }
 
-// ── Bank helpers ─────────────────────────────────────────────────────────────
+// â”€â”€ Bank helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function loadBank(): BankItem[] {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.bank) ?? '[]') as BankItem[]; }
@@ -374,7 +425,7 @@ function saveBank(bank: BankItem[]): void {
   try { localStorage.setItem(STORAGE_KEYS.bank, JSON.stringify(bank)); } catch { /* quota */ }
 }
 
-// ── Theme colors for idea cards ───────────────────────────────────────────────
+// â”€â”€ Theme colors for idea cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const THEME_COLOR: Record<string, string> = {
   'dark-slate': '#60a5fa',
@@ -388,14 +439,25 @@ function themeColor(t: string): string {
   return THEME_COLOR[t] ?? '#60a5fa';
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+const CODE_STUDIO_INTENT_PREFIX = '__OPEN_CODE_STUDIO__';
+const CODE_STUDIO_INPUT_KEY = 'AIC_CODE_STUDIO_INITIAL_INPUT';
+
+// â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type Tab = 'hot' | 'niches' | 'bank';
 
 interface WeeklyFeedPanelProps {
   onClose:          () => void;
   onStartBlueprint: (text: string) => void;
-  onLaunchWithPlan?: (plan: IdeaPlan, intent: string, source?: 'chat' | 'weekly-feed' | 'niche') => void;
+  onLaunchWithPlan?: (
+    plan: IdeaPlan,
+    intent: string,
+    source?: 'chat' | 'weekly-feed' | 'niche' | 'weekly-feed-code-studio',
+  ) => void;
+  onOpenInCodeStudio?: (idea: {
+    title: string;
+    description: string;
+  }) => void;
   onAddMessage?:    (msg: { role: 'assistant'; content: string }) => void;
   appLanguage?:     string;
 }
@@ -404,47 +466,77 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
   onClose,
   onStartBlueprint,
   onLaunchWithPlan,
+  onOpenInCodeStudio,
   onAddMessage,
   appLanguage = 'en',
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('hot');
   const { user, googleAccessToken } = useAuth();
+  const [devAgentProvider, setDevAgentProvider] = useState<DevAgentProvider>(() => getLocalDevAgentProvider());
 
-  // ── Hot ideas (daily) ──────────────────────────────────────────────────────
+  useEffect(() => {
+    let mounted = true;
+    const changeEvent = getDevAgentChangeEventName();
+
+    const syncFromLocalStorage = () => {
+      setDevAgentProvider(getLocalDevAgentProvider());
+    };
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'admin_claude_max' || event.key === 'superadmin_dev_agent_provider') {
+        syncFromLocalStorage();
+      }
+    };
+
+    syncFromLocalStorage();
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(changeEvent, syncFromLocalStorage as EventListener);
+
+    fetch('http://localhost:3107/dev-agent-mode')
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: { provider?: DevAgentProvider; claudeMode?: boolean } | null) => {
+        if (!mounted || !data) return;
+        setDevAgentProvider(syncLocalDevAgentMode(data));
+      })
+      .catch(() => {
+        // backend bridge unavailable: keep local state only
+      });
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(changeEvent, syncFromLocalStorage as EventListener);
+    };
+  }, []);
+
+  // â”€â”€ Hot ideas (daily) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [hotIdeas,    setHotIdeas]    = useState<IdeaPlan[]>([]);
   const [hotLoading,  setHotLoading]  = useState(true);
   const [hotError,    setHotError]    = useState<string | null>(null);
 
-  // ── Niche ideas (weekly) ───────────────────────────────────────────────────
+  // â”€â”€ Niche ideas (weekly) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [niches,      setNiches]      = useState<IdeaPlan[]>([]);
   const [nicheLoading,setNicheLoading]= useState(true);
   const [nicheError,  setNicheError]  = useState<string | null>(null);
 
-  // ── Bank ───────────────────────────────────────────────────────────────────
+  // â”€â”€ Bank â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [bank,        setBank]        = useState<BankItem[]>(() => loadBank());
 
-  // Free quota counter (refreshes on each render — cheap localStorage read)
+  // Free quota counter (refreshes on each render â€” cheap localStorage read)
   const freeRemaining = GeminiService.getRemainingFreeQuota();
 
-  const hasKey = Boolean(
-    googleAccessToken || ConfigService.getKeyForAgent('primary') || ConfigService.getApiKey(),
-  );
+  const hasKey = hasIdeaGenerationAccess(googleAccessToken);
 
-  // ── Generate hot ideas ─────────────────────────────────────────────────────
+  // â”€â”€ Generate hot ideas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const generateHot = useCallback(async (force = false) => {
     setHotLoading(true);
     setHotError(null);
 
-    if (!force) {
-      const raw = localStorage.getItem(STORAGE_KEYS.hotIdeas);
-      if (raw) {
-        const cached = JSON.parse(raw) as { ideas: IdeaPlan[]; date: string };
-        if (!needsHotRefresh(cached.date)) {
-          setHotIdeas(cached.ideas);
-          setHotLoading(false);
-          return;
-        }
-      }
+    const cached = loadCachedHotIdeas();
+    if (!force && cached.length > 0) {
+      setHotIdeas(cached);
+      setHotLoading(false);
+      return;
     }
 
     if (!hasKey) {
@@ -454,8 +546,7 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
     }
 
     try {
-      const ideas = await generateIdeas(buildHotIdeasPrompt(), 3, googleAccessToken);
-      localStorage.setItem(STORAGE_KEYS.hotIdeas, JSON.stringify({ ideas, date: new Date().toISOString() }));
+      const ideas = await ensureHotIdeas(googleAccessToken, force);
       setHotIdeas(ideas);
     } catch (e: any) {
       if (e?.message?.includes('No AI service available')) {
@@ -468,21 +559,16 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
     }
   }, [hasKey, googleAccessToken]);
 
-  // ── Generate niches ────────────────────────────────────────────────────────
+  // â”€â”€ Generate niches â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const generateNiches = useCallback(async (force = false) => {
     setNicheLoading(true);
     setNicheError(null);
 
-    if (!force) {
-      const raw = localStorage.getItem(STORAGE_KEYS.niches);
-      if (raw) {
-        const cached = JSON.parse(raw) as { ideas: IdeaPlan[]; week: string };
-        if (!needsNicheRefresh(cached.week)) {
-          setNiches(cached.ideas);
-          setNicheLoading(false);
-          return;
-        }
-      }
+    const cached = loadCachedNiches();
+    if (!force && cached.length > 0) {
+      setNiches(cached);
+      setNicheLoading(false);
+      return;
     }
 
     if (!hasKey) {
@@ -492,8 +578,7 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
     }
 
     try {
-      const ideas = await generateIdeas(buildNichesPrompt(), 3, googleAccessToken);
-      localStorage.setItem(STORAGE_KEYS.niches, JSON.stringify({ ideas, week: String(getWeekNumber()) }));
+      const ideas = await ensureNicheIdeas(googleAccessToken, force);
       setNiches(ideas);
     } catch (e: any) {
       if (e?.message?.includes('No AI service available')) {
@@ -512,7 +597,25 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Bank helpers ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    const eventName = getIdeaFeedEventName();
+    const syncIdeaFeed = ((event?: Event) => {
+      const detail = (event as CustomEvent<{ key?: string }> | undefined)?.detail;
+      if (!detail?.key || detail.key === STORAGE_KEYS.hotIdeas) {
+        const ideas = loadCachedHotIdeas();
+        if (ideas.length > 0) setHotIdeas(ideas);
+      }
+      if (!detail?.key || detail.key === STORAGE_KEYS.niches) {
+        const ideas = loadCachedNiches();
+        if (ideas.length > 0) setNiches(ideas);
+      }
+    }) as EventListener;
+
+    window.addEventListener(eventName, syncIdeaFeed);
+    return () => window.removeEventListener(eventName, syncIdeaFeed);
+  }, []);
+
+  // â”€â”€ Bank helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const isInBank = (id: string) => bank.some(b => b.ideaPlan.id === id);
 
   const toggleBank = (idea: IdeaPlan) => {
@@ -534,7 +637,7 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
     setBank(updated);
   };
 
-  // ── Launch idea ────────────────────────────────────────────────────────────
+  // â”€â”€ Add idea to chat context pack â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const launchIdea = (idea: IdeaPlan) => {
     const { marketContext, targetAudience, painPoint,
             competitorGap, generatedAt, ...plan } = idea;
@@ -555,11 +658,11 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
         setBank([...existing]);
       }
 
-      // Post a context message into the chat before generation starts
+      // Post a context message into the chat composer flow
       const ps = (plan as IdeaPlan).productStrategy as { coreAction?: string; paywall?: { needed?: boolean; trigger?: string } } | undefined;
       const uj = (plan as IdeaPlan).userJourney as { onboarding?: { needed?: boolean; steps?: unknown[] } } | undefined;
       const lines = [
-        `🚀 Launching **${plan.appName}**`,
+        `ðŸ§© Added to context pack: **${plan.appName}**`,
         ``,
         `**Strategy:** ${ps?.coreAction ?? plan.description}`,
         uj?.onboarding?.needed
@@ -569,7 +672,7 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
           ? `**Paywall:** ${ps.paywall.trigger}`
           : `**Model:** Free`,
         ``,
-        `Architect skipped — plan sourced from live market data.`,
+        `Send from chat when ready. You can combine this with your own prompt, files, and screenshots.`,
       ];
       onAddMessage?.({ role: 'assistant', content: lines.join('\n') });
 
@@ -582,7 +685,34 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
     }
   };
 
-  // ── UI helpers ─────────────────────────────────────────────────────────────
+  const toCodeStudioIdea = (idea: IdeaPlan): { title: string; description: string } => ({
+    title: idea.appName,
+    description: idea.description,
+  });
+
+  const openIdeaInCodeStudio = (idea: IdeaPlan) => {
+    const payload = toCodeStudioIdea(idea);
+    const prefill = `${payload.title}: ${payload.description}`;
+    try { localStorage.setItem(CODE_STUDIO_INPUT_KEY, prefill); } catch { /* ignore quota */ }
+
+    if (onOpenInCodeStudio) {
+      onOpenInCodeStudio(payload);
+      onClose();
+      return;
+    }
+
+    // Fallback path when AppSidebar does not pass through onOpenInCodeStudio.
+    if (onLaunchWithPlan) {
+      onLaunchWithPlan(
+        idea,
+        `${CODE_STUDIO_INTENT_PREFIX}${prefill}`,
+        'weekly-feed-code-studio',
+      );
+      onClose();
+    }
+  };
+
+  // â”€â”€ UI helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const s = (light: string, dark: string) => dark; // always dark theme
 
   const tabStyle = (tab: Tab): React.CSSProperties => ({
@@ -598,7 +728,7 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
     transition: 'all 0.15s',
   });
 
-  // ── Render card ────────────────────────────────────────────────────────────
+  // â”€â”€ Render card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderCard = (idea: IdeaPlan) => {
     const color = themeColor(idea.theme);
     const saved = isInBank(idea.id);
@@ -624,7 +754,9 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
           </div>
           <button
             onClick={() => toggleBank(idea)}
-            title={saved ? 'Убрать из банка' : 'Сохранить в банк'}
+            title={saved
+              ? (appLanguage === 'ru' ? 'Убрать из банка' : 'Remove from bank')
+              : (appLanguage === 'ru' ? 'Сохранить в банк' : 'Save to bank')}
             style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
               color: saved ? '#fbbf24' : 'rgba(255,255,255,0.25)', flexShrink: 0, lineHeight: 0,
@@ -646,11 +778,11 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
         {/* Audience + pain */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.3)' }}>
-            👤 {idea.targetAudience}
+            {idea.targetAudience}
           </span>
         </div>
         <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.28)', lineHeight: 1.4 }}>
-          💊 {idea.painPoint}
+          {idea.painPoint}
         </div>
 
         {/* Pages + product badges */}
@@ -681,14 +813,38 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
             }}
           >
             <Zap size={10} />
-            Прототипировать →
+            Add to Chat →
           </button>
+
+          {(onOpenInCodeStudio || onLaunchWithPlan) && (
+            <button
+              onClick={() => openIdeaInCodeStudio(idea)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+                padding: '6px 12px',
+                borderRadius: 6,
+                background: 'rgba(124,58,237,0.15)',
+                border: '1px solid rgba(124,58,237,0.3)',
+                color: '#a78bfa',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+              title={appLanguage === 'ru' ? 'Открыть в Code Studio с Claude' : 'Open in Code Studio with Claude'}
+            >
+              Code Studio
+            </button>
+          )}
         </div>
       </div>
     );
   };
 
-  // ── Loading / error block ──────────────────────────────────────────────────
+  // â”€â”€ Loading / error block â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderLoader = (label: string) => (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'rgba(255,255,255,0.3)' }}>
       <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
@@ -700,14 +856,16 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
     if (err === 'no-key') {
       return (
         <div style={{ padding: '20px 14px', textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>
-          Настройте API ключ в <b style={{ color: '#60a5fa' }}>Settings</b>, чтобы генерировать идеи.
+          {appLanguage === 'ru'
+            ? <>Настройте API ключ в <b style={{ color: '#60a5fa' }}>Settings</b>, чтобы генерировать идеи.</>
+            : <>Set API key in <b style={{ color: '#60a5fa' }}>Settings</b> to generate ideas.</>}
         </div>
       );
     }
     return (
       <div style={{ padding: '20px 14px', textAlign: 'center' }}>
         <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginBottom: 10 }}>
-          Ошибка генерации: {err.slice(0, 80)}
+          {appLanguage === 'ru' ? 'Ошибка генерации' : 'Generation error'}: {err.slice(0, 80)}
         </div>
         <button
           onClick={onRetry}
@@ -718,7 +876,7 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
             display: 'inline-flex', alignItems: 'center', gap: 5,
           }}
         >
-          <RefreshCw size={11} /> Повторить
+          <RefreshCw size={11} /> {appLanguage === 'ru' ? 'Повторить' : 'Retry'}
         </button>
       </div>
     );
@@ -739,7 +897,7 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
         boxShadow: '6px 0 32px rgba(0,0,0,0.55)',
       }}>
 
-        {/* ── Header ── */}
+        {/* â”€â”€ Header â”€â”€ */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '14px 14px 10px',
@@ -751,7 +909,7 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
               {appLanguage === 'ru' ? 'Идеи' : 'Ideas'}
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.88)' }}>
-              ⚡ Feed
+              Feed
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -791,14 +949,20 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
           </div>
         </div>
 
-        {/* ── Tabs ── */}
+        {/* â”€â”€ Tabs â”€â”€ */}
         <div style={{ display: 'flex', gap: 4, padding: '8px 10px 6px', flexShrink: 0 }}>
-          <button style={tabStyle('hot')} onClick={() => setActiveTab('hot')}>🔥 Идеи сегодня</button>
-          <button style={tabStyle('niches')} onClick={() => setActiveTab('niches')}>📈 Ниши недели</button>
-          <button style={tabStyle('bank')} onClick={() => setActiveTab('bank')}>🏦 Банк ({bank.length})</button>
+          <button style={tabStyle('hot')} onClick={() => setActiveTab('hot')}>
+            {appLanguage === 'ru' ? 'Идеи дня' : 'Today Ideas'}
+          </button>
+          <button style={tabStyle('niches')} onClick={() => setActiveTab('niches')}>
+            {appLanguage === 'ru' ? 'Ниши недели' : 'Week Niches'}
+          </button>
+          <button style={tabStyle('bank')} onClick={() => setActiveTab('bank')}>
+            {appLanguage === 'ru' ? `Банк (${bank.length})` : `Bank (${bank.length})`}
+          </button>
         </div>
 
-        {/* ── Tab content ── */}
+        {/* â”€â”€ Tab content â”€â”€ */}
 
         {activeTab === 'hot' && (
           <>
@@ -814,12 +978,12 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
                 }}
               >
                 <RefreshCw size={10} style={hotLoading ? { animation: 'spin 1s linear infinite' } : undefined} />
-                Обновить
+                {appLanguage === 'ru' ? 'Обновить' : 'Refresh'}
               </button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 14px' }}>
               {hotLoading
-                ? renderLoader('Генерируем идеи на сегодня…')
+                ? renderLoader(appLanguage === 'ru' ? 'Генерируем идеи на сегодня...' : 'Generating hot ideas...')
                 : hotError
                   ? renderError(hotError, () => generateHot(true))
                   : hotIdeas.map(renderCard)
@@ -841,12 +1005,12 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
                 }}
               >
                 <RefreshCw size={10} style={nicheLoading ? { animation: 'spin 1s linear infinite' } : undefined} />
-                Обновить
+                {appLanguage === 'ru' ? 'Обновить' : 'Refresh'}
               </button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 14px' }}>
               {nicheLoading
-                ? renderLoader('Анализируем ниши недели…')
+                ? renderLoader(appLanguage === 'ru' ? 'Анализируем ниши недели...' : 'Analyzing weekly niches...')
                 : nicheError
                   ? renderError(nicheError, () => generateNiches(true))
                   : niches.map(renderCard)
@@ -859,8 +1023,8 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
           <div style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 14px' }}>
             {bank.length === 0 ? (
               <div style={{ padding: '40px 14px', textAlign: 'center', color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>🏦</div>
-                Сохраните идеи из других вкладок
+                <div style={{ fontSize: 28, marginBottom: 8 }}>ðŸ¦</div>
+                {appLanguage === 'ru' ? 'Сохраните идеи из других вкладок' : 'Save ideas from other tabs'}
               </div>
             ) : (
               bank.map(item => {
@@ -887,7 +1051,7 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
                       </div>
                       <button
                         onClick={() => removeFromBank(idea.id)}
-                        title="Удалить из банка"
+                        title={appLanguage === 'ru' ? 'Удалить из банка' : 'Remove from bank'}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, color: 'rgba(255,255,255,0.2)', lineHeight: 0 }}
                       >
                         <Trash2 size={12} />
@@ -895,8 +1059,12 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
                     </div>
 
                     <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)' }}>
-                      Сохранено {new Date(item.savedAt).toLocaleDateString()}
-                      {item.launched > 0 && ` · Запущено ${item.launched} раз`}
+                      {appLanguage === 'ru'
+                        ? `Сохранено ${new Date(item.savedAt).toLocaleDateString()}`
+                        : `Saved ${new Date(item.savedAt).toLocaleDateString()}`}
+                      {item.launched > 0 && (appLanguage === 'ru'
+                        ? ` · Запущено ${item.launched} раз`
+                        : ` · Launched ${item.launched}x`)}
                     </div>
 
                     <div style={{ display: 'flex', gap: 5 }}>
@@ -911,8 +1079,32 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
                         }}
                       >
-                        <Zap size={9} /> Прототипировать →
+                        <Zap size={9} /> {appLanguage === 'ru' ? 'Добавить в чат →' : 'Add to Chat →'}
                       </button>
+
+                      {(onOpenInCodeStudio || onLaunchWithPlan) && (
+                        <button
+                          onClick={() => openIdeaInCodeStudio(idea)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 4,
+                            padding: '5px 10px',
+                            borderRadius: 7,
+                            background: 'rgba(124,58,237,0.15)',
+                            border: '1px solid rgba(124,58,237,0.3)',
+                            color: '#a78bfa',
+                            fontSize: 10,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={appLanguage === 'ru' ? 'Открыть в Code Studio с Claude' : 'Open in Code Studio with Claude'}
+                        >
+                          Code Studio
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -935,3 +1127,5 @@ export const WeeklyFeedPanel: React.FC<WeeklyFeedPanelProps> = ({
     </>
   );
 };
+
+

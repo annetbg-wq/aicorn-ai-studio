@@ -12,6 +12,32 @@ const SUPABASE_URL =
 
 const PROXY_URL = `${SUPABASE_URL}/functions/v1/llm-proxy`;
 
+// ── Token-bucket rate limiter ──────────────────────────────────────────────
+// Prevents flood on rapid retries, benchmark runs, or concurrent agents.
+// 10 requests burst, refills at 1 req/s.
+
+const rateLimiter = {
+  tokens:     10,
+  maxTokens:  10,
+  refillRate: 1,   // tokens per second
+  lastRefill: Date.now(),
+
+  async acquire(): Promise<void> {
+    const now = Date.now();
+    const elapsed = (now - this.lastRefill) / 1000;
+    this.tokens = Math.min(this.maxTokens, this.tokens + elapsed * this.refillRate);
+    this.lastRefill = now;
+
+    if (this.tokens < 1) {
+      const waitMs = ((1 - this.tokens) / this.refillRate) * 1000;
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      this.tokens = 0;
+    } else {
+      this.tokens -= 1;
+    }
+  },
+};
+
 /**
  * POST (non-streaming) through the proxy. Returns a Response identical
  * to what the LLM API would return.
@@ -21,6 +47,7 @@ export async function llmFetch(
   headers: Record<string, string>,
   body: string,
 ): Promise<Response> {
+  await rateLimiter.acquire();
   const resp = await fetch(PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -47,6 +74,7 @@ export async function llmFetchStream(
   body: string,
   signal?: AbortSignal,
 ): Promise<Response> {
+  await rateLimiter.acquire();
   const resp = await fetch(PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -67,6 +95,7 @@ export async function llmGet(
   endpoint: string,
   headers?: Record<string, string>,
 ): Promise<Response> {
+  await rateLimiter.acquire();
   const resp = await fetch(PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

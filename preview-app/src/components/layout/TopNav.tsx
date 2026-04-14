@@ -1,54 +1,47 @@
-import { Link, useLocation } from 'react-router-dom';
-import { Home, Settings, Scan } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-
-const navItems = [
-  { path: '/', label: 'Dashboard', icon: Home },
-  { path: '/settings', label: 'Settings', icon: Settings },
-];
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Home as HomeIcon, Settings, ShieldCheck } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export default function TopNav() {
   const location = useLocation();
+  const navigate = useNavigate();
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="max-w-6xl mx-auto flex h-14 items-center justify-between px-6">
-        <div className="flex items-center gap-8">
-          <Link to="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <Scan className="h-4 w-4 text-primary-foreground" />
-            </div>
-            <span className="font-semibold text-base text-foreground tracking-tight">ActMap AI</span>
-          </Link>
-          <nav className="flex items-center gap-1">
-            {navItems.map(({ path, label, icon: Icon }) => {
-              const isActive = location.pathname === path;
-              return (
-                <Link
-                  key={path}
-                  to={path}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                    isActive
-                      ? 'bg-accent text-accent-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground hidden sm:inline">EU AI Act Compliance</span>
-          <Avatar className="h-8 w-8">
-            <AvatarFallback className="bg-primary text-primary-foreground text-xs font-medium">
-              CO
-            </AvatarFallback>
-          </Avatar>
+    <nav className="fixed top-0 left-0 right-0 z-50 h-16 bg-card/80 backdrop-blur-lg border-b border-border">
+      <div className="max-w-5xl mx-auto h-full flex items-center justify-between px-4">
+        <Button
+          onClick={() => navigate('/')}
+          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+        >
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+            <ShieldCheck className="w-5 h-5 text-foreground" />
+          </div>
+          <span className="font-extrabold text-lg text-foreground hidden sm:block">
+            Android Verify
+          </span>
+        </Button>
+
+        <div className="flex items-center gap-1">
+          <Button
+            variant={location.pathname === '/' ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => navigate('/')}
+            className="rounded-xl gap-2"
+          >
+            <HomeIcon className="w-4 h-4" />
+            <span className="hidden sm:inline">Главная</span>
+          </Button>
+          <Button
+            variant={location.pathname === '/settings' ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => navigate('/settings')}
+            className="rounded-xl gap-2"
+          >
+            <Settings className="w-4 h-4" />
+            <span className="hidden sm:inline">Настройки</span>
+          </Button>
         </div>
       </div>
-    </header>
+    </nav>
   );
 }

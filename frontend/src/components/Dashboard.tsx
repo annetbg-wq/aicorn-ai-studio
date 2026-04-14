@@ -4,10 +4,18 @@
  * Section 2: Market Intelligence — Trending Niches with Generate Blueprint
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, ArrowRight, X,
+  LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, ArrowRight, X, Code2,
 } from 'lucide-react';
+import { isCreatorMode } from '../services/internalAccess';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  ensureNicheIdeas,
+  getIdeaFeedEventName,
+  hasIdeaGenerationAccess,
+  loadCachedNiches,
+} from '../services/ideaFeedService';
 import { storageService } from '../services/storageService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -20,9 +28,11 @@ interface DashboardProps {
   onEnterEngine:      () => void;
   onLoadProject:      (p: any) => void;
   onStartBlueprint:   (text: string) => void;
-  onNavigateFigma?:   () => void;
-  onNewProject?:      () => void;
+  onNavigateFigma?:       () => void;
+  onNavigateCodeStudio?:  () => void;
+  onNewProject?:          () => void;
   onOpenAllProjects?: () => void;
+  onLaunchWithPlan?: (plan: Record<string, unknown>, intent: string, source?: 'weekly-feed' | 'niche') => void;
   appLanguage?:       string;
 }
 
@@ -34,6 +44,22 @@ interface ModuleCard {
 interface TrendingNiche {
   id: string; icon: string; title: string; tag: string; tagColor: string;
   whyNow: string; blueprint: string;
+  launchPlan?: Record<string, unknown>;
+  launchIntent?: string;
+}
+
+function mapIdeaToTrendingNiche(idea: Record<string, unknown>, idx: number): TrendingNiche {
+  return {
+    id: String(idea.id ?? `weekly-niche-${idx}`),
+    icon: ['📈', '🧠', '⚡', '💼', '🛠️', '🌍'][idx % 6],
+    title: String(idea.appName ?? idea.targetAudience ?? 'Trending niche'),
+    tag: 'Weekly Trend',
+    tagColor: '#3b82f6',
+    whyNow: String(idea.marketContext ?? idea.painPoint ?? ''),
+    blueprint: JSON.stringify(idea, null, 2),
+    launchPlan: idea,
+    launchIntent: `${String(idea.appName ?? 'Project')}: ${String(idea.description ?? '')}`,
+  };
 }
 
 // ── Static data ───────────────────────────────────────────────────────────────
@@ -45,6 +71,8 @@ const MODULES: ModuleCard[] = [
     description: 'Define requirements, map user journeys, and structure system architecture from idea to spec.' },
   { id: 'figma',     icon: Figma,      title: 'Figma Platinum',    available: true,  accent: '#f59e0b',
     description: 'Connect design systems, sync design tokens, activate Digital Twin — import Figma → live interactive code in one click.' },
+  { id: 'code-studio', icon: Code2,   title: 'Code Studio',       available: true,  accent: '#a78bfa',
+    description: 'AI-powered IDE with integrated preview. Edit code, see changes live, let AI fix issues — all in one place.' },
   { id: 'cloud',     icon: Cloud,      title: 'Cloud & Backend',   available: false, accent: '#06b6d4',
     description: 'Provision infrastructure, manage databases, deploy serverless functions and APIs at scale.' },
   { id: 'package',   icon: Rocket,     title: 'Packaging & Ship',  available: false, accent: '#10b981',
@@ -71,7 +99,7 @@ const DASH_LABELS: Record<string, Record<string, string>> = {
     soon:       'SOON',
     market:     'Market Intelligence',
     niches:     'Trending Niches',
-    build:      'Start Building →',
+    build:      'Add to Chat →',
     cancel:     'Cancel',
     blueprint:  'Confirm Meta-Instruction before building',
     trends:     'Trends updated: March 2026',
@@ -93,7 +121,7 @@ const DASH_LABELS: Record<string, Record<string, string>> = {
     soon:       'СКОРО',
     market:     'Рыночная аналитика',
     niches:     'Трендовые ниши',
-    build:      'Начать разработку →',
+    build:      'В чат →',
     cancel:     'Отмена',
     blueprint:  'Подтвердите мета-инструкцию перед началом',
     trends:     'Тренды обновлены: март 2026',
@@ -115,7 +143,7 @@ const DASH_LABELS: Record<string, Record<string, string>> = {
     soon:       'PRONTO',
     market:     'Inteligencia de Mercado',
     niches:     'Nichos Tendencia',
-    build:      'Comenzar →',
+    build:      'Añadir al chat →',
     cancel:     'Cancelar',
     blueprint:  'Confirma la meta-instrucción antes de construir',
     trends:     'Tendencias actualizadas: marzo 2026',
@@ -137,7 +165,7 @@ const DASH_LABELS: Record<string, Record<string, string>> = {
     soon:       'BALD',
     market:     'Marktintelligenz',
     niches:     'Trendnischen',
-    build:      'Entwicklung starten →',
+    build:      'Zum Chat hinzufügen →',
     cancel:     'Abbrechen',
     blueprint:  'Meta-Anweisung vor dem Bauen bestätigen',
     trends:     'Trends aktualisiert: März 2026',
@@ -159,7 +187,7 @@ const DASH_LABELS: Record<string, Record<string, string>> = {
     soon:       'BIENTÔT',
     market:     'Intelligence Marché',
     niches:     'Niches Tendances',
-    build:      'Commencer →',
+    build:      'Ajouter au chat →',
     cancel:     'Annuler',
     blueprint:  'Confirmez la méta-instruction avant de construire',
     trends:     'Tendances mises à jour : mars 2026',
@@ -181,7 +209,7 @@ const DASH_LABELS: Record<string, Record<string, string>> = {
     soon:       '即将推出',
     market:     '市场情报',
     niches:     '热门细分市场',
-    build:      '开始构建 →',
+    build:      '添加到聊天 →',
     cancel:     '取消',
     blueprint:  '构建前确认元指令',
     trends:     '趋势更新：2026年3月',
@@ -352,12 +380,65 @@ function fmtSyncTime(isoString: string | null): string {
 export const Dashboard: React.FC<DashboardProps> = ({
   sessionCost, sessionTokens, cloudAvailable, projects,
   onEnterEngine, onLoadProject, onStartBlueprint,
-  onNavigateFigma, onNewProject, onOpenAllProjects,
+  onNavigateFigma, onNavigateCodeStudio, onNewProject, onOpenAllProjects, onLaunchWithPlan,
   appLanguage = 'en',
 }) => {
+  const repairMojibake = (value: string): string => {
+    if (!/[ÃÐÑâ]/.test(value)) return value;
+    try {
+      return decodeURIComponent(escape(value));
+    } catch {
+      return value;
+    }
+  };
+  const { googleAccessToken } = useAuth();
   const [hovered,        setHovered]        = useState<string | null>(null);
   const [blueprintNiche, setBlueprintNiche] = useState<TrendingNiche | null>(null);
-  const L = DASH_LABELS[appLanguage] ?? DASH_LABELS['en'];
+  const [trendingNiches, setTrendingNiches] = useState<TrendingNiche[]>(TRENDING_NICHES);
+  const LRaw = DASH_LABELS[appLanguage] ?? DASH_LABELS['en'];
+  const L = Object.fromEntries(
+    Object.entries(LRaw).map(([k, v]) => [k, repairMojibake(v)]),
+  ) as typeof LRaw;
+  const creatorMode = isCreatorMode();
+  const visibleModules = creatorMode
+    ? MODULES
+    : MODULES.filter(mod => mod.id !== 'code-studio');
+
+  useEffect(() => {
+    const readNiches = async () => {
+      try {
+        let ideas = loadCachedNiches() as Array<Record<string, unknown>>;
+        if (ideas.length === 0 && hasIdeaGenerationAccess(googleAccessToken)) {
+          ideas = await ensureNicheIdeas(googleAccessToken);
+        }
+        if (ideas.length === 0) {
+          setTrendingNiches(TRENDING_NICHES);
+          return;
+        }
+
+        setTrendingNiches(ideas.slice(0, 6).map(mapIdeaToTrendingNiche));
+      } catch {
+        setTrendingNiches(TRENDING_NICHES);
+      }
+    };
+
+    void readNiches();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'aic_ideas_niches') {
+        void readNiches();
+      }
+    };
+    const onIdeaFeed = () => {
+      void readNiches();
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(getIdeaFeedEventName(), onIdeaFeed);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(getIdeaFeedEventName(), onIdeaFeed);
+    };
+  }, [googleAccessToken]);
 
   const walletPct  = Math.min((sessionCost   / 1)       * 100, 100);
   const contextPct = Math.min((sessionTokens / 100_000) * 100, 100);
@@ -565,12 +646,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* ── Module Cards Grid ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(240px, 280px))', gap: 14, width: '100%', maxWidth: 900 }}>
-        {MODULES.map(mod => {
+        {visibleModules.map(mod => {
           const Icon      = mod.icon;
           const isEngine  = mod.id === 'engine';
           const isFigma   = mod.id === 'figma';
+          const isCodeStudio = mod.id === 'code-studio';
           const isCloud   = mod.id === 'cloud';
-          const isActive  = isEngine || isFigma;
+          const isActive  = isEngine || isFigma || isCodeStudio;
           const isHovered = hovered === mod.id;
           const accentHex = mod.accent;
           const description = isFigma ? L.figmaDesc : mod.description;
@@ -580,18 +662,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
               onClick={() => {
                 if (isEngine) onEnterEngine();
                 if (isFigma && onNavigateFigma) onNavigateFigma();
+                if (isCodeStudio && onNavigateCodeStudio) onNavigateCodeStudio();
               }}
               onMouseEnter={() => setHovered(mod.id)}
               onMouseLeave={() => setHovered(null)}
               style={{
                 position: 'relative', borderRadius: 16, padding: '20px',
                 border: isLightTheme
-                  ? `1px solid ${isEngine && isHovered ? 'rgba(59,130,246,0.45)' : isEngine ? 'rgba(59,130,246,0.2)' : isFigma && isHovered ? `${accentHex}60` : isFigma ? `${accentHex}30` : cardBorderHover}`
+                  ? `1px solid ${isEngine && isHovered ? 'rgba(59,130,246,0.45)' : isEngine ? 'rgba(59,130,246,0.2)' : (isFigma || isCodeStudio) && isHovered ? `${accentHex}60` : (isFigma || isCodeStudio) ? `${accentHex}30` : cardBorderHover}`
                   : `1px solid ${
                       isEngine && isHovered ? 'rgba(59,130,246,0.45)' :
                       isEngine             ? 'rgba(59,130,246,0.2)'  :
-                      isFigma  && isHovered ? `${accentHex}60`       :
-                      isFigma              ? `${accentHex}30`        :
+                      (isFigma || isCodeStudio) && isHovered ? `${accentHex}60` :
+                      (isFigma || isCodeStudio)             ? `${accentHex}30` :
                       isHovered            ? 'rgba(255,255,255,0.13)' :
                                              'rgba(255,255,255,0.07)'
                     }`,
@@ -599,8 +682,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   ? cardBackground
                   : isEngine
                     ? `rgba(59,130,246,${isHovered ? '0.09' : '0.04'})`
-                    : isFigma
-                      ? `rgba(245,158,11,${isHovered ? '0.08' : '0.03'})`
+                    : isFigma || isCodeStudio
+                      ? `${accentHex}${isHovered ? '14' : '08'}`
                       : `rgba(255,255,255,${isHovered ? '0.035' : '0.018'})`,
                 backdropFilter: isLightTheme ? 'none' : 'blur(16px)',
                 cursor: isActive ? 'pointer' : 'default',
@@ -609,13 +692,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 boxShadow: isLightTheme
                   ? isEngine && isHovered
                     ? '0 4px 12px rgba(59,130,246,0.15)'
-                    : isFigma && isHovered
-                      ? '0 4px 12px rgba(245,158,11,0.12)'
+                    : (isFigma || isCodeStudio) && isHovered
+                      ? `0 4px 12px ${accentHex}22`
                       : '0 1px 3px rgba(0,0,0,0.08)'
                   : isEngine && isHovered
                     ? '0 12px 40px rgba(59,130,246,0.12)'
-                    : isFigma && isHovered
-                      ? '0 12px 40px rgba(245,158,11,0.10)'
+                    : (isFigma || isCodeStudio) && isHovered
+                      ? `0 12px 40px ${accentHex}22`
                       : 'none',
                 transition: 'all 0.25s ease', display: 'flex', flexDirection: 'column', gap: 14,
                 minHeight: 190,
@@ -688,8 +771,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               )}
 
-              {(isEngine || isFigma) && isHovered && (
-                <div style={{ position: 'absolute', bottom: 18, right: 18, color: isEngine ? 'rgba(96,165,250,0.7)' : 'rgba(245,158,11,0.7)', animation: 'arrowPulse 0.6s ease' }}>
+              {(isEngine || isFigma || isCodeStudio) && isHovered && (
+                <div style={{ position: 'absolute', bottom: 18, right: 18, color: isEngine ? 'rgba(96,165,250,0.7)' : isFigma ? 'rgba(245,158,11,0.7)' : 'rgba(167,139,250,0.8)', animation: 'arrowPulse 0.6s ease' }}>
                   <ArrowRight size={14} />
                 </div>
               )}
@@ -718,7 +801,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-          {TRENDING_NICHES.map(niche => {
+          {trendingNiches.map(niche => {
             const isH = hovered === `niche-${niche.id}`;
             return (
               <div
@@ -762,7 +845,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     transition: 'all 0.18s',
                   }}
                 >
-                  <span style={{ fontSize: 12 }}>⚡</span> {appLanguage === 'ru' ? 'Сгенерировать план' : 'Generate Blueprint'}
+                  <span style={{ fontSize: 12 }}>⚡</span> {appLanguage === 'ru' ? 'Добавить в контекст' : 'Add to Context'}
                 </button>
               </div>
             );
@@ -849,7 +932,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {L.cancel}
               </button>
               <button
-                onClick={() => { onStartBlueprint(blueprintNiche.blueprint); setBlueprintNiche(null); }}
+                onClick={() => {
+                  if (blueprintNiche.launchPlan && blueprintNiche.launchIntent && onLaunchWithPlan) {
+                    onLaunchWithPlan(blueprintNiche.launchPlan, blueprintNiche.launchIntent, 'niche');
+                  } else {
+                    onStartBlueprint(blueprintNiche.blueprint);
+                  }
+                  setBlueprintNiche(null);
+                }}
                 style={{
                   padding: '8px 22px', borderRadius: 9, fontSize: 12, fontWeight: 700,
                   background: 'linear-gradient(135deg, #3b82f6, #6366f1)',

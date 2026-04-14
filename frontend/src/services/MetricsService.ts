@@ -1,5 +1,8 @@
 // MetricsService — Singleton platform-wide metrics collector
 // Persists to localStorage, dispatches 'studio-metrics' CustomEvent on each record
+// Generation runs are also logged to Supabase (generation_metrics table) fire-and-forget.
+
+import { supabase } from '../lib/supabase';
 
 const STORAGE_KEY = 'STUDIO_METRICS';
 const MAX_ENTRIES = 500;
@@ -44,6 +47,22 @@ export interface MetricsSummary {
     cost:       number;
     errors:     number;
   }>;
+}
+
+// ── Generation telemetry ────────────────────────────────────────────────────
+
+export interface GenerationMetrics {
+  generation_id:   string;
+  intent:          string;
+  model_id:        string;
+  duration_ms:     number;
+  file_count:      number;
+  parse_success:   boolean;
+  fallback_used:   boolean;
+  compile_success: boolean;
+  autofix_needed:  boolean;
+  autofix_success: boolean;
+  error_message:   string | null;
 }
 
 function uid(): string {
@@ -130,6 +149,51 @@ class MetricsServiceClass {
     this.entries = [];
     localStorage.removeItem(STORAGE_KEY);
     window.dispatchEvent(new CustomEvent('studio-metrics', { detail: null }));
+  }
+
+  /**
+   * Log a generation run to Supabase (fire-and-forget, never throws).
+   * Also records the event locally via record() so it shows in MetricsSummary.
+   */
+  logGeneration(data: GenerationMetrics): void {
+    // Local record (always, even if Supabase is unavailable)
+    this.record({
+      phase: 'orchestrator',
+      model: data.model_id,
+      durationMs: data.duration_ms,
+      error: data.error_message ?? undefined,
+      extra: {
+        generation_id: data.generation_id,
+        file_count:    data.file_count,
+        parse_success: data.parse_success,
+        fallback_used: data.fallback_used,
+        compile_success: data.compile_success,
+        autofix_needed:  data.autofix_needed,
+        autofix_success: data.autofix_success,
+      },
+    });
+
+    // Remote — fire-and-forget
+    supabase
+      .from('generation_metrics')
+      .insert([{
+        generation_id:   data.generation_id,
+        intent:          data.intent.slice(0, 200),
+        model_id:        data.model_id,
+        duration_ms:     data.duration_ms,
+        file_count:      data.file_count,
+        parse_success:   data.parse_success,
+        fallback_used:   data.fallback_used,
+        compile_success: data.compile_success,
+        autofix_needed:  data.autofix_needed,
+        autofix_success: data.autofix_success,
+        error_message:   data.error_message ?? null,
+      }])
+      .then(({ error }) => {
+        if (error) {
+          console.debug('[MetricsService] Supabase insert failed (non-critical):', error.message);
+        }
+      });
   }
 }
 

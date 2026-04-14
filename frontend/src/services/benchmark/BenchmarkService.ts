@@ -13,7 +13,10 @@
  */
 
 import { SimpleGeneration as GenerationPipeline } from '../SimpleGeneration';
+import { ConfigService } from '../ConfigService';
 import { goldenIntents, type GoldenIntent, type IntentCategory } from './goldenIntents';
+import { goldenTests, type GoldenTest } from './goldenTests';
+import { parseArtifact } from '../artifactParser';
 import {
   computeSummary,
   renderMarkdownSummary,
@@ -23,6 +26,31 @@ import {
 } from './BenchmarkReport';
 import { BaselineStore } from './BaselineStore';
 import type { GenerationResult } from '../../shared/projectModel';
+
+// ── Golden Suite types ─────────────────────────────────────────────────────
+
+export interface GoldenTestDetail {
+  testId:          string;
+  passed:          boolean;
+  durationMs:      number;
+  /** true when parseArtifact().success === true */
+  parsedOk:        boolean;
+  /** true when App.tsx exists and contains valid JSX markers */
+  appTsxValid:     boolean;
+  /** Files from expectedFiles that were NOT found in output */
+  missingFiles:    string[];
+  /** Files detected as truncated (unclosed brackets) */
+  truncatedFiles:  string[];
+  error:           string | null;
+}
+
+export interface GoldenSuiteResult {
+  total:    number;
+  passed:   number;
+  failed:   number;
+  avgTimeMs: number;
+  details:  GoldenTestDetail[];
+}
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -95,6 +123,117 @@ function classifyOutcome(result: GenerationResult): {
   }
 
   return { outcome: 'preview-ready', blockingCodes: [] };
+}
+
+// ── Golden Suite helpers ───────────────────────────────────────────────────
+
+/** Check if a file has unclosed brackets (likely truncated by LLM). */
+function isTruncated(content: string): boolean {
+  let braces  = 0;
+  let parens  = 0;
+  let backticks = 0;
+
+  for (const ch of content) {
+    if (ch === '{') braces++;
+    else if (ch === '}') braces--;
+    else if (ch === '(') parens++;
+    else if (ch === ')') parens--;
+    else if (ch === '`') backticks++;
+  }
+
+  // Odd backticks = unclosed template literal; positive braces/parens = unclosed block
+  return braces > 0 || parens > 0 || backticks % 2 !== 0;
+}
+
+/** Check that App.tsx has minimal valid JSX structure. */
+function isValidAppTsx(content: string): boolean {
+  if (!content || content.trim().length < 30) return false;
+  // Must have at least one JSX return and a function/const component
+  const hasComponent = /(?:function\s+App|const\s+App\s*=)/.test(content);
+  const hasJsx = /return\s*\(?\s*</.test(content);
+  const hasExport = /export\s+(?:default\s+)?(?:function\s+)?App|export\s+default\s+App/.test(content);
+  return hasComponent && hasJsx && hasExport;
+}
+
+async function runSingleGoldenTest(
+  test: GoldenTest,
+  apiKey: string,
+  modelId: string,
+  signal?: AbortSignal,
+): Promise<GoldenTestDetail> {
+  const buildModelId = ConfigService.resolveModel('build') || modelId || ConfigService.getModel();
+  const buildApiKey  = ConfigService.getKeyForAgent('build') || apiKey || ConfigService.getApiKey();
+
+  console.log(`[GoldenSuite] Using model: ${buildModelId} (from ${buildModelId !== modelId ? 'ConfigService' : 'parameter'})`);
+
+  const t0 = performance.now();
+  let rawResponse = '';
+  let error: string | null = null;
+
+  try {
+    await GenerationPipeline.run({
+      intent:   test.prompt,
+      history:  [],
+      files:    {},
+      apiKey:   buildApiKey,
+      modelId:  buildModelId,
+      onStream: (chunk: string) => { rawResponse += chunk; },
+      onFiles:  () => {},
+      onPhase:  () => {},
+      onLog:    () => {},
+      onPlan:   () => {},
+      signal,
+    });
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
+  }
+
+  const durationMs = Math.round(performance.now() - t0);
+
+  // 1. Parse artifact
+  const parsed = parseArtifact(rawResponse);
+  if (!parsed.success || !parsed.artifact) {
+    return {
+      testId: test.id, passed: false, durationMs,
+      parsedOk: false, appTsxValid: false,
+      missingFiles: [...test.expectedFiles], truncatedFiles: [],
+      error: error ?? parsed.error ?? 'Artifact parse failed',
+    };
+  }
+
+  // Build path→content map from artifact files
+  const fileMap: Record<string, string> = {};
+  for (const f of parsed.artifact.files) {
+    fileMap[f.path] = f.content;
+  }
+  const filePaths = Object.keys(fileMap);
+
+  // 2. Expected files check
+  const missingFiles = test.expectedFiles.filter(
+    expected => !filePaths.some(p => p.endsWith(expected)),
+  );
+
+  // 3. App.tsx validity
+  const appEntry = parsed.artifact.files.find(f => /App\.tsx$/i.test(f.path));
+  const appTsxValid = appEntry ? isValidAppTsx(appEntry.content) : false;
+
+  // 4. Truncation check
+  const truncatedFiles: string[] = [];
+  for (const f of parsed.artifact.files) {
+    if (/\.(tsx?|jsx?)$/.test(f.path) && isTruncated(f.content)) {
+      truncatedFiles.push(f.path);
+    }
+  }
+
+  const passed = missingFiles.length === 0
+    && appTsxValid
+    && truncatedFiles.length === 0;
+
+  return {
+    testId: test.id, passed, durationMs,
+    parsedOk: true, appTsxValid, missingFiles, truncatedFiles,
+    error,
+  };
 }
 
 // ── Main runner ─────────────────────────────────────────────────────────────
@@ -231,10 +370,148 @@ export const BenchmarkService = {
   },
 
   /**
+   * Lightweight per-generation quality check.
+   * Synchronous, no LLM calls — runs after every generation.
+   * Returns score 0-100, warnings, and blockers.
+   */
+  check(
+    files: Record<string, string>,
+    plan?: { pages?: Array<{ name?: string; file?: string }> } | null,
+  ): { score: number; passed: boolean; warnings: string[]; blockers: string[] } {
+    const warnings: string[] = [];
+    const blockers: string[] = [];
+    let score = 100;
+
+    const filePaths = Object.keys(files).filter(p => !p.startsWith('_'));
+    const codeFiles = filePaths.filter(p => /\.(tsx?|jsx?)$/.test(p));
+
+    // App.tsx is mandatory
+    const hasApp = codeFiles.some(p => p.endsWith('App.tsx') || p.endsWith('App.jsx'));
+    if (!hasApp) {
+      blockers.push('App.tsx missing from output');
+      score -= 30;
+    }
+
+    // Must produce at least one code file
+    if (codeFiles.length === 0) {
+      blockers.push('No code files generated');
+      score -= 40;
+    }
+
+    // Plan page coverage
+    const planPages = plan?.pages ?? [];
+    if (planPages.length > 1) {
+      for (const page of planPages) {
+        const expectedFile = page.file ?? `${page.name}.tsx`;
+        const found = codeFiles.some(p => p.includes(expectedFile.replace(/^(src\/)?/, '')));
+        if (!found) {
+          warnings.push(`Plan page "${page.name ?? expectedFile}" not found in output`);
+          score -= 5;
+        }
+      }
+      // Multi-page but too few files
+      if (codeFiles.length < 3) {
+        warnings.push(`Plan has ${planPages.length} pages but only ${codeFiles.length} code files generated`);
+        score -= 10;
+      }
+    }
+
+    // Tiny files
+    for (const [path, content] of Object.entries(files)) {
+      if (/\.(tsx?|jsx?)$/.test(path) && content.trim().length < 50) {
+        warnings.push(`${path} is suspiciously small (${content.trim().length} chars)`);
+        score -= 3;
+      }
+    }
+
+    score = Math.max(0, Math.min(100, score));
+    return { score, passed: blockers.length === 0, warnings, blockers };
+  },
+
+  /**
    * Persist a completed report to Supabase as a stored baseline.
    * Called automatically by BenchmarkGate; also available for manual promotion.
    */
   async promoteAsBaseline(report: BenchmarkReport): Promise<void> {
     await BaselineStore.save(report);
+  },
+
+  /** All available golden tests. */
+  goldenTests,
+
+  /**
+   * Run the full golden test suite (10 prompts) through SimpleGeneration.
+   *
+   * For each test validates:
+   *   1. parseArtifact().success === true
+   *   2. All expectedFiles present in output
+   *   3. App.tsx exists and contains valid JSX
+   *   4. No truncated files (unclosed brackets)
+   *   5. Generation time
+   *
+   * Returns aggregate { total, passed, failed, avgTimeMs, details }.
+   */
+  async runGoldenSuite(
+    apiKey: string,
+    modelId: string,
+    opts?: {
+      testIds?: string[];
+      signal?: AbortSignal;
+      onProgress?: (completed: number, total: number, last: GoldenTestDetail) => void;
+    },
+  ): Promise<GoldenSuiteResult> {
+    let tests = [...goldenTests];
+    if (opts?.testIds && opts.testIds.length > 0) {
+      const ids = new Set(opts.testIds);
+      tests = tests.filter(t => ids.has(t.id));
+    }
+
+    if (tests.length === 0) {
+      throw new Error('[BenchmarkService] No golden tests matched — nothing to run.');
+    }
+
+    console.log(
+      `[BenchmarkService] ── golden suite started | ${tests.length} test(s) | model=${modelId} ──`,
+    );
+
+    const details: GoldenTestDetail[] = [];
+
+    for (let i = 0; i < tests.length; i++) {
+      if (opts?.signal?.aborted) {
+        console.warn('[BenchmarkService] Golden suite aborted by signal.');
+        break;
+      }
+
+      const test = tests[i];
+      console.log(`[GoldenSuite] [${i + 1}/${tests.length}] Running: ${test.id}`);
+
+      const detail = await runSingleGoldenTest(test, apiKey, modelId, opts?.signal);
+      details.push(detail);
+
+      const icon = detail.passed ? 'PASS' : 'FAIL';
+      console.log(
+        `[GoldenSuite] [${i + 1}/${tests.length}] ${test.id}: ${icon}` +
+          ` | parse=${detail.parsedOk ? 'ok' : 'FAIL'}` +
+          ` | app=${detail.appTsxValid ? 'ok' : 'FAIL'}` +
+          ` | missing=${detail.missingFiles.length}` +
+          ` | truncated=${detail.truncatedFiles.length}` +
+          ` | ${(detail.durationMs / 1000).toFixed(1)}s`,
+      );
+
+      opts?.onProgress?.(i + 1, tests.length, detail);
+    }
+
+    const passed = details.filter(d => d.passed).length;
+    const failed = details.length - passed;
+    const totalMs = details.reduce((s, d) => s + d.durationMs, 0);
+    const avgTimeMs = details.length > 0 ? Math.round(totalMs / details.length) : 0;
+
+    const result: GoldenSuiteResult = { total: details.length, passed, failed, avgTimeMs, details };
+
+    console.log(
+      `[BenchmarkService] ── golden suite complete | ${passed}/${details.length} passed | avg ${(avgTimeMs / 1000).toFixed(1)}s ──`,
+    );
+
+    return result;
   },
 };

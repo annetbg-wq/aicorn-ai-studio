@@ -17,8 +17,10 @@ const SUPABASE_ANON_KEY =
 
 // Persist to localStorage so it survives .env changes
 if (SUPABASE_URL && !SUPABASE_URL.includes('placeholder')) {
-  localStorage.setItem('SUPABASE_URL', SUPABASE_URL);
-  localStorage.setItem('SUPABASE_ANON_KEY', SUPABASE_ANON_KEY);
+  try {
+    localStorage.setItem('SUPABASE_URL', SUPABASE_URL);
+    localStorage.setItem('SUPABASE_ANON_KEY', SUPABASE_ANON_KEY);
+  } catch { /* quota / blocked */ }
 }
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

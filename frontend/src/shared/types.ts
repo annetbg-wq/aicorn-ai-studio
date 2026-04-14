@@ -6,9 +6,13 @@ export type ModuleId =
   | 'figma'
   | 'agentlab'
   | 'analytics'
+  | 'benchmark'
   | 'cloud'
   | 'package'
   | 'growth'
-  | 'projects';
+  | 'projects'
+  | 'code-studio'
+  | 'terminal'
+  | 'db-console';
 
 export type ViewId = 'dashboard' | ModuleId;

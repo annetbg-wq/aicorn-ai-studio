@@ -10,11 +10,9 @@
     "dev:clean": "npx --yes kill-port 5183 && vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test:build-agent-routing": "tsx test_build_agent_routing.ts",
-    "test:agent-config-cloud-sync": "tsx test_agent_config_cloud_sync.ts",
-    "test:settings-provider-warning": "tsx test_settings_provider_warning.ts",
-    "test:orchestrator-timeout": "tsx test_orchestrator_timeout.ts",
-    "test:diagnostics": "tsx test_diagnostics.ts"
+    "test": "vitest run",
+    "test:smoke": "vitest run src/services/__tests__/previewStabilityPack.test.ts",
+    "test:all": "vitest run --reporter=verbose"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -53,6 +51,7 @@
     "tailwindcss": "^4.0.0",
     "tsx": "^4.19.3",
     "typescript": "^5.2.2",
-    "vite": "^5.0.8"
+    "vite": "^5.0.8",
+    "vitest": "^4.1.2"
   }
 }

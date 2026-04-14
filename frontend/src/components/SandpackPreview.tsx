@@ -14,8 +14,14 @@
  * No materialization, no revisions, no sandbox. One canonical path.
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import type { FileMap } from '../hooks/useStudio';
+import { previewController, type PreviewState } from '../services/PreviewController';
+import { revisionManager } from '../services/RevisionManager';
+import { SimpleGeneration } from '../services/SimpleGeneration';
+import { useProjectScreenshot } from '../hooks/useProjectScreenshot';
+import { resolvePreviewUI } from '../services/previewLifecycleResolver';
+import { visualEditBridge, type VisualEditState, type SelectedElement } from '../services/VisualEditBridge';
 
 /** Port where the preview-app Vite dev server runs. */
 const PREVIEW_PORT = 3100;
@@ -92,8 +98,8 @@ const buildHtml = (bundledCode: string): string => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Preview</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
@@ -121,6 +127,12 @@ const buildHtml = (bundledCode: string): string => {
     window.addEventListener('unhandledrejection', function(e) {
       window.__showError(e.reason ? (e.reason.stack || e.reason.toString()) : 'Unhandled promise rejection');
     });
+  </script>
+  <script>
+    if (window.__REACT_LOADED__) { console.warn('[preview] React already loaded, skipping bundle'); }
+    window.__REACT_LOADED__ = true;
+    window.React = window.React || {};
+    window.ReactDOM = window.ReactDOM || {};
   </script>
   <script>${safeCode}</script>
   <script>
@@ -285,10 +297,37 @@ interface SandpackViewProps {
   /** Current device key (desktop | iphone | pixel | ipad). Forwarded to preview-app
    *  via postMessage so the app can set html[data-device]. */
   device?:          string;
+  /** Project ID used to cache screenshots in localStorage. */
+  projectId?:       string | null;
   onError?:         (msg: string) => void;
   onPreviewReady?:  () => void;
   onFixWithAI?:     () => void;
+  onRollback?:      () => void;
   isAutoFixing?:    boolean;
+  /** True while AI is generating — shows "Building your app…" overlay instead of
+   *  the live iframe so React state changes and HMR updates can't race. */
+  isGenerating?:    boolean;
+  /** API key for direct auto-fix calls from the failed overlay. */
+  apiKey?:          string;
+  /**
+   * Preview lifecycle stage from useStudio. Richer than PreviewController's
+   * 5-status model — distinguishes 'degraded' from 'failed' and carries
+   * 'blocked' / 'committing' / 'materializing' stages.
+   *
+   * SandpackView uses this to show differentiated overlays:
+   *   - 'degraded': last working version still visible (softer messaging)
+   *   - 'blocked':  quality check prevented preview (show blockedReason)
+   */
+  previewLifecycle?:      string;
+  /** Human-readable reason when previewLifecycle === 'blocked'. */
+  previewBlockedReason?:  string | null;
+  /**
+   * Called when the user selects an element in visual-edit mode.
+   * Receives the selected element descriptor — host can open an edit prompt.
+   */
+  onVisualElementSelected?: (element: SelectedElement) => void;
+  /** Whether visual-edit element picker is active (controlled from outside). */
+  visualEditActive?: boolean;
 }
 
 /* ── Main export ─────────────────────────────────────────────────────────────── */
@@ -300,20 +339,117 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
   theme           = 'dark',
   studioTheme,
   device          = 'desktop',
+  projectId,
   onError,
   onPreviewReady,
   onFixWithAI,
+  onRollback,
   isAutoFixing    = false,
+  isGenerating    = false,
+  apiKey,
+  previewLifecycle,
+  previewBlockedReason,
+  onVisualElementSelected,
+  visualEditActive = false,
 }) => {
   const [runtimeError,      setRuntimeError]      = useState<string | null>(null);
+  const [isFixing,          setIsFixing]           = useState(false);
+  const [fixFailed,         setFixFailed]          = useState(false);
   const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
   const [iframeLoaded,      setIframeLoaded]       = useState(false);
-  const loadingTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [previewServerDown, setPreviewServerDown]  = useState(false);
+  const [previewState,      setPreviewState]       = useState<PreviewState>(previewController.getState());
   const onPreviewReadyRef   = useRef(onPreviewReady);
   onPreviewReadyRef.current = onPreviewReady;
 
   const viteIframeRef   = useRef<HTMLIFrameElement>(null);
   const srcdocIframeRef = useRef<HTMLIFrameElement>(null);
+
+  // ── VisualEditBridge: attach/detach and sync active state ─────────────────
+  useEffect(() => {
+    if (!viteIframeRef.current) return;
+    visualEditBridge.attach(viteIframeRef.current);
+    return () => visualEditBridge.detach();
+  }, []); // attach once on mount
+
+  useEffect(() => {
+    if (!onVisualElementSelected) return;
+    return visualEditBridge.subscribe((state: VisualEditState) => {
+      if (state.mode === 'selected' && state.selected) {
+        onVisualElementSelected(state.selected);
+      }
+    });
+  }, [onVisualElementSelected]);
+
+  // Sync external visualEditActive prop → bridge
+  useEffect(() => {
+    if (visualEditActive) {
+      visualEditBridge.enableSelection();
+    } else {
+      visualEditBridge.disableSelection();
+    }
+  }, [visualEditActive]);
+
+  // Probe whether the preview-app dev server is reachable
+  useEffect(() => {
+    let cancelled = false;
+    fetch(PREVIEW_URL, { mode: 'no-cors' })
+      .then(() => { if (!cancelled) setPreviewServerDown(false); })
+      .catch(() => { if (!cancelled) setPreviewServerDown(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const { captureFromViteIframe } = useProjectScreenshot();
+
+  // Auto-capture screenshot 2 s after the preview becomes stable
+  // Also saves a per-revision thumbnail using the active revision ID from PreviewController.
+  const scheduleScreenshotRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captureScreenshot = useCallback(() => {
+    if (!projectId) return;
+    if (scheduleScreenshotRef.current) clearTimeout(scheduleScreenshotRef.current);
+    scheduleScreenshotRef.current = setTimeout(() => {
+      const revId = previewState.activeRevisionId ?? null;
+      captureFromViteIframe(viteIframeRef.current, projectId, revId);
+    }, 2_000);
+  }, [projectId, captureFromViteIframe, previewState.activeRevisionId]);
+  useEffect(() => () => {
+    if (scheduleScreenshotRef.current) clearTimeout(scheduleScreenshotRef.current);
+  }, []);
+
+  // ── PreviewController subscription ──────────────────────────────
+  useEffect(() => {
+    return previewController.subscribe(setPreviewState);
+  }, []);
+
+  // React to PreviewController state transitions
+  const prevStatusRef = useRef(previewState.status);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = previewState.status;
+
+    if (previewState.status === 'compiling') {
+      setRuntimeError(null);
+      setIframeLoaded(false);
+    }
+
+    // Reset auto-fix local state when leaving 'failed'
+    if (prev === 'failed' && previewState.status !== 'failed') {
+      setIsFixing(false);
+      setFixFailed(false);
+    }
+
+    if (previewState.status === 'failed' && previewState.error) {
+      setRuntimeError(previewState.error);
+      onError?.('Preview: ' + previewState.error);
+    }
+
+    if (previewState.status === 'ready' && prev !== 'ready') {
+      setRuntimeError(null);
+      // HMR handles content update — no iframe force-reload needed
+      onPreviewReadyRef.current?.();
+      captureScreenshot();
+    }
+  }, [previewState, onError, captureScreenshot]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isEmpty = !files || Object.keys(files).length === 0;
   const isReact = !isHtmlProject(files) && !isEmpty;
@@ -332,53 +468,48 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
     }
   }, [srcdocHtml]);
 
-  // Level 3: 15 s loading timeout — resets on every files change.
-  // During streaming, files update every chunk → timer keeps resetting.
-  // 15 s after the LAST file change with no iframe-ready → show overlay.
+  // Loading overlay is driven by PreviewController state.
+  // 'compiling' for >20 s without a 'ready' or 'failed' → show timeout overlay.
   useEffect(() => {
     if (!isReact) {
       setShowLoadingOverlay(false);
-      if (loadingTimerRef.current) { clearTimeout(loadingTimerRef.current); loadingTimerRef.current = null; }
       return;
     }
-    setShowLoadingOverlay(false);
-    if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
-    loadingTimerRef.current = setTimeout(() => setShowLoadingOverlay(true), 20_000);
-    return () => {
-      if (loadingTimerRef.current) { clearTimeout(loadingTimerRef.current); loadingTimerRef.current = null; }
-    };
-  }, [files, isReact]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Reset iframeLoaded spinner whenever files change (new generation)
-  useEffect(() => {
-    if (isReact) setIframeLoaded(false);
-  }, [files, isReact]);
-
-  // Listen for force-preview-reload dispatched by SimpleGeneration after all files written
-  useEffect(() => {
-    const handler = () => {
-      const iframe = viteIframeRef.current;
-      if (iframe) {
-        setIframeLoaded(false);
-        const url = PREVIEW_URL;
-        iframe.src = '';
-        setTimeout(() => {
-          if (viteIframeRef.current) {
-            viteIframeRef.current.src = url + '?r=' + Date.now();
-          }
-        }, 100);
-      }
+    if (previewState.status !== 'compiling') {
       setShowLoadingOverlay(false);
-      setRuntimeError(null);
-      if (loadingTimerRef.current) { clearTimeout(loadingTimerRef.current); loadingTimerRef.current = null; }
-      // Restart the 20 s timeout for the fresh load
-      loadingTimerRef.current = setTimeout(() => setShowLoadingOverlay(true), 20_000);
-    };
-    window.addEventListener('force-preview-reload', handler);
-    return () => window.removeEventListener('force-preview-reload', handler);
-  }, []);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowLoadingOverlay(true), 20_000);
+    return () => window.clearTimeout(timer);
+  }, [isReact, previewState.status]);
 
-  // Listen for iframe-ready / iframe-error / vite:error postMessages from the preview-app
+  // ── Canonical preview UI state ────────────────────────────────────
+  // Collapses all contributing signals into one typed object.
+  // Overlay rendering reads `ui.overlay` instead of scattered booleans.
+  const ui = useMemo(() => resolvePreviewUI({
+    controllerStatus: previewState.status,
+    controllerError: previewState.error ?? null,
+    controllerDiagnostics: previewState.diagnostics ?? null,
+    activeRevisionId: previewState.activeRevisionId ?? null,
+    lifecycleStage: previewLifecycle ?? 'idle',
+    blockedReason: previewBlockedReason ?? null,
+    isGenerating,
+    iframeLoaded,
+    loadingTimeout: showLoadingOverlay,
+    serverDown: previewServerDown,
+    isFixing,
+    fixFailed,
+  }), [
+    previewState.status, previewState.error, previewState.diagnostics,
+    previewState.activeRevisionId, previewLifecycle, previewBlockedReason,
+    isGenerating, iframeLoaded, showLoadingOverlay, previewServerDown,
+    isFixing, fixFailed,
+  ]);
+
+  // Preview reload is now driven by PreviewController subscription (above).
+  // No force-preview-reload listener, no setTimeout.
+
+  // Listen for preview-mounted / iframe-error / vite:error postMessages from the preview-app
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.origin !== PREVIEW_URL) return;
@@ -386,17 +517,17 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
       // windows and from synthetic re-dispatched events (e.source is null there,
       // which is intentional: the vite:error re-dispatch targets useStudio only).
       if (e.source !== viteIframeRef.current?.contentWindow) return;
-      if (e.data?.type === 'iframe-ready') {
+      // `preview-mounted` is the authoritative mount signal carrying buildId.
+      // Legacy `iframe-ready` is logged-and-ignored (no buildId, not authoritative).
+      if (e.data?.type === 'preview-mounted') {
         setRuntimeError(null);
-        setShowLoadingOverlay(false);
-        if (loadingTimerRef.current) { clearTimeout(loadingTimerRef.current); loadingTimerRef.current = null; }
-        onPreviewReadyRef.current?.();
+        console.log('[SandpackPreview] preview-mounted received (buildId:', e.data.buildId, ') — delegating to RevisionManager');
+        // Do NOT call onPreviewReady here — the single authority is
+        // RevisionManager.waitForReady(buildId) → PreviewController.notifyReady
       }
       if (e.data?.type === 'iframe-error') {
         const msg = e.data.message ?? 'Unknown preview error';
         setRuntimeError(msg);
-        setShowLoadingOverlay(false);
-        if (loadingTimerRef.current) { clearTimeout(loadingTimerRef.current); loadingTimerRef.current = null; }
         onError?.('Preview: ' + msg);
       }
       // Vite compile errors (missing imports, TS errors) come as vite:error
@@ -405,8 +536,6 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
         const err = e.data.err as { message?: string; plugin?: string; id?: string } | undefined;
         const msg = err?.message ?? String(e.data.err ?? 'Vite compile error');
         setRuntimeError(msg);
-        setShowLoadingOverlay(false);
-        if (loadingTimerRef.current) { clearTimeout(loadingTimerRef.current); loadingTimerRef.current = null; }
         // Forward to AutoFix handler (same origin so listener in useStudio accepts it)
         window.dispatchEvent(new MessageEvent('message', {
           data: { type: 'iframe-error', message: msg },
@@ -416,7 +545,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [onError]);
+  }, [onError, captureScreenshot]);
 
   // Sync studio theme to preview-app via postMessage
   useEffect(() => {
@@ -454,31 +583,36 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
         onLoad={() => setIframeLoaded(true)}
       />
 
-      {/* Building spinner — shown while iframe loads, hidden once ready or on error */}
-      {isReact && !iframeLoaded && !showLoadingOverlay && !runtimeError && (
+      {/* Compiling spinner — overlay on top of iframe.
+           iframe stays display:block so MountReporter fires inside it.
+           Overlay hides automatically when ready.
+           Driven by ui.overlay — only shown when exactly 'compiling'. */}
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 10,
+        background: 'rgba(255,255,255,0.97)',
+        pointerEvents: (isReact && ui.overlay === 'compiling') ? 'auto' : 'none',
+        opacity: (isReact && ui.overlay === 'compiling') ? 1 : 0,
+        transition: 'opacity 0.15s ease',
+        flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        gap: 12,
+        display: 'flex',
+      }}>
         <div style={{
-          position: 'absolute', inset: 0, zIndex: 10,
-          background: 'white',
-          display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center',
-          gap: 12,
+          width: 32, height: 32,
+          border: '3px solid rgba(99,102,241,0.2)',
+          borderTopColor: '#6366f1',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+        }} />
+        <span style={{
+          fontSize: 13, color: 'rgba(0,0,0,0.4)',
+          fontFamily: 'system-ui',
         }}>
-          <div style={{
-            width: 32, height: 32,
-            border: '3px solid rgba(99,102,241,0.2)',
-            borderTopColor: '#6366f1',
-            borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite',
-          }} />
-          <span style={{
-            fontSize: 13, color: 'rgba(0,0,0,0.4)',
-            fontFamily: 'system-ui',
-          }}>
-            Building preview…
-          </span>
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      )}
+          Compiling…
+        </span>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
 
       {/* srcdoc preview (welcome / loading / HTML) — ALWAYS mounted, content via ref */}
       <iframe
@@ -493,14 +627,15 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
         title="AIC-RG Preview Static"
       />
 
-      {/* Level 3: Loading timeout overlay — shown after 8 s with no iframe-ready */}
-      {showLoadingOverlay && !runtimeError && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 49,
-          backgroundColor: 'rgba(5,5,8,0.92)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontFamily: "'Inter', system-ui, sans-serif",
-        }}>
+      {/* Level 3: Loading timeout overlay — shown after 20 s with no iframe-ready.
+           Driven by ui.overlay === 'loading-timeout'. */}
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 49,
+        backgroundColor: 'rgba(5,5,8,0.92)',
+        display: ui.overlay === 'loading-timeout' ? 'flex' : 'none',
+        alignItems: 'center', justifyContent: 'center',
+        fontFamily: "'Inter', system-ui, sans-serif",
+      }}>
           <div style={{ maxWidth: 360, textAlign: 'center', padding: 32 }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
             <p style={{
@@ -551,81 +686,417 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
               Make sure npm run dev:all is running in terminal
             </p>
           </div>
-        </div>
-      )}
+      </div>
 
-      {/* AutoFix overlay — above error overlay, shown while AI repairs code */}
-      {isAutoFixing && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 51,
-          backgroundColor: 'rgba(5,5,8,0.88)',
-          display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center',
-          fontFamily: "'Inter', system-ui, sans-serif",
-        }}>
-          <div style={{
-            width: 36, height: 36, marginBottom: 16,
-            border: '3px solid rgba(52,211,153,0.3)',
-            borderTopColor: '#34d399',
-            borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite',
-          }} />
-          <p style={{ color: '#34d399', fontSize: 14, fontWeight: 600, margin: '0 0 6px' }}>
-            Auto-fixing error…
+      {/* Preview failed / degraded overlay — driven by ui.overlay.
+           'degraded' uses softer opacity; 'failed' uses full backdrop. */}
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 51,
+        backgroundColor: ui.overlay === 'degraded' ? 'rgba(5,5,8,0.75)' : 'rgba(5,5,8,0.94)',
+        display: (ui.overlay === 'failed' || ui.overlay === 'degraded') ? 'flex' : 'none',
+        alignItems: 'center', justifyContent: 'center',
+        fontFamily: "'Inter', system-ui, sans-serif",
+      }}>
+        <div style={{ maxWidth: 400, width: '90%', textAlign: 'center', padding: 32 }}>
+          <div style={{ fontSize: 28, marginBottom: 12 }}>
+            {ui.overlay === 'degraded' ? '⚠️' : '🔴'}
+          </div>
+          <p style={{
+            color: 'rgba(255,255,255,0.9)', fontSize: 15,
+            fontWeight: 700, margin: '0 0 8px',
+          }}>
+            {ui.error?.fixFailed
+              ? 'Auto-fix failed'
+              : ui.overlay === 'degraded'
+                ? 'Update failed — showing last working version'
+                : 'Preview failed'}
           </p>
-          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>
-            AI is repairing the generated code
+          <p style={{
+            color: 'rgba(255,255,255,0.4)', fontSize: 11,
+            lineHeight: 1.55, margin: '0 0 24px',
+            fontFamily: 'monospace',
+            background: 'rgba(255,0,0,0.06)',
+            border: '1px solid rgba(255,0,0,0.12)',
+            borderRadius: 6,
+            padding: '8px 12px',
+            textAlign: 'left',
+            wordBreak: 'break-all',
+          }}>
+            {ui.error?.displayMessage ?? ''}
           </p>
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      )}
-
-      {/* Error overlay — above both iframes */}
-      {runtimeError && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 50,
-          backgroundColor: '#0d0010', display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          fontFamily: "'Inter', system-ui, sans-serif", padding: 32,
-        }}>
-          <div style={{ maxWidth: 480, textAlign: 'center' }}>
-            <div style={{ fontSize: 40, marginBottom: 16 }}>🔴</div>
-            <h3 style={{ color: '#ff6b9d', margin: '0 0 12px', fontSize: 18, fontWeight: 700 }}>
-              Runtime Error
-            </h3>
+          {/* Materialize diagnostic — shows last-reached stage for debugging */}
+          {ui.diagnostics && (
             <p style={{
-              color: 'rgba(255,255,255,0.55)', fontSize: 13, lineHeight: 1.6,
-              margin: '0 0 24px', fontFamily: 'monospace', wordBreak: 'break-word',
+              color: 'rgba(255,255,255,0.3)', fontSize: 10,
+              fontFamily: 'monospace', margin: '0 0 16px',
             }}>
-              {runtimeError}
+              Last stage: {ui.diagnostics.lastStage}
+              {ui.diagnostics.failedAtStage
+                ? ` · failed at: ${ui.diagnostics.failedAtStage}`
+                : ''}
             </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+          )}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+            {apiKey && !ui.error?.fixFailed && (
               <button
-                onClick={() => setRuntimeError(null)}
+                onClick={async () => {
+                  if (isFixing) return;
+                  setIsFixing(true);
+                  setFixFailed(false);
+                  try {
+                    const ok = await SimpleGeneration.autoFix({
+                      errorMsg: ui.error?.message ?? '',
+                      apiKey: apiKey,
+                    });
+                    if (!ok) setFixFailed(true);
+                  } catch {
+                    setFixFailed(true);
+                  } finally {
+                    setIsFixing(false);
+                  }
+                }}
+                disabled={isFixing}
                 style={{
-                  padding: '10px 22px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
-                  cursor: 'pointer', backgroundColor: 'transparent', color: 'rgba(255,255,255,0.5)',
-                  fontSize: 14, fontFamily: "'Inter', system-ui, sans-serif",
+                  padding: '9px 20px', borderRadius: 8,
+                  cursor: isFixing ? 'default' : 'pointer',
+                  backgroundColor: isFixing ? 'rgba(99,102,241,0.3)' : '#6366f1',
+                  border: 'none', color: '#fff', fontSize: 13, fontWeight: 600,
+                  opacity: isFixing ? 0.6 : 1,
+                  display: 'flex', alignItems: 'center', gap: 6,
                 }}
               >
-                Dismiss
+                {isFixing && (
+                  <span style={{
+                    display: 'inline-block', width: 14, height: 14,
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    borderTopColor: '#fff',
+                    borderRadius: '50%',
+                    animation: 'spin 0.8s linear infinite',
+                  }} />
+                )}
+                {isFixing ? 'Fixing…' : '🔧 Auto-fix'}
               </button>
-              {onFixWithAI && (
-                <button
-                  onClick={() => { setRuntimeError(null); onFixWithAI(); }}
-                  style={{
-                    padding: '10px 22px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                    backgroundColor: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 600,
-                    fontFamily: "'Inter', system-ui, sans-serif",
-                  }}
-                >
-                  ✨ Fix with AI
-                </button>
-              )}
-            </div>
+            )}
+            <button
+              onClick={() => { revisionManager.rollback(); }}
+              style={{
+                padding: '9px 20px', borderRadius: 8, cursor: 'pointer',
+                backgroundColor: 'transparent',
+                border: '1px solid rgba(255,255,255,0.2)',
+                color: 'rgba(255,255,255,0.65)', fontSize: 13, fontWeight: 500,
+              }}
+            >
+              ↩ Rollback
+            </button>
+            <button
+              onClick={() => { previewController.reset(); setRuntimeError(null); }}
+              style={{
+                padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
+                backgroundColor: 'transparent',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: 'rgba(255,255,255,0.3)', fontSize: 12,
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Preview blocked overlay — quality check prevented preview.
+           Driven by ui.overlay === 'blocked'. */}
+      {ui.overlay === 'blocked' && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 50,
+          backgroundColor: 'rgba(5,5,8,0.92)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: "'Inter', system-ui, sans-serif",
+        }}>
+          <div style={{ maxWidth: 400, width: '90%', textAlign: 'center', padding: 32 }}>
+            <div style={{ fontSize: 28, marginBottom: 12 }}>⛔</div>
+            <p style={{
+              color: 'rgba(255,255,255,0.9)', fontSize: 15,
+              fontWeight: 700, margin: '0 0 8px',
+            }}>
+              Preview blocked
+            </p>
+            {ui.blocked?.reason && (
+              <p style={{
+                color: 'rgba(255,255,255,0.45)', fontSize: 12,
+                lineHeight: 1.6, margin: '0 0 16px',
+                background: 'rgba(251,191,36,0.08)',
+                border: '1px solid rgba(251,191,36,0.15)',
+                borderRadius: 6, padding: '8px 12px', textAlign: 'left',
+              }}>
+                {ui.blocked.reason}
+              </p>
+            )}
+            <p style={{
+              color: 'rgba(255,255,255,0.3)', fontSize: 11,
+              margin: 0,
+            }}>
+              Check the chat for details. Try describing your intent differently.
+            </p>
           </div>
         </div>
       )}
+
+      {/* Generation overlay — shown while AI is writing code, hides iframe so HMR
+          changes can't cause insertBefore crashes during React reconciliation.
+          When file progress is available, shows per-file streaming status. */}
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 52,
+        background: 'var(--background, #050508)',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        gap: 0,
+        opacity: isGenerating ? 1 : 0,
+        pointerEvents: isGenerating ? 'auto' : 'none',
+        transition: 'opacity 0.2s ease',
+        fontFamily: "'Inter', system-ui, sans-serif",
+      }}>
+        {(() => {
+          const fp = previewState.fileProgress;
+          const completed = fp?.completedFiles ?? [];
+          const current   = fp?.currentFile ?? '';
+          const total     = fp?.totalExpected ?? 0;
+          const doneCount = completed.length;
+          const hasProgress = previewState.status === 'generating' && (current || doneCount > 0);
+          const pct = total > 0
+            ? Math.round((doneCount / total) * 100)
+            : 0;
+
+          if (!hasProgress) {
+            // Fallback: generic spinner (no FILE markers detected yet)
+            return (
+              <>
+                <div style={{
+                  width: 32, height: 32,
+                  border: '3px solid rgba(99,102,241,0.2)',
+                  borderTopColor: '#6366f1',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }} />
+                <span style={{
+                  fontSize: 13, color: 'rgba(255,255,255,0.45)',
+                  marginTop: 12,
+                }}>
+                  Building your app…
+                </span>
+              </>
+            );
+          }
+
+          return (
+            <div style={{
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', gap: 16,
+              padding: '0 32px', maxWidth: 380, width: '100%',
+            }}>
+              {/* Header */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+              }}>
+                <div style={{
+                  width: 20, height: 20,
+                  border: '2.5px solid rgba(99,102,241,0.25)',
+                  borderTopColor: '#6366f1',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                  flexShrink: 0,
+                }} />
+                <span style={{
+                  fontSize: 13, fontWeight: 600,
+                  color: 'rgba(255,255,255,0.8)',
+                  letterSpacing: '-0.01em',
+                }}>
+                  {current
+                    ? `Generating ${current.replace(/^\//, '')}…`
+                    : 'Finishing generation…'}
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div style={{ width: '100%' }}>
+                <div style={{
+                  width: '100%', height: 4, borderRadius: 2,
+                  backgroundColor: 'rgba(255,255,255,0.08)',
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    height: '100%', borderRadius: 2,
+                    backgroundColor: '#6366f1',
+                    transition: 'width 0.4s ease',
+                    width: total > 0 ? `${pct}%` : `${Math.min(95, doneCount * 25)}%`,
+                  }} />
+                </div>
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  marginTop: 6,
+                }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
+                    {total > 0
+                      ? `${doneCount}/${total} files`
+                      : `${doneCount} file${doneCount !== 1 ? 's' : ''} generated`}
+                  </span>
+                  {total > 0 && (
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
+                      {pct}%
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Generated files list */}
+              {(completed.length > 0 || current) && (
+                <div style={{
+                  width: '100%',
+                  maxHeight: 180, overflowY: 'auto',
+                  display: 'flex', flexDirection: 'column', gap: 3,
+                  padding: '8px 0',
+                }}>
+                  {completed.map((f) => (
+                    <div key={f} style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      fontSize: 11, fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                      color: 'rgba(52,211,153,0.7)',
+                      padding: '2px 0',
+                    }}>
+                      <span style={{ flexShrink: 0, fontSize: 10 }}>✓</span>
+                      <span>{f.replace(/^\//, '')}</span>
+                    </div>
+                  ))}
+                  {current && (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      fontSize: 11, fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                      color: 'rgba(129,140,248,0.8)',
+                      padding: '2px 0',
+                    }}>
+                      <span style={{
+                        flexShrink: 0, fontSize: 8,
+                        animation: 'pulse-dot 1.2s ease-in-out infinite',
+                      }}>●</span>
+                      <span>{current.replace(/^\//, '')}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+        <style>{`
+          @keyframes spin { to { transform: rotate(360deg); } }
+          @keyframes pulse-dot {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+          }
+        `}</style>
+      </div>
+
+      {/* AutoFix overlay — above error overlay, shown while AI repairs code */}
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 53,
+        backgroundColor: 'rgba(5,5,8,0.88)',
+        display: isAutoFixing ? 'flex' : 'none',
+        flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        fontFamily: "'Inter', system-ui, sans-serif",
+      }}>
+        <div style={{
+          width: 36, height: 36, marginBottom: 16,
+          border: '3px solid rgba(52,211,153,0.3)',
+          borderTopColor: '#34d399',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+        }} />
+        <p style={{ color: '#34d399', fontSize: 14, fontWeight: 600, margin: '0 0 6px' }}>
+          Auto-fixing error…
+        </p>
+        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>
+          AI is repairing the generated code
+        </p>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+
+      {/* Preview server not running overlay */}
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 54,
+        background: 'var(--background, #050508)',
+        display: (previewServerDown && isReact && !isGenerating && !runtimeError) ? 'flex' : 'none',
+        flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: 12,
+        fontFamily: "'Inter', system-ui, sans-serif",
+      }}>
+        <div style={{ fontSize: 36, opacity: 0.5 }}>🔌</div>
+        <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 15, fontWeight: 600, margin: 0 }}>
+          Preview server is not running
+        </p>
+        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0, maxWidth: 320, textAlign: 'center', lineHeight: 1.5 }}>
+          Run: <code style={{ background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>npm run dev:all</code>
+        </p>
+        <button
+          onClick={() => {
+            setPreviewServerDown(false);
+            fetch(PREVIEW_URL, { mode: 'no-cors' })
+              .then(() => setPreviewServerDown(false))
+              .catch(() => setPreviewServerDown(true));
+          }}
+          style={{
+            marginTop: 8, padding: '8px 20px', borderRadius: 8, cursor: 'pointer',
+            backgroundColor: '#6366f1', border: 'none',
+            color: '#fff', fontSize: 13, fontWeight: 600,
+          }}
+        >
+          Retry
+        </button>
+      </div>
+
+      {/* Error overlay — above both iframes */}
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 50,
+        backgroundColor: '#0d0010',
+        display: runtimeError ? 'flex' : 'none',
+        alignItems: 'center', justifyContent: 'center',
+        fontFamily: "'Inter', system-ui, sans-serif", padding: 32,
+      }}>
+        <div style={{ maxWidth: 480, textAlign: 'center' }}>
+          <div style={{ fontSize: 40, marginBottom: 16 }}>🔴</div>
+          <h3 style={{ color: '#ff6b9d', margin: '0 0 12px', fontSize: 18, fontWeight: 700 }}>
+            Runtime Error
+          </h3>
+          <p style={{
+            color: 'rgba(255,255,255,0.55)', fontSize: 13, lineHeight: 1.6,
+            margin: '0 0 24px', fontFamily: 'monospace', wordBreak: 'break-word',
+          }}>
+            {runtimeError}
+          </p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button
+              onClick={() => setRuntimeError(null)}
+              style={{
+                padding: '10px 22px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
+                cursor: 'pointer', backgroundColor: 'transparent', color: 'rgba(255,255,255,0.5)',
+                fontSize: 14, fontFamily: "'Inter', system-ui, sans-serif",
+              }}
+            >
+              Dismiss
+            </button>
+            {onFixWithAI && (
+              <button
+                onClick={() => { setRuntimeError(null); onFixWithAI(); }}
+                style={{
+                  padding: '10px 22px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  backgroundColor: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 600,
+                  fontFamily: "'Inter', system-ui, sans-serif",
+                }}
+              >
+                ✨ Fix with AI
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

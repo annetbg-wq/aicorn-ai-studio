@@ -69,7 +69,7 @@ export const IdentityService = {
   },
 
   save(accounts: FigmaAccount[]): void {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts)); } catch { /* quota */ }
   },
 
   // ── CRUD ───────────────────────────────────────────────────────────────

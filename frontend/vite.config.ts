@@ -42,8 +42,8 @@ export default defineConfig({
 
         server.middlewares.use('/__clear_preview', (req, res) => {
           if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
-          const keep = new Set(['main.tsx', 'index.css']);
-          const keepDirs = new Set(['components', 'lib', 'themes']);
+          const keep = new Set(['main.tsx', 'index.css', '__build_id.ts']);
+          const keepDirs = new Set(['components', 'lib', 'themes', 'hooks']);
           try {
             const items = fs.readdirSync(previewSrc);
             for (const item of items) {
@@ -156,6 +156,35 @@ export default defineConfig({
           }
         });
 
+        // ── Artifact-envelope poison detector (server-side) ──────────
+        // Transport-level JSON like { "artifact": { "files": [...] } }
+        // must NEVER be written as the content of a source file.
+        // This is the final hard-stop — even if client-side guards fail.
+        const SOURCE_EXT_RE = /\.(tsx?|jsx?)$/;
+        const BRIDGE_FILES = new Set(['__build_id.ts']);
+
+        function isArtifactEnvelopeServer(content: string): boolean {
+          const trimmed = content.trimStart();
+          if (!trimmed.startsWith('{')) return false;
+          let parsed: any;
+          try { parsed = JSON.parse(trimmed); } catch { return false; }
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+          // Shape 1: { artifact: { files: [{ path, content }] } }
+          if (parsed.artifact && typeof parsed.artifact === 'object' && !Array.isArray(parsed.artifact)) {
+            const inner = parsed.artifact;
+            if (Array.isArray(inner.files) && inner.files.length > 0) {
+              const f = inner.files[0];
+              if (f && typeof f.path === 'string' && typeof f.content === 'string') return true;
+            }
+          }
+          // Shape 2: { files: [{ path, content }] }
+          if (Array.isArray(parsed.files) && parsed.files.length > 0) {
+            const f = parsed.files[0];
+            if (f && typeof f.path === 'string' && typeof f.content === 'string') return true;
+          }
+          return false;
+        }
+
         // Write a file to preview-app/src/
         server.middlewares.use('/__write_preview', (req, res) => {
           if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
@@ -164,6 +193,38 @@ export default defineConfig({
           req.on('end', () => {
             try {
               const { path: filePath, content } = JSON.parse(body);
+
+              // ── Server-side poison guard ────────────────────────
+              // Only check source-like files (ts/tsx/js/jsx), skip bridge files
+              if (
+                SOURCE_EXT_RE.test(filePath) &&
+                !BRIDGE_FILES.has(filePath) &&
+                typeof content === 'string' &&
+                isArtifactEnvelopeServer(content)
+              ) {
+                const head = content.slice(0, 120).replace(/\n/g, '\\n');
+                console.error(
+                  `[preview-timeline] preview_write_blocked_server`,
+                  JSON.stringify({
+                    path: filePath,
+                    reason: 'artifact_envelope_detected',
+                    contentLength: content.length,
+                    contentHead: head,
+                    _t: Date.now(),
+                  }),
+                );
+                res.statusCode = 422;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({
+                  ok: false,
+                  error: `Blocked: "${filePath}" content is transport-level artifact JSON, not source code`,
+                  code: 'ARTIFACT_ENVELOPE_REJECTED',
+                  path: filePath,
+                  contentHead: head,
+                }));
+                return;
+              }
+
               const fullPath = path.join(previewSrc, filePath);
               fs.mkdirSync(path.dirname(fullPath), { recursive: true });
               fs.writeFileSync(fullPath, content, 'utf-8');
@@ -182,6 +243,11 @@ export default defineConfig({
     port: devPort,
     strictPort: true,   // fail hard if port is taken — no silent fallback
   },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   build: {
     rollupOptions: {
       output: {
@@ -194,6 +260,25 @@ export default defineConfig({
           }
           if (id.includes('node_modules/lucide-react')) {
             return 'vendor-lucide';
+          }
+          if (id.includes('node_modules/esbuild-wasm')) {
+            return 'vendor-esbuild';
+          }
+          if (id.includes('node_modules/react-markdown') || id.includes('node_modules/remark') || id.includes('node_modules/micromark') || id.includes('node_modules/mdast') || id.includes('node_modules/unified') || id.includes('node_modules/unist')) {
+            return 'vendor-markdown';
+          }
+          if (id.includes('node_modules/@supabase')) {
+            return 'vendor-supabase';
+          }
+          if (id.includes('node_modules/framer-motion')) {
+            return 'vendor-framer';
+          }
+          // Split heavy service modules that are only needed during generation
+          if (id.includes('services/SimpleGeneration') || id.includes('services/Orchestrator')) {
+            return 'generation-engine';
+          }
+          if (id.includes('services/designSystem') || id.includes('services/designSystem/')) {
+            return 'design-system';
           }
         },
       },

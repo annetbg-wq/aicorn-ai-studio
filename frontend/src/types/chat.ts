@@ -39,6 +39,9 @@ export interface ChatMessage {
   // clarification fields
   questions?: string[];
 
+  // error-handling fields
+  retryable?: boolean;
+
   [key: string]: any;
 }
 
@@ -48,6 +51,15 @@ export function createMessageId(): string {
   return typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
     : `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Guarantees msg.id is set. Mutates in place and returns the same object.
+ * Call this at every APPEND site so ids are stable before React sees the message.
+ */
+export function ensureMessageId(msg: any): any {
+  if (!msg.id) msg.id = createMessageId();
+  return msg;
 }
 
 /**
@@ -93,8 +105,11 @@ export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessa
       return normalizeMessages(action.payload);
     case 'RESET':
       return normalizeMessages(action.payload ?? []);
-    case 'APPEND':
-      return [...state, normalizeMessage(action.payload, state.length)];
+    case 'APPEND': {
+      const normalized = normalizeMessage(action.payload, state.length);
+      if (state.some(msg => msg.id === normalized.id)) return state; // dedupe
+      return [...state, normalized];
+    }
     case 'APPEND_MANY':
       return [...state, ...normalizeMessages(action.payload)];
     case 'UPDATE_BY_ID':
@@ -112,10 +127,21 @@ export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessa
         };
       });
     case 'PATCH_LAST': {
-      if (state.length === 0) return state;
-      const last = state[state.length - 1];
-      if (action.when && !action.when(last)) return state;
-      return [...state.slice(0, -1), { ...last, ...action.patch }];
+      // CASE: [user, blueprint, assistant] -> патчит assistant, не blueprint
+      const SYSTEM_TYPES = new Set(['generation-plan', 'blueprint', 'system']);
+      const idx = [...state].reverse().findIndex(
+        msg => !SYSTEM_TYPES.has(msg.type ?? '') &&
+               (msg.role === 'user' || msg.role === 'assistant')
+      );
+      if (idx === -1) return state;
+      const targetIdx = state.length - 1 - idx;
+      const target = state[targetIdx];
+      if (action.when && !action.when(target)) return state;
+      return [
+        ...state.slice(0, targetIdx),
+        { ...target, ...action.patch },
+        ...state.slice(targetIdx + 1),
+      ];
     }
     case 'REMOVE_BY_TYPE':
       return state.filter(msg => msg.type !== action.msgType);

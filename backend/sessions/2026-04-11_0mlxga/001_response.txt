@@ -1,0 +1,361 @@
+[{
+  "id": "dfpi-stablecoin-compliance-workbench",
+  "appName": "DFPI Stablecoin Compliance Workbench",
+  "description": "Keeps California chartered banks ahead of GENIUS Act-ready stablecoin licensing controls.",
+  "theme": "trust",
+  "targetUser": "Compliance director at a California community bank racing to file DFPI digital asset licensing materials.",
+  "marketContext": "California’s DFPI opened digital asset licensing applications on March 9, 2026, just as the federal GENIUS Act is reshaping stablecoin supervision, so regional banks suddenly need tooling that maps those fresh requirements without waiting for consultants.([pwc.com](https://www.pwc.com/us/en/industries/financial-services/library/our-take/04-03-2026.html?utm_source=openai))",
+  "targetAudience": "Elizabeth Tran, compliance director at Sacramento’s Valley First Credit Union, managing a 14-person risk pod and a 90-day DFPI submission clock.",
+  "painPoint": "Manual spreadsheets cannot keep licensing statutes, liquidity attestations, and examiner evidence synchronized across risk, treasury, and IT.",
+  "competitorGap": "Generic GRC suites lack DFPI digital asset checklists or GENIUS Act liquidity logic, forcing teams to stitch controls manually from PDFs.",
+  "generatedAt": "2026-04-11T00:08:46.784Z",
+  "productStrategy": {
+    "coreAction": "Auto-map DFPI digital asset control expectations to the bank's live operational data sources.",
+    "retentionLoop": "Weekly differential digest comparing the latest DFPI and GENIUS Act guidance to the bank's control library.",
+    "businessModel": "subscription",
+    "paywall": {
+      "needed": true,
+      "trigger": "After 5 collaborative workflows closed",
+      "lockedFeature": "Automated GENIUS Act liquidity attestation packet",
+      "upgradeMessage": "Unlock examiner-ready liquidity packets and slash attestation prep from 3 days to 30 minutes."
+    }
+  },
+  "userJourney": {
+    "onboarding": {
+      "needed": true,
+      "reason": "The checklist is personalized by charter type, planned digital asset services, and executive signers.",
+      "steps": [{
+        "question": "Which charter describes your institution?",
+        "type": "single-choice",
+        "options": ["State-chartered bank", "Credit union", "Industrial loan company"],
+        "storesIn": "userProfile.charterType"
+      }, {
+        "question": "Which digital asset services launch in 2026?",
+        "type": "multi-choice",
+        "options": ["Stablecoin custody", "On-chain payments", "Tokenized deposits"],
+        "storesIn": "userProfile.serviceScope"
+      }, {
+        "question": "Who signs liquidity attestations?",
+        "type": "single-choice",
+        "options": ["Chief Risk Officer", "Treasury VP", "External auditor"],
+        "storesIn": "userProfile.attestationSigner"
+      }],
+      "completionAction": "After onboarding → navigate to / with DFPI checklist filtered to selected charter."
+    },
+    "firstSession": "Within five minutes the director lands on a readiness banner, filters requirements by statute, assigns owners, links Fireblocks data, and previews the first GENIUS Act evidence packet template.",
+    "returningSession": "Next day the home dashboard highlights new DFPI citations, shows expiring workflows at the top of the queue, and suggests which liquidity attestation to finalize."
+  },
+  "layout": {
+    "type": "dashboard",
+    "navigation": "sidebar",
+    "primaryColor": "indigo-600"
+  },
+  "uxPatterns": {
+    "emptyStates": true,
+    "loadingSkeletons": true,
+    "searchAndFilter": true,
+    "animations": "subtle"
+  },
+  "responsiveness": {
+    "primaryDevice": "desktop",
+    "mobileFirst": false,
+    "maxWidth": "max-w-6xl"
+  },
+  "pages": [{
+    "path": "/onboarding",
+    "name": "Onboarding",
+    "file": "pages/Onboarding.tsx",
+    "purpose": "Collect minimum user data to personalize the experience",
+    "isMainScreen": false,
+    "showInNav": false,
+    "guard": "show only if !localStorage.getItem('onboarding_complete')",
+    "uiSpec": "Multi-step wizard sits on a centered 960px card with a navy gradient backdrop. A concise header states the compliance objective and expected completion time, while a pill-shaped progress indicator highlights the active step and allows back navigation. Each question appears inside a raised card containing bold prompts, context copy, and oversized selectable tiles that include charter abbreviations, risk hints, and helper icons opening side tooltips. The right rail explains how answers tune DFPI control defaults and lists encryption assurances. Sticky footer hosts a ghost Back button, primary Save & Continue button, and a Skip link that opens a confirmation modal describing trade-offs. Errors shake the offending card, describe the issue in examiner-friendly language, and keep focus inside the wizard. Keyboard shortcuts sit below, making the form efficient for power users."
+  }, {
+    "path": "/",
+    "name": "Home",
+    "file": "pages/Home.tsx",
+    "purpose": "Main workspace",
+    "isMainScreen": true,
+    "showInNav": true,
+    "guard": "redirect to /onboarding if !onboarding_complete",
+    "uiSpec": "Hero row features three compliance stat cards summarizing licensing readiness, liquidity attestation status, and number of unresolved examiner notes; each includes mini sparklines and a contextual tooltip. Below, the main grid places a Regulatory Delta feed on the left—showing DFPI and GENIUS Act updates with severity badges, citation numbers, and quick buttons to create tasks—and a Workflow Queue list on the right, displaying requirement rows with owner avatars, SLA chips, and inline actions to attach evidence or reassign. Center panel hosts the Evidence Board table with column filters, grouping toggles, and expandable drawers revealing file previews, Fireblocks links, and discussion threads. A right sidebar houses the liquidity gauge, upcoming deadlines timeline, and upgrade CTA that appears only after the baseline checklist is completed. Empty states describe how to connect data sources, while mobile view collapses each module into swipeable cards without hiding risk indicators."
+  }, {
+    "path": "/settings",
+    "name": "Settings",
+    "file": "pages/Settings.tsx",
+    "purpose": "User preferences, account, subscription status",
+    "isMainScreen": false,
+    "showInNav": true,
+    "guard": "requires authenticated session",
+    "uiSpec": "Settings stacks four accordions. Profile exposes institution name, charter number, DFPI license ID, and contact fields with inline validation plus a button to regenerate API credentials. Preferences lets admins choose timezone, alert frequencies, reviewer roles, and whether liquidity attestations need dual approval; toggles save instantly with toast confirmations. Subscription shows plan tier, seats used, next invoice date, downloadable receipts, and an upgrade button describing locked automation. Data Control offers buttons to export audit logs, download onboarding answers, trigger retention clock, or purge sandbox data with modal warnings citing regulatory expectations. Right rail lists contextual help articles and chat support. On mobile each accordion expands to full width while a sticky Save bar confirms pending changes."
+  }],
+  "authFlow": {
+    "type": "supabase",
+    "localFirst": false,
+    "reason": "Licensing evidence and liquidity data demand secure hosted auth with audit trails."
+  },
+  "dataModel": {
+    "entities": [{
+      "name": "Requirement",
+      "fields": "id: string, statute: string, controlText: string, riskTier: 'low'|'medium'|'high', owner: string, dueDate: string, status: 'pending'|'collecting'|'ready'",
+      "storage": "Supabase table: requirements"
+    }, {
+      "name": "EvidencePacket",
+      "fields": "id: string, requirementId: string, sourceSystem: string, fileUrl: string, attestedBy: string, submittedAt: string",
+      "storage": "Supabase table: evidence_packets"
+    }, {
+      "name": "RegAlert",
+      "fields": "id: string, authority: string, publishedAt: string, summary: string, impactScore: number, tasksGenerated: number",
+      "storage": "localStorage key: 'reg_alert_cache'"
+    }],
+    "seedData": {
+      "needed": true,
+      "reason": "A populated checklist reassures examiners immediately after login.",
+      "examples": ["Requirement DFPI-AML-07 “24-hour digital asset transaction surveillance” owned by M. Ortega, due 2026-04-22, status collecting.", "EvidencePacket EV-233 linking Fireblocks API export for March 2026 liquidity proof, attested by J. Patel on 2026-04-08.", "RegAlert CA-2026-09 summarizing GENIUS Act interim liquidity buffer guidance published 2026-04-05 with impact score 5."]
+    },
+    "sharedState": "App.tsx stores userProfile, onboardingComplete, sidebarCollapsed, activeRequirementId, subscriptionTier, and cachedRegAlerts."
+  },
+  "criticalUiRules": ["Checklist rows must show statute codes before titles to mirror examiner documents.", "Upgrade ribbon may appear only after baseline workflows are completed to avoid distracting first-run tasks."],
+  "shadcnComponents": ["Button", "Card", "Input", "Badge", "Dialog", "Tabs"],
+  "icons": ["Home", "ShieldCheck", "Bell", "Settings"]
+}, {
+  "id": "fitbit-continuity-panel",
+  "appName": "Fitbit Continuity Panel",
+  "description": "Syncs Fitbit vitals with CMS claims so Medicare care teams act on risky trends instantly.",
+  "theme": "warm",
+  "targetUser": "Lead RN care coordinator at a Medicare Advantage plan overseeing remote CHF and CKD cohorts.",
+  "marketContext": "Google’s new partnership with CMS to store Medicare records inside Fitbit suddenly makes remote patient monitoring data richer, creating a wave of demand for care-team tooling that can exploit those synced charts this week.([openloophealth.com](https://openloophealth.com/blog/digital-health-trends-news-april-2026?utm_source=openai))",
+  "targetAudience": "Lauren Reese, RN care lead at HeartWay Health managing 220 dual-eligible members through mixed Fitbit and EHR feeds.",
+  "painPoint": "Coordinators cannot unify Fitbit biometrics with CMS claims fast enough to act on deteriorating patients.",
+  "competitorGap": "Existing RPM dashboards silo vitals from claims and lack guided outreach workflows tuned for Medicare documentation.",
+  "generatedAt": "2026-04-11T00:08:46.784Z",
+  "productStrategy": {
+    "coreAction": "Surface urgent care tasks whenever Fitbit biometrics conflict with CMS encounters for a patient.",
+    "retentionLoop": "Daily sunrise digest summarizing overnight deviations, unresolved outreach, and adherence wins.",
+    "businessModel": "subscription",
+    "paywall": {
+      "needed": true,
+      "trigger": "After 7-day trial",
+      "lockedFeature": "Automated CMS note syncing and caregiver texting",
+      "upgradeMessage": "Upgrade to sync outreach notes back to CMS and message caregivers without leaving the queue."
+    }
+  },
+  "userJourney": {
+    "onboarding": {
+      "needed": true,
+      "reason": "The app must know panel size, chronic focus, and escalation channel to tailor alerts.",
+      "steps": [{
+        "question": "How many Medicare members do you monitor weekly?",
+        "type": "single-choice",
+        "options": ["Up to 75", "76-250", "251+"],
+        "storesIn": "userProfile.panelSize"
+      }, {
+        "question": "Which chronic programs need priority?",
+        "type": "multi-choice",
+        "options": ["CHF", "CKD", "Diabetes", "COPD"],
+        "storesIn": "userProfile.priorities"
+      }, {
+        "question": "Preferred escalation channel?",
+        "type": "single-choice",
+        "options": ["Secure SMS", "Nurse call center", "Provider portal task"],
+        "storesIn": "userProfile.escalationChannel"
+      }],
+      "completionAction": "After onboarding → navigate to / with watchlists filtered to selected diagnoses."
+    },
+    "firstSession": "Coordinator reviews a guided tour overlay, connects Fitbit org credentials, sees seeded patients with color badges, drills into Eleanor’s tachycardia alert, and schedules an outreach task with templated CMS note language.",
+    "returningSession": "Next day’s visit opens with a sunrise digest tile summarizing last night’s HR spikes, completed outreach, and any missed escalations requiring documentation."
+  },
+  "layout": {
+    "type": "dashboard",
+    "navigation": "sidebar",
+    "primaryColor": "rose-500"
+  },
+  "uxPatterns": {
+    "emptyStates": true,
+    "loadingSkeletons": true,
+    "searchAndFilter": true,
+    "animations": "subtle"
+  },
+  "responsiveness": {
+    "primaryDevice": "tablet",
+    "mobileFirst": true,
+    "maxWidth": "max-w-md"
+  },
+  "pages": [{
+    "path": "/onboarding",
+    "name": "Onboarding",
+    "file": "pages/Onboarding.tsx",
+    "purpose": "Collect minimum user data to personalize the experience",
+    "isMainScreen": false,
+    "showInNav": false,
+    "guard": "show only if !localStorage.getItem('onboarding_complete')",
+    "uiSpec": "Warm gradient background frames a card-based wizard with a progress bar that labels each of the three questions so clinicians know what’s coming. Hero text clarifies HIPAA posture and sync time. Each step uses oversized radio or checkbox tiles with supporting microcopy explaining why the answer matters, plus a mini info pill linking to CMS documentation. A live summary panel on the right paraphrases chosen responses and shows how many patients will populate the initial queue. Buttons include Back, Save & Continue, and a “Connect Fitbit Org” CTA that can be triggered at any step. Validation states reference clinical terminology, while accessibility helpers add voiceover-friendly descriptions. Mobile layout stacks cards vertically but keeps the sticky footer for confident thumb navigation."
+  }, {
+    "path": "/",
+    "name": "Home",
+    "file": "pages/Home.tsx",
+    "purpose": "Main workspace",
+    "isMainScreen": true,
+    "showInNav": true,
+    "guard": "redirect to /onboarding if !onboarding_complete",
+    "uiSpec": "Top band shows a sunrise digest tile with three key metrics: members with red vitals, outreach completed, and pending CMS documentation, each accompanied by pill buttons to jump into filtered views. Beneath it, a two-column responsive grid places the Watchlist table on the left with search, filters for diagnosis, adherence, and Fitbit device type, plus row chips showing HR, SpO2, and weight deltas; selecting a row opens a slide-over patient card containing sparkline charts, latest claim codes, and quick actions. Right column holds the Task Composer with templated call scripts, escalation buttons, and a caregiver messaging panel hidden behind the paywall. A collapsible Insights section visualizes cohort trends with donut charts and timeline overlays. Empty states explain how to connect more devices, while tablet view rearranges modules into stacked cards with collapsible filters."
+  }, {
+    "path": "/settings",
+    "name": "Settings",
+    "file": "pages/Settings.tsx",
+    "purpose": "User preferences, account, subscription status",
+    "isMainScreen": false,
+    "showInNav": true,
+    "guard": "requires authenticated session",
+    "uiSpec": "Settings divides into Profile, Notifications, Care Protocols, and Subscription tabs. Profile tab shows organization info, CMS ID, connected Fitbit orgs, and allows rotating API keys. Notifications tab surfaces toggles for HR, SpO2, medication gaps, and weekend escalations, each with selectable quiet hours. Care Protocols tab lets clinicians edit automated outreach scripts, define documentation templates, and preview how note snippets sync back to CMS. Subscription tab details trial status, remaining days, plan comparison cards, invoices, and the upgrade CTA unlocking caregiver messaging. Footer houses Data Control buttons for exporting patient summaries or disconnecting Fitbit; each action opens confirmation modals referencing HIPAA safeguards. On smaller screens, tabs collapse into a segmented control with a sticky Save banner."
+  }],
+  "authFlow": {
+    "type": "supabase",
+    "localFirst": false,
+    "reason": "PHI flows between CMS records and Fitbit data, so managed auth with audit is required."
+  },
+  "dataModel": {
+    "entities": [{
+      "name": "PatientProfile",
+      "fields": "id: string, name: string, cmsId: string, diagnosis: string, baselineHr: number, careTier: 'green'|'yellow'|'red'",
+      "storage": "Supabase table: patient_profiles"
+    }, {
+      "name": "BiometricEvent",
+      "fields": "id: string, patientId: string, metric: string, value: number, recordedAt: string, deviation: number",
+      "storage": "Supabase table: biometric_events"
+    }, {
+      "name": "CarePlanAction",
+      "fields": "id: string, patientId: string, actionType: string, owner: string, dueAt: string, status: 'open'|'in-progress'|'logged'",
+      "storage": "Supabase table: care_plan_actions"
+    }],
+    "seedData": {
+      "needed": true,
+      "reason": "Clinicians must see sample patients and alerts immediately to trust the sync.",
+      "examples": ["PatientProfile Eleanor Vasquez, cmsId 9A44, CHF tier red, baseline HR 58.", "BiometricEvent BE-441 for Eleanor, metric heart_rate, value 102 bpm recorded 2026-04-10T05:50Z with deviation +44.", "CarePlanAction CPA-118 requesting SGLT2 med check call assigned to Nurse Hall, due 2026-04-11 15:00."]
+    },
+    "sharedState": "App.tsx tracks userProfile, onboardingComplete, selectedPatientId, filterState, subscriptionTier, and websocket health."
+  },
+  "criticalUiRules": ["Vital alert cards must pin above the fold until cleared to prevent missed escalations.", "All biometric charts default to a 48-hour window on mobile to keep signal legible."],
+  "shadcnComponents": ["Button", "Card", "Input", "Tabs", "Table", "AlertDialog"],
+  "icons": ["Home", "Activity", "Bell", "Settings"]
+}, {
+  "id": "consent-graph-studio",
+  "appName": "Consent Graph Studio",
+  "description": "Builds AI-ready, multi-state consent journeys for boutique commerce brands.",
+  "theme": "neon",
+  "targetUser": "Fractional CMO for a DTC bodycare brand selling across eight U.S. states via social search.",
+  "marketContext": "IAB’s March 2026 overhaul of the Multi-State Privacy Agreement plus AI-first discovery trends force marketers to retool consent flows immediately to stay visible inside generative search surfaces.([digital.marketing](https://digital.marketing/blog/consumer-technology-digital-marketing?utm_source=openai))",
+  "targetAudience": "Marisa Boyd, fractional CMO for GlowField Naturals juggling TikTok Shop, Instagram keywords, and state privacy audits.",
+  "painPoint": "Needs to orchestrate consent, preference centers, and proof-of-permission journeys across social search without legal bottlenecks.",
+  "competitorGap": "Traditional consent tools only cover web cookie banners and ignore AI assistants, social SEO metadata, and creator storefronts.",
+  "generatedAt": "2026-04-11T00:08:46.784Z",
+  "productStrategy": {
+    "coreAction": "Generate channel-specific consent recipes that embed legal language into AI, social, and chat surfaces.",
+    "retentionLoop": "Weekly enforcement scoreboard that flags state-by-state variances and channel drift.",
+    "businessModel": "freemium",
+    "paywall": {
+      "needed": true,
+      "trigger": "After 3 exports",
+      "lockedFeature": "Automated legal packet with signed evidence and AI prompt snippets",
+      "upgradeMessage": "Export unlimited channel kits plus ready-to-file legal packets after upgrading."
+    }
+  },
+  "userJourney": {
+    "onboarding": {
+      "needed": true,
+      "reason": "Consent recipes depend on storefront states, channels, and product data sensitivities.",
+      "steps": [{
+        "question": "Which states do you collect customer data from?",
+        "type": "multi-choice",
+        "options": ["CA", "CO", "CT", "VA", "UT", "Other"],
+        "storesIn": "userProfile.states"
+      }, {
+        "question": "Where do prospects first engage?",
+        "type": "multi-choice",
+        "options": ["TikTok Shop", "Instagram Search", "YouTube Shorts", "ChatGPT Plugin"],
+        "storesIn": "userProfile.channels"
+      }, {
+        "question": "What data do you personalize with most?",
+        "type": "single-choice",
+        "options": ["Skin concerns", "Purchase frequency", "Location", "Loyalty tier"],
+        "storesIn": "userProfile.dataPivot"
+      }],
+      "completionAction": "After onboarding → navigate to / with consent blocks prefilled for selected states and channels."
+    },
+    "firstSession": "User scans a setup checklist, reviews seeded consent flows for CA and CO, edits AI prompt language inside the builder, then exports the first TikTok Shop opt-in snippet.",
+    "returningSession": "On return, the enforcement scoreboard highlights a new IAB clause, suggests updating Instagram voice prompts, and recommends promoting a loyalty opt-in targeted at Utah visitors."
+  },
+  "layout": {
+    "type": "tabs",
+    "navigation": "top-nav",
+    "primaryColor": "emerald-500"
+  },
+  "uxPatterns": {
+    "emptyStates": true,
+    "loadingSkeletons": false,
+    "searchAndFilter": true,
+    "animations": "subtle"
+  },
+  "responsiveness": {
+    "primaryDevice": "desktop",
+    "mobileFirst": false,
+    "maxWidth": "max-w-6xl"
+  },
+  "pages": [{
+    "path": "/onboarding",
+    "name": "Onboarding",
+    "file": "pages/Onboarding.tsx",
+    "purpose": "Collect minimum user data to personalize the experience",
+    "isMainScreen": false,
+    "showInNav": false,
+    "guard": "show only if !localStorage.getItem('onboarding_complete')",
+    "uiSpec": "Wizard displays neon accent steps across the top with breadcrumb labels for States, Channels, and Data. Each step uses responsive chips styled as passports showing state flags or channel logos, plus tooltips referencing relevant statutes. A live preview pane on the right paraphrases how the consent copy will adapt, while a compliance checklist below explains data retention promises. Form inputs include multi-select pills, segmented buttons, and an optional CSV uploader for state coverage. Sticky footer keeps Back and Continue buttons, a tertiary “Chat with Counsel” link, and indicates progress percentage. Errors highlight chips in magenta and give actionable text such as “Select at least one opt-in channel to build AI prompts.” Mobile compresses chips into carousels and keeps the preview collapsible so it never overwhelms the screen."
+  }, {
+    "path": "/",
+    "name": "Home",
+    "file": "pages/Home.tsx",
+    "purpose": "Main workspace",
+    "isMainScreen": true,
+    "showInNav": true,
+    "guard": "redirect to /onboarding if !onboarding_complete",
+    "uiSpec": "Home uses a tabbed interface: Builder, Enforcement, and Insights. Builder tab shows a drag-and-drop canvas where left column lists Consent Blocks (Web modal, TikTok Shop checkout, ChatGPT prompt) that can be dropped into the central flow. Each block has editable text fields with AI-suggested clauses, toggle buttons for double opt-in, and preview cards showing how the snippet renders on specific devices. Right sidebar lists dynamic variables such as skin concerns or loyalty tiers with tokens you can insert via click. Enforcement tab replaces the canvas with a compliance scoreboard mapping each state to green/yellow/red statuses, plus a timeline of IAB changes; clicking a state filters the table and opens a slide-over panel describing required copy updates. Insights tab visualizes opt-in rates per channel with sparkline cards, filtering controls, and recommendations. Empty states describe how to add more channels, while keyboard shortcuts appear in a help menu."
+  }, {
+    "path": "/settings",
+    "name": "Settings",
+    "file": "pages/Settings.tsx",
+    "purpose": "User preferences, account, subscription status",
+    "isMainScreen": false,
+    "showInNav": true,
+    "guard": "requires authenticated session",
+    "uiSpec": "Settings adopts a two-column layout. Left rail lists Account, Legal Team, Integrations, and Billing. Account shows brand name, contact emails, and allows rotating API keys with confirmation modals. Legal Team lets users invite counsel, assign review responsibilities per state, and upload signed approvals; badges indicate who has completed reviews. Integrations tab configures TikTok Shop, Instagram Shopping, ChatGPT plugin metadata, and webhook destinations with status pills and retry buttons. Billing tab highlights freemium limits, export counts, upgrade CTA, invoices, and download links for receipts. Footer includes data portability controls, GDPR deletion request button, and a log export. On small screens, sections convert into accordion cards with sticky save banners to prevent lost changes."
+  }],
+  "authFlow": {
+    "type": "local-only",
+    "localFirst": true,
+    "reason": "No PII is stored—only consent copy and configuration—so secure local session works while exports remain offline."
+  },
+  "dataModel": {
+    "entities": [{
+      "name": "ConsentRecipe",
+      "fields": "id: string, name: string, states: string[], channels: string[], copyBlocks: string[], lastReviewedAt: string",
+      "storage": "localStorage key: 'consent_recipes'"
+    }, {
+      "name": "ChannelMapping",
+      "fields": "id: string, channel: string, assetType: string, status: 'draft'|'approved', lastExportedAt: string",
+      "storage": "localStorage key: 'channel_mappings'"
+    }, {
+      "name": "AuditTrail",
+      "fields": "id: string, recipeId: string, reviewer: string, note: string, timestamp: string",
+      "storage": "localStorage key: 'audit_trail'"
+    }],
+    "seedData": {
+      "needed": true,
+      "reason": "Marketers need sample consent flows to understand how AI-ready copy is structured.",
+      "examples": ["ConsentRecipe GlowField-CA combining CA and CO states for TikTok Shop checkout with double opt-in copy drafted 2026-04-05.", "ChannelMapping TikTok-Shop-Loyalty set to approved with last export 2026-04-09 14:10Z.", "AuditTrail entry noting legal review by C. Mendes on 2026-04-08 confirming ChatGPT prompt language for Utah prospects."]
+    },
+    "sharedState": "App.tsx keeps userProfile, onboardingComplete, activeTab, selectedRecipeId, unsavedChanges flag, and freemiumExportCount."
+  },
+  "criticalUiRules": ["Regulation badges must always display enforcement date and source acronym beside status color.", "Drag-and-drop builder shows drop targets only when users hold a block to avoid cognitive overload."],
+  "shadcnComponents": ["Button", "Card", "Input", "Tabs", "Popover", "Accordion"],
+  "icons": ["Home", "Sparkles", "Shield", "Settings"]
+}]

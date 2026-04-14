@@ -12,10 +12,12 @@
 import React from 'react';
 import { LeftPanel }      from '../../components/LeftPanel';
 import { PreviewCanvas }  from '../../components/PreviewCanvas';
+import { previewController } from '../../services/PreviewController';
 import { EngineTopBar, DevIdentity } from '../../components/EngineTopBar';
 import { ChatErrorBoundary }    from '../../components/boundaries/ChatErrorBoundary';
 import { PreviewErrorBoundary } from '../../components/boundaries/PreviewErrorBoundary';
-import type { Snapshot, FileMap, Attachment } from '../../hooks/useStudio';
+import type { Snapshot, FileMap, Attachment, ComposerContextItem } from '../../hooks/useStudio';
+import type { ChatMessage } from '../../types/chat';
 import { ProjectExportService }          from '../../services/ProjectExportService';
 import { ReactNativeExportService }     from '../../services/ReactNativeExportService';
 
@@ -64,13 +66,17 @@ export interface EngineWorkspaceProps {
   onCollab:         () => void;
 
   // ── Project context ───────────────────────────────────────────
-  projects:          any[];
+  projects:          Array<{ id: string; name: string; description: string; theme: string; createdAt: string; updatedAt: string; [key: string]: any }>;
   currentProjectId:  string | null;
+  /** Total snapshots in undo/redo history. */
   totalVersions:     number;
+  /** 1-indexed snapshot position in undo/redo history. */
   currentVersion:    number;
+  /** 1-indexed version of the last stable (iframe-ok) snapshot. See useStudio glossary. */
+  lastStableVersion?: number;
 
   // ── Chat / generation ─────────────────────────────────────────
-  messages:          any[];
+  messages:          ChatMessage[];
   input:             string;
   setInput:          (v: string) => void;
   onSend:            () => void;
@@ -82,7 +88,7 @@ export interface EngineWorkspaceProps {
 
   // ── Project CRUD ──────────────────────────────────────────────
   onNewProject:      () => void;
-  onLoadProject:     (p: any) => void;
+  onLoadProject:     (p: { id: string; name: string; [key: string]: any }) => void;
   onDeleteProject:   (id: string) => void;
   onSettings:        () => void;
   setTheme:          (t: 'dark' | 'medium' | 'light') => void;
@@ -123,26 +129,41 @@ export interface EngineWorkspaceProps {
   apiKey?:       string;
 
   // ── Logging ───────────────────────────────────────────────────
-  addLog?: (msg: string) => void;
+  addLog?: (msg: string, level?: 'info' | 'warn' | 'error') => void;
 
   // ── Auto-fixer ────────────────────────────────────────────────
   isAutoFixing?: boolean;
+
+  // ── Error recovery ────────────────────────────────────────────
+  onRollback?: () => void;
+  onRetry?:    () => void;
 
   // ── Attachments ───────────────────────────────────────────────
   attachments?:      Attachment[];
   addAttachment?:    (a: Attachment) => void;
   removeAttachment?: (id: string) => void;
+  composerContextItems?: ComposerContextItem[];
+  removeComposerContextItem?: (id: string) => void;
+  clearComposerContextItems?: () => void;
 
   // ── Blueprint confirmation ────────────────────────────────────
   pendingPlan?:      object | null;
   confirmPlan?:      () => void;
   cancelPlan?:       () => void;
+
+  // ── State machine ─────────────────────────────────────────────
+  studioPhase?:      string;
+  studioError?:      string | null;
+
+  // ── Preview lifecycle (from useStudio) ────────────────────────
+  previewLifecycle?:      string;
+  previewBlockedReason?:  string | null;
 }
 
 
 export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineWorkspace({
   theme, themes, cloudAvailable, onShare, onDeploy, onCollab,
-  projects, currentProjectId, totalVersions, currentVersion,
+  projects, currentProjectId, totalVersions, currentVersion, lastStableVersion,
   messages, input, setInput, onSend, onStop, isGenerating, progress, currentPhase, scrollRef,
   onNewProject, onLoadProject, onDeleteProject, onSettings, setTheme,
   snapshots, currentSnapshotId, onRestoreSnapshot, markSnapshotStable,
@@ -152,17 +173,29 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
   sessionCost, sessionTokens, projectCost, projectTokens, selectedModel, apiKey,
   addLog,
   isAutoFixing = false,
+  onRollback,
+  onRetry,
   attachments = [], addAttachment = () => {}, removeAttachment = () => {},
+  composerContextItems = [], removeComposerContextItem = () => {}, clearComposerContextItems = () => {},
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
+  studioPhase,
+  studioError = null,
+  previewLifecycle,
+  previewBlockedReason = null,
 }) {
   const isDark = theme !== 'light';
 
   const projectName =
     projects.find((p: { id: string; title?: string }) => p.id === currentProjectId)?.title ?? '';
 
-  // currentVersion is historyIndex + 1 (same as activeRevision used by EngineTopBar)
-  const activeRevision   = currentVersion;
-  const lastGoodRevision = totalVersions > 0 ? totalVersions : undefined;
+  // ── Snapshot layer (undo/redo) — see useStudio glossary ─────────
+  // These are snapshot counters, NOT RevisionManager build-revision UUIDs.
+  // EngineTopBar shows these as "snap #N".
+  const currentSnapshotNum = currentVersion;
+  // lastStableSnapshotNum = the version number of the most recent *stable*
+  // snapshot (iframe confirmed without errors). Falls back to totalVersions
+  // for compat when not yet available (first load before any generation).
+  const lastStableSnapshotNum = lastStableVersion ?? (totalVersions > 0 ? totalVersions : undefined);
 
   const onBackup = React.useCallback(() => {}, []);
 
@@ -222,9 +255,13 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
           isDark={isDark}
           onBackup={onBackup}
           activeBranch="main"
-          activeRevision={activeRevision}
-          lastGoodRevision={lastGoodRevision}
+          snapshotNum={currentSnapshotNum}
+          lastStableSnapshotNum={lastStableSnapshotNum}
           devIdentity={devIdentity}
+          onNewProject={onNewProject}
+          onSettings={onSettings}
+          currentTheme={theme}
+          setTheme={setTheme}
         />
 
         {/* ── Workspace: chat + canvas ── */}
@@ -271,13 +308,18 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             attachments={attachments}
             addAttachment={addAttachment}
             removeAttachment={removeAttachment}
+            composerContextItems={composerContextItems}
+            removeComposerContextItem={removeComposerContextItem}
+            clearComposerContextItems={clearComposerContextItems}
             pendingPlan={pendingPlan}
             confirmPlan={confirmPlan}
             cancelPlan={cancelPlan}
           />
           </ChatErrorBoundary>
           <PreviewErrorBoundary onRetry={() => {
-            window.dispatchEvent(new CustomEvent('force-preview-reload'));
+            // Render-error retry: clear preview state to idle so the next real
+            // build cycle (or load) is the only thing that can promote to ready.
+            previewController.reset();
           }}>
           <PreviewCanvas
             device={device}
@@ -301,6 +343,11 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             rnExporting={rnExporting}
             rnExportChars={rnExportChars}
             isAutoFixing={isAutoFixing}
+            isGenerating={isGenerating}
+            onRollback={onRollback}
+            apiKey={apiKey}
+            previewLifecycle={previewLifecycle}
+            previewBlockedReason={previewBlockedReason}
           />
           </PreviewErrorBoundary>
         </div>

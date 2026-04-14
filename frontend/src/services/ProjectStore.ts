@@ -60,7 +60,7 @@ export const ProjectStore = {
 
   delete(id: string): void {
     const all = this.getAll().filter(p => p.id !== id);
-    localStorage.setItem(KEY, JSON.stringify(all));
+    try { localStorage.setItem(KEY, JSON.stringify(all)); } catch { /* quota */ }
   },
 
   clear(): void {

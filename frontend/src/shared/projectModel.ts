@@ -30,10 +30,18 @@ export interface ContentPart {
   image_url?: { url: string };
 }
 
-export interface ChatMessage {
+/**
+ * LLMMessage — wire-format message for LLM API calls.
+ * Minimal shape: role + content.  For the rich UI message with id/timestamp/type,
+ * use ChatMessage from types/chat.ts.
+ */
+export interface LLMMessage {
   role:    ChatRole;
   content: string | ContentPart[];
 }
+
+/** @deprecated Use LLMMessage. Kept as alias for backward-compat re-exports. */
+export type ChatMessage = LLMMessage;
 
 export interface FileDiff {
   find:    string;
@@ -182,6 +190,49 @@ export interface ManifestRoute {
   isDedicatedModule: boolean;
   /** URL param names, e.g. ["id", "slug"] */
   params:            string[];
+}
+
+// ─── Routing layer glossary ──────────────────────────────────────────────────
+//
+//  LAYER 1 — Source routing (App.tsx BrowserRouter)
+//    The ACTUAL runtime router. BrowserRouter + <Routes>/<Route> in generated
+//    App.tsx is the single bootstrap authority. Nothing else drives navigation.
+//
+//  LAYER 2 — Graph routing (ProjectGraph.routes: RouteSpec[])
+//    Structured metadata synced from page-role files by syncRoutes().
+//    Canonical internal truth for route existence. Derived by inference,
+//    not by parsing App.tsx. Drives ChangePackage.routeManifest.
+//
+//  LAYER 3 — Sidecar metadata (routes.json in generated source)
+//    A descriptive JSON file the AI emits alongside pages/. Does NOT drive
+//    bootstrap. Exists so external tools, CI, and export can discover routes
+//    without parsing JSX. Shape: RoutesJsonShape (below).
+//
+//  Invariant: layers 1–3 should agree. Drift between them is detected
+//  (not auto-repaired) by validateRoutesJsonAgainstGraph().
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Shape of a single entry inside the AI-generated routes.json sidecar file.
+ * Must match the format instructed in the Orchestrator multi-page prompt.
+ *
+ * This is LAYER 3 (sidecar metadata) — see routing glossary above.
+ */
+export interface RoutesJsonEntry {
+  path:         string;
+  filePath:     string;
+  title?:       string;
+  isHome:       boolean;
+  isProtected?: boolean;
+}
+
+/**
+ * Full shape of the AI-generated routes.json file.
+ * { "version": 1, "routes": [...] }
+ */
+export interface RoutesJsonShape {
+  version: number;
+  routes:  RoutesJsonEntry[];
 }
 
 /**
@@ -378,9 +429,10 @@ export interface FileBlueprint {
 // ─── RouteSpec ───────────────────────────────────────────────────────────────
 
 /**
- * Typed URL → file mapping.
- * Replaces the loosely-typed RouteEntry from RouteManifestService.
- * Supports nested routes via children[].
+ * Typed URL → file mapping.  (LAYER 2 — graph routing, see glossary above)
+ *
+ * Canonical internal route representation, synced automatically by
+ * syncRoutes(). Supports nested routes via children[].
  */
 export interface RouteSpec {
   id:              string;
@@ -511,8 +563,10 @@ export interface PreviewMeta {
 }
 
 /**
- * A route detected in the generated output.
- * Flat, display-safe projection — no graph IDs or internal refs.
+ * @deprecated Dead type — only referenced by the deprecated
+ * GenerationResult.routeManifest field which is never populated.
+ * Identical in shape to RoutesJsonEntry. Use RoutesJsonEntry for
+ * sidecar parsing, or RouteSpec for canonical graph routes.
  */
 export interface GenerationRouteEntry {
   path:         string;
@@ -872,7 +926,8 @@ export type PreviewMaterializeStage =
   | 'bootstrap-written'
   | 'preview-entry-registered'
   | 'iframe-mounted'
-  | 'iframe-ready';
+  | 'iframe-ready'
+  | 'white-screen-detected';
 
 /**
  * Diagnostic snapshot emitted at every materialize checkpoint.
@@ -943,6 +998,35 @@ export interface ExportArtifact {
   createdAt:  string;
   expiresAt?: string;
   meta:       ExportArtifactMeta;
+}
+
+// ─── Canonical project persistence type ──────────────────────────────────────
+
+/**
+ * ProjectMeta — canonical lightweight project record stored in the meta index.
+ *
+ * This is the single source of truth for the project list view.
+ * It excludes heavy payloads (files, chatHistory, logs, plan, revisions).
+ * ProjectStorage.ts imports and uses this type directly.
+ * ProjectRepository.ProjectMetaSummary is a narrower read-only projection.
+ */
+export interface ProjectMeta {
+  id:              string;
+  name:            string;
+  description:     string;
+  theme:           string;
+  createdAt:       string;
+  updatedAt:       string;
+  deployUrl?:      string;
+  intent?:         string;
+  source?:         'chat' | 'weekly-feed' | 'niche';
+  errors?:         string[];
+  pagesCount?:     number;
+  modelId?:        string;
+  durationMs?:     number;
+  generationMode?: string;
+  billingCost?:    number;
+  billingTokens?:  number;
 }
 
 // ─── Utility: djb2 hash ───────────────────────────────────────────────────────
@@ -1051,6 +1135,357 @@ export function syncRoutes(files: FileBlueprint[], existingRoutes: RouteSpec[]):
   );
 
   return [...retained, ...added];
+}
+
+// ─── Utility: routes.json sidecar validation ────────────────────────────────
+
+/** Result of parsing routes.json content. */
+export interface RoutesJsonParseResult {
+  ok:      boolean;
+  shape?:  RoutesJsonShape;
+  errors:  string[];
+}
+
+/**
+ * Parse and validate the content of a routes.json sidecar file.
+ * Returns a typed RoutesJsonShape if structurally valid, or error messages.
+ */
+export function parseRoutesJson(content: string): RoutesJsonParseResult {
+  const errors: string[] = [];
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(content);
+  } catch {
+    return { ok: false, errors: ['routes.json is not valid JSON'] };
+  }
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, errors: ['routes.json root must be an object'] };
+  }
+  const obj = raw as Record<string, unknown>;
+
+  if (typeof obj.version !== 'number') {
+    errors.push('routes.json missing numeric "version" field');
+  }
+
+  if (!Array.isArray(obj.routes)) {
+    return { ok: false, errors: [...errors, 'routes.json missing "routes" array'] };
+  }
+
+  const routes: RoutesJsonEntry[] = [];
+  for (let i = 0; i < obj.routes.length; i++) {
+    const r = obj.routes[i] as Record<string, unknown> | null;
+    if (!r || typeof r !== 'object') {
+      errors.push(`routes[${i}]: not an object`);
+      continue;
+    }
+    if (typeof r.path !== 'string') {
+      errors.push(`routes[${i}]: missing "path" string`);
+      continue;
+    }
+    if (typeof r.filePath !== 'string') {
+      errors.push(`routes[${i}]: missing "filePath" string`);
+      continue;
+    }
+    routes.push({
+      path:        r.path,
+      filePath:    r.filePath,
+      title:       typeof r.title === 'string' ? r.title : undefined,
+      isHome:      r.isHome === true,
+      isProtected: r.isProtected === true ? true : undefined,
+    });
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok:    true,
+    shape: { version: (obj.version as number) ?? 1, routes },
+    errors: [],
+  };
+}
+
+/**
+ * A single drift between any two routing layers.
+ *
+ * Original kinds (Layer 2 ↔ Layer 3):
+ *   missing-in-json   — graph route has no routes.json entry
+ *   missing-in-graph  — routes.json entry has no graph route
+ *   path-mismatch     — same file, different URL paths
+ *
+ * Extended kinds (Layer 1 ↔ Layer 2, file existence):
+ *   missing-file        — route declares a file that doesn't exist in the graph
+ *   orphan-page-file    — page file exists but has no route in the graph
+ *   app-tsx-extra-route  — App.tsx <Route> has no matching graph route
+ *   app-tsx-missing-route — graph route has no matching <Route> in App.tsx
+ */
+export interface RouteDriftEntry {
+  kind:     'missing-in-json' | 'missing-in-graph' | 'path-mismatch'
+          | 'missing-file' | 'orphan-page-file'
+          | 'app-tsx-extra-route' | 'app-tsx-missing-route';
+  path:     string;
+  filePath: string;
+  detail:   string;
+}
+
+/**
+ * Compare routes.json entries against graph.routes to detect drift.
+ *
+ * This does NOT auto-repair — it only reports discrepancies so callers
+ * (quality checks, diagnostics panels) can surface them.
+ */
+export function validateRoutesJsonAgainstGraph(
+  jsonRoutes: RoutesJsonEntry[],
+  graphRoutes: RouteSpec[],
+): RouteDriftEntry[] {
+  const drifts: RouteDriftEntry[] = [];
+
+  // Normalize filePath for comparison (strip leading /, src/ prefix)
+  const norm = (p: string) => p.replace(/^\//, '').replace(/^src\//, '');
+
+  const graphByFile = new Map(graphRoutes.map(r => [norm(r.filePath), r]));
+  const jsonByFile  = new Map(jsonRoutes.map(r => [norm(r.filePath), r]));
+
+  // Routes in graph but missing from routes.json
+  for (const [file, gr] of graphByFile) {
+    if (!jsonByFile.has(file)) {
+      drifts.push({
+        kind: 'missing-in-json',
+        path: gr.path,
+        filePath: gr.filePath,
+        detail: `Graph route ${gr.path} (${gr.filePath}) has no matching entry in routes.json`,
+      });
+    }
+  }
+
+  // Routes in routes.json but missing from graph
+  for (const [file, jr] of jsonByFile) {
+    if (!graphByFile.has(file)) {
+      drifts.push({
+        kind: 'missing-in-graph',
+        path: jr.path,
+        filePath: jr.filePath,
+        detail: `routes.json entry ${jr.path} (${jr.filePath}) has no matching graph route`,
+      });
+    }
+  }
+
+  // Path mismatches (same file, different URL path)
+  for (const [file, jr] of jsonByFile) {
+    const gr = graphByFile.get(file);
+    if (gr && gr.path !== jr.path) {
+      drifts.push({
+        kind: 'path-mismatch',
+        path: jr.path,
+        filePath: jr.filePath,
+        detail: `${jr.filePath}: routes.json says "${jr.path}" but graph says "${gr.path}"`,
+      });
+    }
+  }
+
+  return drifts;
+}
+
+// ─── Route file-existence validation (Layer 2 ↔ actual files) ───────────────
+
+/**
+ * Validate that every graph route has a backing file, and every page-role file
+ * has a corresponding route.
+ *
+ * Returns drifts of kind:
+ *   - `missing-file`: route declares filePath that doesn't exist in files[]
+ *   - `orphan-page-file`: file with role='page' has no matching route
+ */
+export function validateRouteFileExistence(
+  graphRoutes: RouteSpec[],
+  files: FileBlueprint[],
+): RouteDriftEntry[] {
+  const drifts: RouteDriftEntry[] = [];
+  const norm = (p: string) => p.replace(/^\//, '').replace(/^src\//, '');
+
+  const filePathSet = new Set(files.map(f => norm(f.path)));
+  const routeFileSet = new Set(graphRoutes.map(r => norm(r.filePath)));
+
+  // Routes that reference files which don't exist
+  for (const route of graphRoutes) {
+    if (!filePathSet.has(norm(route.filePath))) {
+      drifts.push({
+        kind: 'missing-file',
+        path: route.path,
+        filePath: route.filePath,
+        detail: `Route ${route.path} references "${route.filePath}" but no such file exists`,
+      });
+    }
+  }
+
+  // Page files that have no matching route
+  const pageFiles = files.filter(f => f.role === 'page');
+  for (const pf of pageFiles) {
+    if (!routeFileSet.has(norm(pf.path))) {
+      drifts.push({
+        kind: 'orphan-page-file',
+        path: '',
+        filePath: pf.path,
+        detail: `Page file "${pf.path}" exists but has no corresponding route in the graph`,
+      });
+    }
+  }
+
+  return drifts;
+}
+
+// ─── App.tsx route extraction (Layer 1 → structured) ────────────────────────
+
+/** A route pattern extracted from App.tsx source code. */
+export interface AppTsxRoute {
+  path:       string;
+  /** Best-guess component name from the `element` prop. */
+  component:  string;
+  /** True if this looks like a catch-all / 404 route. */
+  isCatchAll: boolean;
+}
+
+/**
+ * Extract `<Route path="..." element={...} />` patterns from App.tsx source.
+ *
+ * This is a regex-based heuristic — it doesn't parse JSX. It's designed to
+ * catch the standard react-router patterns that the AI generates:
+ *   <Route path="/" element={<HomePage />} />
+ *   <Route path="/about" element={<About />} />
+ *   <Route path="*" element={<NotFound />} />
+ *
+ * Does NOT handle:
+ *   - programmatic routes (createBrowserRouter)
+ *   - deeply nested route config objects
+ *   - dynamic imports (lazy(() => import(...)))
+ *
+ * That's acceptable — the AI generates standard JSX routes, and this
+ * is a validation heuristic, not a compiler.
+ */
+export function extractRoutesFromAppTsx(appTsxContent: string): AppTsxRoute[] {
+  const routes: AppTsxRoute[] = [];
+
+  // Match: <Route path="..." element={<Component />} />
+  // Also handles: path='...', path={`...`}, single-line or multiline
+  const routeRe = /<Route\s[^>]*?path\s*=\s*["'{`]([^"'{`]+)["'{`][^>]*?element\s*=\s*\{[^}]*?<(\w+)/g;
+  let m: RegExpExecArray | null;
+
+  while ((m = routeRe.exec(appTsxContent)) !== null) {
+    const path = m[1];
+    const component = m[2];
+    routes.push({
+      path,
+      component,
+      isCatchAll: path === '*',
+    });
+  }
+
+  // Also try: element prop before path prop (some AI outputs swap order)
+  const routeReReversed = /<Route\s[^>]*?element\s*=\s*\{[^}]*?<(\w+)[^>]*?path\s*=\s*["'{`]([^"'{`]+)["'{`]/g;
+  while ((m = routeReReversed.exec(appTsxContent)) !== null) {
+    const component = m[1];
+    const path = m[2];
+    // Deduplicate
+    if (!routes.some(r => r.path === path)) {
+      routes.push({
+        path,
+        component,
+        isCatchAll: path === '*',
+      });
+    }
+  }
+
+  return routes;
+}
+
+/**
+ * Cross-validate App.tsx extracted routes (Layer 1) against graph routes (Layer 2).
+ *
+ * Returns drifts of kind:
+ *   - `app-tsx-extra-route`: App.tsx has a <Route> with no matching graph route
+ *   - `app-tsx-missing-route`: graph has a route with no matching <Route> in App.tsx
+ *
+ * Catch-all routes (path="*") are excluded from validation — they're structural,
+ * not content routes.
+ */
+export function validateAppTsxAgainstGraph(
+  appRoutes: AppTsxRoute[],
+  graphRoutes: RouteSpec[],
+): RouteDriftEntry[] {
+  const drifts: RouteDriftEntry[] = [];
+
+  const contentAppRoutes = appRoutes.filter(r => !r.isCatchAll);
+  const graphPathSet = new Set(graphRoutes.map(r => r.path));
+  const appPathSet = new Set(contentAppRoutes.map(r => r.path));
+
+  // App.tsx routes not in graph
+  for (const ar of contentAppRoutes) {
+    if (!graphPathSet.has(ar.path)) {
+      drifts.push({
+        kind: 'app-tsx-extra-route',
+        path: ar.path,
+        filePath: '',
+        detail: `App.tsx <Route path="${ar.path}"> (${ar.component}) has no matching graph route`,
+      });
+    }
+  }
+
+  // Graph routes not in App.tsx
+  for (const gr of graphRoutes) {
+    if (!appPathSet.has(gr.path)) {
+      drifts.push({
+        kind: 'app-tsx-missing-route',
+        path: gr.path,
+        filePath: gr.filePath,
+        detail: `Graph route ${gr.path} (${gr.filePath}) has no <Route> in App.tsx`,
+      });
+    }
+  }
+
+  return drifts;
+}
+
+/**
+ * Run ALL route validations across all three layers.
+ *
+ * Returns a combined drift report. Callers decide what to do with it
+ * (block, warn, auto-repair, log).
+ */
+export function validateAllRouteLayers(graph: ProjectGraph): RouteDriftEntry[] {
+  const drifts: RouteDriftEntry[] = [];
+
+  // Skip validation for single-page apps with no routes
+  if (graph.routes.length === 0) return drifts;
+
+  // Layer 2 ↔ files: route file existence
+  drifts.push(...validateRouteFileExistence(graph.routes, graph.files));
+
+  // Layer 1 ↔ Layer 2: App.tsx vs graph
+  const appTsx = graph.files.find(f =>
+    f.path === 'App.tsx' || f.path === '/App.tsx' || f.path === 'src/App.tsx',
+  );
+  if (appTsx) {
+    const appRoutes = extractRoutesFromAppTsx(appTsx.content);
+    if (appRoutes.length > 0) {
+      drifts.push(...validateAppTsxAgainstGraph(appRoutes, graph.routes));
+    }
+  }
+
+  // Layer 3 ↔ Layer 2: routes.json vs graph
+  const routesJson = graph.files.find(f =>
+    f.path === 'routes.json' || f.path === '/routes.json',
+  );
+  if (routesJson) {
+    const parsed = parseRoutesJson(routesJson.content);
+    if (parsed.ok && parsed.shape) {
+      drifts.push(...validateRoutesJsonAgainstGraph(parsed.shape.routes, graph.routes));
+    }
+  }
+
+  return drifts;
 }
 
 // ─── Utility: graph construction ─────────────────────────────────────────────
@@ -1264,6 +1699,23 @@ export function wrapOrchestratorResult(
   const updatedGraph = applyOperationsToGraph(baseGraph, orcResult.operations);
   const entryFile    = updatedGraph.files.find(f => f.id === updatedGraph.entryFileId)?.path ?? 'src/main.tsx';
 
+  // ── Detect routes.json ↔ graph drift (layer 3 vs layer 2) ────────────
+  const routesJsonFile = updatedGraph.files.find(
+    f => f.path === 'routes.json' || f.path === '/routes.json',
+  );
+  const routeDriftHints: Array<{ code: string; strategy: 'block' | 'auto-fix' | 'retry' }> = [];
+  if (routesJsonFile && updatedGraph.routes.length > 0) {
+    const parsed = parseRoutesJson(routesJsonFile.content);
+    if (!parsed.ok) {
+      routeDriftHints.push({ code: `route-json-invalid: ${parsed.errors.join('; ')}`, strategy: 'retry' });
+    } else if (parsed.shape) {
+      const drifts = validateRoutesJsonAgainstGraph(parsed.shape.routes, updatedGraph.routes);
+      for (const d of drifts) {
+        routeDriftHints.push({ code: `route-drift-${d.kind}: ${d.detail}`, strategy: 'retry' });
+      }
+    }
+  }
+
   // Minimal ChangePackage — guard results are empty (this bridge bypasses the pipeline)
   const changePackage: ChangePackage = {
     plan:           updatedGraph.manifest.inferenceNotes ?? [],
@@ -1278,7 +1730,7 @@ export function wrapOrchestratorResult(
       runtime:     { passed: true, failingFiles: [], reasons: [], durationMs: 0 },
     },
     warnings:    [],
-    repairHints: [],
+    repairHints: routeDriftHints,
   };
 
   return {

@@ -1,0 +1,76 @@
+```json
+{
+  "technicalBlueprint": {
+    "appShell": {
+      "routingStrategy": "No router needed. Single page at '/' rendered directly by App.tsx. No React Router or navigation layer required.",
+      "stateStrategy": "All state is local to App.tsx. No shared/global state needed — plan defines no entities or cross-page communication.",
+      "persistenceStrategy": "No persistence required. Plan defines no entities or data that must survive page reload.",
+      "guardStrategy": "No guards required. Plan defines no auth, premium, or access-control logic."
+    },
+    "fileStructure": [
+      {
+        "file": "App.tsx",
+        "purpose": "Single root component. Owns all layout and UI. Renders dark-slate shell with shadcn Button, Card, and Input components as primary building blocks."
+      },
+      {
+        "file": "main.tsx",
+        "purpose": "React DOM entry point. Mounts App into #root. No provider wrapping needed unless shadcn theme requires it."
+      },
+      {
+        "file": "index.css",
+        "purpose": "Tailwind base styles + dark-slate CSS variables. Ensure html/body have dark background (#0f172a or equivalent slate-900)."
+      }
+    ],
+    "componentContracts": [
+      {
+        "file": "App.tsx",
+        "responsibility": "Entire application shell and content. Single-file implementation.",
+        "mustRender": [
+          "Dark-slate full-viewport container (bg-slate-900 text-slate-100)",
+          "At least one Card wrapping main content area",
+          "At least one Input element",
+          "At least one Button element",
+          "Home icon from lucide-react"
+        ],
+        "uses": [
+          "shadcn/ui Button",
+          "shadcn/ui Card, CardContent, CardHeader",
+          "shadcn/ui Input",
+          "lucide-react Home icon"
+        ],
+        "localState": [
+          "inputValue: string — controlled value for the Input component"
+        ],
+        "sideEffects": []
+      }
+    ],
+    "dataFlow": {
+      "entities": [],
+      "seedData": {
+        "needed": false,
+        "variable": null,
+        "notes": "Plan defines no data entities. No seed data required."
+      }
+    },
+    "criticalPaths": [
+      {
+        "name": "App render",
+        "steps": [
+          "main.tsx mounts App.tsx into #root",
+          "App.tsx renders dark-slate viewport container",
+          "Card, Input, Button, Home icon rendered inside container",
+          "User interacts with Input — local inputValue state updates via onChange",
+          "User clicks Button — handler reads inputValue and performs minimal defined action (e.g., console.log or clear)"
+        ]
+      }
+    ],
+    "implementationRisks": [
+      "shadcn/ui requires components to be present in /components/ui/ — ensure Button, Card, Input are initialized via CLI or manually copied before coding App.tsx",
+      "dark-slate theme must be applied at html/body level in index.css to avoid white flash; do not rely solely on className on the App div",
+      "lucide-react must be installed as a dependency; do not import from @heroicons or other icon libraries",
+      "Input must be a controlled component (value + onChange) to avoid React uncontrolled/controlled mismatch warning",
+      "Plan purpose is 'Продолжи выполнение' — no specific feature is defined; implement a clean, functional dark-slate UI shell that demonstrates the three shadcn components working correctly without inventing features"
+    ]
+  }
+}
+```

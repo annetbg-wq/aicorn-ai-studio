@@ -100,7 +100,7 @@ interface AgentLabPanelProps {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
-  files, agentConfigs, onApplyFiles, writeFilesToDisk, addLog,
+  files, agentConfigs, currentTheme, onApplyFiles, writeFilesToDisk, addLog,
   initialTask, onNavigate,
 }) => {
   if (typeof window === 'undefined') return null;
@@ -174,8 +174,8 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
   const buildApiKey = ConfigService.getKeyForAgent('build') || ConfigService.getKeyForAgent('primary');
   const qaApiKey    = ConfigService.getKeyForAgent('qa')    || ConfigService.getKeyForAgent('fix');
   const specModel   = agentConfigs.spec?.modelId  || ConfigService.resolveModel('spec');
-  const buildModel  = agentConfigs.build?.modelId || 'google/gemini-2.5-pro-preview';
-  const qaModel     = agentConfigs.qa?.modelId    || 'google/gemini-2.0-flash-001';
+  const buildModel  = agentConfigs.build?.modelId || 'xiaomi/mimo-v2-pro';
+  const qaModel     = agentConfigs.qa?.modelId    || 'openai/gpt-4o-mini';
 
   const selectedSession = sessions.find(s => s.id === selectedId) ?? null;
 
@@ -190,7 +190,16 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
     }
   }, []);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+    // Auto-cleanup stalled building sessions on panel mount (fire-and-forget)
+    void AgentLoopService.cleanupStalledSessions().then(n => {
+      if (n > 0) {
+        addLog(`[AgentLab] Auto-cleanup: ${n} stalled session(s) archived`);
+        void reload(); // refresh list after cleanup
+      }
+    }).catch(() => { /* non-critical */ });
+  }, [reload, addLog]);
 
   // ── Live stream listener ─────────────────────────────────────────────────
   useEffect(() => {
@@ -286,7 +295,7 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
           if (count >= 3) {
             // Stop autopilot — limit exceeded
             setAutopilotEnabled(false);
-            localStorage.setItem('AUTOPILOT_ENABLED', 'false');
+            try { localStorage.setItem('AUTOPILOT_ENABLED', 'false'); } catch { /* quota */ }
             setAutopilotStopped(true);
             setAutoFixToast('🛑 Автопилот остановлен: превышено число попыток.');
             setTimeout(() => setAutoFixToast(''), 8000);
@@ -294,7 +303,7 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
           }
           // Increment counter
           autoRetryCount.current = count + 1;
-          localStorage.setItem('AUTOPILOT_RETRY_COUNT', String(autoRetryCount.current));
+          try { localStorage.setItem('AUTOPILOT_RETRY_COUNT', String(autoRetryCount.current)); } catch { /* quota */ }
 
           const attempt   = autoRetryCount.current;
           const blockName = `🤖 Автопилот: Fix #${attempt} — ${key}`;
@@ -429,6 +438,47 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
       setLaunching(false);
     }
   };
+
+  const [webContextLoading, setWebContextLoading] = useState(false);
+
+  const handleWebContext = useCallback(async () => {
+    const query = taskDescription.trim();
+    if (!query || webContextLoading) return;
+    setWebContextLoading(true);
+    addLog('[WebContext] Searching: ' + query.slice(0, 80) + '...');
+    try {
+      // DuckDuckGo Instant Answer — free, no key required
+      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+      const { data, error } = await supabase.functions.invoke('llm-proxy', {
+        body: {
+          url: ddgUrl,
+          method: 'GET',
+          headers: {},
+        },
+      });
+      if (error) throw new Error(error.message ?? 'llm-proxy error');
+
+      let contextBlock = '\n\n--- Web Context ---\n';
+      if (data?.AbstractText) contextBlock += data.AbstractText + '\n';
+      if (data?.Answer) contextBlock += data.Answer + '\n';
+      const topics: Array<{ Text?: string; FirstURL?: string }> = data?.RelatedTopics ?? [];
+      topics.slice(0, 3).forEach(t => {
+        if (t.Text) contextBlock += `\n• ${t.Text}`;
+      });
+      contextBlock += '\n--- End Web Context ---\n';
+
+      if (contextBlock.length > 60) {
+        setTaskDescription(prev => prev + contextBlock);
+        addLog('[WebContext] Context added');
+      } else {
+        addLog('[WebContext] No results found for this query');
+      }
+    } catch (e: unknown) {
+      addLog('[WebContext] Error: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setWebContextLoading(false);
+    }
+  }, [taskDescription, webContextLoading, addLog]);
 
   const handleLaunch = async () => {
     if (!taskDescription.trim()) return;
@@ -627,7 +677,9 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
       setSessions(prev => prev.filter(s => !toDelete.includes(s.id)));
       for (const id of toDelete) await AgentLoopService.deleteSession(id);
       const n = await AgentLoopService.deleteOldPendingSessions();
-      addLog(`[AgentLab] Очищено: ${toDelete.length} сессий, удалено ${n} из БД`);
+      // Also archive stalled building sessions
+      const stalled = await AgentLoopService.cleanupStalledSessions();
+      addLog(`[AgentLab] Очищено: ${toDelete.length} сессий, удалено ${n} из БД, stalled archived: ${stalled}`);
     } catch (e) { addLog(`[AgentLab] Cleanup error: ${(e as Error).message}`); }
     finally { setIsCleaningUp(false); }
   };
@@ -888,6 +940,24 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
                 disabled={launching}
                 style={{ padding: '10px 13px', borderRadius: 11, background: '#111114', border: '1px solid rgba(255,255,255,0.07)', color: '#fff', fontSize: 12, outline: 'none', minHeight: 72, fontFamily: 'inherit', resize: 'vertical' }}
               />
+              <button
+                onClick={() => void handleWebContext()}
+                disabled={webContextLoading || !taskDescription.trim()}
+                style={{
+                  alignSelf: 'flex-start',
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  borderRadius: 6,
+                  border: 'none',
+                  cursor: webContextLoading || !taskDescription.trim() ? 'not-allowed' : 'pointer',
+                  background: webContextLoading ? 'rgba(255,255,255,0.05)' : 'rgba(99,102,241,0.15)',
+                  color: webContextLoading || !taskDescription.trim() ? 'rgba(255,255,255,0.3)' : '#818cf8',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {webContextLoading ? '...' : '🌐 Web context'}
+              </button>
 
               <button
                 onClick={() => void handleLaunch()}
@@ -1502,7 +1572,7 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
               <button onClick={() => setPreviewFiles(null)} style={{ background: 'transparent', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
             </div>
             <div style={{ flex: 1, overflow: 'hidden' }}>
-              <SandpackView files={previewFiles} activeFile={previewActive} setActiveFile={setPreviewActive} theme="dark" />
+              <SandpackView files={previewFiles} activeFile={previewActive} setActiveFile={setPreviewActive} theme={currentTheme === 'light' ? 'light' : 'dark'} />
             </div>
           </div>
         </div>

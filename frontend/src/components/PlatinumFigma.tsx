@@ -37,7 +37,7 @@ import type { FigmaProject }  from '../services/ProjectStore';
 import { ExportService }      from '../services/ExportService';
 import type { ExportSpec }    from '../services/ExportService';
 import { MCPBridgeService }   from '../services/MCPBridgeService';
-import type { McpStatus }     from '../services/MCPBridgeService';
+import type { McpStatus, PushDiff } from '../services/MCPBridgeService';
 import { ConfigService }      from '../services/ConfigService';
 import { llmFetch }           from '../services/LLMProxy';
 import {
@@ -776,8 +776,17 @@ const ExportPanel: React.FC<{
   const [manifest,    setManifest]    = useState<ReturnType<typeof MCPBridgeService.buildCanvasManifest> | null>(null);
   const [showMcp,     setShowMcp]     = useState(false);
   const [claudePrompt, setClaudePrompt] = useState('');
+  // Push Delta mode
+  const [pushDiff,    setPushDiff]    = useState<PushDiff | null>(null);
+  const [showDiff,    setShowDiff]    = useState(false);
+  const [hasPending,  setHasPending]  = useState(false);
 
   const hasFiles = Object.keys(files).length > 0;
+
+  // Check for pending changes on mount and whenever files change
+  useEffect(() => {
+    setHasPending(MCPBridgeService.hasPendingChanges(files));
+  }, [files]);
 
   const buildSpec = useCallback(() => {
     setBuilding(true);
@@ -795,7 +804,18 @@ const ExportPanel: React.FC<{
     setMcpStatus('checking');
     const available = await MCPBridgeService.pingDesktopServer();
     setMcpStatus(available ? 'available' : 'unavailable');
+    // Mark push so delta resets
+    MCPBridgeService.markPushed(files);
+    setHasPending(false);
+    setPushDiff(null);
+    setShowDiff(false);
   }, [files, theme]);
+
+  const handleShowDiff = useCallback(() => {
+    const diff = MCPBridgeService.buildPushDiff(files);
+    setPushDiff(diff);
+    setShowDiff(true);
+  }, [files]);
 
   return (
     <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -831,6 +851,85 @@ const ExportPanel: React.FC<{
           </a>
         )}
       </div>
+
+      {/* ── Push Delta indicator ───────────────────────────────────────── */}
+      {hasFiles && hasPending && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+          borderRadius: 12, background: 'rgba(251,191,36,0.08)',
+          border: '1px solid rgba(251,191,36,0.25)', fontSize: 12,
+        }}>
+          <span style={{ color: c.amber, fontWeight: 600 }}>
+            ⚡ {MCPBridgeService.buildPushDiff(files).changedCount + MCPBridgeService.buildPushDiff(files).addedCount} file{(MCPBridgeService.buildPushDiff(files).changedCount + MCPBridgeService.buildPushDiff(files).addedCount) !== 1 ? 's' : ''} changed since last push
+          </span>
+          <button
+            onClick={handleShowDiff}
+            style={{
+              padding: '3px 10px', borderRadius: 6, border: `1px solid ${c.amber}44`,
+              background: c.amberBg, color: c.amber, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+            }}
+          >
+            Review diff →
+          </button>
+        </div>
+      )}
+
+      {/* ── Push Diff panel ───────────────────────────────────────────── */}
+      {showDiff && pushDiff && (
+        <div style={{
+          padding: 16, borderRadius: 14, background: '#0d0d18',
+          border: '1px solid rgba(255,255,255,0.08)',
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontWeight: 700, fontSize: 14, color: c.txt }}>
+              Push Delta — {pushDiff.changedCount} modified · {pushDiff.addedCount} added · {pushDiff.unchangedCount} unchanged
+            </span>
+            <button onClick={() => setShowDiff(false)} style={{ background: 'none', border: 'none', color: c.sub, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+          </div>
+          <div style={{ maxHeight: 260, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {pushDiff.deltas.map(d => (
+              <div key={d.path} style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
+                borderRadius: 8,
+                background: d.status === 'modified' ? 'rgba(251,191,36,0.07)'
+                  : d.status === 'added' ? 'rgba(62,207,142,0.07)'
+                  : 'transparent',
+                border: `1px solid ${
+                  d.status === 'modified' ? 'rgba(251,191,36,0.15)'
+                  : d.status === 'added' ? 'rgba(62,207,142,0.15)'
+                  : 'rgba(255,255,255,0.04)'
+                }`,
+              }}>
+                <span style={{
+                  fontSize: 10, padding: '1px 5px', borderRadius: 4, fontWeight: 700,
+                  background: d.status === 'modified' ? c.amberBg : d.status === 'added' ? c.greenBg : 'rgba(255,255,255,0.05)',
+                  color: d.status === 'modified' ? c.amber : d.status === 'added' ? c.green : c.dim,
+                }}>
+                  {d.status === 'modified' ? 'M' : d.status === 'added' ? 'A' : '·'}
+                </span>
+                <span style={{ flex: 1, fontFamily: 'monospace', fontSize: 11, color: d.status === 'unchanged' ? c.sub : c.txt }}>
+                  {d.path}
+                </span>
+                <span style={{ fontSize: 10, color: c.sub }}>
+                  {d.status !== 'unchanged' && d.oldSize > 0 && `${Math.round(d.oldSize / 1024 * 10) / 10}k → `}
+                  {Math.round(d.newSize / 1024 * 10) / 10}k
+                </span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setShowDiff(false)}
+              style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${c.border}`, background: c.card, color: c.sub, cursor: 'pointer', fontSize: 12 }}>
+              Cancel
+            </button>
+            <button onClick={handleMagicSync}
+              style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: c.accent, color: '#000', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>
+              🪄 Confirm &amp; Push to Figma
+            </button>
+          </div>
+        </div>
+      )}
 
       {!hasFiles && (
         <div style={{ padding: '14px 16px', borderRadius: 12, background: c.amberBg, border: `1px solid ${c.amber}33`, fontSize: 12, color: c.amber }}>

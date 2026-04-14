@@ -7,7 +7,17 @@
       "project_audit.txt",
       "repomix-output.xml",
       "all_code.*",
-      "*_audit.txt"
+      "*_audit.txt",
+      "frontend/dist/**",
+      "preview-app/dist/**",
+      ".chrome-e2e/**",
+      "**/node_modules/**",
+      "**/*.min.js",
+      "**/.git/**",
+      "backend/.codex-home/**",
+      "backend/.codex/**",
+      "**/.tmp/**",
+      "**/.codex-home/**"
     ]
   }
 }

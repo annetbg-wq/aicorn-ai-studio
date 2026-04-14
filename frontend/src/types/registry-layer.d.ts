@@ -6,7 +6,7 @@ export type RevisionStatus = 'draft' | 'validated' | 'failed' | 'active-preview'
 export type PreviewStatus = 'pending' | 'ready' | 'failed';
 export type ExportStatus = 'pending' | 'success' | 'failed';
 
-export interface ProjectMeta {
+export interface RegistryProjectMeta {
   version: 1;
   id: string;
   name: string;
@@ -59,6 +59,6 @@ export interface ExportMeta {
 
 export interface ProjectsIndex {
   version: 1;
-  projects: ProjectMeta[];
+  projects: RegistryProjectMeta[];
   lastSync: string;
 }

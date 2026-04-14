@@ -7,6 +7,13 @@ import { getMissingProviderKeyWarning } from '../services/agentConfigWarnings';
 import { fetchModelsWithCache, Model } from '../services/ModelRegistry';
 import { promptRegistry, type AgentName } from '../services/PromptRegistry';
 import { llmFetch, llmGet } from '../services/LLMProxy';
+import {
+  getLocalDevAgentProvider,
+  setLocalDevAgentProvider,
+  syncLocalDevAgentMode,
+  type DevAgentProvider,
+} from '../services/devAgentMode';
+import { isCreatorMode } from '../services/internalAccess';
 
 /* ── ПОЛНЫЙ КАТАЛОГ МОДЕЛЕЙ OPENROUTER ───────────────────────────────────── */
 interface ModelInfo {
@@ -21,6 +28,12 @@ interface ModelInfo {
 
 interface PingResult { status: 'idle' | 'loading' | 'ok' | 'error'; ms?: number; code?: number; }
 
+const CLAUDE_BRIDGE_CFG = JSON.stringify({
+  provider: 'claude-bridge',
+  modelId: 'claude-sonnet-4-6',
+  fallback1Provider: 'openrouter',
+});
+
 // ── 5-Agent system ────────────────────────────────────────────────────────────
 
 interface AgentSlotDef {
@@ -28,16 +41,56 @@ interface AgentSlotDef {
   agentId: string;
   emoji:   string;
   label:   string;
-  desc:    string;
+  role:    string;
+  stages:  string;
   color:   string;
 }
 
+/** Per-agent stage definitions shown in the Max Tokens section */
+const AGENT_STAGE_DEFS: Record<string, Array<{ key: string; label: string }>> = {
+  agent_primary: [
+    { key: 'clarifier',          label: 'Clarifier'    },
+    { key: 'architect_landing',  label: 'Landing'      },
+    { key: 'architect_app',      label: 'App'          },
+    { key: 'architect_superapp', label: 'Super App'    },
+    { key: 'tech_lead',          label: 'Tech Lead'    },
+  ],
+  agent_build: [
+    { key: 'coder_landing',  label: 'Landing' },
+    { key: 'coder_app',      label: 'App'     },
+    { key: 'coder_superapp', label: 'Super'   },
+  ],
+  agent_fix: [
+    { key: 'autofix', label: 'AutoFix' },
+  ],
+};
+
 const AGENT_SLOTS: AgentSlotDef[] = [
-  { key: 'primary', agentId: 'agent_primary', emoji: '🤖', label: 'Agent Primary',  desc: 'Генерация кода пользователя',     color: '#60a5fa' },
-  { key: 'fix',     agentId: 'agent_fix',     emoji: '🔧', label: 'Agent Fix',      desc: 'Автокоррекция синтаксиса',        color: '#34d399' },
-  { key: 'spec',    agentId: 'agent_spec',    emoji: '📋', label: 'Spec Agent',     desc: 'Исследование и спецификация',     color: '#a78bfa' },
-  { key: 'build',   agentId: 'agent_build',   emoji: '👨‍💻', label: 'Build Agent',    desc: 'Автономная реализация блоков',    color: '#f59e0b' },
-  { key: 'qa',      agentId: 'agent_qa',      emoji: '🧪', label: 'QA Agent',       desc: 'Проверка и отчёт',                color: '#f87171' },
+  {
+    key: 'primary', agentId: 'agent_primary', emoji: '🤖', label: 'Agent Primary', color: '#60a5fa',
+    role:   'Architect · Tech Lead · Clarifier',
+    stages: 'план приложения, технический blueprint, уточнение идеи',
+  },
+  {
+    key: 'fix', agentId: 'agent_fix', emoji: '🔧', label: 'Agent Fix', color: '#34d399',
+    role:   'AutoFix',
+    stages: 'исправление ошибок компиляции, auto-fix после preview error',
+  },
+  {
+    key: 'spec', agentId: 'agent_spec', emoji: '📋', label: 'Spec Agent', color: '#a78bfa',
+    role:   'Researcher · Spec Writer',
+    stages: 'исследование и спецификация',
+  },
+  {
+    key: 'build', agentId: 'agent_build', emoji: '👨‍💻', label: 'Build Agent', color: '#f59e0b',
+    role:   'Coder',
+    stages: 'генерация файлов кода, повторная генерация при ошибке',
+  },
+  {
+    key: 'qa', agentId: 'agent_qa', emoji: '🧪', label: 'QA Agent', color: '#f87171',
+    role:   'QA · Reviewer',
+    stages: 'проверка и отчёт',
+  },
 ];
 
 const PROVIDER_LABELS: Record<ApiProvider, string> = {
@@ -233,6 +286,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [search, setSearch] = useState('');
   const [provFilter, setProvFilter] = useState('All');
+  const [devAgentProvider, setDevAgentProvider] = useState<DevAgentProvider>(() => getLocalDevAgentProvider());
+  const canSeeDevMode = isCreatorMode();
   // Per-provider dynamic model loading
   const [providerModels, setProviderModels] = useState<Record<string, { models: Model[]; loading: boolean }>>({});
   // PAT form state
@@ -407,6 +462,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setAssignPopup(null);
   };
 
+  const setRemoteDevAgentProvider = async (nextProvider: DevAgentProvider) => {
+    if (nextProvider === 'claude') {
+      const current = localStorage.getItem('AGENT_CONFIG_agent_primary');
+      if (current) localStorage.setItem('CLAUDE_MAX_PREV_CONFIG', current);
+      localStorage.setItem('AGENT_CONFIG_agent_primary', CLAUDE_BRIDGE_CFG);
+      localStorage.setItem('AGENT_CONFIG_agent_build', CLAUDE_BRIDGE_CFG);
+    } else {
+      const prev = localStorage.getItem('CLAUDE_MAX_PREV_CONFIG');
+      if (prev) {
+        localStorage.setItem('AGENT_CONFIG_agent_primary', prev);
+        localStorage.setItem('AGENT_CONFIG_agent_build', prev);
+      } else {
+        localStorage.removeItem('AGENT_CONFIG_agent_primary');
+        localStorage.removeItem('AGENT_CONFIG_agent_build');
+      }
+    }
+
+    try {
+      const response = await fetch('http://localhost:3107/dev-agent-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: nextProvider }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDevAgentProvider(syncLocalDevAgentMode(data));
+        return;
+      }
+    } catch {
+      setLocalDevAgentProvider(nextProvider);
+      setDevAgentProvider(nextProvider);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen || !canSeeDevMode) return;
+    fetch('http://localhost:3107/dev-agent-mode')
+      .then(r => r.json())
+      .then(data => setDevAgentProvider(syncLocalDevAgentMode(data)))
+      .catch(() => {});
+  }, [isOpen, canSeeDevMode]);
+
   if (!isOpen) return null;
 
   return (
@@ -438,6 +535,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div style={{ padding: 24, maxHeight: '75vh', overflowY: 'auto' }}>
           {tab === 'api' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              {canSeeDevMode && (
+                <div style={{
+                  borderRadius: 16,
+                  background: 'rgba(124,58,237,0.08)',
+                  border: '1px solid rgba(124,58,237,0.24)',
+                  padding: 12,
+                }}>
+                  <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#c4b5fd', marginBottom: 8, textTransform: 'uppercase' }}>
+                    Studio Provider Mode
+                  </label>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: 4, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)' }}>
+                    {([
+                      { id: 'off', label: 'Standard' },
+                      { id: 'claude', label: 'Claude' },
+                      { id: 'codex', label: 'Codex' },
+                    ] as Array<{ id: DevAgentProvider; label: string }>).map(opt => (
+                      <button
+                        key={opt.id}
+                        onClick={() => void setRemoteDevAgentProvider(opt.id)}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          border: `1px solid ${devAgentProvider === opt.id ? 'rgba(124,58,237,0.6)' : 'rgba(255,255,255,0.1)'}`,
+                          background: devAgentProvider === opt.id ? 'rgba(124,58,237,0.22)' : 'transparent',
+                          color: devAgentProvider === opt.id ? '#c4b5fd' : '#9ca3af',
+                          fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Global API Configuration — 5 Providers */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#444', marginBottom: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Global Provider Keys</label>
@@ -941,7 +1073,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(255,255,255,0.06)', color: '#666', fontWeight: 700 }}>{PROVIDER_LABELS[cfg.provider]}</span>
                           <div style={{ width: 6, height: 6, borderRadius: '50%', background: providerKeySet ? '#34d399' : '#374151', flexShrink: 0 }} title={providerKeySet ? 'API key set' : 'No API key'} />
                         </div>
-                        <p style={{ margin: 0, fontSize: 11, color: '#555', lineHeight: 1.4 }}>{slot.desc}</p>
+                        <p style={{ margin: 0, fontSize: 11, color: slot.color, opacity: 0.7, fontWeight: 600, lineHeight: 1.3 }}>{slot.role}</p>
+                        <p style={{ margin: '1px 0 0', fontSize: 10, color: '#555', lineHeight: 1.4 }}>{slot.stages}</p>
                       </div>
                       {/* Right: provider tabs */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0 }}>
@@ -1178,6 +1311,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
 
                     </div>{/* end 3-col grid */}
+
+                    {/* ── Max Tokens row (only for agents with defined stages) ── */}
+                    {AGENT_STAGE_DEFS[slot.agentId] && (
+                      <div style={{ padding: '9px 14px', borderTop: `1px solid ${slot.color}18`, background: `${slot.color}04`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em', flexShrink: 0 }}>Max Tokens</span>
+                        {AGENT_STAGE_DEFS[slot.agentId].map(stage => {
+                          const currentVal = cfg.maxTokens?.[stage.key] ?? ConfigService.getMaxTokens(slot.agentId, stage.key);
+                          return (
+                            <label key={stage.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                              <span style={{ fontSize: 9, color: '#555', whiteSpace: 'nowrap' }}>{stage.label}</span>
+                              <input
+                                type="number"
+                                min={256}
+                                max={200000}
+                                step={1000}
+                                value={currentVal}
+                                onChange={e => {
+                                  const v = parseInt(e.target.value, 10);
+                                  if (!isNaN(v) && v >= 256) {
+                                    updateCfg({ maxTokens: { ...(cfg.maxTokens ?? {}), [stage.key]: v } });
+                                  }
+                                }}
+                                style={{
+                                  width: 68, padding: '3px 6px', borderRadius: 7,
+                                  background: '#0d0d10', border: `1px solid ${slot.color}30`,
+                                  color: slot.color, fontSize: 11, fontWeight: 600,
+                                  outline: 'none', textAlign: 'center', fontFamily: 'monospace',
+                                }}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+
                   </div>
                 );
               })}

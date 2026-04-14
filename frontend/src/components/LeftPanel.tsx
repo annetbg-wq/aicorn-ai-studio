@@ -1,17 +1,16 @@
-import React, { useState, useRef, useEffect } from 'react';
+﻿import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
-  Plus, Layout, Trash2, Settings,
-  ChevronDown, Mic, Paperclip, History,
+  Plus, Link2, Camera, Sparkles,
+  Paperclip, History,
   X, Clock, RotateCcw, GitBranch,
   Undo2, Redo2, Square, Copy,
 } from 'lucide-react';
-import type { Snapshot, Attachment } from '../hooks/useStudio';
-import { useAuth } from '../contexts/AuthContext';
-// ProjectsList removed — see ProjectsScreen
+import type { Snapshot, Attachment, ComposerContextItem } from '../hooks/useStudio';
+// ProjectsList removed â€” see ProjectsScreen
 
-// ── Интерфейс пропсов ──────────────────────────────────────────────────────
+// â”€â”€ Ð˜Ð½Ñ‚ÐµÑ€Ñ„ÐµÐ¹Ñ Ð¿Ñ€Ð¾Ð¿ÑÐ¾Ð² â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface GenerationReport {
   mode: 'NEW' | 'EDIT';
@@ -24,7 +23,7 @@ interface GenerationReport {
 
 interface ChatMessage {
   role: string;
-  content: string;
+  content: string | any[];
   type?: string;
   report?: GenerationReport;
   questions?: string[];
@@ -88,13 +87,16 @@ interface LeftPanelProps {
   attachments?:      Attachment[];
   addAttachment?:    (a: Attachment) => void;
   removeAttachment?: (id: string) => void;
+  composerContextItems?: ComposerContextItem[];
+  removeComposerContextItem?: (id: string) => void;
+  clearComposerContextItems?: () => void;
   // blueprint confirmation
   pendingPlan?:      object | null;
   confirmPlan?:      () => void;
   cancelPlan?:       () => void;
 }
 
-// ── i18n labels ───────────────────────────────────────────────────────────
+// â”€â”€ i18n labels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const LABELS: Record<string, Record<string, string>> = {
   en: {
@@ -102,7 +104,7 @@ const LABELS: Record<string, Record<string, string>> = {
     noProjects: 'No projects yet', recent: 'Recent Projects',
     settings: 'Settings', newProject: 'New Project',
     placeholder: 'How can we build today?',
-    emptyTagline: 'Describe your idea below, or pick one from the ⚡ sidebar',
+    emptyTagline: 'Describe your idea below, or pick one from the sidebar',
     billing: 'Project Billing', session: 'Session', total: 'Total',
   },
   ru: {
@@ -110,44 +112,44 @@ const LABELS: Record<string, Record<string, string>> = {
     noProjects: 'Нет проектов', recent: 'Последние проекты',
     settings: 'Настройки', newProject: 'Новый проект',
     placeholder: 'Что строим сегодня?',
-    emptyTagline: 'Опишите идею ниже или выберите из ⚡ сайдбара',
+    emptyTagline: 'Опишите идею ниже или выберите в сайдбаре',
     billing: 'Биллинг проекта', session: 'Сессия', total: 'Итого',
   },
   es: {
     file: 'Archivo', voice: 'Voz', history: 'Historial',
     noProjects: 'Sin proyectos', recent: 'Proyectos recientes',
     settings: 'Ajustes', newProject: 'Nuevo proyecto',
-    placeholder: '¿Qué construimos hoy?',
-    emptyTagline: 'Describe tu idea abajo o elige del ⚡ panel lateral',
-    billing: 'Facturación', session: 'Sesión', total: 'Total',
+    placeholder: 'Â¿QuÃ© construimos hoy?',
+    emptyTagline: 'Describe tu idea abajo o elige del âš¡ panel lateral',
+    billing: 'FacturaciÃ³n', session: 'SesiÃ³n', total: 'Total',
   },
   de: {
     file: 'Datei', voice: 'Stimme', history: 'Verlauf',
     noProjects: 'Keine Projekte', recent: 'Letzte Projekte',
     settings: 'Einstellungen', newProject: 'Neues Projekt',
     placeholder: 'Was bauen wir heute?',
-    emptyTagline: 'Beschreibe deine Idee unten oder wähle aus dem ⚡ Menü',
+    emptyTagline: 'Beschreibe deine Idee unten oder wÃ¤hle aus dem âš¡ MenÃ¼',
     billing: 'Abrechnung', session: 'Sitzung', total: 'Gesamt',
   },
   fr: {
     file: 'Fichier', voice: 'Voix', history: 'Historique',
-    noProjects: 'Aucun projet', recent: 'Projets récents',
-    settings: 'Paramètres', newProject: 'Nouveau projet',
+    noProjects: 'Aucun projet', recent: 'Projets rÃ©cents',
+    settings: 'ParamÃ¨tres', newProject: 'Nouveau projet',
     placeholder: "Que construisons-nous aujourd'hui?",
-    emptyTagline: 'Décrivez votre idée ci-dessous ou choisissez dans le ⚡ panneau',
+    emptyTagline: 'DÃ©crivez votre idÃ©e ci-dessous ou choisissez dans le âš¡ panneau',
     billing: 'Facturation', session: 'Session', total: 'Total',
   },
   zh: {
-    file: '文件', voice: '语音', history: '历史',
-    noProjects: '暂无项目', recent: '最近项目',
-    settings: '设置', newProject: '新项目',
-    placeholder: '今天构建什么？',
-    emptyTagline: '在下方描述您的想法，或从 ⚡ 侧栏选择',
-    billing: '项目账单', session: '本次', total: '合计',
+    file: 'æ–‡ä»¶', voice: 'è¯­éŸ³', history: 'åŽ†å²',
+    noProjects: 'æš‚æ— é¡¹ç›®', recent: 'æœ€è¿‘é¡¹ç›®',
+    settings: 'è®¾ç½®', newProject: 'æ–°é¡¹ç›®',
+    placeholder: 'ä»Šå¤©æž„å»ºä»€ä¹ˆï¼Ÿ',
+    emptyTagline: 'åœ¨ä¸‹æ–¹æè¿°æ‚¨çš„æƒ³æ³•ï¼Œæˆ–ä»Ž âš¡ ä¾§æ é€‰æ‹©',
+    billing: 'é¡¹ç›®è´¦å•', session: 'æœ¬æ¬¡', total: 'åˆè®¡',
   },
 };
 
-// ── Вспомогательные компоненты ────────────────────────────────────────────
+// â”€â”€ Ð’ÑÐ¿Ð¾Ð¼Ð¾Ð³Ð°Ñ‚ÐµÐ»ÑŒÐ½Ñ‹Ðµ ÐºÐ¾Ð¼Ð¿Ð¾Ð½ÐµÐ½Ñ‚Ñ‹ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const TypingDots = () => (
   <div className="flex items-center gap-1 px-1 py-0.5">
@@ -180,12 +182,12 @@ const GenerationReportCard: React.FC<{
       userSelect: 'text',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
-        <span style={{ fontSize: 14 }}>{isNew ? '✅' : '✏️'}</span>
+        <span style={{ fontSize: 11, fontWeight: 700 }}>{isNew ? 'OK' : 'EDIT'}</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{content}</span>
       </div>
       <div style={{ fontSize: 11, color: subText, marginBottom: 7 }}>
-        {report.theme !== 'default' ? `Theme: ${report.theme} · ` : ''}
-        {report.pageCount > 0 ? `${report.pageCount} page${report.pageCount !== 1 ? 's' : ''} · ` : ''}
+        {report.theme !== 'default' ? `Theme: ${report.theme} Â· ` : ''}
+        {report.pageCount > 0 ? `${report.pageCount} page${report.pageCount !== 1 ? 's' : ''} Â· ` : ''}
         {`${report.duration}s`}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -193,7 +195,7 @@ const GenerationReportCard: React.FC<{
           const isMod = !isNew && report.filesModified.includes(f);
           return (
             <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11 }}>
-              <span>{isMod ? '📝' : '📄'}</span>
+              <span>{isMod ? 'ðŸ“' : 'ðŸ“„'}</span>
               <span style={{ fontFamily: 'monospace', color: textColor, opacity: 0.8 }}>
                 {f}{isMod ? ' (modified)' : ''}
               </span>
@@ -227,7 +229,7 @@ const ClarificationCard: React.FC<{
       userSelect: 'text',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-        <span style={{ fontSize: 14 }}>🤔</span>
+        <span style={{ fontSize: 14 }}>ðŸ¤”</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>
           A couple of questions before I start:
         </span>
@@ -241,7 +243,7 @@ const ClarificationCard: React.FC<{
         ))}
       </div>
       <div style={{ marginTop: 8, fontSize: 11, color: subText }}>
-        Just type your answer below ↓
+        Just type your answer below â†“
       </div>
     </div>
   );
@@ -265,7 +267,7 @@ const formatTime = (iso: string) => {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 };
 
-// ── Основной компонент ────────────────────────────────────────────────────
+// â”€â”€ ÐžÑÐ½Ð¾Ð²Ð½Ð¾Ð¹ ÐºÐ¾Ð¼Ð¿Ð¾Ð½ÐµÐ½Ñ‚ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const LeftPanel: React.FC<LeftPanelProps> = ({
   messages, input, setInput, onSend, onStop, isGenerating, progress, currentPhase, scrollRef,
@@ -279,20 +281,20 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   generationMode = 'app', setGenerationMode = () => {},
   appLanguage = 'en',
   attachments = [], addAttachment = () => {}, removeAttachment = () => {},
+  composerContextItems = [], removeComposerContextItem = () => {}, clearComposerContextItems = () => {},
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
 }) => {
   const lang = LABELS[appLanguage] ?? LABELS['en'];
   const t = (key: string) => lang[key] ?? LABELS['en'][key] ?? key;
-  const { user: authUser, loading: authLoading, signInWithGoogle, signOut: authSignOut } = useAuth();
-  const [projectsOpen, setProjectsOpen]       = useState(true); // kept for billing widget positioning
   const [historyOpen, setHistoryOpen]         = useState(false);
   const [previewSnap, setPreviewSnap]         = useState<Snapshot | null>(null);
-  const [showModeSelect, setShowModeSelect]   = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen]   = useState(false);
   const [copiedIdx, setCopiedIdx]             = useState<string | null>(null);
   const [isDragging, setIsDragging]           = useState(false);
   const [isDraggingInput, setIsDraggingInput] = useState(false);
   const textareaRef  = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
 
   /** Resize image to max 1920px wide and return JPEG data-URI (~85% quality). */
   const resizeImage = (file: File): Promise<string> =>
@@ -382,7 +384,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
         };
         reader.readAsDataURL(file);
       } else {
-        // Plain text / code — append content to the textarea
+        // Plain text / code â€” append content to the textarea
         const reader = new FileReader();
         reader.onload = ev => {
           const text = ev.target?.result as string;
@@ -413,10 +415,10 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
     '#3b82f6';
 
   const phaseLabel  =
-    currentPhase === 'think'  ? 'Анализ...'    :
+    currentPhase === 'think'  ? 'Анализ...' :
     currentPhase === 'plan'   ? 'Планирование' :
-    currentPhase === 'code'   ? 'Кодирование'  :
-    currentPhase === 'verify' ? 'Проверка'     : '';
+    currentPhase === 'code'   ? 'Кодирование' :
+    currentPhase === 'verify' ? 'Проверка' : '';
 
   // Auto-resize textarea
   useEffect(() => {
@@ -433,50 +435,34 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
     el.scrollTop = el.scrollHeight;
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Close attach menu on outside click
+  useEffect(() => {
+    if (!attachMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
+        setAttachMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [attachMenuOpen]);
+
   const hasMessages = messages.length > 0;
+  const appendToInput = (snippet: string) => {
+    const next = input.trim() ? `${input}\n${snippet}` : snippet;
+    setInput(next);
+  };
 
   return (
     <div className="flex flex-col shrink-0 transition-colors duration-500 relative"
-      style={{ width: 360, height: '100vh', background: panelBg, borderRight: `1px solid ${borderColor}`, zIndex: 40 }}>
+      style={{ width: 360, height: '100%', minHeight: 0, background: panelBg, borderRight: `1px solid ${borderColor}`, zIndex: 40 }}>
 
-      {/* ── HEADER ── */}
-      <header className="flex items-center justify-between px-5 py-4 shrink-0"
-        style={{ borderBottom: `1px solid ${borderColor}` }}>
-        <div className="flex items-center gap-2.5">
-          <span onDoubleClick={onSettings}
-            className="text-[10px] tracking-[0.35em] font-bold uppercase cursor-pointer hover:text-blue-400 transition-colors select-none"
-            style={{ color: subText }}>
-            AIC-RG STUDIO <span style={{ opacity: 0.4 }}>PRO</span>
-          </span>
-          {snapshots.length > 0 && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
-              style={{ background: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}>
-              <GitBranch size={9} /> v{currentVersion}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {(['dark', 'medium', 'light'] as const).map(t => (
-            <button key={t} onClick={() => setTheme(t)} style={{
-              width: 10, height: 10, borderRadius: '50%',
-              background: t === 'dark' ? '#111' : t === 'medium' ? '#666' : '#fff',
-              border: `1px solid ${t === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.12)'}`,
-              outline: currentTheme === t ? '2px solid #3b82f6' : 'none',
-              outlineOffset: 2,
-              transform: currentTheme === t ? 'scale(1.15)' : 'scale(1)',
-              opacity: currentTheme === t ? 1 : 0.3,
-              transition: 'all .15s',
-            }} />
-          ))}
-        </div>
-      </header>
+      {/* Projects list removed â€” see Projects screen (ðŸ“ icon in sidebar) */}
 
-      {/* Projects list removed — see Projects screen (📁 icon in sidebar) */}
-
-      {/* ── CHAT SECTION (messages + input) — takes remaining space ── */}
+      {/* â”€â”€ CHAT SECTION (messages + input) â€” takes remaining space â”€â”€ */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
 
-      {/* ── MESSAGES / EMPTY STATE ── */}
+      {/* â”€â”€ MESSAGES / EMPTY STATE â”€â”€ */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar relative" style={{ minHeight: 0 }}
         onDragOver={e  => { e.preventDefault(); setIsDragging(true);  }}
         onDragLeave={() => setIsDragging(false)}
@@ -510,7 +496,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
           </div>
         ) : (
           <div className="px-4 py-4 space-y-4">
-            {messages.map((m, i) => {
+            {messages.map((m) => {
+              if (!m.id) throw new Error('Message without id');
               const isUser          = m.role === 'user';
               const isTyping        = !isUser && m.content === '...' && isGenerating;
               const isReport        = m.type === 'generation-report' && !!m.report;
@@ -522,7 +509,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                 const isPending = pendingPlan !== null;
                 const bpPages: string[] = (m as any).pages ?? [];
                 return (
-                  <div key={(m as any).id ?? i} style={{
+                  <div key={m.id} style={{
                     background: 'var(--card)',
                     border: '1px solid rgba(99,102,241,0.4)',
                     borderRadius: 12,
@@ -549,7 +536,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                           color: subText,
                           marginTop: 2,
                         }}>
-                          {bpPages.length} screens · {(m as any).theme} theme
+                          {bpPages.length} screens Â· {(m as any).theme} theme
                         </div>
                       </div>
                       {isPending && (
@@ -578,7 +565,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       {(m as any).blueprintText}
                     </div>
 
-                    {/* Technical Blueprint — collapsible secondary diagnostics */}
+                    {/* Technical Blueprint â€” collapsible secondary diagnostics */}
                     {(m as any).technicalBlueprint && JSON.stringify((m as any).technicalBlueprint).length > 20 && (
                       <details style={{
                         margin: '0 16px 12px',
@@ -614,7 +601,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       </details>
                     )}
 
-                    {/* Buttons — only while awaiting confirmation */}
+                    {/* Buttons â€” only while awaiting confirmation */}
                     {isPending && (
                       <div style={{
                         padding: '12px 16px',
@@ -662,7 +649,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                 const progress: number = (m as any).progress ?? 0;
                 const streamingCode: string = (m as any).streamingCode ?? '';
                 return (
-                  <div key={(m as any).id ?? i} style={{
+                  <div key={m.id} style={{
                     background: 'var(--card)',
                     border: `1px solid ${isDone ? 'rgba(34,197,94,0.3)' : 'rgba(99,102,241,0.3)'}`,
                     borderRadius: 12, padding: '14px 16px', margin: '8px 0',
@@ -670,7 +657,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                     {/* Header */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                       {isDone ? (
-                        <span style={{ fontSize: 16 }}>✅</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#22c55e' }}>OK</span>
                       ) : (
                         <div style={{
                           width: 14, height: 14, flexShrink: 0,
@@ -683,11 +670,11 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                         <div style={{ fontSize: 13, fontWeight: 600, color: textColor }}>
                           {isDone
                             ? `${appName || 'App'} ready`
-                            : appName ? `Building ${appName}…` : 'Analyzing your idea…'}
+                            : appName ? `Building ${appName}...` : 'Analyzing your idea...'}
                         </div>
                         {isBuilding && (
                           <div style={{ fontSize: 11, color: subText, marginTop: 2 }}>
-                            Vite is compiling…
+                            Vite is compiling...
                           </div>
                         )}
                       </div>
@@ -743,7 +730,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       </div>
                     )}
 
-                    {/* Streaming code — collapsible */}
+                    {/* Streaming code â€” collapsible */}
                     {streamingCode && (
                       <details style={{ marginTop: 10 }}>
                         <summary style={{
@@ -752,7 +739,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                         }}>
                           {isDone
                             ? 'View code'
-                            : `Generating… (${Math.round(streamingCode.length / 1000)}k chars)`}
+                            : `Generating... (${Math.round(streamingCode.length / 1000)}k chars)`}
                         </summary>
                         <div style={{ position: 'relative', marginTop: 6 }}>
                           <pre style={{
@@ -801,7 +788,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                   ) : isReport && m.report ? (
                     <GenerationReportCard
                       report={m.report}
-                      content={m.content}
+                      content={typeof m.content === 'string' ? m.content : ''}
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}
@@ -875,7 +862,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
         )}
       </div>
 
-      {/* ── INPUT ── */}
+      {/* â”€â”€ INPUT â”€â”€ */}
       <div className="shrink-0 px-3 pb-3 relative" style={{ borderTop: `1px solid ${borderColor}`, paddingTop: 10 }}
         onDragOver={e => { e.preventDefault(); setIsDraggingInput(true); }}
         onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDraggingInput(false); }}
@@ -897,13 +884,13 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
           </div>
         )}
 
-        {/* toolbar — left-aligned, compact, AUTO first */}
+        {/* toolbar â€” left-aligned, compact, AUTO first */}
         <div className="flex items-center mb-2 px-1" style={{ gap: 2, overflowX: 'auto' }}>
 
-          {/* 1 — AUTO toggle (first) */}
+          {/* 1 â€” AUTO toggle (first) */}
           <button
             onClick={() => setAutoRoute(!autoRoute)}
-            title={autoRoute ? 'Auto-routing ON — click to disable' : 'Auto-routing OFF — click to enable'}
+            title={autoRoute ? 'Auto-routing ON â€” click to disable' : 'Auto-routing OFF â€” click to enable'}
             className="flex items-center gap-0.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all shrink-0"
             style={{
               padding: '4px 7px',
@@ -913,10 +900,10 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               boxShadow:  autoRoute ? '0 0 8px rgba(251,191,36,0.18)' : 'none',
               transition: 'all 0.2s',
             }}>
-            🤖 AUTO
+            AUTO
           </button>
 
-          {/* 2 — Generation mode toggle: App / Landing / Superapp */}
+          {/* 2 â€” Generation mode toggle: App / Landing / Superapp */}
           {(['app', 'landing', 'superapp'] as const).map(m => (
             <button key={m}
               onClick={() => setGenerationMode(m)}
@@ -929,11 +916,11 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                 border:    `1px solid ${generationMode === m ? 'rgba(139,92,246,0.3)' : 'rgba(255,255,255,0.06)'}`,
                 transition: 'all 0.2s',
               }}>
-              {m === 'app' ? '⬡ APP' : m === 'landing' ? '⬢ PAGE' : '⬟ SUPER'}
+              {m === 'app' ? 'APP' : m === 'landing' ? 'PAGE' : 'SUPER'}
             </button>
           ))}
 
-          {/* 4 — ALL / FILE context toggle */}
+          {/* 4 â€” ALL / FILE context toggle */}
           <button
             onClick={() => setFullContextMode(!fullContextMode)}
             title={fullContextMode ? 'Context: all files' : `Context: ${activeFile} only`}
@@ -944,16 +931,14 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               color:      fullContextMode ? '#60a5fa' : subText,
               border:    `1px solid ${fullContextMode ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.06)'}`,
             }}>
-            {fullContextMode ? '⊞ ALL' : '⊡ FILE'}
+            {fullContextMode ? 'ALL' : 'FILE'}
           </button>
 
           {/* thin divider */}
           <div style={{ width: 1, height: 14, background: borderColor, flexShrink: 0, margin: '0 1px' }} />
 
-          {/* 5 — File / Voice / History */}
+          {/* 5 â€” quick actions */}
           {[
-            { icon: <Paperclip size={11} />, label: t('file'),    onClick: () => fileInputRef.current?.click() },
-            { icon: <Mic size={11} />,       label: t('voice'),   onClick: () => {} },
             { icon: <History size={11} />,   label: t('history'), onClick: () => setHistoryOpen(true) },
           ].map(btn => (
             <button key={btn.label} onClick={btn.onClick}
@@ -972,7 +957,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
           {/* thin divider */}
           <div style={{ width: 1, height: 14, background: borderColor, flexShrink: 0, margin: '0 1px' }} />
 
-          {/* 4 — Undo / Redo */}
+          {/* 4 â€” Undo / Redo */}
           <button onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)"
             className="flex items-center justify-center rounded-lg transition-all hover:bg-blue-500/10 disabled:opacity-20 disabled:cursor-not-allowed shrink-0"
             style={{ color: canUndo ? '#60a5fa' : subText, width: 26, height: 26 }}>
@@ -985,7 +970,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
           </button>
         </div>
 
-        {/* progress bar — visible only while generating */}
+        {/* progress bar â€” visible only while generating */}
         {isGenerating && (
           <div style={{ marginBottom: 8 }}>
             <div style={{
@@ -1026,7 +1011,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                 ) : att.type === 'pdf' ? (
                   <div className="flex flex-col items-center justify-center gap-0.5"
                     style={{ width: 44, height: 44, flexShrink: 0 }}>
-                    <span style={{ fontSize: 18, lineHeight: 1 }}>📄</span>
+                    <span style={{ fontSize: 18, lineHeight: 1 }}>ðŸ“„</span>
                     <span style={{ fontSize: 8, color: subText, fontWeight: 600 }}>PDF</span>
                   </div>
                 ) : (
@@ -1050,9 +1035,97 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
           </div>
         )}
 
+        {/* Context pack chips (ideas/trends/briefs queued before send) */}
+        {composerContextItems.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2 items-center">
+            {composerContextItems.map(item => (
+              <div
+                key={item.id}
+                className="flex items-center gap-1 rounded-full px-2.5 py-1"
+                style={{
+                  background: isDark ? 'rgba(99,102,241,0.18)' : 'rgba(99,102,241,0.12)',
+                  border: '1px solid rgba(99,102,241,0.35)',
+                  color: isDark ? '#c7d2fe' : '#4f46e5',
+                }}
+              >
+                <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.8 }}>
+                  {item.source === 'niche' ? 'NICHE' : item.source === 'weekly-feed' ? 'WEEKLY' : item.source.toUpperCase()}
+                </span>
+                <span className="text-[10px] max-w-[170px] truncate" style={{ fontWeight: 600 }}>
+                  {item.title}
+                </span>
+                <button
+                  onClick={() => removeComposerContextItem(item.id)}
+                  className="p-0.5 rounded transition-colors"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.45)' }}
+                  title="Remove context"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={clearComposerContextItems}
+              className="text-[10px] px-2 py-1 rounded-full transition-colors"
+              style={{
+                color: subText,
+                background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                border: `1px solid ${borderColor}`,
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        )}
+
         {/* textarea + send / stop */}
         <div className="flex items-end gap-2 rounded-2xl p-2"
           style={{ background: inputBg, border: `1px solid ${borderColor}` }}>
+          <div ref={attachMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              onClick={() => setAttachMenuOpen(v => !v)}
+              title="Attach / tools"
+              className="p-2.5 rounded-xl transition-all hover:bg-blue-500/10"
+              style={{ color: subText }}
+            >
+              <Plus size={16} />
+            </button>
+            {attachMenuOpen && (
+              <div style={{
+                position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, zIndex: 40,
+                minWidth: 210, borderRadius: 12, overflow: 'hidden',
+                border: `1px solid ${borderColor}`,
+                background: isDark ? 'rgba(8,8,12,0.98)' : 'rgba(255,255,255,0.98)',
+                boxShadow: '0 12px 28px rgba(0,0,0,0.25)',
+              }}>
+                {[
+                  { icon: <Paperclip size={14} />, label: 'Attach file', action: () => fileInputRef.current?.click() },
+                  { icon: <Link2 size={14} />, label: 'Add reference URL', action: () => {
+                    const url = window.prompt('Reference URL');
+                    if (url?.trim()) appendToInput(`Reference: ${url.trim()}`);
+                  } },
+                  { icon: <Camera size={14} />, label: 'Take screenshot', action: () => appendToInput('Please use screenshot as context for this task.') },
+                  { icon: <Sparkles size={14} />, label: 'Visual edits', action: () => appendToInput('Apply visual edits while preserving current structure and logic.') },
+                ].map(item => (
+                  <button
+                    key={item.label}
+                    onClick={() => { item.action(); setAttachMenuOpen(false); }}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 9,
+                      padding: '10px 12px', border: 'none', textAlign: 'left',
+                      background: 'transparent', color: textColor, cursor: 'pointer', fontSize: 12,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <span style={{ color: subText }}>{item.icon}</span>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <textarea ref={textareaRef} rows={1} value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), !isGenerating && onSend())}
@@ -1067,7 +1140,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               <Square size={18} fill="currentColor" strokeWidth={0} />
             </button>
           ) : (
-            <button onClick={onSend} disabled={!input.trim()}
+            <button onClick={onSend} disabled={!input.trim() && composerContextItems.length === 0 && attachments.length === 0}
               className="p-2.5 rounded-xl bg-blue-600 text-white transition-all hover:bg-blue-500 active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed shrink-0">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
@@ -1084,94 +1157,9 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
         />
       </div>
 
-      {/* ── PROJECTS ── */}
+      {/* PROJECTS */}
       <div className="shrink-0" style={{ borderTop: `1px solid ${borderColor}` }}>
-        <div className="px-3 pt-3 pb-2">
-          <button onClick={() => setShowModeSelect(true)}
-            className="w-full flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white rounded-xl transition-all text-sm font-medium"
-            style={{ boxShadow: '0 4px 16px rgba(37,99,235,0.25)' }}>
-            <Plus size={16} /> {t('newProject')}
-          </button>
-        </div>
-
-        {/* ── MODE SELECT OVERLAY ── */}
-        {showModeSelect && (
-          <div className="absolute inset-0 z-50 flex flex-col"
-            style={{ background: isDark ? 'rgba(5,5,5,0.96)' : 'rgba(249,250,251,0.97)', backdropFilter: 'blur(8px)' }}>
-            <div className="flex items-center justify-between px-5 py-4 shrink-0"
-              style={{ borderBottom: `1px solid ${borderColor}` }}>
-              <span className="text-sm font-semibold" style={{ color: textColor }}>
-                {appLanguage === 'ru' ? 'Выберите тип проекта' : 'Choose project type'}
-              </span>
-              <button onClick={() => setShowModeSelect(false)}
-                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-                style={{ color: subText }}>
-                <X size={16} />
-              </button>
-            </div>
-            <div className="flex-1 flex flex-col gap-3 px-4 py-5 overflow-y-auto">
-              {([
-                {
-                  mode: 'landing' as const,
-                  icon: '⬢',
-                  title: appLanguage === 'ru' ? 'Лендинг' : 'Landing',
-                  subtitle: appLanguage === 'ru' ? 'до 3 стр' : 'up to 3 pages',
-                  desc: appLanguage === 'ru'
-                    ? 'Промо, визитка, портфолио — быстро и красиво'
-                    : 'Promo, portfolio, business card — fast and beautiful',
-                  color: '#3b82f6',
-                  bg: 'rgba(59,130,246,0.08)',
-                  border: 'rgba(59,130,246,0.25)',
-                },
-                {
-                  mode: 'app' as const,
-                  icon: '⬡',
-                  title: appLanguage === 'ru' ? 'Приложение' : 'Application',
-                  subtitle: appLanguage === 'ru' ? '3–8 стр' : '3–8 pages',
-                  desc: appLanguage === 'ru'
-                    ? 'Трекер, менеджер, дашборд — полноценный продукт'
-                    : 'Tracker, manager, dashboard — fully featured product',
-                  color: '#8b5cf6',
-                  bg: 'rgba(139,92,246,0.08)',
-                  border: 'rgba(139,92,246,0.25)',
-                },
-                {
-                  mode: 'superapp' as const,
-                  icon: '⬟',
-                  title: appLanguage === 'ru' ? 'Супер-апп' : 'Super App',
-                  subtitle: appLanguage === 'ru' ? '8+ стр' : '8+ pages',
-                  desc: appLanguage === 'ru'
-                    ? 'Полноценный продукт уровня Momna — сложная архитектура'
-                    : 'Full product with complex architecture and many modules',
-                  color: '#a855f7',
-                  bg: 'rgba(168,85,247,0.08)',
-                  border: 'rgba(168,85,247,0.25)',
-                },
-              ] as const).map(({ mode, icon, title, subtitle, desc, color, bg, border }) => (
-                <button key={mode}
-                  onClick={() => {
-                    setGenerationMode(mode);
-                    setShowModeSelect(false);
-                    onNewProject();
-                  }}
-                  className="w-full text-left rounded-2xl transition-all active:scale-[0.98] hover:opacity-90"
-                  style={{ background: bg, border: `1px solid ${border}`, padding: '16px 18px' }}>
-                  <div className="flex items-center gap-3 mb-1.5">
-                    <span style={{ fontSize: 22 }}>{icon}</span>
-                    <div>
-                      <span className="font-semibold text-sm" style={{ color }}>{title}</span>
-                      <span className="ml-2 text-[11px] font-medium rounded-full px-2 py-0.5"
-                        style={{ background: `${color}22`, color }}>{subtitle}</span>
-                    </div>
-                  </div>
-                  <p className="text-xs leading-relaxed" style={{ color: subText }}>{desc}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Recent projects removed — see Projects screen (📁 icon in sidebar) */}
+        {/* Recent projects removed — see Projects screen icon in sidebar */}
         {projects.length > 0 && currentProjectId && (() => {
           const cur = projects.find((p: any) => p.id === currentProjectId);
           if (!cur) return null;
@@ -1187,9 +1175,9 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
           );
         })()}
 
-        {/* ── BILLING WIDGET ── */}
+        {/* â”€â”€ BILLING WIDGET â”€â”€ */}
         {(sessionCost > 0 || projectCost > 0) && (() => {
-          const modelShort = (selectedModel ?? '').split('/').pop()?.replace(/:free$/, '') ?? '—';
+          const modelShort = (selectedModel ?? '').split('/').pop()?.replace(/:free$/, '') ?? 'â€”';
           const fmtCost = (n: number) => n < 0.0001 ? '$0.0000' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(3)}`;
           const fmtTokens = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
           return (
@@ -1215,65 +1203,9 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
           );
         })()}
 
-
-        <div className="px-3 pb-3" style={{ borderTop: `1px solid ${borderColor}`, paddingTop: 10 }}>
-          {/* ── AUTH WIDGET ── */}
-          {authLoading ? null : authUser ? (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '6px 10px', marginBottom: 6,
-                borderRadius: 8,
-                background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
-                cursor: 'pointer',
-              }} onClick={authSignOut} title="Sign out">
-                {authUser.avatar_url ? (
-                  <img src={authUser.avatar_url} alt=""
-                    style={{ width: 22, height: 22, borderRadius: '50%' }} />
-                ) : (
-                  <div style={{
-                    width: 22, height: 22, borderRadius: '50%',
-                    background: '#6366f1',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, color: '#fff', fontWeight: 600,
-                  }}>
-                    {(authUser.name ?? authUser.email ?? '?').charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span style={{ fontSize: 11, color: subText,
-                               maxWidth: 80, overflow: 'hidden',
-                               textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {authUser.name ?? authUser.email}
-                </span>
-              </div>
-          ) : (
-              <button
-                onClick={signInWithGoogle}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '6px 10px', marginBottom: 6, borderRadius: 8, cursor: 'pointer',
-                  border: `1px solid ${borderColor}`, background: 'transparent',
-                  color: subText, fontSize: 11,
-                  width: '100%',
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                </svg>
-                Sign in with Google
-              </button>
-          )}
-          <button onClick={onSettings}
-            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-all hover:bg-blue-500/5"
-            style={{ color: subText }}>
-            <Settings size={16} /> {t('settings')}
-          </button>
-        </div>
       </div>
 
-      {/* ── HISTORY DRAWER ── */}
+      {/* â”€â”€ HISTORY DRAWER â”€â”€ */}
       {historyOpen && (
         <div className="absolute inset-0 flex flex-col z-50"
           style={{ background: panelBg, borderRight: `1px solid ${borderColor}` }}>
@@ -1368,7 +1300,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               )}
             </div>
 
-            {/* Snapshot mini-preview — ALWAYS mounted; display:none avoids removeChild crash */}
+            {/* Snapshot mini-preview â€” ALWAYS mounted; display:none avoids removeChild crash */}
             {(() => {
               const snapFiles = previewSnap?.files ?? {};
               const previewCode = previewSnap
@@ -1424,3 +1356,10 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
     </div>
   );
 };
+
+
+
+
+
+
+
