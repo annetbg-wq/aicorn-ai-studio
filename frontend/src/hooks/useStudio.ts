@@ -12,6 +12,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, startTransition, useReducer } from 'react';
 import type { LogEntry } from '../components/StudioTerminal';
 import {
+  createMessageId,
   chatReducer,
   normalizeMessages,
   normalizeMessage,
@@ -1761,6 +1762,22 @@ export const useStudio = () => {
       // Success — reset error counter
       consecutiveErrors.current = 0;
       commandBus.dispatch({ type: 'GENERATION_COMPLETE', result });
+
+      // Hard guarantee: a blueprint message is present after generation response.
+      // If onPlanReady did not fire for any reason, append a fallback plan card.
+      if (!blueprintIdRef.current) {
+        const planMessage = {
+          id: createMessageId(),
+          role: 'system',
+          type: 'blueprint',
+          content: (result as any)?.planSummary ?? 'Plan: Create todo app with Supabase',
+          timestamp: Date.now(),
+          raw: result,
+          blueprintVisible: true,
+        };
+        blueprintIdRef.current = planMessage.id;
+        dispatch({ type: 'APPEND', payload: planMessage });
+      }
 
       // Progress bar — critical, applied immediately
       setProgress(100);

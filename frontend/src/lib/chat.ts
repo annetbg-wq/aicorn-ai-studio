@@ -20,6 +20,9 @@
 
 export type ChatMessageRole = 'user' | 'assistant' | 'system';
 export type ChatMessageType =
+  | 'user'
+  | 'assistant'
+  | 'system'
   | 'text'
   | 'blueprint'
   | 'generation-plan'
