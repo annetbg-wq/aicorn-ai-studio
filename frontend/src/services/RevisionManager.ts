@@ -337,6 +337,16 @@ export class RevisionManager {
    * Does NOT call notifyReady — that was already done by compileCandidate
    * when the iframe handshake succeeded. promote() is purely an ownership
    * transfer: candidate slot → active slot.
+   *
+   * Two-gate promotion model:
+   *   Gate 1 — compileCandidate(): waits for `preview-mounted` from the iframe.
+   *   Gate 2 — WhiteScreenDetector.isBlank(): verifies the iframe is not blank
+   *             immediately after mount. If Gate 2 fails → last-good is restored,
+   *             notifyFailed is called, state is cleaned up, PROMOTE_BLOCKED thrown.
+   *
+   * Note: SandpackPreview runs its own isBlank() check at +1000 ms after
+   * `preview-mounted`. This is NOT a duplicate of Gate 2 — it catches crashes
+   * that occur after a successful promotion (e.g. a component throws post-mount).
    */
   async promote(revisionId: string): Promise<void> {
     if (revisionId !== this.candidateRevisionId) {
@@ -378,6 +388,12 @@ export class RevisionManager {
       }
 
       previewController.notifyFailed('Preview is blank', previousActiveRevisionId ?? revisionId);
+      // Баг 1 fix: сбрасываем state до throw, иначе candidateRevisionId/compiledRevisionId
+      // остаются заполненными — RevisionManager в inconsistent state, следующий
+      // createCandidate() видит orphaned candidate с compiledRevisionId уже выставленным.
+      this.candidateRevisionId = null;
+      this.compiledRevisionId = null;
+      this.syncTimelineContext();
       throw new Error('PROMOTE_BLOCKED: white_screen_after_ready');
     }
 
