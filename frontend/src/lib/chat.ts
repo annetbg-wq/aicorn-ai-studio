@@ -115,6 +115,7 @@ export type ChatAction =
   | { type: 'UPDATE_STEPS'; id: string; stepId: string; stepStatus: string }
   | { type: 'PATCH_LAST'; patch: Partial<ChatMessage>; when?: (msg: ChatMessage) => boolean }
   | { type: 'REMOVE_BY_TYPE'; msgType: string }
+  | { type: 'REMOVE_BY_ID'; id: string }
   | { type: 'SET_BLUEPRINT_VISIBLE'; id: string; visible: boolean }
   | { type: 'FILTER'; predicate: (msg: ChatMessage) => boolean };
 
@@ -202,6 +203,9 @@ export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessa
 
     case 'REMOVE_BY_TYPE':
       return state.filter(msg => msg.type !== action.msgType);
+
+    case 'REMOVE_BY_ID':
+      return state.filter(msg => msg.id !== action.id);
 
     case 'FILTER':
       return state.filter(action.predicate);
