@@ -229,6 +229,8 @@ export const useStudio = () => {
   // Tracks the id of the last blueprint message so ACCEPT/REJECT subscribers
   // can hide it without scanning the messages array.
   const blueprintIdRef = useRef<string | null>(null);
+  // Guard: prevents double-dispatch when user clicks confirm twice quickly.
+  const confirmingRef = useRef(false);
 
   // ── chat dispatch helpers ─────────────────────────────────────────────────
   const chatAppend = useCallback((partial: Omit<ChatMessage, 'id' | 'timestamp'> & Partial<Pick<ChatMessage, 'id' | 'timestamp'>>) => {
@@ -1488,30 +1490,48 @@ export const useStudio = () => {
     // Reset chat to show conversation history while plan loads.
     dispatch({ type: 'RESET', payload: history });
 
+    // ── Optimistic blueprint card — shown immediately while plan generates ─────
+    const optimisticPlanMsgId = crypto.randomUUID();
+    currentPlanMsgIdRef.current = optimisticPlanMsgId;
+    dispatch({ type: 'APPEND', payload: {
+      id:             optimisticPlanMsgId,
+      role:           'assistant' as const,
+      type:           'blueprint',
+      timestamp:      Date.now(),
+      content:        `Plan: ${userPrompt.slice(0, 80)}`,
+      blueprintVisible: true,
+      progress:       0,
+      buildStatus:    'generating' as const,
+    } });
+
     // ── Language detection ────────────────────────────────────────────────────
     let userLang = /[а-яА-Я]/.test(userPrompt) ? 'ru' : 'en';
     if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') userLang = 'ru';
 
-    // ── Generate plan immediately — no clarifier step ─────────────────────────
-    const plan = await GenerationPipeline.generatePlan({
-      intent:   userPrompt,
-      userLang,
-      apiKey:   effectiveApiKey,
-      signal:   controller.signal,
-    });
+    // ── Generate plan — replace optimistic card with real plan data ───────────
+    let plan: Awaited<ReturnType<typeof GenerationPipeline.generatePlan>>;
+    try {
+      plan = await GenerationPipeline.generatePlan({
+        intent:   userPrompt,
+        userLang,
+        apiKey:   effectiveApiKey,
+        signal:   controller.signal,
+      });
+    } catch (planErr) {
+      // Remove optimistic card so UI doesn't show a stuck skeleton.
+      dispatch({ type: 'REMOVE_BY_ID', id: optimisticPlanMsgId });
+      throw planErr;
+    }
     console.log('[planner] plan generated, dispatching', plan);
 
-    const planMsgId = crypto.randomUUID();
-    currentPlanMsgIdRef.current = planMsgId;
-    dispatch({ type: 'APPEND', payload: {
-      id:           planMsgId,
-      role:         'assistant' as const,
-      type:         'blueprint',
-      timestamp:    Date.now(),
+    // Update the optimistic card with real plan data (reuse same id — no remount).
+    const planMsgId = optimisticPlanMsgId;
+    dispatch({ type: 'UPDATE_BY_ID', id: planMsgId, patch: {
       appName:      plan.appName,
       pages:        plan.pages,
       steps:        plan.steps,
-      progress:     0,
+      content:      undefined,
+      blueprintVisible: true,
       buildStatus:  'generating' as const,
       streamingCode: '',
     } });
@@ -2055,6 +2075,8 @@ export const useStudio = () => {
   }, [addLog]);
 
   const confirmPlan = useCallback((plan?: object) => {
+    if (confirmingRef.current) return;
+    confirmingRef.current = true;
     // Immediately remove fallback blueprint cards so double-click is impossible.
     dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'blueprint' });
     commandBus.dispatch({
@@ -2066,6 +2088,8 @@ export const useStudio = () => {
       void watchPreviewUrl(currentProjectId);
     }
     commandBus.dispatch({ type: 'ACCEPT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
+    // Reset guard after a tick so the same instance can be reused if generation is re-triggered.
+    setTimeout(() => { confirmingRef.current = false; }, 500);
   }, [pendingPlan, currentProjectId, watchPreviewUrl]);
 
   const cancelPlan = useCallback(() => {
