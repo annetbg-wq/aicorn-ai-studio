@@ -955,10 +955,23 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               const isTyping        = !isUser && m.content === '...' && isGenerating;
               const isReport        = m.type === 'generation-report' && !!m.report;
               const isClarification = m.type === 'clarification' && Array.isArray(m.questions) && (m.questions as string[]).length > 0;
-              const isPlan          = m.type === 'generation-plan';
+              const isPlan          = m.type === 'generation-plan' || m.type === 'plan';
               const isBlueprint     = m.type === 'blueprint';
 
               if (isBlueprint) {
+                if (!(m as any).blueprintText && !(m as any).technicalBlueprint && !(m as any).pages) {
+                  return (
+                    <div key={m.id} data-testid="generation-plan-card">
+                      <div>{typeof m.content === 'string' ? m.content : 'Plan'}</div>
+                      <button
+                        data-testid="confirm-plan-btn"
+                        onClick={() => onConfirmPlan(m as object)}
+                      >
+                        Build it
+                      </button>
+                    </div>
+                  );
+                }
                 return (
                   <BlueprintCard
                     key={m.id}
