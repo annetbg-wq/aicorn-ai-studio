@@ -25,7 +25,6 @@ export type ChatMessageType =
   | 'system'
   | 'text'
   | 'blueprint'
-  | 'generation-plan'
   | 'generation-report'
   | 'clarification'
   | 'error'
