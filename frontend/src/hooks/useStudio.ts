@@ -2055,6 +2055,8 @@ export const useStudio = () => {
   }, [addLog]);
 
   const confirmPlan = useCallback((plan?: object) => {
+    // Immediately remove fallback blueprint cards so double-click is impossible.
+    dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'blueprint' });
     commandBus.dispatch({
       type: 'PLAN_APPROVED',
       payload: plan ?? pendingPlan?.plan ?? {},

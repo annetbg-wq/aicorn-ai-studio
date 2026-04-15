@@ -96,7 +96,8 @@ test.describe('Chat → generation → blueprint → preview', () => {
 
     // Double-click — second click must be a no-op (button disappears after first)
     await confirmBtn.dblclick();
-    await expect(confirmBtn).toHaveCount(0, { timeout: 5_000 });
+    // Ждем что карточка исчезла целиком, а не только кнопка
+    await expect(page.locator('[data-testid="generation-plan-card"]')).toHaveCount(0, { timeout: 5_000 });
 
     // No crash indicator
     await expect(
