@@ -1,29 +1,34 @@
 /**
- * WhiteScreenDetector — Post-ready sanity check for preview iframe.
+ * WhiteScreenDetector — hard gate для RevisionManager.promote() + диагностический слой.
  *
- * Runs AFTER the authoritative ready_set handshake. Detects cases where
- * the preview technically mounted (MountReporter fired) but the user
- * sees an empty or effectively blank screen.
+ * Два режима работы:
+ *   1. Hard gate (promote): isBlank() вызывается сразу после waitForReady().
+ *      Если iframe пуст — промоушен блокируется, last-good восстанавливается.
+ *   2. Diagnostic (SandpackPreview): isBlank() вызывается через +1000 мс после
+ *      preview-mounted — ловит краши, которые происходят уже после промоушена.
  *
- * Detection happens via a postMessage probe:
- *   1. Parent sends `{ type: 'white-screen-check', buildId }` to iframe
- *   2. Iframe inspects its own DOM and replies with `{ type: 'white-screen-result', ... }`
- *   3. This service evaluates the result and emits a structured diagnostic
+ * Это не дублирование: promote() блокирует пустой билд сразу,
+ * SandpackPreview ловит краш через секунду после успешного промоушена.
  *
- * This is a DIAGNOSTIC LAYER — it never blocks or replaces the ready gate.
- * It runs after a configurable delay to allow for async renders, data loading,
- * and transition animations to complete.
+ * Для глубокой диагностики через postMessage-пробу (метрики #root, offsetHeight и т.д.)
+ * используется schedulePostReadyCheck / probeIframe ниже.
  */
 
 import { previewController, previewLog } from './PreviewController';
 
 export class WhiteScreenDetector {
-  static async isBlank(iframe: HTMLIFrameElement | null): Promise<boolean> {
+  // Баг 4 fix: убран `async` — функция синхронна, await внутри нет.
+  // Баг 2 fix: проверяем #root, а не body. В Vite iframe body.children.length
+  // всегда равно 1 (только #root), поэтому `body.children.length > 1` никогда
+  // не было true → visual-only приложения (canvas, SVG, изображения без текста)
+  // ложно считались пустыми.
+  static isBlank(iframe: HTMLIFrameElement | null): boolean {
     if (!iframe) return true;
     const doc = iframe.contentDocument;
     if (!doc || !doc.body) return true;
-    const text = (doc.body.innerText ?? doc.body.textContent ?? '').trim();
-    const hasChildren = doc.body.children.length > 1; // >1 because body usually contains root wrapper.
+    const root = doc.getElementById('root') ?? doc.body;
+    const text = (root.innerText ?? root.textContent ?? '').trim();
+    const hasChildren = root.children.length > 0;
     return text.length < 10 && !hasChildren;
   }
 }
