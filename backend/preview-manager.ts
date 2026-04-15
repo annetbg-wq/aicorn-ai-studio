@@ -8,6 +8,7 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
+import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import getPort from 'get-port';
@@ -36,6 +37,7 @@ interface PreviewInstance {
 // ── constants ─────────────────────────────────────────────────────────────────
 
 const TEMPLATE_DIR = path.resolve(__dirname, '..', 'preview-workspace');
+const PREVIEW_WORKSPACE = path.resolve(__dirname, '..', 'preview-workspace');
 const PREVIEWS_DIR = path.resolve(__dirname, '..', 'previews');
 const STARTUP_TIMEOUT_MS = 20_000;
 const RESTART_DELAY_MS   = 1_000;
@@ -43,6 +45,18 @@ const RESTART_DELAY_MS   = 1_000;
 // ── state ─────────────────────────────────────────────────────────────────────
 
 const instances = new Map<string, PreviewInstance>();
+
+/**
+ * Mount static route for immutable build snapshots.
+ * Expected URL: /preview/:buildId
+ */
+export function registerPreviewBuildRoute(app: express.Express): void {
+  app.use('/preview/:buildId', (req, res, next) => {
+    const buildPath = path.join(PREVIEW_WORKSPACE, req.params.buildId);
+    if (!fs.existsSync(buildPath)) return res.status(404).send('Build not found');
+    return express.static(buildPath)(req, res, next);
+  });
+}
 
 // ── internal helpers ──────────────────────────────────────────────────────────
 

@@ -3,13 +3,14 @@ import dotenv from 'dotenv';
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { execSync, spawn, spawnSync } from 'child_process';
-import { startPreview, pushFiles, getPreviewPort } from './preview-manager';
+import { startPreview, pushFiles, getPreviewPort, registerPreviewBuildRoute } from './preview-manager';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
 const app = express();
 const PORT = 3000;
+registerPreviewBuildRoute(app);
 
 app.use((_req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');

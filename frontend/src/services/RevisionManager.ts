@@ -271,10 +271,17 @@ export class RevisionManager {
     const result = await waitForReady(revisionId, timeoutMs, this.previewUrl);
 
     if (result.success) {
+      const previewUrl = `/preview/${revisionId}`;
       // ── Materialize diagnostic: iframe-mounted → iframe-ready ─
       previewController.setDiagnosticStage('iframe-mounted', revisionId);
       previewLog('mount_done', { buildId: revisionId });
       previewController.setDiagnosticStage('iframe-ready', revisionId);
+
+      // Emit enriched mount signal for consumers that need the route-style URL.
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'preview-mounted', buildId: revisionId, previewUrl },
+        origin: window.location.origin,
+      }));
 
       // Mark as compiled — promote() will now accept this revision.
       this.compiledRevisionId = revisionId;
