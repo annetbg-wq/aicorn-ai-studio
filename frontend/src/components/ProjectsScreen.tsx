@@ -584,7 +584,6 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                                       updatedAt: new Date().toISOString(),
                                     };
                                     ProjectStorage.saveProject(updated);
-                                    ProjectStorage.loadToPreview(updated).catch(() => {});
                                     onLoadProject({ id: updated.id });
                                     setSelectedProject(updated);
                                   }}

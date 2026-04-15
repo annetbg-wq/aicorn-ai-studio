@@ -22,9 +22,9 @@ module.exports = defineConfig({
   ],
 
   webServer: {
-    command: 'npm run dev:frontend && npm run dev:backend',
+    command: 'npm run dev:all',
     url: 'http://localhost:5183',
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     env: {
       VITE_PLAYWRIGHT_TEST: '1',

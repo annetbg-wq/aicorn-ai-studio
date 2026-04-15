@@ -13,6 +13,7 @@
     "tool:restore": "node scripts/restore-tool.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.103.2",
     "archiver": "^7.0.1",
     "express": "^4.21.0",
     "get-port": "^7.2.0",

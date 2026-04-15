@@ -30,7 +30,7 @@ export interface PreviewState {
   lastReadyAt?: number;
   /**
    * Fine-grained materialize diagnostic. Updated at each checkpoint inside
-   * compileCandidate → flushToDisk → waitForReady → mount.
+   * compileCandidate → triggerCompile → waitForReady → mount.
    * Null before the first compile cycle.
    */
   diagnostics?: PreviewDiagnosticState | null;

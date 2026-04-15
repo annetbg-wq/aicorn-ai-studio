@@ -8,6 +8,7 @@
     "dev:clean": "npx --yes kill-port 5183 && vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "typecheck": "tsc --noEmit --skipLibCheck",
     "test": "vitest run",
     "test:smoke": "vitest run src/services/__tests__/previewStabilityPack.test.ts",
     "test:all": "vitest run --reporter=verbose"

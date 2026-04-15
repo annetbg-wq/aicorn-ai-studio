@@ -12,8 +12,11 @@
  *               ID: `candidateRevisionId`.
  *
  *  active     — The last revision that was successfully compiled and
- *               promoted. Its files are what the preview iframe shows.
- *               On rollback, the previous active is restored to disk.
+ *               promoted. Its static build is what the preview iframe shows
+ *               at /preview/:activeRevisionId. On rollback or white-screen
+ *               recovery the iframe navigates back to this URL — no
+ *               re-compile is needed because builds/:activeRevisionId/ is
+ *               already on disk (LRU-protected within MAX_BUILDS=20).
  *               ID: `activeRevisionId`.  (Also exposed as buildId in
  *               the preview-timeline and PreviewController.)
  *
@@ -30,12 +33,23 @@
  *      ┗━ failure → rollback (discard candidate, restore previous active)
  *
  *  The revisionId doubles as a buildId through the full preview cycle:
- *    clear → write batch → __build_id.ts (last) → preview-workspace HMR accept →
- *    `preview-mounted` postMessage → waitForReady() resolves → notifyReady().
+ *    triggerCompile (POST /api/preview/:buildId/compile)
+ *    → backend vite build → builds/:buildId/ static output
+ *    → iframe.src = /preview/:buildId
+ *    → MountReporter inside the static app posts `preview-mounted` postMessage
+ *    → waitForReady() resolves with matching buildId → notifyReady().
  *
  *  Only a `preview-mounted` message whose buildId matches the current cycle
  *  can settle waitForReady — stale or foreign messages are rejected.
- * ═══════════════════════════════════════════════════════════════════════
+ *
+ *  ── Rollback / restore semantics (backend-compiler era) ───────────────
+ *  Since builds are compiled to immutable static snapshots in builds/:id/,
+ *  rollback and undo/redo do NOT need a new compile cycle:
+ *    • rollback()        → navigate iframe to /preview/:activeRevisionId
+ *    • restoreRevision() → navigate iframe to /preview/:revisionId (fast path)
+ *                          or re-materialize if the build was LRU-evicted (rare)
+ *    • promote() fallback → navigate iframe back to /preview/:previousActiveRevisionId
+ *  ═══════════════════════════════════════════════════════════════════════
  */
 
 import { previewController, previewLog, setTimelineContext } from './PreviewController';
@@ -43,8 +57,6 @@ import { checkPreviewWrite } from './previewGuard';
 import {
   clearPreview as gatewayClear,
   normalizePath,
-  writeBatch,
-  writeBuildMarker,
 } from './PreviewWriteGateway';
 import {
   schedulePostReadyCheck,
@@ -89,6 +101,13 @@ export interface CompileResult {
   errors?:   string[];
   /** Opaque token set by compileCandidate on success. promote() requires this. */
   _compiled: boolean;
+}
+
+export interface PersistedMaterializeOptions {
+  /** Caller identity for timeline logs. */
+  source: string;
+  /** Optional project id for log context. */
+  projectId?: string | null;
 }
 
 export class RevisionManager {
@@ -158,6 +177,64 @@ export class RevisionManager {
     }
     await this.promote(id);
     return id;
+  }
+
+  /**
+   * Canonical materialization entry for persisted project loads/switches/restores.
+   *
+   * Contract:
+   *   1. Buffer persisted files into a candidate revision.
+   *   2. Compile and wait for authoritative `preview-mounted`.
+   *   3. Promote candidate → active on success.
+   *   4. Keep last-good preview untouched on failure (candidate is discarded).
+   *
+   * This keeps project-load semantics aligned with generation semantics by
+   * reusing the same candidate/active lifecycle and ready handshake.
+   */
+  async materializePersistedFiles(
+    files: Record<string, string>,
+    opts: PersistedMaterializeOptions,
+  ): Promise<string> {
+    const revisionId = await this.createCandidate();
+    setTimelineContext({ projectId: opts.projectId ?? null });
+    previewLog('persisted_materialize_start', {
+      buildId: revisionId,
+      source: opts.source,
+      projectId: opts.projectId ?? null,
+      fileCount: Object.keys(files ?? {}).length,
+    });
+
+    try {
+      for (const [path, content] of Object.entries(files ?? {})) {
+        await this.writeCandidateFile(revisionId, path, content);
+      }
+
+      const compile = await this.compileCandidate(revisionId);
+      if (!compile.success) {
+        this.discardCandidate(revisionId);
+        throw new Error(compile.errors?.join('\n') ?? 'Persisted project compile failed');
+      }
+
+      await this.promote(revisionId);
+      previewLog('persisted_materialize_done', {
+        buildId: revisionId,
+        source: opts.source,
+        projectId: opts.projectId ?? null,
+      });
+      return revisionId;
+    } catch (err) {
+      if (this.candidateRevisionId === revisionId) {
+        this.discardCandidate(revisionId);
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      previewLog('persisted_materialize_failed', {
+        buildId: revisionId,
+        source: opts.source,
+        projectId: opts.projectId ?? null,
+        error: msg,
+      });
+      throw err;
+    }
   }
 
   /**
@@ -324,18 +401,6 @@ export class RevisionManager {
   }
 
   /**
-   * Write `__build_id.ts` to preview-workspace/src/. Triggers main.tsx's HMR accept hook,
-   * which posts the `preview-mounted` message that settles waitForReady.
-   * Should be called LAST in any write batch.
-   */
-  async writeBuildIdMarker(buildId: string): Promise<void> {
-    await writeBuildMarker(buildId, {
-      source: 'RevisionManager.writeBuildIdMarker',
-      buildId,
-    });
-  }
-
-  /**
    * Promote candidate → active.
    *
    * PROMOTION CONTRACT (enforced):
@@ -387,19 +452,22 @@ export class RevisionManager {
         revisionId,
       );
 
-      // Preserve last-good pixels in iframe if we have an active revision.
+      // Restore last-good: navigate the iframe back to the previous active build.
+      // builds/:previousActiveRevisionId/ is already on disk — no re-compile needed.
+      // MAX_BUILDS=20 LRU ensures recent builds survive the current session.
       if (previousActiveRevisionId) {
-        const lastGoodFiles = this.store.get(previousActiveRevisionId);
-        if (lastGoodFiles && Object.keys(lastGoodFiles).length > 0) {
-          await this.clearPreview();
-          await this.flushToDisk(lastGoodFiles);
+        const lastGoodIframe = document.querySelector<HTMLIFrameElement>(
+          'iframe[data-testid="preview-iframe"]',
+        );
+        if (lastGoodIframe) {
+          previewLog('promote_restore_last_good', { buildId: previousActiveRevisionId });
+          lastGoodIframe.src = `/preview/${previousActiveRevisionId}`;
         }
       }
 
       previewController.notifyFailed('Preview is blank', previousActiveRevisionId ?? revisionId);
-      // Баг 1 fix: сбрасываем state до throw, иначе candidateRevisionId/compiledRevisionId
-      // остаются заполненными — RevisionManager в inconsistent state, следующий
-      // createCandidate() видит orphaned candidate с compiledRevisionId уже выставленным.
+      // Reset state before throw so candidateRevisionId/compiledRevisionId are
+      // not left populated — next createCandidate() must not see a stale orphan.
       this.candidateRevisionId = null;
       this.compiledRevisionId = null;
       this.syncTimelineContext();
@@ -424,8 +492,9 @@ export class RevisionManager {
    * REJECTION SEMANTICS:
    *   - The candidate is removed from the store (cannot be promoted later).
    *   - The compiled flag is cleared (no stale promotion possible).
-   *   - If an active revision exists, its files are flushed back to disk
-   *     and the preview is signaled as ready (last-good semantics).
+   *   - If an active revision exists, the iframe is navigated to
+   *     /preview/:activeRevisionId — the build is already on disk (no
+   *     re-compile needed; LRU-protected within MAX_BUILDS=20).
    *   - If no active revision exists (first-ever generation failed),
    *     the preview stays in its current state (idle or failed).
    */
@@ -444,17 +513,16 @@ export class RevisionManager {
       this.syncTimelineContext();
     }
 
-    // Restore active revision files (last-good preview)
+    // Restore last-good: navigate the iframe to the existing compiled static build.
+    // builds/:activeRevisionId/ is still on disk — no re-compile or HMR write needed.
     if (this.activeRevisionId) {
-      const files = this.store.get(this.activeRevisionId);
-      if (files && Object.keys(files).length > 0) {
-        console.log(
-          `[RevisionManager] rolling back to active ${this.activeRevisionId}`,
-        );
-        await this.clearPreview();
-        await this.flushToDisk(files);
-        previewController.notifyReady(this.activeRevisionId, 'rollback_restore');
-      }
+      console.log(`[RevisionManager] rolling back to active ${this.activeRevisionId}`);
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        'iframe[data-testid="preview-iframe"]',
+      );
+      if (iframe) iframe.src = `/preview/${this.activeRevisionId}`;
+      previewController.notifyReady(this.activeRevisionId, 'rollback_restore');
+      previewLog('rollback_restored', { buildId: this.activeRevisionId });
     }
   }
 
@@ -486,16 +554,48 @@ export class RevisionManager {
     return files ? { ...files } : undefined;
   }
 
-  /** Restore a previously promoted revision to disk and set it as active. */
+  /**
+   * Restore a previously promoted revision (undo/redo).
+   *
+   * Fast path  — builds/:revisionId/ is still on disk (common; LRU keeps
+   *              MAX_BUILDS=20 entries). Navigate the iframe directly to
+   *              /preview/:revisionId without any compile step.
+   * Slow path  — build was LRU-evicted (rare; requires >20 newer builds).
+   *              Re-materialize from the in-memory file store.
+   */
   async restoreRevision(revisionId: string): Promise<void> {
     const files = this.store.get(revisionId);
     if (!files) throw new Error(`Unknown revision: ${revisionId}`);
-    await this.clearPreview();
-    await this.flushToDisk(files);
-    this.activeRevisionId = revisionId;
-    this.syncTimelineContext();
-    previewLog('revision_restored', { buildId: revisionId });
-    previewController.notifyReady(revisionId);
+
+    const buildExists = await this._checkBuildExists(revisionId);
+    if (buildExists) {
+      // Fast path: compiled output is on disk — just navigate.
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        'iframe[data-testid="preview-iframe"]',
+      );
+      if (iframe) iframe.src = `/preview/${revisionId}`;
+      this.activeRevisionId = revisionId;
+      this.syncTimelineContext();
+      previewController.notifyReady(revisionId, 'revision_restored_direct');
+      previewLog('revision_restored', { buildId: revisionId, path: 'direct' });
+    } else {
+      // Slow path: build was LRU-evicted — re-compile from in-memory files.
+      previewLog('revision_restore_rematerialize', { buildId: revisionId, reason: 'build_not_on_disk' });
+      await this.materializePersistedFiles(files, {
+        source: 'RevisionManager.restoreRevision',
+      });
+      previewLog('revision_restored', { buildId: revisionId, path: 'rematerialized' });
+    }
+  }
+
+  /** HEAD-check whether builds/:buildId/ exists on the static build server. */
+  private async _checkBuildExists(buildId: string): Promise<boolean> {
+    try {
+      const r = await fetch(`/preview/${buildId}/`, { method: 'HEAD' });
+      return r.ok;
+    } catch {
+      return false;
+    }
   }
 
   // ── Context sync ───────────────────────────────────────────────
@@ -511,39 +611,37 @@ export class RevisionManager {
   // ── Private helpers ────────────────────────────────────────────
 
   /**
-   * Write a batch of files to preview-workspace/src/ via Vite middleware.
-   * If buildId is provided, writes `__build_id.ts` LAST so HMR accept fires
-   * after every other module has been replaced.
+   * Clear all files from preview-workspace/src/ via /__clear_preview.
+   * Called by SimpleGeneration as a preflight before NEW-mode generation
+   * so stale files from a previous build do not leak into the next compile.
+   *
+   * NOTE: preview-workspace/vite.config.ts only exposes this endpoint when the
+   * Vite dev server is running in HMR mode. In the backend-compiler architecture
+   * the endpoint may not exist; the gateway catches the 404 and swallows it.
    */
-  private async flushToDisk(
-    files: Record<string, string>,
-    buildId?: string,
-  ): Promise<void> {
-    const gwOpts = {
-      source: 'RevisionManager.flushToDisk',
-      buildId,
-    };
-    await writeBatch(files, gwOpts);
-    if (buildId) {
-      await writeBuildMarker(buildId, gwOpts);
-    }
-  }
-
   async fullClearPreview(buildId?: string): Promise<void> {
     try {
       await gatewayClear({
         source: 'RevisionManager.fullClearPreview',
         buildId,
       });
-      console.log('[RevisionManager] Preview cleared');
+      console.log('[RevisionManager] Preview workspace cleared');
     } catch (err) {
-      console.warn('[RevisionManager] Clear failed:', err);
+      console.warn('[RevisionManager] Clear failed (non-fatal):', err);
       // Gateway already logged the error — just swallow here
     }
   }
 
-  private async clearPreview(buildId?: string): Promise<void> {
-    await this.fullClearPreview(buildId);
+  /** Remove a failed candidate without mutating last-good preview pixels/state. */
+  private discardCandidate(revisionId: string): void {
+    this.store.delete(revisionId);
+    if (this.candidateRevisionId === revisionId) {
+      this.candidateRevisionId = null;
+    }
+    if (this.compiledRevisionId === revisionId) {
+      this.compiledRevisionId = null;
+    }
+    this.syncTimelineContext();
   }
 }
 

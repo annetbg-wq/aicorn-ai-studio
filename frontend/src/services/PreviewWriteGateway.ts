@@ -1,18 +1,24 @@
 /**
- * PreviewWriteGateway — Canonical low-level gateway for ALL writes into preview-workspace.
+ * PreviewWriteGateway — Low-level transport for preview-workspace writes.
  *
- * Every code path that touches preview-workspace/src/ (via /__write_preview or /__clear_preview)
- * MUST go through this module. This ensures:
- *   1. One path normalization rule
- *   2. One poison/content guard (artifact-envelope detection)
- *   3. One logging policy (structured previewLog events)
- *   4. One write contract (fetch → check status → report)
+ * Provides guarded access to the /__write_preview and /__clear_preview
+ * Vite middleware endpoints. Every write goes through:
+ *   1. Path normalization  (strips leading / and src/ prefix)
+ *   2. Artifact-envelope poison check  (rejects transport JSON masquerading as source)
+ *   3. Structured logging  (previewLog events for timeline grep)
+ *   4. HTTP write with status check  (returns WriteResult, never throws on 4xx/5xx)
  *
- * Callers:
- *   - ProjectStorage.loadToPreview  (project load / switch)
- *   - RevisionManager.flushToDisk   (generation compile)
- *   - RevisionManager.writeBuildIdMarker (build handshake)
- *   - useStudio.createNewProject    (clear before new generation)
+ * Callers (backend-compiler era):
+ *   - RevisionManager.fullClearPreview  — preflight clear before NEW-mode generation
+ *     (non-fatal: /__clear_preview may not exist if the Vite dev server is not
+ *      running in HMR mode; the gateway catches and swallows the 404)
+ *
+ * NOT called by:
+ *   - Generation compile  → uses triggerCompile (POST /api/preview/:buildId/compile)
+ *   - Rollback            → navigates iframe to /preview/:activeRevisionId
+ *   - restoreRevision     → navigates iframe to /preview/:revisionId (fast path)
+ *                           or materializePersistedFiles (slow path)
+ *   - promote fallback    → navigates iframe back to /preview/:previousActiveRevisionId
  *
  * This module does NOT manage lifecycle (compiling/ready/failed) — that stays
  * in PreviewController. It does NOT manage revision state — that stays in

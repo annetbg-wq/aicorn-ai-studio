@@ -12,6 +12,18 @@ const CLEAN_APP_TSX = `export default function App() { return <main>Last good pr
 const PLACEHOLDER_APP_TSX = `export default function App() { return <div>Waiting for generation...</div>; }`;
 const CLEAN_INDEX_CSS = 'body { margin: 0; }';
 
+function mountPreviewIframe(buildId: string, bodyText = 'Last good preview'): HTMLIFrameElement {
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('data-testid', 'preview-iframe');
+  iframe.setAttribute('data-build-id', buildId);
+  document.body.appendChild(iframe);
+  const doc = iframe.contentDocument;
+  if (doc?.body) {
+    doc.body.innerHTML = `<div id="root">${bodyText}</div>`;
+  }
+  return iframe;
+}
+
 function isBlank(metrics: DOMMetrics): boolean {
   return !evaluateMetrics(metrics, 'smoke-build').healthy;
 }
@@ -24,6 +36,7 @@ function assertNoWhiteScreenAfterReady(controller: PreviewController, metrics: D
 
 beforeEach(() => {
   localStorage.clear();
+  document.body.innerHTML = '';
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })));
 });
 
@@ -88,6 +101,7 @@ test('3. failed candidate preserves last-good', async () => {
   const rm = new RevisionManager(window.location.origin);
   const goodRevId = await rm.createCandidate();
   await rm.writeCandidateFile(goodRevId, 'src/App.tsx', CLEAN_APP_TSX);
+  mountPreviewIframe(goodRevId);
   (rm as unknown as { compiledRevisionId: string | null }).compiledRevisionId = goodRevId;
   await rm.promote(goodRevId);
 

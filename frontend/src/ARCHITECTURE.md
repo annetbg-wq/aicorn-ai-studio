@@ -6,9 +6,12 @@
 SimpleGeneration.run()
   → Architect LLM (plan JSON with thinking)
   → Coder LLM (FILE markers)
-  → writePreviewFile() × N → per-project preview workspace
-  → preview-manager updates active Vite instance for the project
-  → force-preview-reload → SandpackPreview reloads iframe
+  → RevisionManager.createCandidate() + writeCandidateFile() × N
+  → RevisionManager.compileCandidate()
+      → backend /api/preview/{buildId}/compile
+      → iframe loads /preview/{buildId}
+      → authoritative postMessage: preview-mounted(buildId)
+  → RevisionManager.promote() (candidate → active)
   → ProjectRepository.saveProject() → Supabase user_projects
   → ProjectStorage.saveProject() → localStorage (legacy + offline fallback)
 ```
@@ -20,8 +23,8 @@ ProjectRepository.getProject(id)
   → Supabase first (full files from code_snapshot.files + chatHistory)
   → localStorage fallback (ProjectStorage, for offline/legacy)
   → ProjectRepository.loadToPreview()
-      → ProjectStorage.loadToPreview() (battle-tested theme CSS handling)
-      → force-preview-reload
+      → RevisionManager.materializePersistedFiles()
+          → same candidate/compile/preview-mounted/promote contract as generation
 ```
 
 ## Project list (PRODUCTION)
@@ -66,9 +69,18 @@ On delete: ProjectRepository.deleteProject() + ProjectRepository.listProjects()
 - `Figma/PlatinumFigma` — isolated, does not touch preview-workspace or user_projects
 - `storageService.saveProject()` — legacy debounced sync, superseded by ProjectRepository
 
+## preview runtime/workdir contract (canonical)
+
+- Single runtime/workdir: `preview-workspace` (ephemeral materialization target only)
+- Single materialization gateway: `RevisionManager` lifecycle (`candidate → compile → preview-mounted(buildId) → promote`)
+- Single ready authority: `preview-mounted` with matching `buildId` (via `PreviewController.expectingBuildId`)
+- Source of truth remains persisted project snapshots (`Supabase user_projects`, local fallback)
+- `ProjectStorage` is storage compatibility and offline fallback, not preview mutation authority
+- Direct `fetch('/__write_preview')` / `fetch('/__clear_preview')` are transport details encapsulated by runtime services, never normal project lifecycle entry points
+
 ## preview-workspace/src/ is a WORKING DIRECTORY, not storage
 
-Files written here by SimpleGeneration or ProjectRepository.loadToPreview() are
+Files materialized here by RevisionManager are
 ephemeral — Vite HMR serves them live. They are NOT the source of truth.
 After restart, preview-workspace/src/ is restored only when a project is explicitly loaded.
 
