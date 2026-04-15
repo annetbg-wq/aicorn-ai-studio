@@ -22,6 +22,7 @@ import {
   type RouteManifest,
 } from './RouteManifestService';
 import { parseArtifact, convertLegacyFiles, parseFileMarkers } from './artifactParser';
+import { ArtifactReviewerService } from './ArtifactReviewerService';
 import type { ArtifactContract } from '../types/artifact';
 import type {
   LLMMessage,
@@ -2678,13 +2679,14 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
 
       const editParseResult = parseArtifact(editRaw);
       config.onLog(`[SimpleGeneration] EDIT parse: success=${editParseResult.success}, fallback=${editParseResult.fallbackUsed}`);
-      const editDependencies = editParseResult.success && editParseResult.artifact
-        ? (editParseResult.artifact.dependencies ?? [])
-        : [];
-      const editDependencySpecs = toDependencySpecs(editDependencies);
+      let editDependencies: string[] = [];
+      let editDependencySpecs: DependencySpec[] = [];
       const editLlmFiles: Record<string, string> = {};
       if (editParseResult.success && editParseResult.artifact) {
-        for (const f of editParseResult.artifact.files) {
+        const cleanEditArtifact = ArtifactReviewerService.review(editParseResult.artifact);
+        editDependencies = cleanEditArtifact.dependencies ?? [];
+        editDependencySpecs = toDependencySpecs(editDependencies);
+        for (const f of cleanEditArtifact.files) {
           const key = f.path.startsWith('/') ? f.path : '/' + f.path.replace(/^src\//, '');
           if (looksLikeArtifactEnvelope(f.content)) {
             config.onLog(`[SimpleGeneration] ⚠ EDIT: Skipped artifact-envelope payload for ${key}`);
@@ -2696,6 +2698,7 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
         // Legacy fallback
         const legacy = parseFileMarkers(editRaw);
         Object.assign(editLlmFiles, legacy);
+        editDependencySpecs = toDependencySpecs(editDependencies);
         config.onLog('[SimpleGeneration] EDIT: fell back to FILE markers');
       }
       config.onLog(`[SimpleGeneration] EDIT parsed: ${Object.keys(editLlmFiles).length} files`);
@@ -3261,13 +3264,14 @@ Generate the complete application for: ${config.intent}`;
     }
 
     const artifact: ArtifactContract = finalParseResult.artifact;
-    const artifactDependencies = artifact.dependencies ?? [];
+    const cleanArtifact = ArtifactReviewerService.review(artifact);
+    const artifactDependencies = cleanArtifact.dependencies ?? [];
     const artifactDependencySpecs = toDependencySpecs(artifactDependencies);
-    const entryFile = artifact.entry || 'src/App.tsx';
+    const entryFile = cleanArtifact.entry || 'src/App.tsx';
 
     // Build legacy llmFiles map (keyed with leading /) for downstream compatibility
     const llmFiles: Record<string, string> = {};
-    for (const f of artifact.files) {
+    for (const f of cleanArtifact.files) {
       const key = f.path.startsWith('/') ? f.path : '/' + f.path.replace(/^src\//, '');
       if (looksLikeArtifactEnvelope(f.content)) {
         config.onLog(`[SimpleGeneration] ⚠ Skipped suspicious file payload for ${key}: content looks like full artifact JSON`);
@@ -3281,7 +3285,7 @@ Generate the complete application for: ${config.intent}`;
       throw new Error('Artifact content was injected into file body; retry generation.');
     }
 
-    config.onLog(`[SimpleGeneration] Entry: ${entryFile}, Files: ${artifact.files.length}`);
+    config.onLog(`[SimpleGeneration] Entry: ${entryFile}, Files: ${cleanArtifact.files.length}`);
     config.onLog(`[SimpleGeneration] Parsed files: ${Object.keys(llmFiles).join(', ')}`);
     config.onLog(`[SimpleGeneration] File sizes: ${Object.entries(llmFiles).map(([p, c]) => `${p}:${c.length}`).join(', ')}`);
 
