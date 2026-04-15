@@ -49,6 +49,7 @@ import {
 import {
   schedulePostReadyCheck,
   cancelPendingCheck,
+  WhiteScreenDetector,
 } from './WhiteScreenDetector';
 
 const MAX_REVISIONS = 20;
@@ -342,6 +343,35 @@ export class RevisionManager {
         `Cannot promote revision ${revisionId}: compileCandidate() did not succeed. ` +
         `compiledRevisionId=${this.compiledRevisionId}`,
       );
+    }
+
+    const previousActiveRevisionId = this.activeRevisionId;
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      `iframe[data-build-id="${revisionId}"], iframe[data-testid="preview-iframe"], iframe[src*="/__preview"]`,
+    );
+    const blank = await WhiteScreenDetector.isBlank(iframe);
+    if (blank) {
+      previewLog('promote_blocked_white_screen', {
+        buildId: revisionId,
+        previousActiveRevisionId,
+      });
+      previewController.setDiagnosticError(
+        'white-screen-detected',
+        'Preview is blank',
+        revisionId,
+      );
+
+      // Preserve last-good pixels in iframe if we have an active revision.
+      if (previousActiveRevisionId) {
+        const lastGoodFiles = this.store.get(previousActiveRevisionId);
+        if (lastGoodFiles && Object.keys(lastGoodFiles).length > 0) {
+          await this.clearPreview();
+          await this.flushToDisk(lastGoodFiles);
+        }
+      }
+
+      previewController.notifyFailed('Preview is blank', previousActiveRevisionId ?? revisionId);
+      throw new Error('PROMOTE_BLOCKED: white_screen_after_ready');
     }
 
     this.activeRevisionId = revisionId;
