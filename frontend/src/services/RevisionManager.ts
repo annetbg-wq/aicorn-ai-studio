@@ -245,27 +245,39 @@ export class RevisionManager {
     previewLog('write_batch_start', { buildId: revisionId, fileCount });
 
     console.log(
-      `[RevisionManager] compiling candidate ${revisionId} (${Object.keys(files).length} files)`,
+      `[RevisionManager] compiling candidate ${revisionId} (${fileCount} files) via backend build`,
     );
-    await this.flushToDisk(files, revisionId);
-    previewLog('write_batch_done', { buildId: revisionId, fileCount: Object.keys(files).length });
 
-    // ── Materialize diagnostic: sandbox-written ─────────────────
-    // All source files flushed to preview-workspace/src/ (excluding __build_id.ts
-    // which was written last inside flushToDisk → bootstrap-written).
+    // Backend compile: POST files → Express → vite build → builds/<buildId>/
+    // __build_id.ts is written server-side so MountReporter bakes the correct
+    // buildId into the static output and posts `preview-mounted` on load.
+    try {
+      await triggerCompile(revisionId, files);
+    } catch (e: any) {
+      const msg: string = e?.message ?? 'Backend compile failed';
+      previewLog('write_batch_done', { buildId: revisionId, fileCount, error: msg });
+      previewController.setDiagnosticError('iframe-mounted', msg, revisionId);
+      previewController.notifyFailed(msg, revisionId);
+      return { success: false, errors: [msg], _compiled: false };
+    }
+    previewLog('write_batch_done', { buildId: revisionId, fileCount });
+
+    // Advance diagnostic stages (build → files written → entry registered)
     previewController.setDiagnosticStage('sandbox-written', revisionId);
-
-    // ── Materialize diagnostic: bootstrap-written ───────────────
-    // __build_id.ts was written by flushToDisk (buildId param present),
-    // triggering Vite HMR accept hook.
     previewController.setDiagnosticStage('bootstrap-written', revisionId);
-
-    // ── Materialize diagnostic: preview-entry-registered ────────
-    // Vite is now processing the files. We wait for the iframe signal.
     previewController.setDiagnosticStage('preview-entry-registered', revisionId);
 
-    // 2. Wait for an authoritative `preview-mounted` postMessage that carries
-    //    OUR buildId. Stale / foreign messages are rejected.
+    // Force-reload the iframe to the newly compiled static URL.
+    // (The iframe may have received a 404 during compilation while hidden
+    //  behind the compiling overlay — this ensures it loads the built app.)
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      'iframe[data-testid="preview-iframe"]',
+    );
+    if (iframe) iframe.src = `/preview/${revisionId}`;
+
+    // 2. Wait for `preview-mounted` from the static build's MountReporter.
+    //    MountReporter fires useEffect → window.parent.postMessage({type:'preview-mounted', buildId})
+    //    after the React tree commits. Same-origin iframe → originOk passes.
     const timeoutMs = getCompileTimeout(fileCount);
     previewLog('wait_ready_start', { buildId: revisionId, fileCount, timeoutMs });
     const result = await waitForReady(revisionId, timeoutMs, this.previewUrl);
@@ -286,15 +298,13 @@ export class RevisionManager {
       // Mark as compiled — promote() will now accept this revision.
       this.compiledRevisionId = revisionId;
 
-      previewController.notifyReady(revisionId, 'validated_iframe_handshake');
+      previewController.notifyReady(revisionId, 'static_build_complete');
 
       // Schedule post-ready white-screen check (runs after delay, non-blocking)
       schedulePostReadyCheck(revisionId);
 
       return { success: true, _compiled: true };
     } else {
-      // Record error at the stage where the failure occurred.
-      // Last successful stage was 'preview-entry-registered' (Vite was processing).
       previewController.setDiagnosticError(
         'iframe-mounted',
         result.errors?.join('\n') ?? 'Compilation failed',
@@ -304,7 +314,6 @@ export class RevisionManager {
         result.errors?.join('\n') ?? 'Compilation failed',
         revisionId,
       );
-      // compiledRevisionId stays null — promote() will refuse this revision.
       return { success: false, errors: result.errors, _compiled: false };
     }
   }
@@ -539,6 +548,31 @@ export class RevisionManager {
 }
 
 // ── Helpers (module-private) ──────────────────────────────────────
+
+/**
+ * POST user files to the backend compile endpoint.
+ * The backend writes them into preview-workspace/src/, stamps __build_id.ts,
+ * runs `vite build --outDir builds/<buildId>`, and returns when done.
+ *
+ * Throws on HTTP error or non-200 JSON { success: false }.
+ */
+async function triggerCompile(
+  buildId: string,
+  files: Record<string, string>,
+): Promise<void> {
+  const res = await fetch(`/api/preview/${buildId}/compile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files }),
+  });
+
+  let body: { success: boolean; error?: string } | null = null;
+  try { body = await res.json(); } catch { /* ignore parse errors */ }
+
+  if (!res.ok || body?.success === false) {
+    throw new Error(body?.error ?? `Compile request failed (HTTP ${res.status})`);
+  }
+}
 
 /**
  * Wait for an authoritative `preview-mounted` postMessage scoped to `expectedBuildId`.
