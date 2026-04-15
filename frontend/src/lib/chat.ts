@@ -86,7 +86,7 @@ export function ensureMessageId(msg: any): any {
  * - id is always guaranteed (generated if missing)
  */
 export function normalizeMessage(raw: any, index = 0): ChatMessage {
-  return {
+  return ensureMessageId({
     ...raw,
     id: raw?.id ?? createMessageId(),
     role: raw?.role ?? 'assistant',
@@ -96,7 +96,7 @@ export function normalizeMessage(raw: any, index = 0): ChatMessage {
       typeof raw?.timestamp === 'number'
         ? raw.timestamp
         : Date.now() + index,
-  };
+  }) as ChatMessage;
 }
 
 export function normalizeMessages(raw: any[]): ChatMessage[] {
@@ -140,7 +140,7 @@ export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessa
       return normalizeMessages(action.payload ?? []);
 
     case 'APPEND': {
-      const normalized = normalizeMessage(action.payload, state.length);
+      const normalized = ensureMessageId(normalizeMessage(action.payload, state.length));
       // Idempotency guard — drop duplicates by stable id
       if (state.some(msg => msg.id === normalized.id)) return state;
       return [...state, normalized];
@@ -158,7 +158,7 @@ export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessa
       );
 
     case 'UPSERT_BY_ID': {
-      const upserted = normalizeMessage(action.payload, state.length);
+      const upserted = ensureMessageId(normalizeMessage(action.payload, state.length));
       const exists = state.some(msg => msg.id === upserted.id);
       if (exists) {
         return state.map(msg => msg.id === upserted.id ? { ...msg, ...upserted } : msg);

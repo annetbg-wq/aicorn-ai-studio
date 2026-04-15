@@ -22,6 +22,7 @@ interface GenerationReport {
 }
 
 interface ChatMessage {
+  id: string;
   role: string;
   content: string | any[];
   type?: string;
@@ -991,7 +992,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               }
 
               return (
-                <div key={(m as any).id} className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
+                <div key={m.id} className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
                   style={{ animation: 'fadeSlideIn 0.2s ease both' }}>
                   {isClarification ? (
                     <ClarificationCard
