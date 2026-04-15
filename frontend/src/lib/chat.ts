@@ -75,8 +75,8 @@ export function createMessageId(): string {
  * Call this at every APPEND site so ids are stable before React sees the message.
  */
 export function ensureMessageId(msg: any): any {
-  if (!msg.id) msg.id = createMessageId();
-  return msg;
+  if (msg?.id) return msg;
+  return { ...msg, id: createMessageId() };
 }
 
 /**
@@ -87,15 +87,12 @@ export function ensureMessageId(msg: any): any {
  */
 export function normalizeMessage(raw: any, index = 0): ChatMessage {
   return ensureMessageId({
-    ...raw,
     id: raw?.id ?? createMessageId(),
-    role: raw?.role ?? 'assistant',
-    type: raw?.type ?? 'text',
-    content: raw?.content ?? '',
     timestamp:
       typeof raw?.timestamp === 'number'
         ? raw.timestamp
         : Date.now() + index,
+    ...raw,
   }) as ChatMessage;
 }
 
