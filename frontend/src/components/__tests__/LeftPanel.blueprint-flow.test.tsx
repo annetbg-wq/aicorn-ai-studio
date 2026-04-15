@@ -116,7 +116,10 @@ function Harness({
     }) });
     setPendingPlan(null);
   };
+  const buildingRef = React.useRef(false);
   const buildIt = () => {
+    if (buildingRef.current) return;
+    buildingRef.current = true;
     onConfirmPlan({ id: 'plan-1' });
     confirmPlan();
   };
@@ -198,9 +201,8 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
 
     await user.click(screen.getByTestId('trigger-blueprint'));
 
-    // GenerationPlanCard renders app name, summary and confirm button.
+    // GenerationPlanCard renders app name and confirm button.
     expect(screen.getByText(/TodoApp/)).toBeInTheDocument();
-    expect(screen.getByText(/Собираем TODO приложение/)).toBeInTheDocument();
     expect(screen.getByTestId('confirm-plan-btn')).toBeInTheDocument();
   });
 

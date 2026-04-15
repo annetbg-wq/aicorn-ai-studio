@@ -411,7 +411,7 @@ export const useStudio = () => {
 
     // Flush to preview via RevisionManager so the iframe updates
     if (snap.revisionId) {
-      revisionManager.restoreRevision(snap.revisionId).catch(err => {
+      revisionManager.restoreRevision(snap.revisionId).catch((err: unknown) => {
         console.warn('[useStudio] revision restore failed, falling back to files state:', err);
       });
     }
@@ -1204,37 +1204,30 @@ export const useStudio = () => {
   /** Load an existing project into the active workspace (alias for loadProject with PM sync). */
   const switchProject = useCallback((project: { id: string }) => {
     ProjectManager.setCurrent(project.id);
-    const full = ProjectStorage.getProject(project.id);
-    if (!full) return;
-    ProjectStorage.loadToPreview(full).catch(() => {});
-    // Restore saved chat history; start with empty messages if none saved.
-    const history = full.chatHistory as any[];
-    chatLoadHistory(history);
-    const loaded = normalizeToFileMap(full.files);
-    setFiles(loaded);
-    setCurrentProjectId(full.id);
-    const b = loadBilling(full.id);
-    setProjectCost(b.cost);
-    setProjectTokens(b.tokens);
-    clearSnapshots();
-  }, [clearSnapshots]);  // eslint-disable-line react-hooks/exhaustive-deps
+    void loadProject(project);
+  }, [loadProject]);
 
   // ── Auto-init: ensure a project is always active on first load ──────────────
-  // Runs once after mount. If currentProjectId is already set (restored from
-  // localStorage) we just restore files into React state without a preview reload.
-  // If no project is active we either load the most-recent project or create one.
+  // Runs once after mount. Always calls loadProject() so the compiled preview
+  // is rebuilt from scratch.
+  //
+  // Why we always recompile on startup:
+  //   Compiled static builds (builds/:buildId/) are ephemeral — they live only
+  //   for the duration of a backend server session. A hard refresh or server
+  //   restart clears them. We therefore cannot rely on a previously-compiled
+  //   build being present, and must trigger a fresh compile via the canonical
+  //   materializePersistedFiles → triggerCompile path for every cold start.
+  //
+  //   INTENTIONAL DESIGN: preview is NOT restored from any cached iframe URL;
+  //   it is always reconstructed via a new backend compile. This keeps the
+  //   startup path identical to the project-switch path (no special cases).
   useEffect(() => {
     const init = async () => {
-      // Already have an active project → just make sure files are in React state.
       if (currentProjectId) {
-        const existing = ProjectStorage.getProject(currentProjectId);
-        if (existing && Object.keys(filesRaw).length === 0) {
-          const loaded = normalizeToFileMap(existing.files);
-          startTransition(() => {
-            setFiles(loaded);
-            chatLoadHistory(existing.chatHistory as any[]);
-          });
-        }
+        // Hard-refresh case: currentProjectId is restored from localStorage,
+        // but the compiled build is gone. loadProject() fetches files and
+        // triggers a fresh backend compile so the preview is live again.
+        await loadProject({ id: currentProjectId });
         return;
       }
 
@@ -1911,18 +1904,7 @@ export const useStudio = () => {
         setPreviewBlockedReason(null);
       }
 
-      // Push generated files to the per-project Vite server so the iframe
-      // at /preview/${projectId} can load them. Fire-and-forget — lifecycle
-      // handshake waits for the iframe-ready postMessage, not this push.
       const projectId = currentProjectId ?? crypto.randomUUID();
-      if (Object.keys(finalFiles).length > 0) {
-        const fileArray = Object.entries(finalFiles).map(([p, c]) => ({ path: p, content: c as string }));
-        fetch(`/api/preview/${projectId}/push`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: fileArray }),
-        }).catch(err => addLog(`[Preview] Push failed: ${err}`));
-      }
 
       console.log('[Project] Name debug:', {
         capturedAppName,
@@ -2047,32 +2029,6 @@ export const useStudio = () => {
 
   const onSettings = useCallback(() => setShowSettings(true), []);
 
-  const watchPreviewUrl = useCallback(async (projectId: string) => {
-    if (!projectId) return;
-
-    try {
-      await fetch(`/api/preview/${projectId}/start`, { method: 'POST' });
-    } catch (err) {
-      addLog(`[Preview] start failed: ${String(err)}`);
-    }
-
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < 30_000) {
-      try {
-        const resp = await fetch(`/api/preview/${projectId}/status`, { method: 'GET' });
-        if (resp.ok) {
-          const data = await resp.json() as { ready?: boolean; url?: string };
-          if (data.ready && data.url) {
-            commandBus.dispatch({ type: 'PREVIEW_READY', payload: { url: data.url } });
-            return;
-          }
-        }
-      } catch {
-        // ignore transient polling errors
-      }
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  }, [addLog]);
 
   const confirmPlan = useCallback((plan?: object) => {
     if (confirmingRef.current) return;
@@ -2085,12 +2041,11 @@ export const useStudio = () => {
     });
     if (currentProjectId) {
       setPreviewReady(false);
-      void watchPreviewUrl(currentProjectId);
     }
     commandBus.dispatch({ type: 'ACCEPT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
     // Reset guard after a tick so the same instance can be reused if generation is re-triggered.
     setTimeout(() => { confirmingRef.current = false; }, 500);
-  }, [pendingPlan, currentProjectId, watchPreviewUrl]);
+  }, [pendingPlan, currentProjectId]);
 
   const cancelPlan = useCallback(() => {
     commandBus.dispatch({ type: 'REJECT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
@@ -2346,7 +2301,6 @@ export const useStudio = () => {
     startFigmaSync, addSystemMessage,
     saveFigmaProject, loadFigmaProject, deleteFigmaProject, markFigmaProjectSynced, clearFigmaSync,
     setAppLanguage, setFigmaLink, setTargetMarket, setAuditStrictness,
-    watchPreviewUrl,
     confirmPlan, cancelPlan,
     onConfirmPlan, onClarifyPlan, onSubmitClarification,
     approveDiff, rejectDiff,

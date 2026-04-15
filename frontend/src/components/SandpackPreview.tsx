@@ -24,8 +24,6 @@ import { resolvePreviewUI } from '../services/previewLifecycleResolver';
 import { visualEditBridge, type VisualEditState, type SelectedElement } from '../services/VisualEditBridge';
 import { WhiteScreenDetector } from '../services/WhiteScreenDetector';
 
-const PREVIEW_URL = (import.meta.env.VITE_PREVIEW_ORIGIN || 'http://127.0.0.1:5183').replace(/\/$/, '');
-
 /* ── Welcome / Loading bundles (IIFE, used for srcdoc path only) ─────────────── */
 
 const WELCOME_BUNDLE = `
@@ -368,7 +366,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
     return () => window.removeEventListener('preview-mounted', handler);
   }, []);
   const buildId = mountedBuildId ?? previewState.expectingBuildId ?? previewState.activeRevisionId ?? '';
-  const previewUrl = buildId ? `/preview/${buildId}` : PREVIEW_URL;
+  const previewUrl = buildId ? `/preview/${buildId}` : '';
   const previewOrigin = useMemo(() => {
     try {
       return new URL(previewUrl, window.location.origin).origin;
@@ -408,14 +406,8 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
     }
   }, [visualEditActive]);
 
-  // Probe whether the preview-workspace dev server is reachable
-  useEffect(() => {
-    let cancelled = false;
-    fetch(previewUrl, { mode: 'no-cors' })
-      .then(() => { if (!cancelled) setPreviewServerDown(false); })
-      .catch(() => { if (!cancelled) setPreviewServerDown(true); });
-    return () => { cancelled = true; };
-  }, [previewUrl]);
+  // Preview is same-origin — no separate server to probe.
+  // previewServerDown stays false; the overlay is never shown.
 
   const { captureFromViteIframe } = useProjectScreenshot();
 
@@ -1084,12 +1076,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
           Run: <code style={{ background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>npm run dev:all</code>
         </p>
         <button
-          onClick={() => {
-            setPreviewServerDown(false);
-            fetch(PREVIEW_URL, { mode: 'no-cors' })
-              .then(() => setPreviewServerDown(false))
-              .catch(() => setPreviewServerDown(true));
-          }}
+          onClick={() => setPreviewServerDown(false)}
           style={{
             marginTop: 8, padding: '8px 20px', borderRadius: 8, cursor: 'pointer',
             backgroundColor: '#6366f1', border: 'none',

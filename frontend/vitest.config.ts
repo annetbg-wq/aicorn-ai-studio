@@ -2,11 +2,11 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    setupFiles: ['./frontend/src/setupTests.ts'],
+    setupFiles: ['./src/setupTests.ts'],
     exclude: ['**/node_modules/**', '**/e2e/**', '**/*.spec.cjs'],
     environmentMatchGlobs: [
-      ['frontend/src/components/**', 'jsdom'],
-      ['frontend/src/**', 'node']
+      ['src/components/**', 'jsdom'], // для React тестов
+      ['src/**', 'node'] // для сервисов
     ]
   }
 })

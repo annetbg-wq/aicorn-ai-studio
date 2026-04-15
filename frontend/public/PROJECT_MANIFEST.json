@@ -60,7 +60,8 @@
     "components/ui/toast.tsx",
     "components/WeeklyFeedPanel.tsx",
     "components/WelcomeScreen.tsx",
-    "components/__tests__/BlueprintFlow.test.tsx",
+    "components/__tests__/LeftPanel.blueprint-fallback.test.tsx",
+    "components/__tests__/LeftPanel.blueprint-flow.test.tsx",
     "config/studioModules.ts",
     "contexts/AuthContext.tsx",
     "hooks/useFigmaState.ts",
@@ -72,6 +73,7 @@
     "index.css",
     "layouts/RootLayout.tsx",
     "lib/bundler.ts",
+    "lib/chat.reducer.test.ts",
     "lib/chat.ts",
     "lib/compiler.ts",
     "lib/safeStorage.ts",
@@ -105,6 +107,7 @@
     "services/AIEngineService.ts",
     "services/AppStoreService.ts",
     "services/artifactParser.ts",
+    "services/ArtifactReviewerService.ts",
     "services/benchmark/BaselineSchema.ts",
     "services/benchmark/BaselineStore.ts",
     "services/benchmark/BenchmarkGate.ts",
@@ -181,6 +184,7 @@
     "services/VisualEditBridge.ts",
     "services/WhiteScreenDetector.ts",
     "services/__tests__/artifactParser.test.ts",
+    "services/__tests__/ArtifactReviewerService.test.ts",
     "services/__tests__/previewBridge.test.ts",
     "services/__tests__/previewGuard.test.ts",
     "services/__tests__/previewLifecycleResolver.test.ts",
@@ -191,13 +195,13 @@
     "services/__tests__/revisionSemantics.test.ts",
     "services/__tests__/routeGraph.test.ts",
     "services/__tests__/WhiteScreenDetector.test.ts",
+    "setupTests.ts",
     "shared/designSystem.ts",
     "shared/projectModel.ts",
     "shared/SandboxPackageRegistry.ts",
     "shared/types.ts",
     "theme/tokens.ts",
     "types/artifact.ts",
-    "types/chat.reducer.test.ts",
     "types/chat.ts",
     "types/registry-layer.d.ts",
     "types/studioCommands.ts"
@@ -236,5 +240,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-14T22:39:05.641Z"
+  "last_scan_timestamp": "2026-04-15T23:38:46.993Z"
 }

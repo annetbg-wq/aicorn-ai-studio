@@ -12,11 +12,11 @@
 
 import { supabase } from '../lib/supabase';
 import { ProjectStorage } from './ProjectStorage';
-import { previewController, previewLog, setTimelineContext } from './PreviewController';
+import { previewLog, setTimelineContext } from './PreviewController';
 import { revisionManager } from './RevisionManager';
-import { schedulePostReadyCheck, cancelPendingCheck } from './WhiteScreenDetector';
 import { showToast } from './toastBus';
 import { safeSetItem } from '../lib/safeStorage';
+import { scanBeforePreviewLoad } from './projectCorruptionScan';
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -255,60 +255,43 @@ export const ProjectRepository = {
     } catch { /* non-fatal */ }
   },
 
-  // ── Загрузить проект в preview-workspace ───────────────────────────────────────
-  // Delegates to ProjectStorage.loadToPreview which has battle-tested theme CSS
-  // handling (proper Tailwind wrapper, @layer base, etc.).
-  //
-  // The cycle is fully gated by a buildId handshake:
-  //   1. notifyCompiling(buildId) — UI shows compiling overlay
-  //   2. ProjectStorage.loadToPreview(record, buildId) — clear + write files,
-  //      then write __build_id.ts LAST
-  //   3. revisionManager.waitForReady(buildId) — only resolves when the preview
-  //      iframe posts a `preview-mounted` message with the matching buildId
-  //   4. notifyReady(buildId) | notifyFailed(error)
-  //
-  // The previous optimistic notifyReady() (which fired before the iframe had
-  // mounted the new code) has been removed.
+  // ── Загрузить проект в preview-workspace (канонический путь) ────────────────────
+  // Persisted project loads now materialize through RevisionManager using the
+  // same candidate → compile(wait preview-mounted) → promote flow as generation.
+  // No direct /__clear_preview or /__write_preview mutations from repository lifecycle.
 
   async loadToPreview(project: ProjectRecord): Promise<void> {
-    const buildId = crypto.randomUUID();
     setTimelineContext({ projectId: project.id });
-    cancelPendingCheck();
-    previewController.notifyCompiling(buildId);
-    previewLog('repository_load_to_preview_start', { buildId, projectId: project.id });
+    const scan = scanBeforePreviewLoad(
+      project.id,
+      project.files ?? {},
+      'ProjectRepository.loadToPreview',
+    );
+    if (!scan.safe) {
+      const msg = `[ProjectRepository] Blocked corrupted project load: ${scan.reason}`;
+      previewLog('repository_load_to_preview_failed', {
+        buildId: null,
+        projectId: project.id,
+        error: msg,
+      });
+      throw new Error(msg);
+    }
+
+    previewLog('repository_load_to_preview_start', { buildId: null, projectId: project.id });
 
     try {
-      await ProjectStorage.loadToPreview({
-        id:          project.id,
-        name:        project.name,
-        description: project.description,
-        theme:       project.theme,
-        files:       project.files,
-        chatHistory: project.chatHistory as Array<{ role: string; content: string }>,
-        createdAt:   project.createdAt,
-        updatedAt:   project.updatedAt,
-      }, buildId);
-
-      const result = await revisionManager.waitForReady(buildId);
-      if (result.success) {
-        previewController.notifyReady(buildId, 'repository_load_to_preview');
-        schedulePostReadyCheck(buildId);
-        previewLog('repository_load_to_preview_done', { buildId, projectId: project.id });
-      } else {
-        previewController.notifyFailed(
-          result.errors?.join('\n') ?? 'Preview load timeout',
-          buildId,
-        );
-        previewLog('repository_load_to_preview_failed', {
-          buildId,
-          projectId: project.id,
-          errors: result.errors,
-        });
-      }
+      const buildId = await revisionManager.materializePersistedFiles(project.files ?? {}, {
+        source: 'ProjectRepository.loadToPreview',
+        projectId: project.id,
+      });
+      previewLog('repository_load_to_preview_done', { buildId, projectId: project.id });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      previewController.notifyFailed(msg, buildId);
-      previewLog('repository_load_to_preview_failed', { buildId, projectId: project.id, error: msg });
+      previewLog('repository_load_to_preview_failed', {
+        buildId: null,
+        projectId: project.id,
+        error: msg,
+      });
       throw err;
     }
   },

@@ -18,6 +18,7 @@
 
 import { ProjectStorage } from './ProjectStorage';
 import type { StoredProject } from './ProjectStorage';
+import { ProjectRepository } from './ProjectRepository';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -146,12 +147,12 @@ export class ProjectManager {
   }
 
   /**
-   * Writes the project files to preview-workspace/src/ via the Vite bridge.
+   * Loads the project into preview through the canonical repository/runtime path.
    * Throws if project not found.
    */
   static async loadToPreview(id: string): Promise<void> {
-    const stored = ProjectStorage.getProject(id);
-    if (!stored) throw new Error(`Project ${id} not found`);
-    await ProjectStorage.loadToPreview(stored);
+    const project = await ProjectRepository.getProject(id);
+    if (!project) throw new Error(`Project ${id} not found`);
+    await ProjectRepository.loadToPreview(project);
   }
 }

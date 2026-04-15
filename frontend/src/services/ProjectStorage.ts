@@ -5,11 +5,7 @@
  */
 
 import { scanBeforePreviewLoad } from './projectCorruptionScan';
-import {
-  clearPreview,
-  writeBatch,
-  writeFile,
-} from './PreviewWriteGateway';
+import { revisionManager } from './RevisionManager';
 import type { ProjectMeta } from '../shared/projectModel';
 
 export interface ProjectRevision {
@@ -112,14 +108,13 @@ export class ProjectStorage {
   }
 
   /**
-   * Loads a project into preview-workspace by:
-   * 1. Clearing old generated files via /__clear_preview
-   * 2. Writing the project theme to index.css
-   * 3. Writing all project files via /__write_preview (parallel batches)
-   * 4. (Optional) Writing __build_id.ts LAST so the preview-workspace HMR accept hook
-   *    posts a `preview-mounted` message tied to this build cycle.
+   * Legacy compatibility entry point.
+   *
+   * Canonical behavior: route persisted project materialization through
+   * RevisionManager (candidate → compile → preview-mounted handshake → promote),
+   * same as generation.
    */
-  static async loadToPreview(project: StoredProject, buildId?: string): Promise<void> {
+  static async loadToPreview(project: StoredProject, _buildId?: string): Promise<void> {
     // ── Pre-load corruption scan ─────────────────────────────────
     // Detects artifact-envelope JSON and other corruption BEFORE any
     // preview writes. If critical corruption found, abort the load
@@ -131,60 +126,9 @@ export class ProjectStorage {
       throw new Error(msg);
     }
 
-    const gwOpts = {
+    await revisionManager.materializePersistedFiles(project.files ?? {}, {
       source: 'ProjectStorage.loadToPreview',
-      buildId,
       projectId: project.id,
-    };
-
-    // Step 1: Clear old files
-    await clearPreview(gwOpts);
-
-    // Step 2: Apply theme (best-effort — don't block on failure)
-    if (project.theme) {
-      try {
-        const themeResp = await fetch(`/__read_preview?path=themes/${project.theme}.css`);
-        if (themeResp.ok) {
-          const data: { content?: string } = await themeResp.json();
-          if (data.content) {
-            const fullCss = [
-              '@tailwind base;',
-              '@tailwind components;',
-              '@tailwind utilities;',
-              '',
-              '@layer base {',
-              data.content,
-              '}',
-              '',
-              '@layer base {',
-              '  * { @apply border-border; }',
-              '  body { @apply bg-background text-foreground; }',
-              '}',
-              '',
-              'body {',
-              "  font-family: 'Inter', system-ui, -apple-system, sans-serif;",
-              '  -webkit-font-smoothing: antialiased;',
-              '}',
-            ].join('\n');
-            await writeFile('index.css', fullCss, gwOpts);
-          }
-        }
-      } catch { /* theme apply is best-effort */ }
-    }
-
-    // Step 3: Write all project files in parallel batches.
-    // index.css is skipped here because it was already written with the theme in step 2.
-    const filesWithoutCss = Object.fromEntries(
-      Object.entries(project.files).filter(([p]) => {
-        const clean = p.startsWith('/') ? p.slice(1) : p;
-        const norm = clean.startsWith('src/') ? clean.slice(4) : clean;
-        return norm !== 'index.css';
-      }),
-    );
-    await writeBatch(filesWithoutCss, gwOpts);
-
-    // Step 4: Give Vite's polling watcher (interval: 100ms) time to pick up
-    // the written files before the preview iframe is considered ready.
-    await new Promise<void>(resolve => setTimeout(resolve, 100));
+    });
   }
 }

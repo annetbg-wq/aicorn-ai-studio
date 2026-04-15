@@ -25,10 +25,14 @@ if (SUPABASE_URL && !SUPABASE_URL.includes('placeholder')) {
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
+    // Full navigator.locks bypass for iframe/sandbox previews.
+    lock: async (_name: string, _acquireTimeout: number = 0, fn: () => Promise<any>) => {
+      return await fn();
+    },
     flowType:           'pkce',
     autoRefreshToken:   true,
     persistSession:     true,
-    detectSessionInUrl: true,
+    detectSessionInUrl: false,
     storage:            localStorage,
   },
 });
