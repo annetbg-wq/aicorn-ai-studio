@@ -54,7 +54,11 @@ export function registerPreviewBuildRoute(app: express.Express): void {
   app.use('/preview/:buildId', (req, res, next) => {
     const buildPath = path.join(PREVIEW_WORKSPACE, req.params.buildId);
     if (!fs.existsSync(buildPath)) return res.status(404).send('Build not found');
-    return express.static(buildPath)(req, res, next);
+    return express.static(buildPath)(req, res, (err) => {
+      if (err) return next(err);
+      // fallback для SPA роутинга
+      return res.sendFile(path.join(buildPath, 'index.html'));
+    });
   });
 }
 
