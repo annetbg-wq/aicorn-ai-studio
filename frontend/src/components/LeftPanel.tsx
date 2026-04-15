@@ -155,6 +155,25 @@ const LABELS: Record<string, Record<string, string>> = {
 
 // â”€â”€ Ð’ÑÐ¿Ð¾Ð¼Ð¾Ð³Ð°Ñ‚ÐµÐ»ÑŒÐ½Ñ‹Ðµ ÐºÐ¾Ð¼Ð¿Ð¾Ð½ÐµÐ½Ñ‚Ñ‹ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+const FallbackPlanCard = ({ m, onConfirmPlan }: { m: any; onConfirmPlan: (m: object) => void }) => {
+  const [isConfirming, setIsConfirming] = useState(false);
+  return (
+    <div data-testid="generation-plan-card" className="plan-card-fallback">
+      <div className="plan-content">{typeof m.content === 'string' ? m.content : 'Plan ready'}</div>
+      <button
+        data-testid="confirm-plan-btn"
+        onClick={() => {
+          setIsConfirming(true);
+          onConfirmPlan(m as object);
+        }}
+        disabled={isConfirming}
+      >
+        {isConfirming ? 'Building...' : 'Build it'}
+      </button>
+    </div>
+  );
+};
+
 const TypingDots = () => (
   <div className="flex items-center gap-1 px-1 py-0.5">
     {[0, 1, 2].map(i => (
@@ -955,53 +974,27 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               const isTyping        = !isUser && m.content === '...' && isGenerating;
               const isReport        = m.type === 'generation-report' && !!m.report;
               const isClarification = m.type === 'clarification' && Array.isArray(m.questions) && (m.questions as string[]).length > 0;
-              const isPlan          = m.type === 'generation-plan' || m.type === 'plan';
               const isBlueprint     = m.type === 'blueprint';
 
               if (isBlueprint) {
-                if (!(m as any).blueprintText && !(m as any).technicalBlueprint && !(m as any).pages) {
+                // If full blueprint payload exists — render the rich card.
+                if ((m as any).blueprintText || (m as any).technicalBlueprint || (m as any).pages) {
                   return (
-                    <div key={m.id} data-testid="generation-plan-card">
-                      <div>{typeof m.content === 'string' ? m.content : 'Plan'}</div>
-                      <button
-                        data-testid="confirm-plan-btn"
-                        onClick={() => onConfirmPlan(m as object)}
-                      >
-                        Build it
-                      </button>
-                    </div>
+                    <BlueprintCard
+                      key={m.id}
+                      m={m}
+                      isPending={true}
+                      textColor={textColor}
+                      subText={subText}
+                      borderColor={borderColor}
+                      onConfirmPlan={onConfirmPlan}
+                      onClarifyPlan={onClarifyPlan}
+                      cancelPlan={cancelPlan}
+                    />
                   );
                 }
-                return (
-                  <BlueprintCard
-                    key={m.id}
-                    m={m}
-                    isPending={Boolean((m as any).isPending)}
-                    textColor={textColor}
-                    subText={subText}
-                    borderColor={borderColor}
-                    onConfirmPlan={onConfirmPlan}
-                    onClarifyPlan={onClarifyPlan}
-                    cancelPlan={cancelPlan}
-                  />
-                );
-              }
-
-              if (isPlan) {
-                return (
-                  <GenerationPlanCard
-                    key={m.id}
-                    m={m}
-                    pendingPlan={pendingPlan ?? null}
-                    textColor={textColor}
-                    subText={subText}
-                    borderColor={borderColor}
-                    isDark={isDark}
-                    onConfirmPlan={onConfirmPlan}
-                    onSubmitClarification={onSubmitClarification}
-                    onCancel={cancelPlan}
-                  />
-                );
+                // Fallback: always show Build it button even when payload is minimal.
+                return <FallbackPlanCard key={m.id} m={m} onConfirmPlan={onConfirmPlan} />;
               }
 
               return (

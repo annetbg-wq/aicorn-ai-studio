@@ -1506,7 +1506,7 @@ export const useStudio = () => {
     dispatch({ type: 'APPEND', payload: {
       id:           planMsgId,
       role:         'assistant' as const,
-      type:         'generation-plan',
+      type:         'blueprint',
       timestamp:    Date.now(),
       appName:      plan.appName,
       pages:        plan.pages,
@@ -2175,6 +2175,11 @@ export const useStudio = () => {
           if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') {
             (window as any).__E2E_PREVIEW_URL__ = data.url;
           }
+          // Extract buildId from URL and notify SandpackPreview
+          const buildId = data.url.split('/preview/')[1]?.split('?')[0] ?? '';
+          window.dispatchEvent(new CustomEvent('preview-mounted', {
+            detail: { buildId, previewUrl: data.url },
+          }));
         }
       }),
       // State machine — mirror every command into read-only machineState

@@ -636,4 +636,12 @@ function waitForReady(
 
 // ── Singleton ─────────────────────────────────────────────────────
 
-export const revisionManager = new RevisionManager(window.location.origin);
+let _revisionManager: RevisionManager | null = null;
+export const getRevisionManager = () => {
+  if (!_revisionManager) _revisionManager = new RevisionManager(
+    typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+  );
+  return _revisionManager;
+};
+// для обратной совместимости в браузере
+export const revisionManager = typeof window !== 'undefined' ? getRevisionManager() : null as any;
