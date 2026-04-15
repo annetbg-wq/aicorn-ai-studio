@@ -22,6 +22,7 @@ import { SimpleGeneration } from '../services/SimpleGeneration';
 import { useProjectScreenshot } from '../hooks/useProjectScreenshot';
 import { resolvePreviewUI } from '../services/previewLifecycleResolver';
 import { visualEditBridge, type VisualEditState, type SelectedElement } from '../services/VisualEditBridge';
+import { WhiteScreenDetector } from '../services/WhiteScreenDetector';
 
 const PREVIEW_URL = (import.meta.env.VITE_PREVIEW_ORIGIN || 'http://127.0.0.1:5183').replace(/\/$/, '');
 
@@ -362,6 +363,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
 
   const viteIframeRef   = useRef<HTMLIFrameElement>(null);
   const srcdocIframeRef = useRef<HTMLIFrameElement>(null);
+  const whiteScreenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── VisualEditBridge: attach/detach and sync active state ─────────────────
   useEffect(() => {
@@ -412,6 +414,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
   }, [projectId, captureFromViteIframe, previewState.activeRevisionId]);
   useEffect(() => () => {
     if (scheduleScreenshotRef.current) clearTimeout(scheduleScreenshotRef.current);
+    if (whiteScreenTimerRef.current) clearTimeout(whiteScreenTimerRef.current);
   }, []);
 
   // ── PreviewController subscription ──────────────────────────────
@@ -511,9 +514,19 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.origin !== PREVIEW_URL) return;
-      // S1: scope to our vite iframe — rejects messages from unrelated windows
-      // windows and from synthetic re-dispatched events (e.source is null there,
-      // which is intentional: the vite:error re-dispatch targets useStudio only).
+
+      if (e.data?.type === 'preview-error' && e.data?.reason === 'white_screen_after_ready') {
+        previewController.notifyFailed('Preview is blank', e.data?.buildId);
+        setRuntimeError('Preview is blank');
+        onError?.('Preview is blank');
+        window.dispatchEvent(new MessageEvent('message', {
+          data: { type: 'iframe-error', message: 'Preview is blank' },
+          origin: PREVIEW_URL,
+        }));
+        return;
+      }
+
+      // S1: scope iframe-originated events to our active preview iframe.
       if (e.source !== viteIframeRef.current?.contentWindow) return;
       // `preview-mounted` is the authoritative mount signal carrying buildId.
       // Legacy `iframe-ready` is logged-and-ignored (no buildId, not authoritative).
@@ -522,6 +535,20 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
         console.log('[SandpackPreview] preview-mounted received (buildId:', e.data.buildId, ') — delegating to RevisionManager');
         // Do NOT call onPreviewReady here — the single authority is
         // RevisionManager.waitForReady(buildId) → PreviewController.notifyReady
+        if (whiteScreenTimerRef.current) clearTimeout(whiteScreenTimerRef.current);
+        whiteScreenTimerRef.current = window.setTimeout(async () => {
+          const blank = await WhiteScreenDetector.isBlank(viteIframeRef.current);
+          if (blank) {
+            window.dispatchEvent(new MessageEvent('message', {
+              data: {
+                type: 'preview-error',
+                reason: 'white_screen_after_ready',
+                buildId: e.data?.buildId,
+              },
+              origin: PREVIEW_URL,
+            }));
+          }
+        }, 1000);
       }
       if (e.data?.type === 'iframe-error') {
         const msg = e.data.message ?? 'Unknown preview error';
@@ -542,7 +569,10 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
       }
     };
     window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
+    return () => {
+      if (whiteScreenTimerRef.current) clearTimeout(whiteScreenTimerRef.current);
+      window.removeEventListener('message', handler);
+    };
   }, [onError, captureScreenshot]);
 
   // Sync studio theme to preview-workspace via postMessage
@@ -569,6 +599,8 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
       {/* Vite/React preview — ALWAYS mounted */}
       <iframe
         ref={viteIframeRef}
+        data-testid="preview-iframe"
+        data-build-id={previewState.expectingBuildId ?? previewState.activeRevisionId ?? ''}
         src={PREVIEW_URL}
         style={{
           width: '100%', height: '100%', border: 'none',

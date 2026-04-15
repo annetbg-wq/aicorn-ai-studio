@@ -17,6 +17,17 @@
 
 import { previewController, previewLog } from './PreviewController';
 
+export class WhiteScreenDetector {
+  static async isBlank(iframe: HTMLIFrameElement | null): Promise<boolean> {
+    if (!iframe) return true;
+    const doc = iframe.contentDocument;
+    if (!doc || !doc.body) return true;
+    const text = (doc.body.innerText ?? doc.body.textContent ?? '').trim();
+    const hasChildren = doc.body.children.length > 1; // >1 because body usually contains root wrapper.
+    return text.length < 10 && !hasChildren;
+  }
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface WhiteScreenProbeResult {
@@ -51,7 +62,10 @@ export interface DOMMetrics {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const PREVIEW_ORIGIN = window.location.origin;
+const PREVIEW_ORIGIN =
+  typeof window !== 'undefined' && window.location
+    ? window.location.origin
+    : 'http://localhost';
 
 /** Delay after ready_set before running the probe. Allows async renders. */
 const POST_READY_DELAY_MS = 2_500;
