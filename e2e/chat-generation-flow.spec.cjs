@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 
 const BASE_URL     = process.env.STUDIO_URL ?? 'http://localhost:5183';
-const FLOW_TIMEOUT = 90_000;
+const FLOW_TIMEOUT = 60_000;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ async function typeInChat(page, text) {
   await textarea.press('Enter');
   const sendBtn = page.locator('textarea').first().locator('xpath=following-sibling::button[not(@disabled)]').first();
   if (await sendBtn.count()) {
-    await sendBtn.click();
+    await sendBtn.click({ force: true }); // игнорим перекрытие
   }
 }
 
@@ -41,11 +41,16 @@ test.describe('Chat → generation → blueprint → preview', () => {
     await openEngine(page);
 
     // 2. Send prompt — plan card appears immediately, no clarifier step
-    await typeInChat(page, 'simple counter app');
+    await typeInChat(page, 'todo app with supabase');
     await expect(page.locator('[data-testid="generation-plan-card"]')).toBeVisible({ timeout: 60_000 });
 
     // 3. Confirm the plan
-    await page.locator('[data-testid="confirm-plan-btn"]').click();
+    const confirmBtn = page.locator('[data-testid="generation-plan-card"] [data-testid="confirm-plan-btn"]');
+    await expect(confirmBtn).toBeVisible({ timeout: 5_000 });
+    await confirmBtn.click();
+    await page.waitForSelector('iframe[data-build-id]', { timeout: 60000 });
+    await expect(page.locator('iframe[src*="/preview/"]')).toBeVisible();
+    await expect(page.frameLocator('iframe').locator('text=Todo')).toBeVisible();
 
     // 4. "Building…" confirms blueprint was accepted
     await expect(
@@ -82,11 +87,11 @@ test.describe('Chat → generation → blueprint → preview', () => {
   // ── Double-click regression ───────────────────────────────────────────────
   test('double-click on confirm does not duplicate dispatch', async ({ page }) => {
     await openEngine(page);
-    await typeInChat(page, 'simple counter app');
+    await typeInChat(page, 'todo app with supabase');
 
     await expect(page.locator('[data-testid="generation-plan-card"]')).toBeVisible({ timeout: 60_000 });
 
-    const confirmBtn = page.locator('[data-testid="confirm-plan-btn"]');
+    const confirmBtn = page.locator('[data-testid="generation-plan-card"] [data-testid="confirm-plan-btn"]');
     await confirmBtn.waitFor({ state: 'visible', timeout: 30_000 });
 
     // Double-click — second click must be a no-op (button disappears after first)

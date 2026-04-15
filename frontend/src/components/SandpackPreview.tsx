@@ -358,7 +358,16 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
   const [iframeLoaded,      setIframeLoaded]       = useState(false);
   const [previewServerDown, setPreviewServerDown]  = useState(false);
   const [previewState,      setPreviewState]       = useState<PreviewState>(previewController.getState());
-  const buildId = previewState.expectingBuildId ?? previewState.activeRevisionId ?? '';
+  const [mountedBuildId,    setMountedBuildId]     = useState<string | null>(null);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { buildId: string; previewUrl: string };
+      if (detail?.buildId) setMountedBuildId(detail.buildId);
+    };
+    window.addEventListener('preview-mounted', handler);
+    return () => window.removeEventListener('preview-mounted', handler);
+  }, []);
+  const buildId = mountedBuildId ?? previewState.expectingBuildId ?? previewState.activeRevisionId ?? '';
   const previewUrl = buildId ? `/preview/${buildId}` : PREVIEW_URL;
   const previewOrigin = useMemo(() => {
     try {

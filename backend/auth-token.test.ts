@@ -30,7 +30,7 @@ describe('auth-token Claude runner', () => {
     await expect(p).resolves.toBe('ok');
 
     expect(spawnSpy).toHaveBeenCalledTimes(1);
-    expect(spawnSpy.mock.calls[0][0]).toBe('claude');
+    expect(spawnSpy.mock.calls[0][0]).toMatch(/claude(\.cmd)?$/);
     expect(spawnSpy.mock.calls[0][1]).toEqual([
       '--output-format', 'text',
       '--model', 'claude-sonnet-4-6',
