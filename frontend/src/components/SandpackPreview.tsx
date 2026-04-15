@@ -358,6 +358,15 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
   const [iframeLoaded,      setIframeLoaded]       = useState(false);
   const [previewServerDown, setPreviewServerDown]  = useState(false);
   const [previewState,      setPreviewState]       = useState<PreviewState>(previewController.getState());
+  const buildId = previewState.expectingBuildId ?? previewState.activeRevisionId ?? '';
+  const previewUrl = buildId ? `/preview/${buildId}` : PREVIEW_URL;
+  const previewOrigin = useMemo(() => {
+    try {
+      return new URL(previewUrl, window.location.origin).origin;
+    } catch {
+      return window.location.origin;
+    }
+  }, [previewUrl]);
   const onPreviewReadyRef   = useRef(onPreviewReady);
   onPreviewReadyRef.current = onPreviewReady;
 
@@ -393,11 +402,11 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
   // Probe whether the preview-workspace dev server is reachable
   useEffect(() => {
     let cancelled = false;
-    fetch(PREVIEW_URL, { mode: 'no-cors' })
+    fetch(previewUrl, { mode: 'no-cors' })
       .then(() => { if (!cancelled) setPreviewServerDown(false); })
       .catch(() => { if (!cancelled) setPreviewServerDown(true); });
     return () => { cancelled = true; };
-  }, []);
+  }, [previewUrl]);
 
   const { captureFromViteIframe } = useProjectScreenshot();
 
@@ -513,7 +522,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
   // Listen for preview-mounted / iframe-error / vite:error postMessages from the preview-workspace
   useEffect(() => {
     const handler = (e: MessageEvent) => {
-      if (e.origin !== PREVIEW_URL) return;
+      if (e.origin !== previewOrigin) return;
 
       if (e.data?.type === 'preview-error' && e.data?.reason === 'white_screen_after_ready') {
         previewController.notifyFailed('Preview is blank', e.data?.buildId);
@@ -521,7 +530,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
         onError?.('Preview is blank');
         window.dispatchEvent(new MessageEvent('message', {
           data: { type: 'iframe-error', message: 'Preview is blank' },
-          origin: PREVIEW_URL,
+          origin: previewOrigin,
         }));
         return;
       }
@@ -545,7 +554,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
                 reason: 'white_screen_after_ready',
                 buildId: e.data?.buildId,
               },
-              origin: PREVIEW_URL,
+              origin: previewOrigin,
             }));
           }
         }, 1000);
@@ -564,7 +573,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
         // Forward to AutoFix handler (same origin so listener in useStudio accepts it)
         window.dispatchEvent(new MessageEvent('message', {
           data: { type: 'iframe-error', message: msg },
-          origin: PREVIEW_URL,
+          origin: previewOrigin,
         }));
       }
     };
@@ -573,7 +582,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
       if (whiteScreenTimerRef.current) clearTimeout(whiteScreenTimerRef.current);
       window.removeEventListener('message', handler);
     };
-  }, [onError, captureScreenshot]);
+  }, [onError, captureScreenshot, previewOrigin]);
 
   // Sync studio theme to preview-workspace via postMessage
   useEffect(() => {
@@ -600,8 +609,8 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
       <iframe
         ref={viteIframeRef}
         data-testid="preview-iframe"
-        data-build-id={previewState.expectingBuildId ?? previewState.activeRevisionId ?? ''}
-        src={PREVIEW_URL}
+        data-build-id={buildId}
+        src={previewUrl}
         style={{
           width: '100%', height: '100%', border: 'none',
           display: isReact ? 'block' : 'none',
@@ -686,7 +695,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
                 onClick={() => {
                   setShowLoadingOverlay(false);
                   if (viteIframeRef.current) {
-                    viteIframeRef.current.src = PREVIEW_URL + '?r=' + Date.now();
+                    viteIframeRef.current.src = previewUrl + '?r=' + Date.now();
                   }
                 }}
                 style={{
