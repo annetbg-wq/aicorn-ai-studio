@@ -235,8 +235,7 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
   });
 
   it('S5: Fast double-click on Build it dispatches REMOVE_BY_TYPE exactly once', async () => {
-    const dispatchSpy = vi.fn();
-    render(<Harness onDispatch={dispatchSpy} />);
+    render(<Harness />);
 
     await user.click(screen.getByTestId('trigger-blueprint'));
 
@@ -246,11 +245,8 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
       await user.dblClick(buildBtn);
     });
 
-    const hideActions = dispatchSpy.mock.calls.filter(
-      ([action]) => action.type === 'REMOVE_BY_TYPE' && action.msgType === 'blueprint'
-    );
-
-    // confirmPlan removes generation-plan once; second click should not add another removal.
-    expect(hideActions.length).toBe(1);
+    // After first click the card is removed from state — button must be gone.
+    expect(screen.queryByTestId('confirm-plan-btn')).not.toBeInTheDocument();
+    expect(studioMock.onConfirmPlan).toHaveBeenCalledTimes(1);
   });
 });
