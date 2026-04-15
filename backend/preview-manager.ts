@@ -1,50 +1,48 @@
 /**
- * preview-manager.ts — Vite process orchestrator
- * 1 project = 1 Vite process, auto-restart on crash.
+ * preview-manager.ts — Static build route + backend Vite compiler.
  *
- * Required deps (add to root package.json if absent):
- *   npm i get-port wait-on
- *   npm i -D @types/wait-on
+ * Two responsibilities:
+ *   1. registerPreviewBuildRoute  — serves compiled builds from builds/<buildId>/
+ *   2. registerPreviewCompileRoute — POST /api/preview/:buildId/compile
+ *        • writes user files into preview-workspace/src/
+ *        • writes __build_id.ts so MountReporter posts the correct buildId
+ *        • runs `vite build --outDir builds/<buildId>` (output is outside cwd)
+ *        • calls cleanupLRU to evict oldest builds
+ *
+ * Directory layout:
+ *   preview-workspace/   — Vite source project (template + user src files)
+ *   builds/<buildId>/    — compiled static output (served via /preview/:buildId)
+ *
+ * Builds are serialised: only one `vite build` runs at a time to avoid
+ * concurrent writes to preview-workspace/src/.
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { spawn } from 'child_process';
 import express from 'express';
 import fs from 'fs';
+import fsPromises from 'fs/promises';
 import path from 'path';
-import getPort from 'get-port';
-// @ts-ignore — wait-on ships CJS; types may need @types/wait-on
-import waitOn from 'wait-on';
-
-// ── types ─────────────────────────────────────────────────────────────────────
-
-export interface ProjectFile {
-  /** Relative path inside src/, e.g. "App.tsx" or "components/Button.tsx" */
-  path: string;
-  content: string;
-}
-
-type InstanceStatus = 'starting' | 'running' | 'stopped';
-
-interface PreviewInstance {
-  projectId: string;
-  port: number;
-  status: InstanceStatus;
-  process: ChildProcess | null;
-  /** Resolves with the port once the dev server is accepting connections. */
-  readyPromise: Promise<number> | null;
-}
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
-const TEMPLATE_DIR = path.resolve(__dirname, '..', 'preview-workspace');
+/** Vite source project — files are written here before each build. */
 const PREVIEW_WORKSPACE = path.resolve(__dirname, '..', 'preview-workspace');
-const PREVIEWS_DIR = path.resolve(__dirname, '..', 'previews');
-const STARTUP_TIMEOUT_MS = 20_000;
-const RESTART_DELAY_MS   = 1_000;
 
-// ── state ─────────────────────────────────────────────────────────────────────
+/**
+ * Compiled build output — each build gets its own sub-directory.
+ * Must be OUTSIDE preview-workspace/ to satisfy Vite's outDir-in-root check.
+ */
+const BUILDS_WORKSPACE = path.resolve(__dirname, '..', 'builds');
 
-const instances = new Map<string, PreviewInstance>();
+/** Maximum compiled builds to keep on disk (LRU). */
+const MAX_BUILDS = 20;
+
+// ── compile queue (serialise builds) ─────────────────────────────────────────
+
+/** Ensures only one `vite build` runs at a time. */
+let compileQueue: Promise<void> = Promise.resolve();
+
+// ── public API ────────────────────────────────────────────────────────────────
 
 /**
  * Mount static route for immutable build snapshots.
@@ -52,169 +50,144 @@ const instances = new Map<string, PreviewInstance>();
  */
 export function registerPreviewBuildRoute(app: express.Express): void {
   app.use('/preview/:buildId', (req, res, next) => {
-    const buildPath = path.join(PREVIEW_WORKSPACE, req.params.buildId);
+    const buildPath = path.join(BUILDS_WORKSPACE, req.params.buildId);
     if (!fs.existsSync(buildPath)) return res.status(404).send('Build not found');
     return express.static(buildPath)(req, res, (err) => {
       if (err) return next(err);
-      // fallback для SPA роутинга
+      // SPA fallback — serve index.html for any unmatched path inside the build
       return res.sendFile(path.join(buildPath, 'index.html'));
     });
   });
 }
 
+/**
+ * Mount compile endpoint.
+ * POST /api/preview/:buildId/compile  { files: Record<string, string> }
+ * Returns { success, buildId, url } on success, { success: false, error } on failure.
+ */
+export function registerPreviewCompileRoute(app: express.Express): void {
+  app.post(
+    '/api/preview/:buildId/compile',
+    express.json({ limit: '10mb' }),
+    async (req, res) => {
+      const { buildId } = req.params;
+
+      // Basic buildId validation — must be a UUID-like string
+      if (!buildId || !/^[\w-]{8,}$/.test(buildId)) {
+        return res.status(400).json({ success: false, error: 'Invalid buildId' });
+      }
+
+      const { files } = req.body as { files?: Record<string, string> };
+      if (!files || typeof files !== 'object' || Array.isArray(files)) {
+        return res.status(400).json({
+          success: false,
+          error: 'files is required (Record<string, string>)',
+        });
+      }
+
+      // Enqueue — only one build runs at a time
+      const job = compileQueue.then(() => compileBuild(buildId, files));
+      compileQueue = job.then(() => undefined, () => undefined);
+
+      try {
+        await job;
+        await cleanupLRU();
+        res.json({ success: true, buildId, url: `/preview/${buildId}` });
+      } catch (e: any) {
+        console.error(`[preview-manager] compile failed for ${buildId}:`, e.message);
+        res.status(500).json({ success: false, error: e.message ?? String(e) });
+      }
+    },
+  );
+}
+
 // ── internal helpers ──────────────────────────────────────────────────────────
 
-function projectDir(projectId: string): string {
-  return path.join(PREVIEWS_DIR, projectId);
-}
-
-function copyTemplate(projectId: string): void {
-  const dest = projectDir(projectId);
-  if (!fs.existsSync(dest)) {
-    fs.cpSync(TEMPLATE_DIR, dest, { recursive: true });
-  }
-}
-
-async function waitForServer(port: number): Promise<void> {
-  await waitOn({
-    resources: [`http-get://localhost:${port}`],
-    timeout: STARTUP_TIMEOUT_MS,
-    interval: 250,
-    simultaneous: 1,
-    // suppress wait-on's own console output
-    log: false,
-    verbose: false,
-  });
-}
-
 /**
- * Spawns the Vite dev process for an existing instance.
- * Re-entrant: safe to call again after a crash (restarts in-place).
+ * Write user files into preview-workspace/src/, stamp __build_id.ts,
+ * then run `vite build --outDir builds/<buildId>`.
  */
-function spawnProcess(inst: PreviewInstance): void {
-  const cwd  = projectDir(inst.projectId);
-  const args = ['vite', '--port', String(inst.port), '--strictPort', '--host'];
+async function compileBuild(
+  buildId: string,
+  files: Record<string, string>,
+): Promise<void> {
+  const outDir = path.join(BUILDS_WORKSPACE, buildId);
+  const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
 
-  const child = spawn('npx', args, {
-    cwd,
-    stdio: 'pipe',
-    shell: process.platform === 'win32',
-  });
+  // 1. Write user source files
+  for (const [filePath, content] of Object.entries(files)) {
+    const fullPath = path.join(srcDir, filePath);
+    await fsPromises.mkdir(path.dirname(fullPath), { recursive: true });
+    await fsPromises.writeFile(fullPath, content, 'utf-8');
+  }
 
-  inst.process = child;
-
-  child.stdout?.on('data', (chunk: Buffer) =>
-    process.stdout.write(`[preview:${inst.projectId}] ${chunk}`)
+  // 2. Stamp __build_id.ts — MountReporter reads this at build time and posts
+  //    `preview-mounted` with the correct buildId when the static app loads.
+  await fsPromises.writeFile(
+    path.join(srcDir, '__build_id.ts'),
+    `export const BUILD_ID = "${buildId}";\n`,
+    'utf-8',
   );
-  child.stderr?.on('data', (chunk: Buffer) =>
-    process.stderr.write(`[preview:${inst.projectId}] ${chunk}`)
-  );
 
-  child.on('exit', (code, signal) => {
-    if (inst.status === 'stopped') return; // manual stop — do not restart
+  // 3. Ensure builds/ exists and run vite build
+  //    outDir is outside preview-workspace/ so Vite's root-check passes.
+  await fsPromises.mkdir(BUILDS_WORKSPACE, { recursive: true });
 
-    console.error(
-      `[preview-manager] Process for "${inst.projectId}" exited ` +
-      `(code=${code}, signal=${signal}). Restarting in ${RESTART_DELAY_MS}ms…`
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(
+      'npx',
+      ['vite', 'build', '--outDir', outDir, '--emptyOutDir'],
+      {
+        cwd: PREVIEW_WORKSPACE,
+        stdio: 'pipe',
+        shell: process.platform === 'win32',
+      },
     );
-    inst.process = null;
-    inst.status  = 'starting';
 
-    // Rebuild the readyPromise so callers who await startPreview() again
-    // will correctly wait for the restarted server.
-    inst.readyPromise = new Promise<number>((resolve, reject) => {
-      setTimeout(async () => {
-        try {
-          spawnProcess(inst);
-          await waitForServer(inst.port);
-          inst.status = 'running';
-          resolve(inst.port);
-        } catch (err) {
-          console.error(`[preview-manager] Restart failed for "${inst.projectId}":`, err);
-          reject(err);
-        }
-      }, RESTART_DELAY_MS);
+    let stderr = '';
+    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.stdout?.on('data', () => {}); // drain to avoid backpressure
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        console.log(`[preview-manager] build complete: ${buildId}`);
+        resolve();
+      } else {
+        reject(new Error(`vite build exited ${code}:\n${stderr.slice(-600)}`));
+      }
     });
   });
 }
 
-// ── public API ────────────────────────────────────────────────────────────────
-
 /**
- * Start (or return the already-running) Vite dev server for a project.
- * Returns the port the server is listening on.
+ * Evict the oldest build directories when the count exceeds MAX_BUILDS.
  */
-export async function startPreview(projectId: string): Promise<number> {
-  const existing = instances.get(projectId);
+async function cleanupLRU(): Promise<void> {
+  await fsPromises.mkdir(BUILDS_WORKSPACE, { recursive: true });
 
-  if (existing) {
-    if (existing.status === 'running') return existing.port;
-    if (existing.status === 'starting' && existing.readyPromise) {
-      return existing.readyPromise;
-    }
+  let entries: string[];
+  try {
+    entries = await fsPromises.readdir(BUILDS_WORKSPACE);
+  } catch {
+    return;
   }
 
-  const port = await getPort({ port: getPort.makeRange(4200, 4999) });
-
-  const inst: PreviewInstance = {
-    projectId,
-    port,
-    status: 'starting',
-    process: null,
-    readyPromise: null,
-  };
-
-  instances.set(projectId, inst);
-
-  inst.readyPromise = (async (): Promise<number> => {
-    copyTemplate(projectId);
-    spawnProcess(inst);
-    await waitForServer(port);
-    inst.status = 'running';
-    return port;
-  })();
-
-  return inst.readyPromise;
-}
-
-/**
- * Write files into the running project's src/ directory.
- * Ensures the server is started first.
- */
-export async function pushFiles(projectId: string, files: ProjectFile[]): Promise<void> {
-  await startPreview(projectId);
-
-  const srcDir = path.join(projectDir(projectId), 'src');
-
-  for (const file of files) {
-    const dest = path.join(srcDir, file.path);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    if (dest.endsWith('App.tsx') && file.content.trim().startsWith('{')) {
-      throw new Error('FATAL: POISON_BLOCKED. Attempted to write JSON artifact to App.tsx');
-    }
-    fs.writeFileSync(dest, file.content, 'utf-8');
+  // Stat each entry; keep only directories
+  const dirs: { name: string; mtime: number }[] = [];
+  for (const entry of entries) {
+    try {
+      const st = await fsPromises.stat(path.join(BUILDS_WORKSPACE, entry));
+      if (st.isDirectory()) dirs.push({ name: entry, mtime: st.mtimeMs });
+    } catch { /* skip unreadable entries */ }
   }
-}
 
-/**
- * Return the port for a running project, or null if unknown / not started.
- */
-export function getPreviewPort(projectId: string): number | null {
-  const inst = instances.get(projectId);
-  return inst && inst.status !== 'stopped' ? inst.port : null;
-}
+  if (dirs.length <= MAX_BUILDS) return;
 
-/**
- * Kill the Vite process for a project and remove it from the instance map.
- */
-export function stopPreview(projectId: string): void {
-  const inst = instances.get(projectId);
-  if (!inst) return;
+  dirs.sort((a, b) => a.mtime - b.mtime); // oldest first
+  const toEvict = dirs.slice(0, dirs.length - MAX_BUILDS);
 
-  inst.status = 'stopped'; // must be set BEFORE kill() so exit handler skips restart
-  inst.process?.kill('SIGTERM');
-  inst.process = null;
-  instances.delete(projectId);
-
-  console.log(`[preview-manager] Stopped preview for "${projectId}".`);
+  for (const { name } of toEvict) {
+    await fsPromises.rm(path.join(BUILDS_WORKSPACE, name), { recursive: true, force: true });
+    console.log(`[preview-manager] LRU evicted: ${name}`);
+  }
 }
