@@ -3267,7 +3267,15 @@ Generate the complete application for: ${config.intent}`;
     }
 
     const artifact: ArtifactContract = finalParseResult.artifact;
-    const cleanArtifact = ArtifactReviewerService.review(artifact);
+    const cleanArtifact = await ArtifactReviewerService.reviewWithAI({
+      intent:      config.intent,
+      planContext: typeof plan === 'object' && plan !== null
+        ? JSON.stringify(plan).slice(0, 800)
+        : undefined,
+      artifact,
+      onLog:   config.onLog,
+      signal:  config.signal,
+    });
     const artifactDependencies = cleanArtifact.dependencies ?? [];
     const artifactDependencySpecs = toDependencySpecs(artifactDependencies);
     const entryFile = cleanArtifact.entry || 'src/App.tsx';
