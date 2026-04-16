@@ -69,7 +69,7 @@ const MAX_REVISIONS = 20;
 /**
  * Adaptive compile timeout: scales with file count.
  * - Base: 15s (enough for 1-3 file apps)
- * - Per file: +2s (Vite HMR per-module overhead)
+ * - Per file: +2s (backend vite build scales with module count)
  * - Cap: 90s (absolute upper bound)
  */
 function getCompileTimeout(fileCount: number): number {
@@ -276,20 +276,21 @@ export class RevisionManager {
   }
 
   /**
-   * Flush candidate files to preview-workspace/src/ and wait for Vite verdict.
+   * Compile the candidate revision via the backend compile endpoint.
    *
-   * Files are written to disk (Vite HMR picks them up automatically).
-   * We listen for `vite:error` / `iframe-error` within a timeout window.
-   * If no errors arrive before the timeout — compilation is considered successful.
-   */
-  /**
-   * Flush candidate files to preview-workspace/src/ and wait for Vite HMR verdict.
+   * POSTs files → POST /api/preview/:buildId/compile → vite build →
+   * builds/:buildId/ static output. Waits for the authoritative
+   * `preview-mounted` postMessage before resolving.
    *
    * On success, sets the internal compiled flag so promote() will accept
    * this revision. On failure, the flag remains unset — promote() will refuse.
    *
    * PROMOTION CONTRACT: promote(revId) requires compileCandidate(revId)
    * to have returned { success: true } first. This is enforced at runtime.
+   *
+   * NOTE: This is the backend-compiler path. It does NOT use Vite HMR
+   * hot-module replacement — it produces immutable static builds in
+   * builds/:buildId/ and waits for `preview-mounted` from MountReporter.
    */
   async compileCandidate(
     revisionId: string,
@@ -455,6 +456,15 @@ export class RevisionManager {
       // Restore last-good: navigate the iframe back to the previous active build.
       // builds/:previousActiveRevisionId/ is already on disk — no re-compile needed.
       // MAX_BUILDS=20 LRU ensures recent builds survive the current session.
+      //
+      // READINESS CONTRACT:
+      //   • previousActiveRevisionId exists → notifyCompiling(previousActiveRevisionId) is
+      //     called immediately (arms expectingBuildId for last-good mount guard).
+      //     notifyFailed / notifyReady then settle asynchronously once waitForReady
+      //     resolves for the last-good build (fire-and-forget — does not delay the throw).
+      //   • no previousActiveRevisionId → notifyFailed is called synchronously (else-branch).
+      // In both cases PROMOTE_BLOCKED is thrown after the synchronous notification.
+      // We do NOT signal ready until authoritative preview-mounted confirms the mount.
       if (previousActiveRevisionId) {
         const lastGoodIframe = document.querySelector<HTMLIFrameElement>(
           'iframe[data-testid="preview-iframe"]',
@@ -462,15 +472,46 @@ export class RevisionManager {
         if (lastGoodIframe) {
           previewLog('promote_restore_last_good', { buildId: previousActiveRevisionId });
           lastGoodIframe.src = `/preview/${previousActiveRevisionId}`;
+          // Arm the expectingBuildId guard then wait asynchronously for mount.
+          // If mount succeeds, transition from failed → ready for the last-good build.
+          // If it times out, the UI stays in 'failed' state — honest, no fake-ready.
+          previewController.notifyCompiling(previousActiveRevisionId);
+          waitForReady(previousActiveRevisionId, 15_000, this.previewUrl).then((r) => {
+            if (r.success) {
+              this.activeRevisionId = previousActiveRevisionId;
+              this.syncTimelineContext();
+              previewController.notifyReady(previousActiveRevisionId, 'last_good_mounted');
+              previewLog('promote_last_good_mounted', { buildId: previousActiveRevisionId });
+            } else {
+              // Last-good also failed to mount — leave in failed state.
+              previewController.notifyFailed(
+                r.errors?.join('\n') ?? 'Last-good preview did not mount',
+                previousActiveRevisionId,
+              );
+              previewLog('promote_last_good_mount_failed', {
+                buildId: previousActiveRevisionId,
+                errors: r.errors,
+              });
+            }
+          }).catch(() => { /* notifyFailed already called on rejection above */ });
         }
+      } else {
+        // No previous active revision — nothing to restore.
+        previewController.notifyFailed('Preview is blank', revisionId);
       }
 
-      previewController.notifyFailed('Preview is blank', previousActiveRevisionId ?? revisionId);
       // Reset state before throw so candidateRevisionId/compiledRevisionId are
       // not left populated — next createCandidate() must not see a stale orphan.
       this.candidateRevisionId = null;
       this.compiledRevisionId = null;
       this.syncTimelineContext();
+      // notifyFailed lifecycle:
+      //   - no previousActiveRevisionId: called in the else-branch above (synchronous).
+      //   - previousActiveRevisionId exists: notifyCompiling was called to arm
+      //     expectingBuildId; the async waitForReady will call either notifyReady
+      //     (on success) or notifyFailed (on timeout/error). The controller is
+      //     left in 'compiling' state briefly — that is intentional: it transitions
+      //     to 'ready' or 'failed' once the async mount result arrives.
       throw new Error('PROMOTE_BLOCKED: white_screen_after_ready');
     }
 
@@ -497,6 +538,11 @@ export class RevisionManager {
    *     re-compile needed; LRU-protected within MAX_BUILDS=20).
    *   - If no active revision exists (first-ever generation failed),
    *     the preview stays in its current state (idle or failed).
+   *
+   * READINESS CONTRACT: notifyReady is NOT called optimistically on iframe
+   * navigation. The method waits for an authoritative `preview-mounted`
+   * postMessage with a matching buildId before signaling ready. This prevents
+   * fake-ready when the browser hasn't yet loaded the static build.
    */
   async rollback(): Promise<void> {
     const discardedId = this.candidateRevisionId;
@@ -514,15 +560,35 @@ export class RevisionManager {
     }
 
     // Restore last-good: navigate the iframe to the existing compiled static build.
-    // builds/:activeRevisionId/ is still on disk — no re-compile or HMR write needed.
+    // builds/:activeRevisionId/ is still on disk — no re-compile needed.
+    // Wait for authoritative preview-mounted before signaling ready.
     if (this.activeRevisionId) {
-      console.log(`[RevisionManager] rolling back to active ${this.activeRevisionId}`);
+      const targetId = this.activeRevisionId;
+      console.log(`[RevisionManager] rolling back to active ${targetId}`);
+      // Signal compiling so PreviewController sets expectingBuildId — this arms
+      // the buildId-mismatch guard inside notifyReady and makes the lifecycle
+      // transition explicit in the UI (brief 'compiling' flash is acceptable).
+      previewController.notifyCompiling(targetId);
       const iframe = document.querySelector<HTMLIFrameElement>(
         'iframe[data-testid="preview-iframe"]',
       );
-      if (iframe) iframe.src = `/preview/${this.activeRevisionId}`;
-      previewController.notifyReady(this.activeRevisionId, 'rollback_restore');
-      previewLog('rollback_restored', { buildId: this.activeRevisionId });
+      if (iframe) iframe.src = `/preview/${targetId}`;
+      // Wait for the static build's MountReporter to post preview-mounted.
+      // Timeout is short (15 s) — rollback target is an already-compiled build.
+      const result = await waitForReady(targetId, 15_000, this.previewUrl);
+      if (result.success) {
+        previewController.notifyReady(targetId, 'rollback_restore_mounted');
+        previewLog('rollback_restored', { buildId: targetId });
+      } else {
+        previewController.notifyFailed(
+          result.errors?.join('\n') ?? 'Rollback preview did not mount',
+          targetId,
+        );
+        previewLog('rollback_restore_failed', {
+          buildId: targetId,
+          errors: result.errors,
+        });
+      }
     }
   }
 
@@ -560,8 +626,14 @@ export class RevisionManager {
    * Fast path  — builds/:revisionId/ is still on disk (common; LRU keeps
    *              MAX_BUILDS=20 entries). Navigate the iframe directly to
    *              /preview/:revisionId without any compile step.
+   *              READINESS CONTRACT: even on the fast path, notifyReady is
+   *              NOT called until the iframe's MountReporter posts an
+   *              authoritative `preview-mounted` message with a matching
+   *              buildId. This prevents fake-ready before the browser has
+   *              actually loaded and rendered the static build.
    * Slow path  — build was LRU-evicted (rare; requires >20 newer builds).
-   *              Re-materialize from the in-memory file store.
+   *              Re-materialize via materializePersistedFiles() which already
+   *              waits for the full compile + preview-mounted contract.
    */
   async restoreRevision(revisionId: string): Promise<void> {
     const files = this.store.get(revisionId);
@@ -569,17 +641,41 @@ export class RevisionManager {
 
     const buildExists = await this._checkBuildExists(revisionId);
     if (buildExists) {
-      // Fast path: compiled output is on disk — just navigate.
+      // Fast path: compiled output is on disk — navigate and wait for mount.
+      // notifyCompiling sets expectingBuildId so the buildId-mismatch guard
+      // inside notifyReady is armed before the iframe navigates.
+      previewController.notifyCompiling(revisionId);
       const iframe = document.querySelector<HTMLIFrameElement>(
         'iframe[data-testid="preview-iframe"]',
       );
       if (iframe) iframe.src = `/preview/${revisionId}`;
-      this.activeRevisionId = revisionId;
-      this.syncTimelineContext();
-      previewController.notifyReady(revisionId, 'revision_restored_direct');
-      previewLog('revision_restored', { buildId: revisionId, path: 'direct' });
+      // Wait for authoritative preview-mounted from the static build.
+      // Timeout 15 s — build is already compiled; only navigation latency.
+      const result = await waitForReady(revisionId, 15_000, this.previewUrl);
+      if (result.success) {
+        this.activeRevisionId = revisionId;
+        this.syncTimelineContext();
+        previewController.notifyReady(revisionId, 'revision_restored_mounted');
+        previewLog('revision_restored', { buildId: revisionId, path: 'direct' });
+      } else {
+        previewController.notifyFailed(
+          result.errors?.join('\n') ?? 'Restored preview did not mount',
+          revisionId,
+        );
+        previewLog('revision_restore_failed', {
+          buildId: revisionId,
+          path: 'direct',
+          errors: result.errors,
+        });
+        throw new Error(
+          `restoreRevision: preview-mounted not received for ${revisionId}. ` +
+          (result.errors?.join('; ') ?? 'timeout'),
+        );
+      }
     } else {
       // Slow path: build was LRU-evicted — re-compile from in-memory files.
+      // materializePersistedFiles already waits for the full compile +
+      // preview-mounted contract; no additional waitForReady needed here.
       previewLog('revision_restore_rematerialize', { buildId: revisionId, reason: 'build_not_on_disk' });
       await this.materializePersistedFiles(files, {
         source: 'RevisionManager.restoreRevision',
@@ -611,13 +707,15 @@ export class RevisionManager {
   // ── Private helpers ────────────────────────────────────────────
 
   /**
-   * Clear all files from preview-workspace/src/ via /__clear_preview.
-   * Called by SimpleGeneration as a preflight before NEW-mode generation
-   * so stale files from a previous build do not leak into the next compile.
+   * Best-effort preflight clear before NEW-mode generation.
+   * Posts to /__clear_preview to remove stale files from preview-workspace/src/
+   * so they cannot leak into the next backend compile.
    *
-   * NOTE: preview-workspace/vite.config.ts only exposes this endpoint when the
-   * Vite dev server is running in HMR mode. In the backend-compiler architecture
-   * the endpoint may not exist; the gateway catches the 404 and swallows it.
+   * COMPATIBILITY / BEST-EFFORT: /__clear_preview is a compatibility endpoint
+   * for any Vite dev-server path that may be co-running. It will 404 when no
+   * dev server is present, and the gateway silently swallows that error. This
+   * call is NOT part of canonical readiness semantics and does NOT affect
+   * the preview-mounted(buildId) lifecycle.
    */
   async fullClearPreview(buildId?: string): Promise<void> {
     try {
@@ -676,16 +774,16 @@ async function triggerCompile(
  * Wait for an authoritative `preview-mounted` postMessage scoped to `expectedBuildId`.
  *
  * Acceptance rules (ALL must hold):
- *   - message origin === PREVIEW_ORIGIN (the preview-workspace dev server)
+ *   - message origin === PREVIEW_ORIGIN (the preview-workspace origin)
  *   - data.type === 'preview-mounted'
  *   - data.buildId === expectedBuildId
  *
- * Stale messages (a previous build's id, or `iframe-ready` from initial load) are
+ * Stale messages (a previous build's id, or `iframe-ready` from window load) are
  * logged and rejected, never resolve the promise.
  *
  * Hard error channels still settle the wait early:
  *   - `iframe-error` (runtime crash inside preview)
- *   - `vite:error`   (compile error reported by preview-workspace HMR)
+ *   - `vite:error`   (runtime or compilation error from the preview runtime)
  */
 function waitForReady(
   expectedBuildId: string,
@@ -711,7 +809,7 @@ function waitForReady(
       const type = (d as { type?: string }).type;
       if (!type) return;
 
-      // Origin gate — only the preview-workspace dev server may finish a cycle.
+      // Origin gate — only a message from the preview origin may finish a cycle.
       const originOk = e.origin === previewOrigin;
 
       if (type === 'preview-mounted') {

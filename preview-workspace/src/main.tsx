@@ -15,16 +15,24 @@ declare global {
 }
 
 // ── Build handshake ──────────────────────────────────────
-// The parent frame writes preview-workspace/src/__build_id.ts LAST on every build.
-// Vite HMR replaces that module → the `Root` component below updates its
-// buildId state → `MountReporter` re-runs its effect → postMessage is sent
-// from inside a committed React effect (which fires reliably even when the
-// iframe is display:none, unlike requestAnimationFrame).
+// When the iframe loads /preview/:buildId (backend-compiler path), MountReporter
+// fires its useEffect after React commits and posts `preview-mounted` with the
+// baked-in buildId. RevisionManager.waitForReady() accepts only this message
+// when data.buildId matches the current compile cycle.
 //
-// The parent's RevisionManager.waitForReady accepts only messages whose
-// buildId matches the current compile cycle.
+// In the Vite dev-server (HMR dev path — not used in production):
+// the parent frame writes __build_id.ts LAST; Vite HMR replaces that module →
+// buildId state updates → MountReporter re-fires → preview-mounted is posted.
+// This path fires reliably even in display:none iframes (useEffect is not
+// throttled, unlike requestAnimationFrame).
 
-// Legacy compat: synchronous iframe-ready signal for any old listener.
+// ── Legacy compat: non-authoritative iframe-ready signal ─────────────────────
+// Posts `{ type: 'iframe-ready' }` on window load. This is a COMPATIBILITY
+// shim for any legacy listeners that predate the `preview-mounted` / buildId
+// handshake. It carries NO buildId and is explicitly ignored by waitForReady
+// (logged as 'legacy_iframe_ready_no_buildId', never settles the ready promise).
+// It is NOT part of canonical readiness semantics and MUST NOT be used as a
+// readiness signal by any current code. See RevisionManager.waitForReady.
 const notifyReady = () => {
   try {
     window.parent.postMessage({ type: 'iframe-ready' }, '*');
@@ -232,7 +240,8 @@ const ResolvedApp = appModule?.default ?? (() => (
 ReactDOM.createRoot(document.getElementById('root')!).render(<Root />);
 
 // Legacy `iframe-ready` — posted once the window has fully loaded, so old
-// listeners that key off of it still work. Not authoritative for readiness.
+// listeners that key off of it still work. NOT authoritative for readiness
+// (no buildId; ignored by RevisionManager.waitForReady). See notifyReady above.
 if (document.readyState === 'complete') {
   notifyReady();
 } else {

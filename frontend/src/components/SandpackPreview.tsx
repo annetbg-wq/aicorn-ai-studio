@@ -9,7 +9,11 @@
  *   - Empty state → welcome screen (srcdoc)
  *
  * Preview pipeline:
- *   SimpleGeneration writes to preview workspace → Vite HMR → iframe
+ *   SimpleGeneration → RevisionManager.compileCandidate()
+ *     → backend /api/preview/:buildId/compile (vite build → static output)
+ *     → iframe loads /preview/:buildId
+ *     → MountReporter posts `preview-mounted(buildId)`
+ *     → PreviewController.notifyReady()
  *
  * No materialization, no revisions, no sandbox. One canonical path.
  */
@@ -302,7 +306,7 @@ interface SandpackViewProps {
   onRollback?:      () => void;
   isAutoFixing?:    boolean;
   /** True while AI is generating — shows "Building your app…" overlay instead of
-   *  the live iframe so React state changes and HMR updates can't race. */
+   *  the live iframe so React state changes and backend recompile can't race. */
   isGenerating?:    boolean;
   /** API key for direct auto-fix calls from the failed overlay. */
   apiKey?:          string;
@@ -456,7 +460,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
 
     if (previewState.status === 'ready' && prev !== 'ready') {
       setRuntimeError(null);
-      // HMR handles content update — no iframe force-reload needed
+      // PreviewController subscription drives this transition — no manual iframe reload needed.
       onPreviewReadyRef.current?.();
       captureScreenshot();
     }
@@ -601,9 +605,9 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
   }, [device]);
 
   // ARCHITECTURE: Both iframes are ALWAYS in the DOM — only display toggles.
-  // This prevents React from ever calling removeChild on an iframe whose
-  // contentDocument has been mutated by Vite HMR, which caused DOM-fiber
-  // mismatch crashes. Switching files: {} → {App.tsx} no longer unmounts anything.
+  // Unmounting the preview iframe mid-build interrupts the static build's load
+  // cycle and causes DOM-fiber mismatch crashes. Switching files: {} → {App.tsx}
+  // no longer unmounts anything.
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: 'white', overflow: 'hidden' }}>
       {/* Vite/React preview — ALWAYS mounted */}
@@ -667,8 +671,8 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
         title="AIC-RG Preview Static"
       />
 
-      {/* Level 3: Loading timeout overlay — shown after 20 s with no iframe-ready.
-           Driven by ui.overlay === 'loading-timeout'. */}
+      {/* Level 3: Loading timeout overlay — shown after 20 s with no preview-mounted
+           signal from the backend build. Driven by ui.overlay === 'loading-timeout'. */}
       <div style={{
         position: 'absolute', inset: 0, zIndex: 49,
         backgroundColor: 'rgba(5,5,8,0.92)',
@@ -688,8 +692,8 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
               color: 'rgba(255,255,255,0.45)', fontSize: 12,
               lineHeight: 1.6, margin: '0 0 20px',
             }}>
-              This usually means the preview server isn&apos;t running,
-              or the project files weren&apos;t written correctly.
+              This usually means the backend API server isn&apos;t running,
+              or the compiled build timed out before preview-mounted was received.
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
               <button
@@ -723,7 +727,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
               marginTop: 16, fontSize: 11,
               color: 'rgba(255,255,255,0.25)',
             }}>
-              Make sure npm run dev:all is running in terminal
+              Make sure npm run dev:all is running (starts backend API server + frontend)
             </p>
           </div>
       </div>
@@ -881,9 +885,9 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
         </div>
       )}
 
-      {/* Generation overlay — shown while AI is writing code, hides iframe so HMR
-          changes can't cause insertBefore crashes during React reconciliation.
-          When file progress is available, shows per-file streaming status. */}
+      {/* Generation overlay — shown while AI is generating code; hides the preview
+          iframe so React reconciliation during backend recompile can't race with
+          live DOM. When file progress is available, shows per-file streaming status. */}
       <div style={{
         position: 'absolute', inset: 0, zIndex: 52,
         background: 'var(--background, #050508)',
@@ -1059,7 +1063,9 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
 
-      {/* Preview server not running overlay */}
+      {/* Backend API not responding overlay — previewServerDown is always false in the
+           compiled-preview path (same-origin, no separate server to probe); this overlay
+           is never shown but retained for any future degraded-mode detection. */}
       <div style={{
         position: 'absolute', inset: 0, zIndex: 54,
         background: 'var(--background, #050508)',
@@ -1070,7 +1076,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
       }}>
         <div style={{ fontSize: 36, opacity: 0.5 }}>🔌</div>
         <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 15, fontWeight: 600, margin: 0 }}>
-          Preview server is not running
+          Backend API server is not responding
         </p>
         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0, maxWidth: 320, textAlign: 'center', lineHeight: 1.5 }}>
           Run: <code style={{ background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>npm run dev:all</code>

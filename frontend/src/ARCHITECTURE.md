@@ -78,11 +78,36 @@ On delete: ProjectRepository.deleteProject() + ProjectRepository.listProjects()
 - `ProjectStorage` is storage compatibility and offline fallback, not preview mutation authority
 - Direct `fetch('/__write_preview')` / `fetch('/__clear_preview')` are transport details encapsulated by runtime services, never normal project lifecycle entry points
 
+## rollback / restoreRevision / last-good readiness contract
+
+**No code path may call `notifyReady` before the target compiled preview has actually mounted.**
+
+| Path | Mechanism |
+|------|-----------|
+| `rollback()` | notifyCompiling(targetId) → iframe.src = /preview/:id → **waitForReady** → notifyReady (on mount) or notifyFailed (on timeout) |
+| `restoreRevision()` fast-path | notifyCompiling(revisionId) → iframe.src = /preview/:id → **waitForReady** → notifyReady (on mount) or notifyFailed + throw (on timeout) |
+| `restoreRevision()` slow-path | `materializePersistedFiles()` (full compile + preview-mounted contract, same as generation) |
+| `promote()` last-good recovery | notifyCompiling(prevId) → iframe.src = /preview/:prevId → **waitForReady** async (fire-and-forget, does not delay PROMOTE_BLOCKED throw) |
+
+All four paths resolve through a real `preview-mounted` message. Optimistic `notifyReady` without mount confirmation is prohibited.
+
+## startup hard-refresh behavior (INTENTIONAL — Option A: auto-restore)
+
+On mount, if an active project exists in localStorage, it is automatically loaded and
+a fresh backend compile is triggered. The preview transitions:
+  `idle → compiling → (preview-mounted) → ready`
+
+The user does **not** need to take any action. This is intentional: compiled static builds
+are ephemeral (cleared on server restart), so every cold start re-compiles from the
+persisted project files via the canonical `materializePersistedFiles` path.
+
 ## preview-workspace/src/ is a WORKING DIRECTORY, not storage
 
-Files materialized here by RevisionManager are
-ephemeral — Vite HMR serves them live. They are NOT the source of truth.
-After restart, preview-workspace/src/ is restored only when a project is explicitly loaded.
+Files materialized here by RevisionManager are ephemeral — the backend compiler
+reads them, runs `vite build`, and writes the output to `builds/:buildId/`.
+The static build is then served at `/preview/:buildId`. Files in
+`preview-workspace/src/` are NOT the source of truth and are NOT served live
+after the backend-compiler path completes.
 
 ## Prohibited patterns
 

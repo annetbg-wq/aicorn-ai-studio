@@ -433,7 +433,7 @@ export default function App() {
       {/* NOTE: NO single outer Suspense here — each lazy component has its own.
           A single Suspense wrapping everything would unmount EngineWorkspace
           (and its iframe) whenever any other lazy view loads for the first time,
-          causing Vite HMR removeChild crashes. */}
+          causing preview iframe removeChild crashes during lazy-load DOM reconciliation. */}
       <div className={`flex h-full w-full max-w-none overflow-hidden transition-colors duration-500 ${themes[studio.theme].bg}`}>
 
         {/* ── Vertical module sidebar — always visible ── */}
