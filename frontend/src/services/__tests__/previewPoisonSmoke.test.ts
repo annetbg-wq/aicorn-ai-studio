@@ -1,5 +1,9 @@
 /**
- * previewPoisonSmoke — Integrated failure-path smoke test.
+ * previewPoisonSmoke — Extended preview failure-path tests.
+ *
+ * COVERAGE TIER: extended — NOT part of the required baseline gate.
+ * Required baseline: previewStabilityPack.test.ts (`npm run test:smoke`)
+ * To run both tiers:  `npm run test:smoke:extended`
  *
  * Proves that artifact-envelope JSON cannot kill a working preview.
  *

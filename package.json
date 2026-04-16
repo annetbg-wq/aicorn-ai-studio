@@ -9,6 +9,7 @@
     "test:unit": "vitest run backend/auth-token.test.ts",
     "test:e2e": "playwright test",
     "test:smoke:projects": "npx playwright test tests/e2e/projects.smoke.spec.cjs --reporter=line --workers=1",
+    "test:smoke:preview": "npm run test:smoke --prefix frontend",
     "tool:save": "node scripts/backup-tool.js",
     "tool:restore": "node scripts/restore-tool.js"
   },

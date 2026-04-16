@@ -40,8 +40,8 @@ jobs:
         env:
           VITE_OPENROUTER_API_KEY: placeholder   # tests must not require real keys
 
-      - name: Preview stability smoke-pack (required)
-        run: npm run test -- previewStabilityPack.test.ts
+      - name: Preview baseline smoke (required)
+        run: npm run test:smoke
         env:
           VITE_OPENROUTER_API_KEY: placeholder
 
