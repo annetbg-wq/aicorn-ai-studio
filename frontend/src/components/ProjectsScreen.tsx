@@ -304,6 +304,15 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                       position: 'relative', marginBottom: 20,
                       background: isDark ? '#111' : '#f0f0f0',
                     }}>
+                      {/*
+                        Non-interactive project thumbnail — scaled down cosmetic view.
+                        pointer-events:none prevents user interaction at the CSS level.
+                        sandbox policy is intentionally identical to the runtime preview
+                        iframe in PreviewCanvas so user-generated code runs in the same
+                        sandboxed context regardless of which surface renders it.
+                        This is a display-only iframe; it does NOT participate in the
+                        preview-mounted handshake contract.
+                      */}
                       <iframe
                         src={`/preview/${selectedProject.id}`}
                         style={{
@@ -312,6 +321,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                           pointerEvents: 'none',
                         }}
                         title="preview"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
                       />
                       <div style={{
                         position: 'absolute', inset: 0, cursor: 'pointer',
