@@ -67,7 +67,9 @@ export interface DOMMetrics {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const PREVIEW_ORIGIN =
+// Same-origin: preview is served at /preview/:buildId on the same host as the studio.
+// Proxied transparently by vite.config.ts (/preview → backend port 3000).
+const STUDIO_ORIGIN =
   typeof window !== 'undefined' && window.location
     ? window.location.origin
     : 'http://localhost';
@@ -118,7 +120,7 @@ export function probeIframe(
     };
 
     const onMessage = (e: MessageEvent) => {
-      if (e.origin !== PREVIEW_ORIGIN) return;
+      if (e.origin !== STUDIO_ORIGIN) return;
       const d = e.data;
       if (!d || typeof d !== 'object') return;
       if (d.type !== 'white-screen-result') return;
@@ -150,7 +152,7 @@ export function probeIframe(
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
         { type: 'white-screen-check', buildId },
-        PREVIEW_ORIGIN,
+        STUDIO_ORIGIN,
       );
     } else {
       // No iframe found — can't probe

@@ -1250,10 +1250,22 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
               bgStyle={bgStyle}
             >
               <DeviceFrame device={device}>
+                {/*
+                  Runtime preview iframe — same-origin compiled preview (/preview/:buildId).
+                  Sandbox isolates user-generated code while preserving:
+                    • preview-mounted postMessage handshake (allow-same-origin)
+                    • React runtime + dynamic imports (allow-scripts)
+                    • form / modal / popup / download APIs used by generated apps
+                  allow-same-origin is intentional: the compiled bundle must be able
+                  to make fetch() calls back to the same Vite/Express origin.
+                  NOTE: if this iframe becomes cross-origin in the future, remove
+                  allow-same-origin and tighten the policy accordingly.
+                */}
                 <iframe
                   src={iframeUrl}
                   data-testid="preview-iframe"
                   title="preview"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
                   style={{ display: 'block', width: '100%', height: '100%', border: 'none' }}
                 />
               </DeviceFrame>

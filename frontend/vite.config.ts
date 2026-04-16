@@ -251,7 +251,7 @@ export default defineConfig({
       '/preview': {
         target: 'http://127.0.0.1:3000',
         changeOrigin: true,
-        ws: true,   // proxy HMR WebSocket upgrades to the per-project Vite
+        // Same-origin compiled preview: no separate Vite dev server, no WS to proxy.
         secure: false,
       },
     },

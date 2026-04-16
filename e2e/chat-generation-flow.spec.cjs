@@ -48,7 +48,9 @@ test.describe('Chat → generation → blueprint → preview', () => {
     const confirmBtn = page.locator('[data-testid="generation-plan-card"] [data-testid="confirm-plan-btn"]');
     await expect(confirmBtn).toBeVisible({ timeout: 5_000 });
     await confirmBtn.click();
-    await page.waitForSelector('iframe[data-build-id]', { timeout: 60000 });
+    // Same-origin compiled preview: iframe has data-testid="preview-iframe",
+    // not data-build-id. Selector updated to match real DOM.
+    await page.waitForSelector('[data-testid="preview-iframe"]', { timeout: 60000 });
     await expect(page.locator('iframe[src*="/preview/"]')).toBeVisible();
     await expect(page.frameLocator('iframe').locator('text=Todo')).toBeVisible();
 
@@ -57,19 +59,20 @@ test.describe('Chat → generation → blueprint → preview', () => {
       page.locator('text=⚙️ Building…').or(page.locator('text=Building…'))
     ).toBeVisible({ timeout: 10_000 });
 
-    // 5. Wait until frontend receives preview-manager URL for this project
-    await page.waitForFunction(() => window.__E2E_PREVIEW_URL__, { timeout: 30_000 });
-    const previewUrl = await page.evaluate(() => window.__E2E_PREVIEW_URL__);
-    expect(previewUrl).toContain('127.0.0.1:');
-
-    // 6. iframe must be visible and point to dynamic preview-manager URL
+    // 5. Wait for the preview iframe to acquire a same-origin /preview/:id src.
+    // The old window.__E2E_PREVIEW_URL__ + 127.0.0.1 check is replaced with a
+    // direct iframe src assertion against the canonical same-origin route pattern.
     const iframe = page.locator('[data-testid="preview-iframe"]');
     await expect(iframe).toBeVisible({ timeout: FLOW_TIMEOUT });
+
+    // 6. iframe src must point to the same-origin compiled preview route.
+    // No host-specific literal (127.0.0.1 / localhost) is asserted — the
+    // contract is the /preview/:buildId path, not the host it was served from.
     await expect(async () => {
       const src = await iframe.getAttribute('src');
       expect(src).toBeTruthy();
       expect(src).not.toBe('about:blank');
-      expect(src).toContain('127.0.0.1:');
+      expect(src).toMatch(/\/preview\/[0-9a-f-]+/i);
     }).toPass({ timeout: FLOW_TIMEOUT, intervals: [2_000, 3_000, 5_000] });
 
     // 7. Counter app should render initial value 0

@@ -124,7 +124,10 @@ export class RevisionManager {
   /** revisionId → { normalizedPath → content } */
   private store = new Map<string, Record<string, string>>();
 
-  constructor(private previewUrl: string) {}
+  constructor(
+    private previewUrl: string =
+      typeof window !== 'undefined' ? window.location.origin : 'http://localhost',
+  ) {}
 
   // ── Public API ─────────────────────────────────────────────────
 
@@ -774,7 +777,8 @@ async function triggerCompile(
  * Wait for an authoritative `preview-mounted` postMessage scoped to `expectedBuildId`.
  *
  * Acceptance rules (ALL must hold):
- *   - message origin === PREVIEW_ORIGIN (the preview-workspace origin)
+ *   - message origin === window.location.origin (same-origin: /preview/:buildId is
+ *     served by the same host as the studio, transparently proxied via vite.config.ts)
  *   - data.type === 'preview-mounted'
  *   - data.buildId === expectedBuildId
  *
@@ -884,9 +888,7 @@ function waitForReady(
 
 let _revisionManager: RevisionManager | null = null;
 export const getRevisionManager = () => {
-  if (!_revisionManager) _revisionManager = new RevisionManager(
-    typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
-  );
+  if (!_revisionManager) _revisionManager = new RevisionManager();
   return _revisionManager;
 };
 // для обратной совместимости в браузере
