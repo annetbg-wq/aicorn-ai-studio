@@ -1,10 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Monitor, Smartphone, Tablet,
   Eye, Code2, Palette, BarChart2, Shield,
   Share2, Copy, Check, GitBranch, GitCommit, CheckCircle,
   FilePlus, Trash2, ZoomIn, ZoomOut, Maximize2, Download,
+  MousePointer2,
 } from 'lucide-react';
+import { visualEditBridge, type VisualEditMode, type SelectedElement } from '../services/VisualEditBridge';
 import type { FileMap } from '../hooks/useStudio';
 
 import { CloudPanel }   from './CloudPanel';
@@ -518,6 +520,8 @@ const CodePanel: React.FC<{
         <div style={{ flex:1, overflowY:'auto' }}>
           {names.map(n=>(
             <div key={n} onClick={()=>setActiveFile(n)}
+              data-testid="code-file-item"
+              data-path={n}
               style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 12px', cursor:'pointer', background:n===activeFile?'rgba(79,70,229,0.1)':'transparent', borderLeft:`2px solid ${n===activeFile?'#6366f1':'transparent'}` }}>
               <div style={{ width:6, height:6, borderRadius:'50%', background:colorOf(n), flexShrink:0 }}/>
               <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:11, color:n===activeFile?'#e0e7ff':'rgba(255,255,255,0.38)' }}>{n}</span>
@@ -535,6 +539,7 @@ const CodePanel: React.FC<{
           </button>
         </div>
         <textarea
+          data-testid="code-editor-textarea"
           style={{ flex:1, background:'transparent', border:'none', outline:'none', resize:'none', padding:'16px 20px', fontSize:12, lineHeight:1.7, fontFamily:'monospace', color:'rgba(255,255,255,0.72)', whiteSpace:'pre', overflowWrap:'normal' }}
           value={code} onChange={e=>setFiles({...files,[activeFile]:e.target.value})} spellCheck={false}
         />
@@ -868,6 +873,11 @@ interface PreviewCanvasProps {
   previewBlockedReason?:  string | null;
   projectId:              string;
   previewUrl?:            string;
+  /**
+   * Called when the user clicks an element in visual-edit selection mode.
+   * Receives the selected element descriptor — host fills chat input with edit prompt.
+   */
+  onVisualElementSelected?: (element: SelectedElement) => void;
 }
 
 /* ---- Main component ---- */
@@ -886,9 +896,32 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   previewBlockedReason,
   projectId,
   previewUrl,
+  onVisualElementSelected,
 }) => {
   const iframeUrl = previewUrl || (projectId ? `/preview/${projectId}` : '');
   const [tab, setTab] = useState<TabId>('preview');
+
+  // ── Visual-edit bridge — local state ─────────────────────────────────────
+  const [visualEditMode,     setVisualEditModeState] = useState<VisualEditMode>('off');
+  const [visualEditSelected, setVisualEditSelectedState] = useState<SelectedElement | null>(null);
+
+  // Subscribe to bridge state — fires selection callback when element is picked
+  useEffect(() => {
+    return visualEditBridge.subscribe((state) => {
+      setVisualEditModeState(state.mode);
+      setVisualEditSelectedState(state.selected);
+      if (state.mode === 'selected' && state.selected) {
+        onVisualElementSelected?.(state.selected);
+      }
+    });
+  }, [onVisualElementSelected]);
+
+  // Callback ref: attach bridge when the preview iframe mounts, detach on unmount.
+  // Using useCallback (stable deps = []) so React never tears down the ref binding.
+  const previewIframeRef = useCallback((el: HTMLIFrameElement | null) => {
+    if (el) visualEditBridge.attach(el);
+    else     visualEditBridge.detach();
+  }, []);
 
   const TH = {
     dark:   { topBg:'#0a0a0a',   border:'rgba(255,255,255,0.07)', tabDim:'rgba(255,255,255,0.32)', tabOn:'#fff',  canvasBg:'#050507',  dotClr:'rgba(255,255,255,0.05)' },
@@ -936,9 +969,13 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
     if (isPreviewReady) setHasPreviewReady(true);
   }, [isPreviewReady]);
   const canShowIframe = isPreviewReady || hasPreviewReady;
+  const shouldRenderIframe = canShowIframe || !!previewUrl;
   const showEmptySplash =
-    !projectId ||
-    (!isGenerating && currentVersion === 0 && Object.keys(files).length === 0);
+    !shouldRenderIframe &&
+    (
+      !projectId ||
+      (!isGenerating && currentVersion === 0 && Object.keys(files).length === 0)
+    );
   const showBlockedSplash =
     !!projectId &&
     !isGenerating &&
@@ -1006,6 +1043,39 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   const countdownText = String(isPreviewReady ? 0 : Math.max(1, Math.ceil(countdownSec))).padStart(2, '0');
   const ctxText  = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
   const ctxStrong = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)';
+  const previewFrame = shouldRenderIframe ? (
+    <ZoomableCanvas
+      draggable={false}
+      initZoom={0.55}
+      autoFit={{
+        w: (DEVICE_SPECS[device as DevKey] ?? DEVICE_SPECS.desktop).outerW,
+        h: (DEVICE_SPECS[device as DevKey] ?? DEVICE_SPECS.desktop).outerH,
+      }}
+      bgStyle={bgStyle}
+    >
+      <DeviceFrame device={device}>
+        {/*
+          Runtime preview iframe — same-origin compiled preview (/preview/:buildId).
+          Sandbox isolates user-generated code while preserving:
+            • preview-mounted postMessage handshake (allow-same-origin)
+            • React runtime + dynamic imports (allow-scripts)
+            • form / modal / popup / download APIs used by generated apps
+          allow-same-origin is intentional: the compiled bundle must be able
+          to make fetch() calls back to the same Vite/Express origin.
+          NOTE: if this iframe becomes cross-origin in the future, remove
+          allow-same-origin and tighten the policy accordingly.
+        */}
+        <iframe
+          ref={previewIframeRef}
+          src={iframeUrl}
+          data-testid="preview-iframe"
+          title="preview"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
+          style={{ display: 'block', width: '100%', height: '100%', border: 'none' }}
+        />
+      </DeviceFrame>
+    </ZoomableCanvas>
+  ) : null;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', flex:1, height:'100%', overflow:'hidden' }}>
@@ -1015,6 +1085,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
         <div style={{ display:'flex', alignItems:'center', gap:1 }}>
           {TABS.map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)}
+              data-testid={`preview-tab-${t.id}`}
               style={{ padding:'6px 14px', border:'none', cursor:'pointer', background:'none', fontSize:12, fontWeight:500,
                 color: tab===t.id ? th.tabOn : th.tabDim,
                 borderBottom: tab===t.id ? `2px solid ${th.tabOn}` : '2px solid transparent',
@@ -1026,6 +1097,25 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
 
         {/* Right: device selector + share */}
         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          {tab === 'preview' && (
+            <button
+              data-testid="visual-select-btn"
+              onClick={() => visualEditBridge.toggle()}
+              title={visualEditMode !== 'off' ? 'Stop element selection' : 'Select an element to edit it via chat'}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '5px 10px', borderRadius: 8,
+                border: `1px solid ${visualEditMode !== 'off' ? 'rgba(34,197,94,0.35)' : th.border}`,
+                background: visualEditMode !== 'off' ? 'rgba(34,197,94,0.1)' : 'none',
+                cursor: 'pointer', fontSize: 11,
+                color: visualEditMode !== 'off' ? '#22c55e' : th.tabDim,
+                transition: 'all 0.15s',
+              }}
+            >
+              <MousePointer2 size={12} />
+              {visualEditMode === 'selecting' ? 'Selecting…' : visualEditMode === 'selected' ? 'Selected' : 'Select'}
+            </button>
+          )}
           {tab === 'preview' && (
             <div style={{ display:'flex', alignItems:'center', gap:2, background:'rgba(255,255,255,0.04)', borderRadius:8, padding:'3px 4px', border:`1px solid ${th.border}` }}>
               {DEVICES.map(d=>(
@@ -1063,6 +1153,38 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
         </div>
       </div>
 
+      {/* Visual-edit selected-element info bar — shown when element is selected */}
+      {tab === 'preview' && visualEditSelected && (
+        <div
+          data-testid="visual-edit-infobar"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '4px 16px', flexShrink: 0,
+            borderBottom: `1px solid rgba(34,197,94,0.2)`,
+            background: 'rgba(34,197,94,0.07)',
+            fontSize: 11,
+          }}>
+          <MousePointer2 size={11} style={{ color: '#22c55e', flexShrink: 0 }} />
+          <span style={{ flex: 1, color: '#22c55e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <b>&lt;{visualEditSelected.tag}&gt;</b>
+            {visualEditSelected.selector ? ` ${visualEditSelected.selector.slice(0, 50)}` : ''}
+            {visualEditSelected.text ? ` — "${visualEditSelected.text.slice(0, 50)}"` : ''}
+            {' — describe your edit in chat'}
+          </span>
+          <button
+            onClick={() => visualEditBridge.disableSelection()}
+            title="Clear selection"
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'rgba(34,197,94,0.6)', fontSize: 15, lineHeight: 1,
+              padding: '0 2px', flexShrink: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Content */}
       <div style={{ flex:1, overflow:'hidden', position:'relative' }}>
 
@@ -1073,11 +1195,26 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
         <div style={{ position:'absolute', inset:0, display: tab === 'preview' ? 'flex' : 'none', flexDirection:'column' }}>
           {showPrototypingSplash ? (
             <div style={{
-              flex: 1, display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center',
-              background: th.canvasBg, textAlign: 'center',
-              userSelect: 'none',
+              flex: 1,
+              position: 'relative',
+              background: th.canvasBg,
             }}>
+              {previewFrame && (
+                <div style={{ position:'absolute', inset:0 }}>
+                  {previewFrame}
+                </div>
+              )}
+              <div style={{
+                position: 'relative',
+                zIndex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                textAlign: 'center',
+                userSelect: 'none',
+              }}>
               <style>{`
                 @keyframes _pc_pulse {
                   0%,100% { opacity: 1; transform: scale(1); }
@@ -1164,6 +1301,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                   }} />
                 </div>
               </div>
+              </div>
             </div>
           ) : showBlockedSplash ? (
             <div style={{
@@ -1239,37 +1377,8 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                 Опишите идею ниже или выберите<br/>в сайдбаре
               </div>
             </div>
-          ) : canShowIframe ? (
-            <ZoomableCanvas
-              draggable={false}
-              initZoom={0.55}
-              autoFit={{
-                w: (DEVICE_SPECS[device as DevKey] ?? DEVICE_SPECS.desktop).outerW,
-                h: (DEVICE_SPECS[device as DevKey] ?? DEVICE_SPECS.desktop).outerH,
-              }}
-              bgStyle={bgStyle}
-            >
-              <DeviceFrame device={device}>
-                {/*
-                  Runtime preview iframe — same-origin compiled preview (/preview/:buildId).
-                  Sandbox isolates user-generated code while preserving:
-                    • preview-mounted postMessage handshake (allow-same-origin)
-                    • React runtime + dynamic imports (allow-scripts)
-                    • form / modal / popup / download APIs used by generated apps
-                  allow-same-origin is intentional: the compiled bundle must be able
-                  to make fetch() calls back to the same Vite/Express origin.
-                  NOTE: if this iframe becomes cross-origin in the future, remove
-                  allow-same-origin and tighten the policy accordingly.
-                */}
-                <iframe
-                  src={iframeUrl}
-                  data-testid="preview-iframe"
-                  title="preview"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
-                  style={{ display: 'block', width: '100%', height: '100%', border: 'none' }}
-                />
-              </DeviceFrame>
-            </ZoomableCanvas>
+          ) : shouldRenderIframe ? (
+            previewFrame
           ) : (
             <div style={{ flex: 1, background: th.canvasBg }} />
           )}
