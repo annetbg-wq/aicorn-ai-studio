@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react'
-import ReactDOM from 'react-dom/client'
-import './index.css'
-import { BUILD_ID as INITIAL_BUILD_ID } from './__build_id'
+import React, { useEffect, useState } from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import { BUILD_ID as INITIAL_BUILD_ID } from './__build_id';
 
 interface ViteHot {
   accept(dep: string, cb: (mod: unknown) => void): void;
@@ -14,32 +14,13 @@ declare global {
   }
 }
 
-// ── Build handshake ──────────────────────────────────────
-// When the iframe loads /preview/:buildId (backend-compiler path), MountReporter
-// fires its useEffect after React commits and posts `preview-mounted` with the
-// baked-in buildId. RevisionManager.waitForReady() accepts only this message
-// when data.buildId matches the current compile cycle.
-//
-// In the Vite dev-server (HMR dev path — not used in production):
-// the parent frame writes __build_id.ts LAST; Vite HMR replaces that module →
-// buildId state updates → MountReporter re-fires → preview-mounted is posted.
-// This path fires reliably even in display:none iframes (useEffect is not
-// throttled, unlike requestAnimationFrame).
-
 // ── Legacy compat: non-authoritative iframe-ready signal ─────────────────────
-// Posts `{ type: 'iframe-ready' }` on window load. This is a COMPATIBILITY
-// shim for any legacy listeners that predate the `preview-mounted` / buildId
-// handshake. It carries NO buildId and is explicitly ignored by waitForReady
-// (logged as 'legacy_iframe_ready_no_buildId', never settles the ready promise).
-// It is NOT part of canonical readiness semantics and MUST NOT be used as a
-// readiness signal by any current code. See RevisionManager.waitForReady.
 const notifyReady = () => {
   try {
     window.parent.postMessage({ type: 'iframe-ready' }, '*');
   } catch {}
 };
 
-// Catch runtime errors and notify parent
 window.addEventListener('error', (e) => {
   try {
     window.parent.postMessage({
@@ -50,7 +31,6 @@ window.addEventListener('error', (e) => {
   } catch {}
 });
 
-// Catch unhandled promise rejections
 window.addEventListener('unhandledrejection', (e) => {
   try {
     const reason = e.reason as { message?: string } | undefined;
@@ -61,10 +41,6 @@ window.addEventListener('unhandledrejection', (e) => {
   } catch {}
 });
 
-// ── White-screen check responder ───────────────────────
-// Parent sends { type: 'white-screen-check', buildId } to request a DOM
-// health snapshot. We inspect #root and body, then reply with metrics.
-// This is read-only introspection — no side effects on the preview.
 const LOADING_INDICATOR_SELECTORS = [
   '[data-loading]',
   '.loading',
@@ -79,7 +55,6 @@ window.addEventListener('message', (e) => {
 
   const root = document.getElementById('root');
   const body = document.body;
-
   const rootText = root?.innerText ?? '';
   const hasLoadingIndicator =
     !!root?.querySelector(LOADING_INDICATOR_SELECTORS.join(',')) ||
@@ -103,13 +78,6 @@ window.addEventListener('message', (e) => {
   } catch {}
 });
 
-// ── MountReporter ────────────────────────────────────────
-// A zero-render component that posts `preview-mounted` as a
-// commit-time side effect. useEffect runs after React has flushed the
-// DOM, guaranteeing the new tree is actually mounted before the parent
-// is told so. useEffect is NOT tied to the rendering pipeline, so it
-// fires normally in display:none iframes (where requestAnimationFrame
-// is throttled).
 function MountReporter({ buildId }: { buildId: string }) {
   useEffect(() => {
     try {
@@ -120,11 +88,6 @@ function MountReporter({ buildId }: { buildId: string }) {
   return null;
 }
 
-// ── Root ─────────────────────────────────────────────────
-// Holds buildId in state and wires the Vite HMR hook for `./__build_id`
-// so that when the parent rewrites __build_id.ts at the end of a build
-// cycle, the state flips, MountReporter's effect re-runs, and the parent
-// receives a fresh `preview-mounted` message with the matching buildId.
 function Root() {
   const [buildId, setBuildId] = useState<string>(INITIAL_BUILD_ID);
 
@@ -152,25 +115,88 @@ const ResolvedApp = appModule?.default ?? (() => (
   </div>
 ));
 
-// ── Visual element selection (VisualEditBridge MVP) ──────────────────────────
+// ── Visual element selection (VisualEditBridge) ──────────────────────────────
 // Activated by { type: 'visual-select-start' } from the parent studio.
 // On element click, posts { type: 'visual-element-selected', payload: {...} }.
 // Deactivated by { type: 'visual-select-stop' }.
+//
+// Stability contract for selector inference (most → least stable):
+//   1. data-testid
+//   2. data-studio-hash
+//   3. data-figma-id
+//   4. #id
+//   5. tag.stable-classes
+//   6. parent > tag:nth-child(n)
 (function setupVisualSelector() {
   let active = false;
   let highlightEl: HTMLElement | null = null;
+  let savedOutline = '';
+  let savedOutlineOffset = '';
+
+  function buildBoundedPath(el: Element, depth = 3): string {
+    const segments: string[] = [];
+    let node: Element | null = el;
+    let d = 0;
+    while (node && d <= depth) {
+      const tag = node.tagName.toLowerCase();
+      if (tag === 'body' || tag === 'html') break;
+      segments.unshift(tag);
+      node = node.parentElement;
+      d++;
+    }
+    return segments.join(' > ');
+  }
+
+  function getSiblingInfo(el: Element): { siblingIndex: number; siblingCount: number } {
+    const parent = el.parentElement;
+    if (!parent) return { siblingIndex: 0, siblingCount: 1 };
+    const sameTag = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+    const idx = sameTag.indexOf(el);
+    return { siblingIndex: Math.max(0, idx), siblingCount: sameTag.length };
+  }
 
   function inferSelector(el: Element): string {
+    const testId = el.getAttribute('data-testid');
+    if (testId) return `[data-testid="${testId}"]`;
+    const studioHash = el.getAttribute('data-studio-hash');
+    if (studioHash) return `[data-studio-hash="${studioHash}"]`;
+    const figmaId = el.getAttribute('data-figma-id');
+    if (figmaId) return `[data-figma-id="${figmaId}"]`;
+
     if (el.id) return `#${el.id}`;
+
     const tag = el.tagName.toLowerCase();
-    const classes = Array.from(el.classList).filter(c => !/^(hover:|focus:|active:)/.test(c));
-    if (classes.length > 0) return `${tag}.${classes.slice(0, 2).join('.')}`;
+    const stableClasses = Array.from(el.classList).filter(
+      c => !/^(hover:|focus:|active:|group-hover:|peer-|aria-|focus-within:|focus-visible:|disabled:|checked:|placeholder:|dark:|lg:|md:|sm:|xl:)/.test(c),
+    );
+    if (stableClasses.length > 0) return `${tag}.${stableClasses.slice(0, 2).join('.')}`;
+
     const parent = el.parentElement;
     if (parent) {
       const idx = Array.from(parent.children).indexOf(el);
       return `${inferSelector(parent)} > ${tag}:nth-child(${idx + 1})`;
     }
     return tag;
+  }
+
+  function extractDataAttributes(el: Element): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const attr of Array.from(el.attributes)) {
+      if (attr.name.startsWith('data-')) {
+        result[attr.name] = attr.value;
+      }
+    }
+    return result;
+  }
+
+  function findComponentPath(el: Element): string | undefined {
+    let node: Element | null = el;
+    while (node) {
+      const comp = node.getAttribute('data-component');
+      if (comp) return comp;
+      node = node.parentElement;
+    }
+    return undefined;
   }
 
   function getRect(el: Element) {
@@ -180,13 +206,18 @@ const ResolvedApp = appModule?.default ?? (() => (
 
   function highlight(el: HTMLElement | null) {
     if (highlightEl) {
-      highlightEl.style.outline = '';
-      highlightEl.style.outlineOffset = '';
+      highlightEl.style.outline = savedOutline;
+      highlightEl.style.outlineOffset = savedOutlineOffset;
     }
     highlightEl = el;
     if (el) {
+      savedOutline = el.style.outline;
+      savedOutlineOffset = el.style.outlineOffset;
       el.style.outline = '2px solid #22c55e';
       el.style.outlineOffset = '1px';
+    } else {
+      savedOutline = '';
+      savedOutlineOffset = '';
     }
   }
 
@@ -202,13 +233,19 @@ const ResolvedApp = appModule?.default ?? (() => (
     e.stopPropagation();
     const el = e.target as HTMLElement;
     highlight(null);
+    const { siblingIndex, siblingCount } = getSiblingInfo(el);
     const payload = {
-      selector:    inferSelector(el),
-      tag:         el.tagName.toLowerCase(),
-      text:        (el.innerText ?? '').slice(0, 120).trim(),
-      classList:   Array.from(el.classList),
+      selector: inferSelector(el),
+      tag: el.tagName.toLowerCase(),
+      text: (el.innerText ?? '').slice(0, 120).trim(),
+      classList: Array.from(el.classList),
       inlineStyle: el.getAttribute('style') ?? '',
-      rect:        getRect(el),
+      rect: getRect(el),
+      dataAttributes: extractDataAttributes(el),
+      componentPath: findComponentPath(el),
+      siblingIndex,
+      siblingCount,
+      boundedPath: buildBoundedPath(el, 3),
     };
     try {
       window.parent.postMessage({ type: 'visual-element-selected', payload }, '*');
@@ -217,13 +254,22 @@ const ResolvedApp = appModule?.default ?? (() => (
   }
 
   function start() {
+    if (active) return;
     active = true;
     document.body.style.cursor = 'crosshair';
     document.addEventListener('mouseover', onMouseOver, true);
     document.addEventListener('click', onClick, true);
+    // Signal to the parent studio that selection mode is now active in the
+    // iframe — the host awaits this before dispatching the test click so
+    // there is no race between the 'visual-select-start' delivery and the
+    // click event arriving before the capture handler is registered.
+    try {
+      window.parent.postMessage({ type: 'visual-select-ready' }, '*');
+    } catch {}
   }
 
   function stop() {
+    if (!active && !highlightEl) return;
     active = false;
     document.body.style.cursor = '';
     highlight(null);
@@ -233,15 +279,12 @@ const ResolvedApp = appModule?.default ?? (() => (
 
   window.addEventListener('message', (e) => {
     if (e.data?.type === 'visual-select-start') start();
-    if (e.data?.type === 'visual-select-stop')  stop();
+    if (e.data?.type === 'visual-select-stop') stop();
   });
 })();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(<Root />);
 
-// Legacy `iframe-ready` — posted once the window has fully loaded, so old
-// listeners that key off of it still work. NOT authoritative for readiness
-// (no buildId; ignored by RevisionManager.waitForReady). See notifyReady above.
 if (document.readyState === 'complete') {
   notifyReady();
 } else {

@@ -354,7 +354,17 @@ export class RevisionManager {
     const iframe = document.querySelector<HTMLIFrameElement>(
       'iframe[data-testid="preview-iframe"]',
     );
-    if (iframe) iframe.src = `/preview/${revisionId}`;
+    const nextPreviewUrl = `/preview/${revisionId}`;
+    if (iframe) {
+      const absoluteNextUrl = new URL(nextPreviewUrl, window.location.origin).toString();
+      if (iframe.src === absoluteNextUrl) {
+        iframe.src = 'about:blank';
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      }
+      iframe.src = nextPreviewUrl;
+    }
 
     // 2. Wait for `preview-mounted` from the static build's MountReporter.
     //    MountReporter fires useEffect → window.parent.postMessage({type:'preview-mounted', buildId})
@@ -364,7 +374,7 @@ export class RevisionManager {
     const result = await waitForReady(revisionId, timeoutMs, this.previewUrl);
 
     if (result.success) {
-      const previewUrl = `/preview/${revisionId}`;
+      const previewUrl = nextPreviewUrl;
       // ── Materialize diagnostic: iframe-mounted → iframe-ready ─
       previewController.setDiagnosticStage('iframe-mounted', revisionId);
       previewLog('mount_done', { buildId: revisionId });

@@ -51,9 +51,11 @@ import type { Project } from '../services/ProjectManager';
 import { ProjectRepository } from '../services/ProjectRepository';
 import { BenchmarkService } from '../services/benchmark/BenchmarkService';
 import { revisionManager } from '../services/RevisionManager';
+import { previewController } from '../services/PreviewController';
+import { normalizePath } from '../services/PreviewWriteGateway';
 import { safeSetItem } from '../lib/safeStorage';
 import { getLocalDevAgentProvider, isLocalDevAgentEnabled } from '../services/devAgentMode';
-import type { FileDiff } from '../components/DiffPreview';
+import { buildFileDiff, type FileDiff } from '../components/DiffPreview';
 import {
   projectGraphToFileMap,
   fileMapToProjectGraph,
@@ -482,6 +484,41 @@ export const useStudio = () => {
     commitPendingProjectSaveRef.current('preview-ready');
   }, []);
 
+  useEffect(() => {
+    const syncPreviewState = (state: ReturnType<typeof previewController.getState>) => {
+      if (state.status === 'compiling' && state.activeRevisionId) {
+        const nextUrl = `/preview/${state.activeRevisionId}`;
+        setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
+        setPreviewReady(false);
+        setPreviewBlockedReason(null);
+        return;
+      }
+
+      if (state.status === 'ready' && state.activeRevisionId) {
+        const nextUrl = `/preview/${state.activeRevisionId}`;
+        setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
+        setPreviewReady(true);
+        setPreviewBlockedReason(null);
+        if (!currentSnapshotId) {
+          setPreviewLifecycle('preview-ready');
+          return;
+        }
+        if (lastPreviewReadyRevisionRef.current === state.activeRevisionId) return;
+        lastPreviewReadyRevisionRef.current = state.activeRevisionId;
+        markSnapshotStable(currentSnapshotId);
+        return;
+      }
+
+      if (state.status === 'failed') {
+        setPreviewReady(false);
+        if (state.error) setPreviewBlockedReason(state.error);
+      }
+    };
+
+    syncPreviewState(previewController.getState());
+    return previewController.subscribe(syncPreviewState);
+  }, [currentSnapshotId, markSnapshotStable]);
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  SEMANTIC GLOSSARY — revision / version / snapshot disambiguation
   // ═══════════════════════════════════════════════════════════════════════════
@@ -733,6 +770,7 @@ export const useStudio = () => {
   // Tracks the active generation-plan message ID so markSnapshotStable can set buildStatus:'ready'
   const currentPlanMsgIdRef = useRef<string | null>(null);
   const commitPendingProjectSaveRef = useRef<(reason: 'preview-ready' | 'manual-no-preview') => boolean>(() => false);
+  const lastPreviewReadyRevisionRef = useRef<string | null>(null);
 
   // ── Preview lifecycle — honest completion handshake ───────────────────────
   const [previewLifecycle, setPreviewLifecycle] = useState<PreviewLifecycleStage>('idle');
@@ -2086,6 +2124,157 @@ export const useStudio = () => {
     }
     setPendingDiff(null);
   }, []);
+
+  // ── Playwright / e2e test hooks ───────────────────────────────────────────
+  // Only active when VITE_PLAYWRIGHT_TEST=1 (baked at build time by Vite;
+  // dead-code-eliminated in production builds).
+  // window.__E2E_PREVIEW_TEST.mountPreview(files) — compile a deterministic
+  //   real preview build without routing through the full chat generation stack.
+  // window.__E2E_DIFF_TEST.setPendingDiff(diffs) — inject a fake diff review
+  //   so narrow browser tests can drive DiffPreview without running SimpleGeneration.
+  // window.__E2E_DIFF_TEST.stageCandidateFiles(files) — stage candidate file
+  //   contents so DiffPreview resolves into visible editor state after apply.
+  // window.__E2E_DIFF_RESULT — set to the resolved value after approveDiff/rejectDiff.
+  useEffect(() => {
+    if (import.meta.env.VITE_PLAYWRIGHT_TEST !== '1') return;
+    (window as any).__E2E_PREVIEW_TEST = {
+      mountPreview: async (previewFiles: FileMap) => {
+        setFiles(previewFiles);
+        setPreviewBlockedReason(null);
+        setPreviewReady(false);
+        setPreviewLifecycle('materializing');
+        setPreviewUrl('');
+        lastPreviewReadyRevisionRef.current = null;
+
+        const buildId = crypto.randomUUID();
+        const res = await fetch(`/api/preview/${buildId}/compile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            files: Object.fromEntries(
+              Object.entries(previewFiles).map(([path, content]) => [normalizePath(path), content]),
+            ),
+          }),
+        });
+
+        let body: { success?: boolean; url?: string; error?: string } | null = null;
+        try { body = await res.json(); } catch { /* ignore parse failures */ }
+
+        if (!res.ok || body?.success === false) {
+          throw new Error(body?.error ?? `Preview seed compile failed (HTTP ${res.status})`);
+        }
+
+        const nextUrl = body?.url ?? `/preview/${buildId}`;
+        setPreviewUrl(nextUrl);
+        await new Promise<void>((resolve, reject) => {
+          const timeoutId = window.setTimeout(() => {
+            window.removeEventListener('message', handleMessage);
+            reject(new Error(`Preview seed timeout: no preview-mounted for ${buildId}`));
+          }, 30_000);
+
+          const handleMessage = (event: MessageEvent) => {
+            if (event.data?.type !== 'preview-mounted') return;
+            if (event.data?.buildId !== buildId) return;
+            window.clearTimeout(timeoutId);
+            window.removeEventListener('message', handleMessage);
+            resolve();
+          };
+
+          window.addEventListener('message', handleMessage);
+        });
+
+        setPreviewReady(true);
+        setPreviewLifecycle('preview-ready');
+        return { buildId, url: nextUrl };
+      },
+    };
+    (window as any).__E2E_DIFF_TEST = {
+      setPendingDiff: (diffs: FileDiff[]) => {
+        // Wire up a resolver that captures the result for test assertions
+        diffResolverRef.current = (result: string[] | false) => {
+          (window as any).__E2E_DIFF_RESULT = result;
+        };
+        setPendingDiff(diffs);
+      },
+      stageCandidateFiles: (candidateFiles: FileMap) => {
+        const baseFiles = { ...files };
+        const diffs = Object.entries(candidateFiles)
+          .map(([path, nextContent]) => buildFileDiff(path, baseFiles[path] ?? '', nextContent))
+          .filter(diff => diff.changedCount > 0);
+
+        if (diffs.length === 0) {
+          throw new Error('stageCandidateFiles requires at least one changed file');
+        }
+
+        (window as any).__E2E_DIFF_RESULT = undefined;
+
+        // Create the promote promise before any user interaction so awaitPromote()
+        // is callable as soon as stageCandidateFiles returns.  The promise settles
+        // when revisionManager.promote() completes on approve, or immediately with
+        // { success: false } on reject or compile failure.
+        const promoteHolder: { resolve: ((r: { success: boolean }) => void) | null } =
+          { resolve: null };
+        (window as any).__E2E_DIFF_PROMOTE_PROMISE = new Promise<{ success: boolean }>(
+          r => { promoteHolder.resolve = r; },
+        );
+
+        diffResolverRef.current = (result: string[] | false) => {
+          (window as any).__E2E_DIFF_RESULT = result;
+          if (result === false) {
+            // Reject-all: no compile needed — settle the promise so tests don't hang.
+            promoteHolder.resolve?.({ success: false });
+            return;
+          }
+          const selectedPaths = new Set(result);
+          const nextFiles = { ...baseFiles };
+          for (const [path, nextContent] of Object.entries(candidateFiles)) {
+            if (selectedPaths.has(path)) nextFiles[path] = nextContent;
+          }
+          setFiles(nextFiles);
+
+          // Trigger the real RevisionManager candidate → compile → promote cycle so
+          // the preview iframe is reloaded with the partially-accepted build.
+          // This is the primary observable proof: after promote the live iframe
+          // shows the accepted files, not just the in-memory editor state.
+          revisionManager.createCandidate().then(revId => {
+            const writes = Object.entries(nextFiles).map(
+              ([p, c]) => revisionManager.writeCandidateFile(revId, p, c),
+            );
+            return Promise.all(writes)
+              .then(() => revisionManager.compileCandidate(revId))
+              .then(async compileResult => {
+                if (compileResult.success) {
+                  try {
+                    await revisionManager.promote(revId);
+                    promoteHolder.resolve?.({ success: true });
+                  } catch {
+                    // PROMOTE_BLOCKED (white-screen gate) or similar
+                    promoteHolder.resolve?.({ success: false });
+                  }
+                } else {
+                  promoteHolder.resolve?.({ success: false });
+                }
+              });
+          }).catch(() => promoteHolder.resolve?.({ success: false }));
+        };
+        setPendingDiff(diffs);
+      },
+      /**
+       * Returns a Promise that resolves with { success: boolean } once the
+       * compile+promote cycle triggered by the last stageCandidateFiles approve
+       * completes.  On reject or compile failure resolves with { success: false }.
+       *
+       * page.evaluate(() => window.__E2E_DIFF_TEST.awaitPromote()) in Playwright
+       * automatically awaits the returned Promise and surfaces the resolved value.
+       */
+      awaitPromote: (): Promise<{ success: boolean }> =>
+        (window as any).__E2E_DIFF_PROMOTE_PROMISE ?? Promise.resolve({ success: false }),
+    };
+    return () => {
+      delete (window as any).__E2E_PREVIEW_TEST;
+      delete (window as any).__E2E_DIFF_TEST;
+    };
+  }, [files, setFiles]);
 
   // Resolve the waitForConfirmation promise AFTER React has committed the
   // pendingPlan cleanup.  pendingPlan === null is the commit signal.

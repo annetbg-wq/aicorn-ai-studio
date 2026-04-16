@@ -12,6 +12,7 @@
 import React from 'react';
 import { LeftPanel }      from '../../components/LeftPanel';
 import { PreviewCanvas }  from '../../components/PreviewCanvas';
+import { visualEditBridge, type SelectedElement } from '../../services/VisualEditBridge';
 import { previewController } from '../../services/PreviewController';
 import { EngineTopBar, DevIdentity } from '../../components/EngineTopBar';
 import { ChatErrorBoundary }    from '../../components/boundaries/ChatErrorBoundary';
@@ -204,6 +205,36 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
 
   const onBackup = React.useCallback(() => {}, []);
 
+  // Visual-edit: when user clicks a preview element, prefill the chat input
+  // with the element context so they only need to type the edit description.
+  const handleVisualElementSelected = React.useCallback((el: SelectedElement) => {
+    setInput(visualEditBridge.buildEditPrompt(el, ''));
+  }, [setInput]);
+
+  // ── Playwright / e2e test hooks ────────────────────────────────────────────
+  // window.__E2E_VISUAL_SELECT(payload) — secondary: simulate a visual element
+  //   selection without needing a live iframe click (bypasses iframe origin
+  //   guard).  Only used when the real click path is unavailable.
+  // window.__E2E_VISUAL_BRIDGE.waitForSelectReady() — primary synchronisation:
+  //   returns a Promise that resolves once the iframe has confirmed it entered
+  //   selection mode (via 'visual-select-ready' postMessage).  Await this before
+  //   dispatching a real click inside the iframe to eliminate the delivery race.
+  // Only active when VITE_PLAYWRIGHT_TEST=1; dead-code-eliminated otherwise.
+  React.useEffect(() => {
+    if (import.meta.env.VITE_PLAYWRIGHT_TEST !== '1') return;
+    (window as any).__E2E_VISUAL_SELECT = (payload: SelectedElement) => {
+      visualEditBridge._testForceSelected(payload);
+    };
+    (window as any).__E2E_VISUAL_BRIDGE = {
+      waitForSelectReady: (timeoutMs?: number) =>
+        visualEditBridge.waitForSelectReady(timeoutMs),
+    };
+    return () => {
+      delete (window as any).__E2E_VISUAL_SELECT;
+      delete (window as any).__E2E_VISUAL_BRIDGE;
+    };
+  }, []); // stable: bridge singleton, no deps needed
+
   const handleDownloadProject = React.useCallback(() => {
     ProjectExportService.downloadProjectZip(files, {
       projectId:   currentProjectId ?? undefined,
@@ -353,6 +384,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             previewBlockedReason={previewBlockedReason}
             projectId={currentProjectId ?? ''}
             previewUrl={previewUrl}
+            onVisualElementSelected={handleVisualElementSelected}
           />
         </div>
       </div>

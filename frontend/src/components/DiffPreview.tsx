@@ -188,6 +188,8 @@ const FileSection: React.FC<{
       }}>
         {/* Include/exclude toggle */}
         <button
+          data-testid="diff-file-toggle"
+          data-path={diff.path}
           onClick={onToggle}
           title={selected ? 'Exclude this file' : 'Include this file'}
           style={{
@@ -313,10 +315,12 @@ export const DiffPreview: React.FC<DiffPreviewProps> = ({ diffs, theme, onApply,
   };
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 9999,
-      background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
+    <div
+      data-testid="diff-review-panel"
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
       <div style={{
         width: '90vw', maxWidth: 960, maxHeight: '88vh',
         background: panelBg, borderRadius: 12,
@@ -352,6 +356,7 @@ export const DiffPreview: React.FC<DiffPreviewProps> = ({ diffs, theme, onApply,
 
             {/* Reject all */}
             <button
+              data-testid="diff-reject-btn"
               onClick={onReject}
               style={{
                 display: 'flex', alignItems: 'center', gap: 5,
@@ -365,6 +370,7 @@ export const DiffPreview: React.FC<DiffPreviewProps> = ({ diffs, theme, onApply,
 
             {/* Apply selected (disabled when nothing selected) */}
             <button
+              data-testid="diff-apply-btn"
               onClick={handleApplySelected}
               disabled={noneSelected}
               title={noneSelected ? 'Select at least one file' : `Apply ${selectedCount} file${selectedCount !== 1 ? 's' : ''}`}
