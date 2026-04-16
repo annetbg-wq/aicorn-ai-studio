@@ -181,7 +181,7 @@ const ZoomableCanvas: React.FC<ZoomableCanvasProps> = ({
  * WHY: the old approach (getFrame returning ChromeFrame | IPhoneFrame | ...)
  * caused React to UNMOUNT SandpackView every time `device` changed, because
  * different component TYPES were returned. During unmount, removeChild() on
- * the Vite preview iframe failed (DOM/fiber mismatch from Vite HMR).
+ * the preview iframe failed (DOM/fiber mismatch from iframe lifecycle disruption).
  *
  * FIX: a single DeviceFrame component where {children} is always at fiber
  * position [1]. Style props update when device changes — no unmount occurs.

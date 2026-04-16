@@ -1,8 +1,11 @@
 /**
  * SimpleGeneration — self-contained generation service.
  *
- * Files are buffered into a RevisionManager candidate, compiled via Vite HMR,
- * then promoted to active (or rejected, preserving last-good preview).
+ * Files are buffered into a RevisionManager candidate, compiled via the
+ * backend compile endpoint (POST /api/preview/:buildId/compile → vite build
+ * → static output in builds/:buildId/), then promoted to active (or rejected,
+ * preserving last-good preview). Readiness is confirmed by an authoritative
+ * `preview-mounted` postMessage from MountReporter inside the static build.
  */
 
 import { llmFetchStream, llmFetch } from './LLMProxy';

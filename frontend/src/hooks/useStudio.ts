@@ -455,12 +455,13 @@ export const useStudio = () => {
   }, [stableSnapshotId, snapshots, restoreSnapshot]);
 
   /**
-   * markSnapshotStable — called by the preview when iframe-ready fires without
-   * errors. Promotes `snapshotId` from candidate → stable and writes
-   * STABLE_SNAPSHOT_ID to localStorage so the next restart opens this revision.
+   * markSnapshotStable — called after the preview successfully mounts without
+   * errors (driven by the preview-mounted(buildId) → ready lifecycle). Promotes
+   * `snapshotId` from candidate → stable and writes STABLE_SNAPSHOT_ID to
+   * localStorage so the next restart opens this revision.
    *
-   * Invariant: a broken candidate (iframe-error instead of iframe-ready) is
-   * never passed here, so stable is never replaced by broken code.
+   * Invariant: a broken candidate (iframe-error, or a timed-out preview-mounted)
+   * is never passed here, so stable is never replaced by broken code.
    */
   const markSnapshotStable = useCallback((snapshotId: string) => {
     setSnapshots(prev => {
@@ -494,7 +495,7 @@ export const useStudio = () => {
   //     - Snapshot.status:    'candidate' (untested) → 'stable' (iframe ok).
   //
   //  2. BUILD REVISION (RevisionManager layer)
-  //     - A UUID-scoped compile cycle for Vite HMR preview.
+  //     - A UUID-scoped backend compile cycle (POST /api/preview/:buildId/compile).
   //     - candidateRevisionId: in-flight build being compiled.
   //     - activeRevisionId:    last successfully compiled build (shown in iframe).
   //     - Also called "buildId" in the preview-timeline.
@@ -993,8 +994,8 @@ export const useStudio = () => {
     GenerationPipeline.autoFix({ errorMsg, apiKey: effectiveKey, onLog: addLog })
       .then(success => {
         if (success) {
-          setPreviewLifecycle('committing'); // waiting for HMR reload
-          addLog('[AutoFix] Fix applied — waiting for Vite HMR...');
+          setPreviewLifecycle('committing'); // waiting for backend recompile + preview-mounted
+          addLog('[AutoFix] Fix applied — waiting for backend recompile...');
           chatAppend({
             role: 'assistant',
             content: `🔧 **Auto-fix applied** (attempt ${attempt}/${MAX_FIX_ATTEMPTS})\n\nFound and repaired a runtime error in the generated code. Preview is reloading…`,
@@ -1096,7 +1097,7 @@ export const useStudio = () => {
         return;
       }
 
-      // 1. Write files to preview-workspace first — await so HMR triggers before React state update
+      // 1. Compile project files — await so backend compile + preview-mounted(buildId) complete before React state update
       try {
         await ProjectRepository.loadToPreview(full);
         addLog('[Project] ✅ Loaded to preview');
@@ -1211,16 +1212,22 @@ export const useStudio = () => {
   // Runs once after mount. Always calls loadProject() so the compiled preview
   // is rebuilt from scratch.
   //
-  // Why we always recompile on startup:
+  // HARD-REFRESH STARTUP BEHAVIOR — INTENTIONAL DESIGN DECISION (Option A):
+  //   When the page loads after a hard refresh or server restart, if an active
+  //   project exists in localStorage, it is automatically loaded and a fresh
+  //   backend compile is triggered. The preview transitions through:
+  //     idle → compiling → (preview-mounted) → ready
+  //   The user does NOT need to take any action to restore the preview.
+  //
+  // Why we always recompile on startup (not restore a cached iframe URL):
   //   Compiled static builds (builds/:buildId/) are ephemeral — they live only
   //   for the duration of a backend server session. A hard refresh or server
   //   restart clears them. We therefore cannot rely on a previously-compiled
   //   build being present, and must trigger a fresh compile via the canonical
   //   materializePersistedFiles → triggerCompile path for every cold start.
   //
-  //   INTENTIONAL DESIGN: preview is NOT restored from any cached iframe URL;
-  //   it is always reconstructed via a new backend compile. This keeps the
-  //   startup path identical to the project-switch path (no special cases).
+  //   This keeps the startup path identical to the project-switch path
+  //   (no special cases, no silent stale-iframe risk).
   useEffect(() => {
     const init = async () => {
       if (currentProjectId) {
@@ -1884,7 +1891,7 @@ export const useStudio = () => {
       });
 
       // ── Preview lifecycle — committing or blocked ──────────────────────────
-      // Files are written; now waiting for iframe-ready / iframe-error handshake.
+      // Files compiled; now waiting for preview-mounted(buildId) confirmation or iframe-error.
       const severity = result.qualitySummary?.severity;
       if (severity === 'blocking') {
         const blockers = result.qualitySummary?.blockers ?? [];

@@ -9,16 +9,19 @@
  *   4. HTTP write with status check  (returns WriteResult, never throws on 4xx/5xx)
  *
  * Callers (backend-compiler era):
- *   - RevisionManager.fullClearPreview  — preflight clear before NEW-mode generation
- *     (non-fatal: /__clear_preview may not exist if the Vite dev server is not
- *      running in HMR mode; the gateway catches and swallows the 404)
+ *   - RevisionManager.fullClearPreview  — best-effort preflight clear before NEW-mode generation
+ *     (non-fatal: /__clear_preview is a compatibility endpoint; it will 404 when no
+ *      dev server is co-running, and the gateway silently swallows the error)
  *
  * NOT called by:
  *   - Generation compile  → uses triggerCompile (POST /api/preview/:buildId/compile)
- *   - Rollback            → navigates iframe to /preview/:activeRevisionId
+ *   - Rollback            → navigates iframe to /preview/:activeRevisionId, then
+ *                           waits for authoritative preview-mounted via waitForReady
  *   - restoreRevision     → navigates iframe to /preview/:revisionId (fast path)
- *                           or materializePersistedFiles (slow path)
- *   - promote fallback    → navigates iframe back to /preview/:previousActiveRevisionId
+ *                           then waits for preview-mounted; or materializePersistedFiles
+ *                           (slow path) — never optimistic
+ *   - promote fallback    → navigates iframe to /preview/:previousActiveRevisionId,
+ *                           then waits for preview-mounted asynchronously
  *
  * This module does NOT manage lifecycle (compiling/ready/failed) — that stays
  * in PreviewController. It does NOT manage revision state — that stays in
@@ -228,10 +231,18 @@ export async function writeBatch(
 // ── Build marker write ──────────────────────────────────────────────────────
 
 /**
- * Write `__build_id.ts` to preview-workspace/src/. Triggers main.tsx's HMR accept hook,
- * which posts the `preview-mounted` message that settles waitForReady.
+ * Write `__build_id.ts` to preview-workspace/src/.
  *
- * This MUST be called LAST in any write batch.
+ * In the Vite dev-server (HMR) path: triggers main.tsx's hot.accept hook
+ * which updates buildId state → MountReporter re-runs its useEffect →
+ * posts `preview-mounted` to settle waitForReady.
+ *
+ * In the backend-compiler (production) path: the backend stamps __build_id.ts
+ * server-side during `vite build`, so this function is NOT called in the
+ * canonical compile flow. It is retained for compatibility with any dev-mode
+ * or test paths that use the Vite dev server directly.
+ *
+ * This MUST be called LAST in any write batch (dev-server path only).
  * No poison check needed — content is system-generated.
  */
 export async function writeBuildMarker(
@@ -265,7 +276,11 @@ export async function writeBuildMarker(
 // ── Clear preview ───────────────────────────────────────────────────────────
 
 /**
- * Clear all files from preview-workspace/src/ via /__clear_preview.
+ * Best-effort compatibility clear of preview-workspace/src/ via /__clear_preview.
+ *
+ * NON-CANONICAL / PREFLIGHT ONLY: this is a compatibility shim and is NOT part of
+ * readiness semantics. The preview-mounted(buildId) lifecycle proceeds regardless
+ * of whether this call succeeds or 404s (e.g. when no dev server is co-running).
  *
  * @param opts.source — caller identification for logging
  * @param opts.buildId — optional, for log correlation
