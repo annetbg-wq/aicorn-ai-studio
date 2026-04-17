@@ -30,6 +30,7 @@
 
 import { checkPreviewWrite } from './previewGuard';
 import { previewLog } from './PreviewController';
+import { canonicalizeProjectPath } from '../shared/safePaths';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,9 +81,11 @@ function getWriteTimeout(batchSize: number): number {
  * Strips leading `/` and `src/` prefix — the middleware writes into preview-workspace/src/.
  */
 export function normalizePath(p: string): string {
-  let clean = p.startsWith('/') ? p.slice(1) : p;
-  if (clean.startsWith('src/')) clean = clean.slice(4);
-  return clean;
+  return canonicalizeProjectPath(p, {
+    allowRootSlash: true,
+    stripSrcPrefix: true,
+    label: 'preview path',
+  });
 }
 
 // ── Timeout helper ──────────────────────────────────────────────────────────
@@ -112,7 +115,15 @@ export async function writeFile(
   content: string,
   opts: WriteOptions,
 ): Promise<WriteResult> {
-  const cleanPath = normalizePath(path);
+  let cleanPath: string;
+  try {
+    cleanPath = normalizePath(path);
+  } catch (err) {
+    return {
+      written: false,
+      reason: err instanceof Error ? err.message : `Invalid preview path: ${String(err)}`,
+    };
+  }
 
   // ── Guard: artifact-envelope poison check ──────────────────────
   const rejection = checkPreviewWrite(cleanPath, content, opts.source, {
@@ -185,7 +196,13 @@ export async function writeBatch(
   opts: WriteOptions,
 ): Promise<BatchResult> {
   const entries = Object.entries(files).filter(
-    ([p]) => normalizePath(p) !== '__build_id.ts',
+    ([p]) => {
+      try {
+        return normalizePath(p) !== '__build_id.ts';
+      } catch {
+        return true;
+      }
+    },
   );
 
   const result: BatchResult = {
@@ -200,8 +217,13 @@ export async function writeBatch(
     const results = await withTimeout(
       Promise.all(
         batch.map(async ([filePath, content]) => {
-          const cleanPath = normalizePath(filePath);
-          if (!cleanPath) return; // empty path after normalization
+          let cleanPath: string;
+          try {
+            cleanPath = normalizePath(filePath);
+          } catch {
+            result.failed.push(String(filePath));
+            return;
+          }
           const wr = await writeFile(filePath, content, opts);
           if (wr.written) {
             result.written++;

@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { RootLayout }           from './layouts/RootLayout';
+import { AdmissionWarningModal } from './components/AdmissionWarningModal';
 import { AppSidebar }           from './components/AppSidebar';
 import ArchitectDashboard       from './modules/architect/ArchitectDashboard';
 const EngineWorkspace    = lazy(() => lazyWithRetry(() => import('./modules/engine/EngineWorkspace')).then(m => ({ default: m.EngineWorkspace })));
@@ -721,6 +722,14 @@ export default function App() {
             onReject={studio.rejectDiff}
           />
         </Suspense>
+      )}
+
+      {studio.pendingAdmission && (
+        <AdmissionWarningModal
+          decision={studio.pendingAdmission}
+          onConfirm={studio.confirmAdmission}
+          onDeny={studio.denyAdmission}
+        />
       )}
 
       {showCollab && (

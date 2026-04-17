@@ -22,6 +22,7 @@ import express from 'express';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
+import { canonicalizeProjectPath } from '../frontend/src/shared/safePaths';
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,49 @@ const BUILDS_WORKSPACE = path.resolve(__dirname, '..', 'builds');
 
 /** Maximum compiled builds to keep on disk (LRU). */
 const MAX_BUILDS = 20;
+
+function assertWithinRoot(root: string, target: string, label: string): void {
+  const normalizedRoot = path.resolve(root);
+  const normalizedTarget = path.resolve(target);
+  const rootPrefix = normalizedRoot.endsWith(path.sep)
+    ? normalizedRoot
+    : `${normalizedRoot}${path.sep}`;
+
+  if (normalizedTarget !== normalizedRoot && !normalizedTarget.startsWith(rootPrefix)) {
+    throw new Error(`${label} escapes preview root`);
+  }
+}
+
+export function resolvePreviewSrcPath(
+  srcRoot: string,
+  inputPath: string,
+): { canonicalPath: string; fullPath: string } {
+  const canonicalPath = canonicalizeProjectPath(inputPath, {
+    allowRootSlash: false,
+    stripSrcPrefix: true,
+    label: 'preview compile path',
+  });
+  const fullPath = path.resolve(srcRoot, canonicalPath);
+  assertWithinRoot(srcRoot, fullPath, `preview compile path "${inputPath}"`);
+  return { canonicalPath, fullPath };
+}
+
+export function sanitizeCompileFiles(
+  files: Record<string, string>,
+  srcRoot: string,
+): Record<string, string> {
+  const sanitized: Record<string, string> = {};
+
+  for (const [filePath, content] of Object.entries(files)) {
+    if (typeof content !== 'string') {
+      throw new Error(`preview compile content for "${filePath}" must be a string`);
+    }
+    const { canonicalPath } = resolvePreviewSrcPath(srcRoot, filePath);
+    sanitized[canonicalPath] = content;
+  }
+
+  return sanitized;
+}
 
 // ── compile queue (serialise builds) ─────────────────────────────────────────
 
@@ -85,8 +129,19 @@ export function registerPreviewCompileRoute(app: express.Express): void {
         });
       }
 
+      const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
+      let sanitizedFiles: Record<string, string>;
+      try {
+        sanitizedFiles = sanitizeCompileFiles(files, srcDir);
+      } catch (e: any) {
+        return res.status(400).json({
+          success: false,
+          error: e?.message ?? String(e),
+        });
+      }
+
       // Enqueue — only one build runs at a time
-      const job = compileQueue.then(() => compileBuild(buildId, files));
+      const job = compileQueue.then(() => compileBuild(buildId, sanitizedFiles));
       compileQueue = job.then(() => undefined, () => undefined);
 
       try {
@@ -116,7 +171,7 @@ async function compileBuild(
 
   // 1. Write user source files
   for (const [filePath, content] of Object.entries(files)) {
-    const fullPath = path.join(srcDir, filePath);
+    const { fullPath } = resolvePreviewSrcPath(srcDir, filePath);
     await fsPromises.mkdir(path.dirname(fullPath), { recursive: true });
     await fsPromises.writeFile(fullPath, content, 'utf-8');
   }

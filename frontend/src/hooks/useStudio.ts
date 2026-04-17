@@ -56,6 +56,8 @@ import { normalizePath } from '../services/PreviewWriteGateway';
 import { safeSetItem } from '../lib/safeStorage';
 import { getLocalDevAgentProvider, isLocalDevAgentEnabled } from '../services/devAgentMode';
 import { buildFileDiff, type FileDiff } from '../components/DiffPreview';
+import { EditAdmissionService } from '../services/EditAdmissionService';
+import type { AdmissionDecision } from '../services/EditAdmissionService';
 import {
   projectGraphToFileMap,
   fileMapToProjectGraph,
@@ -281,6 +283,11 @@ export const useStudio = () => {
   // Resolver receives the selected file paths (partial apply) or false (reject all).
   const [pendingDiff, setPendingDiff] = useState<FileDiff[] | null>(null);
   const diffResolverRef = useRef<((result: string[] | false) => void) | null>(null);
+
+  // Edit admission — set when EditAdmissionService classifies an incoming edit
+  // as 'risky' or 'destructive'. Resolver receives true (proceed) or false (deny).
+  const [pendingAdmission, setPendingAdmission] = useState<AdmissionDecision | null>(null);
+  const admissionResolverRef = useRef<((approved: boolean) => void) | null>(null);
 
   // ── files ─────────────────────────────────────────────────────────────────
   // On startup always restore from the last *stable* snapshot to avoid showing
@@ -1066,6 +1073,25 @@ export const useStudio = () => {
   const _latestMsgsRef    = useRef<any[]>(messages);
   _latestMsgsRef.current  = messages;
 
+  // Stable refs for admission-check dirty-workspace detection (avoids closure staleness)
+  const _pendingDiffRef         = useRef(pendingDiff);
+  _pendingDiffRef.current       = pendingDiff;
+  const _previewLifecycleRef    = useRef(previewLifecycle);
+  _previewLifecycleRef.current  = previewLifecycle;
+
+  // Register admission checker with SimpleGeneration via waitForAdmission callback.
+  // Uses refs so the callback captures current state without a re-registration cycle.
+  // Runs once on mount; cleans up on unmount.
+  useEffect(() => {
+    return () => {
+      // On unmount: deny any pending admission promise so the pipeline does not hang.
+      if (admissionResolverRef.current) {
+        admissionResolverRef.current(false);
+        admissionResolverRef.current = null;
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── project actions ───────────────────────────────────────────────────────
   const createNewProject = useCallback(async () => {
     pendingProjectSaveRef.current = null;
@@ -1748,6 +1774,35 @@ export const useStudio = () => {
           diffResolverRef.current = resolve;
           setPendingDiff(diffs);
         }),
+        waitForAdmission: (decision) => {
+          // Dirty-workspace detection (reads refs to avoid stale closure values)
+          const isDirty =
+            _pendingDiffRef.current !== null ||
+            _previewLifecycleRef.current === 'committing';
+
+          // Re-classify with dirty-workspace state injected (the pipeline has no
+          // access to React state — we augment the decision here if needed).
+          const augmented = isDirty && !decision.isDirtyWorkspace
+            ? EditAdmissionService.classify(
+                {
+                  candidatePaths:  decision.protectedPathsHit.length > 0
+                    ? decision.protectedPathsHit  // use already-known protected paths
+                    : [],
+                  activePaths: [],
+                },
+                true,
+              )
+            : decision;
+
+          // If the augmented decision is still safe (e.g. only dirty-workspace was
+          // the escalation reason but that went away), proceed without blocking.
+          if (!augmented.requiresConfirmation) return Promise.resolve(true);
+
+          return new Promise<boolean>((resolve) => {
+            admissionResolverRef.current = resolve;
+            setPendingAdmission(decision.requiresConfirmation ? decision : augmented);
+          });
+        },
         signal:   controller.signal,
         onUsage:  (usage: UsageData) => {
           reqUsage = usage;
@@ -2125,6 +2180,26 @@ export const useStudio = () => {
     setPendingDiff(null);
   }, []);
 
+  // ── Edit admission callbacks ──────────────────────────────────────────────
+  /** User clicked "Continue" or "I understand, proceed" — resolve the gate. */
+  const confirmAdmission = useCallback(() => {
+    if (admissionResolverRef.current) {
+      admissionResolverRef.current(true);
+      admissionResolverRef.current = null;
+    }
+    setPendingAdmission(null);
+  }, []);
+
+  /** User clicked "Cancel" — reject the gate; pipeline will rollback. */
+  const denyAdmission = useCallback(() => {
+    if (admissionResolverRef.current) {
+      admissionResolverRef.current(false);
+      admissionResolverRef.current = null;
+    }
+    setPendingAdmission(null);
+    addLog('[AdmissionControl] Edit cancelled by user');
+  }, [addLog]);
+
   // ── Playwright / e2e test hooks ───────────────────────────────────────────
   // Only active when VITE_PLAYWRIGHT_TEST=1 (baked at build time by Vite;
   // dead-code-eliminated in production builds).
@@ -2304,6 +2379,10 @@ export const useStudio = () => {
         diffResolverRef.current(false);
         diffResolverRef.current = null;
       }
+      if (admissionResolverRef.current) {
+        admissionResolverRef.current(false);
+        admissionResolverRef.current = null;
+      }
     };
   }, []);
 
@@ -2460,6 +2539,8 @@ export const useStudio = () => {
     pendingPlan, confirmPlan, cancelPlan,
     // diff review
     pendingDiff, approveDiff, rejectDiff,
+    // edit admission
+    pendingAdmission, confirmAdmission, denyAdmission,
     // state machine (read-only)
     studioPhase: machineState.phase,
     studioError: machineState.error ?? null,
@@ -2482,7 +2563,7 @@ export const useStudio = () => {
     targetMarket, auditStrictness,
     engineApiKey, engineModelId, engineStatus, engineResult,
     componentRegistry,
-    pendingPlan, pendingDiff,
+    pendingPlan, pendingDiff, pendingAdmission,
     // stable callbacks (useCallback — listed for ESLint correctness, never change)
     setInput, setDevice, setTheme, setApiKey, setSelectedModel, setFullContextMode, setAutoRoute, setGenerationMode,
     setActiveFile, addSnapshot, restoreSnapshot, undo, redo, clearSnapshots, markSnapshotStable, rollbackToStable,
@@ -2500,6 +2581,7 @@ export const useStudio = () => {
     confirmPlan, cancelPlan,
     onConfirmPlan, onClarifyPlan, onSubmitClarification,
     approveDiff, rejectDiff,
+    confirmAdmission, denyAdmission,
   ]);
 
   // messages / input / setInput returned directly (not memoized) so their

@@ -95,6 +95,15 @@ describe('normalizePath', () => {
     expect(normalizePath('App.tsx')).toBe('App.tsx');
     expect(normalizePath('components/Button.tsx')).toBe('components/Button.tsx');
   });
+
+  it('normalizes backslashes', () => {
+    expect(normalizePath('components\\Button.tsx')).toBe('components/Button.tsx');
+  });
+
+  it('rejects traversal spellings', () => {
+    expect(() => normalizePath('../App.tsx')).toThrow(/unsafe traversal/i);
+    expect(() => normalizePath('..\\App.tsx')).toThrow(/unsafe traversal/i);
+  });
 });
 
 // ── writeFile ───────────────────────────────────────────────────────────────
@@ -162,6 +171,13 @@ describe('writeFile', () => {
 
     const errLog = logEvents.find(e => e.event === 'gateway_write_error');
     expect(errLog).toBeDefined();
+  });
+
+  it('rejects unsafe traversal paths before network', async () => {
+    const result = await writeFile('../App.tsx', CLEAN_TSX, opts);
+    expect(result.written).toBe(false);
+    expect(result.reason).toContain('unsafe traversal');
+    expect(fetchCalls).toHaveLength(0);
   });
 });
 

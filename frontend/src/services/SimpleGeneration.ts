@@ -55,6 +55,9 @@ import { generationTracer } from './GenerationTracer';
 import { projectMemory } from './ProjectMemoryService';
 import { envSecretsService, buildEnvPromptInstructions } from './EnvSecretsService';
 import { runQualityGates, formatQualityReport } from './QualityGateService';
+import { EditAdmissionService } from './EditAdmissionService';
+import type { AdmissionDecision } from './EditAdmissionService';
+import { resolveAdmissionDecision } from './admissionGate';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -124,6 +127,12 @@ export interface PipelineRunConfig {
   waitForConfirmation?: (plan: object) => Promise<boolean>;
   /** Returns selected file paths (partial apply) or false (reject all). */
   waitForDiffReview?:  (diffs: FileDiff[]) => Promise<string[] | false>;
+  /**
+   * Called before a compile cycle when the edit is classified as risky or
+   * destructive. Return true to proceed, false to cancel the edit.
+   * When absent, risky edits proceed without interruption (same as before).
+   */
+  waitForAdmission?:   (decision: AdmissionDecision) => Promise<boolean>;
   signal?:        AbortSignal;
   onUsage?:       (data: UsageData) => void;
   language?:      string;
@@ -144,6 +153,45 @@ export interface PipelineRunConfig {
 }
 
 type GenerationMode = 'landing' | 'app' | 'superapp';
+
+// ── Edit admission helper ─────────────────────────────────────────────────────
+
+/**
+ * Classify and gate a candidate before it is compiled.
+ *
+ * Called once per compile cycle — AFTER all candidate files are buffered,
+ * BEFORE compileWithRetry. If the edit is classified as risky or destructive
+ * and `config.waitForAdmission` is set, the user is prompted to confirm.
+ *
+ * Returns true  → proceed with compile.
+ * Returns false → caller must rollback + abort.
+ */
+async function runAdmissionCheck(
+  revId: string,
+  source: string,
+  config: PipelineRunConfig,
+  candidatePathsOverride?: string[],
+): Promise<boolean> {
+  const candidateFiles  = revisionManager.getRevisionFiles(revId) ?? {};
+  const activeId        = revisionManager.getActiveRevisionId();
+  const activeFiles     = activeId ? (revisionManager.getRevisionFiles(activeId) ?? {}) : {};
+
+  const decision = EditAdmissionService.classify({
+    candidatePaths: candidatePathsOverride ?? Object.keys(candidateFiles),
+    activePaths:    Object.keys(activeFiles),
+    source,
+  });
+
+  const approved = await resolveAdmissionDecision(
+    decision,
+    config.waitForAdmission,
+    config.onLog,
+  );
+  if (!approved) {
+    config.onLog('[AdmissionControl] edit rejected by user — rolling back candidate');
+  }
+  return approved;
+}
 
 /**
  * Detects if a file's content is actually a full artifact envelope JSON
@@ -2758,12 +2806,50 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
         editUnresolved.forEach(u => config.onLog(`[ImportValidator]   ${u.sourceFile} → '${u.specifier}'`));
       }
 
+      // ── Admission check (after buffering, before compile) ─────────────
+      const editAdmitted = await runAdmissionCheck(revId, 'edit', config);
+      if (!editAdmitted) {
+        await revisionManager.rollback();
+        config.onPhase({ phase: 'idle', progress: 100 });
+        const editCancelNow = new Date().toISOString();
+        const editCancelGraph: ProjectGraph = {
+          version: 1 as const,
+          id: crypto.randomUUID(),
+          projectId: config.projectId ?? '',
+          revisionId: config.revisionId ?? crypto.randomUUID(),
+          manifest: emptyManifest(config.intent),
+          files: [],
+          routes: [],
+          features: [],
+          externalDependencies: [],
+          entryFileId: '',
+          createdAt: editCancelNow,
+          updatedAt: editCancelNow,
+        };
+        return {
+          id:            crypto.randomUUID(),
+          status:        'cancelled' as const,
+          graph:         editCancelGraph,
+          operations:    [],
+          message:       'Edit blocked by admission review',
+          phase:         'idle' as AgentPhase,
+          usedModel:     config.modelId,
+          selfCorrected: false,
+          iterations:    0,
+          durationMs:    Date.now() - startMs,
+          createdAt:     editCancelNow,
+          changePackage: emptyChangePackage(editCancelGraph, []),
+        };
+      }
+
       // Compile candidate — flush to disk + check Vite (with self-correction loop)
       const editCompiled = await compileWithRetry({
         revId, apiKey: config.apiKey, onLog: config.onLog, signal: config.signal,
         callFix: (prompt, sig) => callLLM(
           'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig,
         ),
+        recheckAdmission: (nextCandidatePaths) =>
+          runAdmissionCheck(revId, 'compile-fix', config, nextCandidatePaths),
       });
       if (editCompiled.success) {
         // ── Diff review gate: significant edits require user approval ──────
@@ -3391,6 +3477,43 @@ Generate the complete application for: ${config.intent}`;
       newUnresolved.forEach(u => config.onLog(`[ImportValidator]   ${u.sourceFile} → '${u.specifier}'`));
     }
 
+    // ── Admission check (after buffering, before compile) ─────────────────
+    const newAdmitted = await runAdmissionCheck(revId, 'generation', config);
+    if (!newAdmitted) {
+      await revisionManager.rollback();
+      config.onPhase({ phase: 'idle', progress: 100 });
+      const cancelNow2 = new Date().toISOString();
+      const cancelGraph: ProjectGraph = {
+        version: 1 as const,
+        id: crypto.randomUUID(),
+        projectId: config.projectId ?? '',
+        revisionId: config.revisionId ?? crypto.randomUUID(),
+        manifest: emptyManifest(config.intent),
+        files: [],
+        routes: [],
+        features: [],
+        externalDependencies: [],
+        entryFileId: '',
+        createdAt: cancelNow2,
+        updatedAt: cancelNow2,
+      };
+      config.onFiles(ops); // still update editor with what was generated
+      return {
+        id:            crypto.randomUUID(),
+        status:        'cancelled' as const,
+        graph:         cancelGraph,
+        operations:    ops,
+        message:       'Edit blocked by admission review',
+        phase:         'idle' as AgentPhase,
+        usedModel:     config.modelId,
+        selfCorrected: false,
+        iterations:    0,
+        durationMs:    Date.now() - startMs,
+        createdAt:     cancelNow2,
+        changePackage: emptyChangePackage(cancelGraph, []),
+      };
+    }
+
     // Compile candidate — flush to disk + check Vite (with self-correction loop)
     const closeCompile = trace.span('compile', { files: writtenCount });
     const compiled = await compileWithRetry({
@@ -3398,6 +3521,8 @@ Generate the complete application for: ${config.intent}`;
       callFix: (prompt, sig) => callLLM(
         'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig,
       ),
+      recheckAdmission: (nextCandidatePaths) =>
+        runAdmissionCheck(revId, 'compile-fix', config, nextCandidatePaths),
     });
     closeCompile({ status: compiled.success ? 'ok' : 'error', data: { attempts: compiled.attempts } });
     if (compiled.success) {

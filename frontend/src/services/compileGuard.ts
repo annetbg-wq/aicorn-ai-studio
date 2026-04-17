@@ -11,6 +11,7 @@
 import { revisionManager } from './RevisionManager';
 import { commandBus } from './studioCommandBus';
 import { parseArtifact, parseFileMarkers } from './artifactParser';
+import { canonicalizeProjectPath } from '../shared/safePaths';
 
 const MAX_ATTEMPTS = 3;
 
@@ -21,6 +22,8 @@ interface CompileLoopConfig {
   signal?:  AbortSignal;
   /** LLM call delegate — avoids duplicating callLLM / endpoint logic. */
   callFix?: (prompt: string, signal?: AbortSignal) => Promise<string>;
+  /** Admission re-check used when compileGuard expands the candidate file set. */
+  recheckAdmission?: (nextCandidatePaths: string[]) => Promise<boolean>;
 }
 
 interface CompileLoopResult {
@@ -136,8 +139,49 @@ Fix ONLY the error. Keep all functionality. Output ONLY the JSON.`;
     Object.assign(files, parseFileMarkers(raw));
   }
 
+  const currentFiles = revisionManager.getRevisionFiles(config.revId) ?? {};
+  const currentPaths = Object.keys(currentFiles);
+  const currentPathSet = new Set(currentPaths);
+  const sanitizedEntries: Array<{ path: string; content: string }> = [];
+
+  for (const [rawPath, content] of Object.entries(files)) {
+    let canonicalPath: string;
+    try {
+      canonicalPath = canonicalizeProjectPath(rawPath, {
+        allowRootSlash: true,
+        stripSrcPrefix: true,
+        label: 'compileGuard path',
+      });
+    } catch (e) {
+      config.onLog(`[CompileGuard] Blocked invalid fix path: ${rawPath} (${String(e)})`);
+      continue;
+    }
+    sanitizedEntries.push({ path: canonicalPath.startsWith('/') ? canonicalPath : `/${canonicalPath}`, content });
+  }
+
+  const addedPaths = sanitizedEntries
+    .map(entry => entry.path.replace(/^\//, ''))
+    .filter(path => !currentPathSet.has(path));
+
+  if (addedPaths.length > 0) {
+    if (!config.recheckAdmission) {
+      config.onLog(
+        `[CompileGuard] Blocked ${addedPaths.length} newly introduced path(s) because no admission recheck is registered`,
+      );
+      return 0;
+    }
+    const nextCandidatePaths = [...new Set([...currentPaths, ...addedPaths])];
+    const approved = await config.recheckAdmission(nextCandidatePaths);
+    if (!approved) {
+      config.onLog(
+        `[CompileGuard] Admission recheck rejected new path(s): ${addedPaths.join(', ')}`,
+      );
+      return 0;
+    }
+  }
+
   let written = 0;
-  for (const [path, content] of Object.entries(files)) {
+  for (const { path, content } of sanitizedEntries) {
     if (!isValidFile(path, content)) continue;
     await revisionManager.writeCandidateFile(config.revId, path, content);
     config.onLog(`[CompileGuard] ✓ Fixed: ${path}`);
@@ -230,6 +274,20 @@ export async function compileWithRetry(config: CompileLoopConfig): Promise<Compi
   const brokenFile = extractFileFromError(errorText);
 
   if (brokenFile) {
+    const currentFiles = revisionManager.getRevisionFiles(config.revId) ?? {};
+    const currentPaths = Object.keys(currentFiles);
+    if (!currentPaths.includes(brokenFile) && config.recheckAdmission) {
+      const approved = await config.recheckAdmission([...new Set([...currentPaths, brokenFile])]);
+      if (!approved) {
+        config.onLog(`[CompileGuard] Recovery stub rejected for new path: ${brokenFile}`);
+        commandBus.dispatch({ type: 'PREVIEW_FAILED', error: lastErrors.join('\n') });
+        return { success: false, attempts: MAX_ATTEMPTS, errors: lastErrors };
+      }
+    } else if (!currentPaths.includes(brokenFile) && !config.recheckAdmission) {
+      config.onLog(`[CompileGuard] Recovery blocked for new path: ${brokenFile}`);
+      commandBus.dispatch({ type: 'PREVIEW_FAILED', error: lastErrors.join('\n') });
+      return { success: false, attempts: MAX_ATTEMPTS, errors: lastErrors };
+    }
     config.onLog(`[CompileGuard] Route-level recovery: stubbing ${brokenFile}`);
     const stub = stubComponent(brokenFile, lastErrors[0] ?? 'Compilation error');
     await revisionManager.writeCandidateFile(config.revId, '/' + brokenFile, stub);
