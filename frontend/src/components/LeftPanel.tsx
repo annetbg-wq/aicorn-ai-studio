@@ -1,6 +1,7 @@
-﻿import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import type { KickoffBuildScopeId } from '../services/ArchitectPlannerService';
 import {
   Plus, Link2, Camera, Sparkles,
   Paperclip, History,
@@ -92,10 +93,22 @@ interface LeftPanelProps {
   removeComposerContextItem?: (id: string) => void;
   clearComposerContextItems?: () => void;
   // blueprint confirmation
-  pendingPlan?:            object | null;
+  pendingPlan?:            {
+    architectKickoff?: {
+      selectedOptionId?: KickoffBuildScopeId;
+      plan?: {
+        scopeOptions?: Array<{
+          id: KickoffBuildScopeId | 'revise';
+          label: string;
+          description: string;
+        }>;
+      };
+    };
+  } | null;
   confirmPlan?:            () => void;
   cancelPlan?:             () => void;
   onConfirmPlan?:          (plan: object) => void;
+  selectKickoffScope?:     (optionId: KickoffBuildScopeId) => void;
   onClarifyPlan?:          (messageId: string) => void;
   onSubmitClarification?:  (text: string) => void;
 }
@@ -298,17 +311,19 @@ const formatTime = (iso: string) => {
 
 interface BlueprintCardProps {
   m: any;
+  pendingPlan: LeftPanelProps['pendingPlan'];
   isPending: boolean;
   textColor: string;
   subText: string;
   borderColor: string;
   onConfirmPlan: (plan: object) => void;
+  selectKickoffScope: (optionId: KickoffBuildScopeId) => void;
   onClarifyPlan: (messageId: string) => void;
   cancelPlan: () => void;
 }
 
 const BlueprintCard: React.FC<BlueprintCardProps> = ({
-  m, isPending, textColor, subText, borderColor, onConfirmPlan, onClarifyPlan, cancelPlan,
+  m, pendingPlan, isPending, textColor, subText, borderColor, onConfirmPlan, selectKickoffScope, onClarifyPlan, cancelPlan,
 }) => {
   // Visibility guard — keeps fiber in the tree but renders nothing.
   // This prevents the insertBefore crash that occurs when a node is removed
@@ -316,6 +331,10 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
   if (m.blueprintVisible === false) return null;
 
   const bpPages: string[] = m.pages ?? [];
+  const kickoffOptions = pendingPlan?.architectKickoff?.plan?.scopeOptions
+    ?.filter((option): option is { id: KickoffBuildScopeId; label: string; description: string } => option.id !== 'revise')
+    ?? [];
+  const selectedKickoffScope = pendingPlan?.architectKickoff?.selectedOptionId ?? 'core';
 
   return (
     <div style={{
@@ -379,6 +398,45 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
         </details>
       )}
 
+      {isPending && kickoffOptions.length > 0 && (
+        <div style={{
+          margin: '0 16px 12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: subText, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            First build scope
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {kickoffOptions.map(option => {
+              const isSelected = option.id === selectedKickoffScope;
+              return (
+                <button
+                  key={option.id}
+                  data-testid={`kickoff-option-${option.id}`}
+                  onClick={() => selectKickoffScope(option.id)}
+                  style={{
+                    textAlign: 'left',
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    cursor: 'pointer',
+                    border: `1px solid ${isSelected ? '#6366f1' : borderColor}`,
+                    background: isSelected ? 'rgba(99,102,241,0.12)' : 'transparent',
+                    color: textColor,
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>{option.label}</div>
+                  <div style={{ fontSize: 11, color: subText, marginTop: 4, lineHeight: 1.5 }}>
+                    {option.description}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {isPending && (
         <div
           data-testid="generation-plan-card"
@@ -393,7 +451,7 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
               fontSize: 13, fontWeight: 600,
             }}
           >
-            Все верно
+            Start build
           </button>
           <button
             data-testid="clarify-plan-btn"
@@ -404,7 +462,7 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
               color: subText, fontSize: 13,
             }}
           >
-            Уточнить
+            {kickoffOptions.length > 0 ? 'Revise plan' : 'Уточнить'}
           </button>
           <button onClick={cancelPlan} style={{
             padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
@@ -754,7 +812,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   attachments = [], addAttachment = () => {}, removeAttachment = () => {},
   composerContextItems = [], removeComposerContextItem = () => {}, clearComposerContextItems = () => {},
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
-  onConfirmPlan = () => confirmPlan(), onClarifyPlan = () => {}, onSubmitClarification = () => {},
+  onConfirmPlan = () => confirmPlan(), selectKickoffScope = () => {}, onClarifyPlan = () => {}, onSubmitClarification = () => {},
 }) => {
   const lang = LABELS[appLanguage] ?? LABELS['en'];
   const t = (key: string) => lang[key] ?? LABELS['en'][key] ?? key;
@@ -983,11 +1041,13 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                     <BlueprintCard
                       key={m.id}
                       m={m}
-                      isPending={true}
+                      pendingPlan={pendingPlan}
+                      isPending={pendingPlan !== null}
                       textColor={textColor}
                       subText={subText}
                       borderColor={borderColor}
                       onConfirmPlan={onConfirmPlan}
+                      selectKickoffScope={selectKickoffScope}
                       onClarifyPlan={onClarifyPlan}
                       cancelPlan={cancelPlan}
                     />

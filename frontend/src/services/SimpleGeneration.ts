@@ -58,6 +58,7 @@ import { runQualityGates, formatQualityReport } from './QualityGateService';
 import { EditAdmissionService } from './EditAdmissionService';
 import type { AdmissionDecision } from './EditAdmissionService';
 import { resolveAdmissionDecision } from './admissionGate';
+import type { KickoffBuildScopeId } from './ArchitectPlannerService';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,14 @@ export interface ProjectPlan {
   [key: string]: unknown; // allow extra fields from IdeaPlan
 }
 
+export type PlanConfirmationResult =
+  | boolean
+  | {
+      confirmed: boolean;
+      approvedPlan?: ProjectPlan;
+      requiredKickoffScopeId?: KickoffBuildScopeId;
+    };
+
 export interface PipelineRunConfig {
   intent:         string;
   history:        LLMMessage[];
@@ -124,7 +133,7 @@ export interface PipelineRunConfig {
     theme:         string;
     pages:         string[];
   }) => void;
-  waitForConfirmation?: (plan: object) => Promise<boolean>;
+  waitForConfirmation?: (plan: ProjectPlan) => Promise<PlanConfirmationResult>;
   /** Returns selected file paths (partial apply) or false (reject all). */
   waitForDiffReview?:  (diffs: FileDiff[]) => Promise<string[] | false>;
   /**
@@ -2221,6 +2230,64 @@ function formatBlueprint(plan: any): string {
   return lines.join('\n');
 }
 
+function formatKickoffScopePrompt(plan: Record<string, unknown>): string | null {
+  const kickoffScope = plan.kickoffScope as {
+    id?: string;
+    label?: string;
+    description?: string;
+    selectedCapabilityIds?: string[];
+    deferredCapabilityIds?: string[];
+    branchBriefSummary?: string;
+  } | undefined;
+
+  if (!kickoffScope?.id) return null;
+
+  return [
+    `Selected kickoff scope: ${kickoffScope.label ?? kickoffScope.id}`,
+    kickoffScope.branchBriefSummary ? `Architect summary: ${kickoffScope.branchBriefSummary}` : '',
+    kickoffScope.description ? `Scope rationale: ${kickoffScope.description}` : '',
+    Array.isArray(kickoffScope.selectedCapabilityIds)
+      ? `Required capabilities in this build: ${kickoffScope.selectedCapabilityIds.join(', ') || 'none'}`
+      : '',
+    Array.isArray(kickoffScope.deferredCapabilityIds)
+      ? `Defer these capabilities for later: ${kickoffScope.deferredCapabilityIds.join(', ') || 'none'}`
+      : '',
+    'Treat this kickoff scope as a hard constraint for the current first build.',
+  ].filter(Boolean).join('\n');
+}
+
+export function resolveApprovedBuildPlan(
+  originalPlan: ProjectPlan,
+  approval: Exclude<PlanConfirmationResult, boolean>,
+  onLog?: (msg: string) => void,
+): ProjectPlan {
+  const approvedPlan = approval.approvedPlan;
+  const requiredKickoffScopeId = approval.requiredKickoffScopeId;
+
+  if (!approvedPlan) {
+    if (requiredKickoffScopeId) {
+      const message = `[SimpleGeneration] Kickoff scope handoff failed: approved plan missing for ${requiredKickoffScopeId}`;
+      onLog?.(message);
+      throw new Error(message);
+    }
+    return originalPlan;
+  }
+
+  if (!requiredKickoffScopeId) {
+    return approvedPlan;
+  }
+
+  const approvedScopeId = (approvedPlan as { kickoffScope?: { id?: string } }).kickoffScope?.id;
+  if (approvedScopeId !== requiredKickoffScopeId) {
+    const message = `[SimpleGeneration] Kickoff scope handoff failed: expected ${requiredKickoffScopeId}, received ${approvedScopeId ?? 'none'}`;
+    onLog?.(message);
+    throw new Error(message);
+  }
+
+  onLog?.(`[SimpleGeneration] Kickoff scope handoff confirmed: ${approvedScopeId}`);
+  return approvedPlan;
+}
+
 // ─── Main Service ───────────────────────────────────────────────────────────
 
 export class SimpleGeneration {
@@ -2839,6 +2906,10 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
           durationMs:    Date.now() - startMs,
           createdAt:     editCancelNow,
           changePackage: emptyChangePackage(editCancelGraph, []),
+          dependencies:  [],
+          previewMeta:   { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
+          warnings:      [],
+          repairHints:   [],
         };
       }
 
@@ -3134,7 +3205,8 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
     });
 
     if (config.waitForConfirmation) {
-      const confirmed = await config.waitForConfirmation(plan);
+      const approval = await config.waitForConfirmation(plan as ProjectPlan);
+      const confirmed = typeof approval === 'boolean' ? approval : approval.confirmed;
       if (!confirmed) {
         config.onLog('[SimpleGeneration] User cancelled — generation stopped');
         config.onPhase({ phase: 'idle', progress: 0 });
@@ -3172,6 +3244,16 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
           warnings:      [],
           repairHints:   [],
         };
+      }
+
+      if (typeof approval === 'object') {
+        plan = enforcePlanModeRules(
+          resolveApprovedBuildPlan(plan as ProjectPlan, approval, config.onLog) as unknown as Record<string, unknown>,
+          mode,
+          config.intent,
+          config.onLog,
+        );
+        config.onLog('[SimpleGeneration] Approved build plan promoted to source of truth');
       }
     }
 
@@ -3231,6 +3313,10 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
           ? '\n\nTECHNICAL BLUEPRINT (IMPLEMENTATION GUIDE):\n'
             + JSON.stringify(technicalBlueprint, null, 2)
           : '');
+    const kickoffScopePrompt = formatKickoffScopePrompt(plan);
+    if (kickoffScopePrompt) {
+      coderSystemPrompt += '\n\nKICKOFF BUILD SCOPE (HARD CONSTRAINT):\n' + kickoffScopePrompt;
+    }
 
     if (config.designSystemPrompt) {
       coderSystemPrompt += '\n\n' + config.designSystemPrompt;
@@ -3511,6 +3597,10 @@ Generate the complete application for: ${config.intent}`;
         durationMs:    Date.now() - startMs,
         createdAt:     cancelNow2,
         changePackage: emptyChangePackage(cancelGraph, []),
+        dependencies:  [],
+        previewMeta:   { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
+        warnings:      [],
+        repairHints:   [],
       };
     }
 

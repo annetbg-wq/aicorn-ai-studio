@@ -19,6 +19,7 @@
 import { ProjectStorage } from './ProjectStorage';
 import type { StoredProject } from './ProjectStorage';
 import { ProjectRepository } from './ProjectRepository';
+import { DEFAULT_PROJECT_BRANCH_ID } from '../shared/projectModel';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -35,6 +36,12 @@ export interface ProjectMetaLegacy {
 /** Full project — files but NOT chatHistory (that lives in ProjectStorage). */
 export interface Project extends ProjectMetaLegacy {
   files: Record<string, string>;
+  activeBranchId?: string;
+}
+
+export interface KickoffProjectContext {
+  projectId: string | null;
+  branchId: string;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -75,6 +82,15 @@ export class ProjectManager {
     localStorage.setItem(CURRENT_KEY, id);
   }
 
+  static resolveKickoffContext(projectId?: string | null): KickoffProjectContext {
+    const resolvedProjectId = projectId ?? localStorage.getItem(CURRENT_KEY);
+    const storedProject = resolvedProjectId ? ProjectStorage.getProject(resolvedProjectId) : null;
+    return {
+      projectId: resolvedProjectId ?? storedProject?.id ?? null,
+      branchId: storedProject?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID,
+    };
+  }
+
   /**
    * Creates a new project and persists it.
    * Throws if the 20-project limit is reached or localStorage is full.
@@ -97,6 +113,7 @@ export class ProjectManager {
       createdAt:   now,
       updatedAt:   now,
       files:       {},
+      activeBranchId: DEFAULT_PROJECT_BRANCH_ID,
     };
     const stored: StoredProject = { ...project, chatHistory: [] };
     const ok = ProjectStorage.saveProject(stored);

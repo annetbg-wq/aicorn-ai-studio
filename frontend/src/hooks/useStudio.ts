@@ -66,6 +66,11 @@ import {
 } from '../shared/projectModel';
 import { useFigmaState } from './useFigmaState';
 import { useSettingsState } from './useSettingsState';
+import {
+  ArchitectPlannerService,
+  type ArchitectKickoffPlan,
+  type KickoffBuildScopeId,
+} from '../services/ArchitectPlannerService';
 
 export type DeviceType = 'desktop' | 'iphone' | 'pixel' | 'ipad';
 export type FileMap     = Record<string, string>;
@@ -117,6 +122,93 @@ export interface ComposerContextItem {
   summary:   string;
   createdAt: number;
   plan?:     ProjectPlan;
+}
+
+type PlanApprovalDecision = {
+  confirmed: boolean;
+  approvedPlan?: ProjectPlan;
+  requiredKickoffScopeId?: KickoffBuildScopeId;
+};
+
+interface PendingArchitectKickoffSelection {
+  projectId: string;
+  plan: ArchitectKickoffPlan;
+  branchId: string;
+  selectedOptionId: KickoffBuildScopeId;
+  proposedSnapshotId?: string | null;
+}
+
+interface PendingBlueprintPlan {
+  id: string;
+  plan: ProjectPlan;
+  blueprintText: string;
+  technicalBlueprint?: object | null;
+  appName: string;
+  theme: string;
+  pages: string[];
+  architectKickoff?: PendingArchitectKickoffSelection | null;
+}
+
+export function resolveStudioKickoffContext(
+  currentProjectId: string | null,
+  currentProject: Pick<Project, 'id' | 'activeBranchId'> | null | undefined,
+): { projectId: string | null; branchId: string } {
+  const resolved = ProjectManager.resolveKickoffContext(currentProjectId ?? currentProject?.id ?? null);
+  return {
+    projectId: resolved.projectId ?? currentProjectId ?? currentProject?.id ?? null,
+    branchId: currentProject?.activeBranchId ?? resolved.branchId,
+  };
+}
+
+export async function prepareKickoffBuildApproval(input: {
+  pendingPlan: PendingBlueprintPlan;
+  now?: string;
+}): Promise<{ approvedPlan: ProjectPlan; kickoffSnapshotId: string | null }> {
+  const { pendingPlan } = input;
+  const now = input.now ?? new Date().toISOString();
+
+  if (!pendingPlan.architectKickoff) {
+    return {
+      approvedPlan: pendingPlan.plan,
+      kickoffSnapshotId: null,
+    };
+  }
+
+  const preparation = await ArchitectPlannerService.prepareBuildFromKickoff(
+    pendingPlan.architectKickoff.projectId,
+    pendingPlan.architectKickoff.branchId,
+    pendingPlan.architectKickoff.plan,
+    pendingPlan.architectKickoff.selectedOptionId,
+    pendingPlan.plan,
+    now,
+  );
+
+  if ((preparation.buildPlan as { kickoffScope?: { id?: string } }).kickoffScope?.id
+    !== pendingPlan.architectKickoff.selectedOptionId) {
+    throw new Error(
+      `[Architect] Kickoff scope handoff failed before confirmation: expected ${pendingPlan.architectKickoff.selectedOptionId}`,
+    );
+  }
+
+  return {
+    approvedPlan: preparation.buildPlan,
+    kickoffSnapshotId: preparation.snapshot.id,
+  };
+}
+
+export function recoverKickoffApprovalFailure(
+  message: string,
+  pendingPlanId: string | null | undefined,
+  callbacks: {
+    addLog: (msg: string) => void;
+    appendErrorMessage: (content: string) => void;
+    rejectBlueprint: (planId: string) => void;
+  },
+): PlanApprovalDecision {
+  callbacks.addLog(`[Architect] Kickoff approval failed: ${message}`);
+  callbacks.appendErrorMessage(`⚠️ Architect kickoff draft was not saved. Build not started.\n\n${message}`);
+  callbacks.rejectBlueprint(pendingPlanId ?? '');
+  return { confirmed: false };
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -267,17 +359,9 @@ export const useStudio = () => {
 
   // Blueprint confirmation — set when Architect plan is ready, cleared on confirm/cancel.
   // resolver lives in a ref (not state) so resolve() fires only after React commits the cleanup.
-  const [pendingPlan, setPendingPlan] = useState<{
-    id:            string;
-    plan:          object;
-    blueprintText: string;
-    technicalBlueprint?: object | null;
-    appName:       string;
-    theme:         string;
-    pages:         string[];
-  } | null>(null);
-  const planResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
-  const planDecisionRef = useRef<boolean | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<PendingBlueprintPlan | null>(null);
+  const planResolverRef = useRef<((decision: PlanApprovalDecision) => void) | null>(null);
+  const planDecisionRef = useRef<PlanApprovalDecision | null>(null);
 
   // Diff review — set when edit candidate is compiled and has significant changes.
   // Resolver receives the selected file paths (partial apply) or false (reject all).
@@ -774,6 +858,8 @@ export const useStudio = () => {
   const lastErrorTime      = useRef(0);
   const networkRetryCountRef   = useRef(0);
   const networkRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Holds the Architect kickoff plan between analysis and blueprint confirmation.
+  const pendingArchitectKickoffRef = useRef<PendingArchitectKickoffSelection | null>(null);
   // Tracks the active generation-plan message ID so markSnapshotStable can set buildStatus:'ready'
   const currentPlanMsgIdRef = useRef<string | null>(null);
   const commitPendingProjectSaveRef = useRef<(reason: 'preview-ready' | 'manual-no-preview') => boolean>(() => false);
@@ -1411,7 +1497,7 @@ export const useStudio = () => {
       dispatch({ type: 'APPEND', payload: planMessage });
       setPendingPlan({
         id: testPlan.id,
-        plan: testPlan,
+        plan: testPlan as unknown as ProjectPlan,
         blueprintText: planMessage.blueprintText,
         technicalBlueprint: testPlan.technicalBlueprint,
         appName: testPlan.title,
@@ -1669,6 +1755,56 @@ export const useStudio = () => {
       console.log('[DEBUG] pipeline input files:', Object.keys(contextWithTheme));
       const projectFiles = Object.keys(files);
       const existingCodeCount = projectFiles?.length || 0;
+
+      // ── Pre-build Architect analysis (genesis only) ───────────────────────
+      // Runs when there are no existing code files (first build / new branch kickoff).
+      // Stage 1: local heuristic (always). Stage 2: LLM enrichment (when apiKey available).
+      // The plan is shown as an assistant message before the build starts, and written
+      // to branch-scoped architecture memory after a successful generation.
+      pendingArchitectKickoffRef.current = null;
+      if (existingCodeCount === 0 && !controller.signal.aborted) {
+        try {
+          const kickoffContext = resolveStudioKickoffContext(currentProjectId, currentProject);
+          if (!kickoffContext.projectId) {
+            throw new Error('Cannot run Architect kickoff without a resolved project id');
+          }
+          const architectPlan = await ArchitectPlannerService.analyze({
+            intent:     userPrompt,
+            projectId:  kickoffContext.projectId,
+            branchId:   kickoffContext.branchId,
+            apiKey:     effectiveApiKey,
+            modelId:    effectiveModel,
+            signal:     controller.signal,
+            onLog:      addLog,
+          });
+          const proposedSnapshot = await ArchitectPlannerService.writeProposedKickoffToMemory(
+            kickoffContext.projectId,
+            kickoffContext.branchId,
+            architectPlan,
+            new Date().toISOString(),
+          );
+          pendingArchitectKickoffRef.current = {
+            projectId: kickoffContext.projectId,
+            plan: architectPlan,
+            branchId: kickoffContext.branchId,
+            selectedOptionId: architectPlan.defaultOptionId,
+            proposedSnapshotId: proposedSnapshot.id,
+          };
+          addLog(`[Architect] Proposed kickoff draft saved (${proposedSnapshot.id})`);
+
+          if (!controller.signal.aborted) {
+            chatAppend({
+              role:      'assistant' as const,
+              type:      'text',
+              content:   ArchitectPlannerService.formatPlanForChat(architectPlan),
+              timestamp: Date.now(),
+            });
+          }
+        } catch (architectErr) {
+          addLog(`[Architect] Pre-build analysis failed: ${(architectErr as Error)?.message ?? String(architectErr)} — continuing without`);
+        }
+      }
+
       const runOnce = (intentArg: string, modelArg: string) => GenerationPipeline.run({
         intent:    intentArg,
         history,
@@ -1758,16 +1894,19 @@ export const useStudio = () => {
             },
           });
         },
-        waitForConfirmation: (_plan) => new Promise((resolve) => {
+        waitForConfirmation: (_plan) => new Promise<PlanApprovalDecision>((resolve) => {
           planResolverRef.current = resolve;
+          const architectKickoff = pendingArchitectKickoffRef.current;
+          pendingArchitectKickoffRef.current = null;
           setPendingPlan({
             id:            `plan_${Date.now()}`,
-            plan:          _plan,
+            plan:          _plan as ProjectPlan,
             blueprintText: '', // already shown via onPlanReady
             technicalBlueprint: null, // already shown via onPlanReady
             appName:       (_plan as any).appName ?? '',
             theme:         (_plan as any).theme ?? '',
             pages:         ((_plan as any).pages ?? []).map((p: any) => p.name ?? p),
+            architectKickoff,
           });
         }),
         waitForDiffReview: (diffs) => new Promise<string[] | false>((resolve) => {
@@ -2130,22 +2269,72 @@ export const useStudio = () => {
   const onSettings = useCallback(() => setShowSettings(true), []);
 
 
-  const confirmPlan = useCallback((plan?: object) => {
+  const selectKickoffScope = useCallback((optionId: KickoffBuildScopeId) => {
+    setPendingPlan(prev => {
+      if (!prev?.architectKickoff) return prev;
+      return {
+        ...prev,
+        architectKickoff: {
+          ...prev.architectKickoff,
+          selectedOptionId: optionId,
+        },
+      };
+    });
+  }, []);
+
+  const confirmPlan = useCallback(async (_plan?: object) => {
     if (confirmingRef.current) return;
     confirmingRef.current = true;
-    // Immediately remove fallback blueprint cards so double-click is impossible.
-    dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'blueprint' });
-    commandBus.dispatch({
-      type: 'PLAN_APPROVED',
-      payload: plan ?? pendingPlan?.plan ?? {},
-    });
-    if (currentProjectId) {
-      setPreviewReady(false);
+    try {
+      const approval = pendingPlan
+        ? await prepareKickoffBuildApproval({
+            pendingPlan,
+          })
+        : { approvedPlan: undefined, kickoffSnapshotId: null };
+
+      if (approval.kickoffSnapshotId) {
+        addLog(`[Architect] Kickoff snapshot saved before build (${approval.kickoffSnapshotId})`);
+      }
+
+      planDecisionRef.current = {
+        confirmed: true,
+        approvedPlan: approval.approvedPlan ?? pendingPlan?.plan,
+        requiredKickoffScopeId: pendingPlan?.architectKickoff?.selectedOptionId,
+      };
+
+      // Immediately remove fallback blueprint cards so double-click is impossible.
+      dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'blueprint' });
+      commandBus.dispatch({
+        type: 'PLAN_APPROVED',
+        payload: approval.approvedPlan ?? pendingPlan?.plan ?? {},
+      });
+      if (currentProjectId) {
+        setPreviewReady(false);
+      }
+      commandBus.dispatch({ type: 'ACCEPT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
+    } catch (err) {
+      const message = (err as Error)?.message ?? String(err);
+      recoverKickoffApprovalFailure(message, pendingPlan?.id, {
+        addLog,
+        appendErrorMessage: (content) => {
+          chatAppend({
+            role: 'assistant',
+            type: 'text',
+            content,
+            timestamp: Date.now(),
+          });
+        },
+        rejectBlueprint: (planId) => {
+          commandBus.dispatch({ type: 'REJECT_BLUEPRINT', planId });
+        },
+      });
+      confirmingRef.current = false;
+      return;
     }
-    commandBus.dispatch({ type: 'ACCEPT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
+
     // Reset guard after a tick so the same instance can be reused if generation is re-triggered.
     setTimeout(() => { confirmingRef.current = false; }, 500);
-  }, [pendingPlan, currentProjectId]);
+  }, [pendingPlan, currentProjectId, addLog, chatAppend]);
 
   const cancelPlan = useCallback(() => {
     commandBus.dispatch({ type: 'REJECT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
@@ -2311,7 +2500,7 @@ export const useStudio = () => {
           // the preview iframe is reloaded with the partially-accepted build.
           // This is the primary observable proof: after promote the live iframe
           // shows the accepted files, not just the in-memory editor state.
-          revisionManager.createCandidate().then(revId => {
+          revisionManager.createCandidate().then((revId: string) => {
             const writes = Object.entries(nextFiles).map(
               ([p, c]) => revisionManager.writeCandidateFile(revId, p, c),
             );
@@ -2358,12 +2547,12 @@ export const useStudio = () => {
     if (planDecisionRef.current === null) return;
     if (!planResolverRef.current) return;
 
-    const confirmed = planDecisionRef.current;
+    const decision = planDecisionRef.current;
     const resolve   = planResolverRef.current;
     planDecisionRef.current  = null;
     planResolverRef.current  = null;
 
-    resolve(confirmed);
+    resolve(decision);
   }, [pendingPlan]);
 
   // Guard: if the component unmounts while waiting for confirmation, cancel the
@@ -2371,7 +2560,7 @@ export const useStudio = () => {
   useEffect(() => {
     return () => {
       if (planResolverRef.current) {
-        planResolverRef.current(false);
+        planResolverRef.current({ confirmed: false });
         planResolverRef.current = null;
         planDecisionRef.current = null;
       }
@@ -2390,7 +2579,7 @@ export const useStudio = () => {
   useEffect(() => {
     const unsubs = [
       commandBus.subscribe('ACCEPT_BLUEPRINT', () => {
-        planDecisionRef.current = true;
+        planDecisionRef.current = planDecisionRef.current ?? { confirmed: true };
         setPendingPlan(null);
         // 1. Hide blueprint card — DOM node stays mounted, no insertBefore crash.
         if (blueprintIdRef.current) {
@@ -2403,7 +2592,7 @@ export const useStudio = () => {
         });
       }),
       commandBus.subscribe('REJECT_BLUEPRINT', () => {
-        planDecisionRef.current = false;
+        planDecisionRef.current = { confirmed: false };
         setPendingPlan(null);
         // Hide instead of remove — preserves fiber identity, avoids DOM conflicts.
         if (blueprintIdRef.current) {
@@ -2415,7 +2604,7 @@ export const useStudio = () => {
         const text = (cmd as Extract<typeof cmd, { type: 'REQUEST_PLAN_REVISION' }>).payload;
         // Clear the pending blueprint so its card hides, then re-run generation
         // with the revision text as the new prompt (bypasses textarea state).
-        planDecisionRef.current = false;
+        planDecisionRef.current = { confirmed: false };
         setPendingPlan(null);
         if (blueprintIdRef.current) {
           dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: blueprintIdRef.current, visible: false });
@@ -2536,7 +2725,7 @@ export const useStudio = () => {
     previewUrl,
     previewReady,
     // blueprint confirmation
-    pendingPlan, confirmPlan, cancelPlan,
+    pendingPlan, confirmPlan, cancelPlan, onConfirmPlan, onClarifyPlan, onSubmitClarification, selectKickoffScope,
     // diff review
     pendingDiff, approveDiff, rejectDiff,
     // edit admission
@@ -2578,7 +2767,7 @@ export const useStudio = () => {
     startFigmaSync, addSystemMessage,
     saveFigmaProject, loadFigmaProject, deleteFigmaProject, markFigmaProjectSynced, clearFigmaSync,
     setAppLanguage, setFigmaLink, setTargetMarket, setAuditStrictness,
-    confirmPlan, cancelPlan,
+    confirmPlan, cancelPlan, selectKickoffScope,
     onConfirmPlan, onClarifyPlan, onSubmitClarification,
     approveDiff, rejectDiff,
     confirmAdmission, denyAdmission,
