@@ -151,6 +151,7 @@ export interface EngineWorkspaceProps {
   confirmPlan?:      () => void;
   cancelPlan?:       () => void;
   onConfirmPlan?:    (plan: object) => void;
+  selectKickoffScope?: (optionId: 'core' | 'core_backend' | 'core_backend_ai') => void;
   onClarifyPlan?:    (messageId: string) => void;
   onSubmitClarification?: (text: string) => void;
 
@@ -182,7 +183,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
   attachments = [], addAttachment = () => {}, removeAttachment = () => {},
   composerContextItems = [], removeComposerContextItem = () => {}, clearComposerContextItems = () => {},
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
-  onConfirmPlan = () => confirmPlan(), onClarifyPlan = () => {}, onSubmitClarification = () => {},
+  onConfirmPlan = () => confirmPlan(), selectKickoffScope = () => {}, onClarifyPlan = () => {}, onSubmitClarification = () => {},
   studioPhase,
   studioError = null,
   previewLifecycle,
@@ -351,6 +352,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             confirmPlan={confirmPlan}
             cancelPlan={cancelPlan}
             onConfirmPlan={onConfirmPlan}
+            selectKickoffScope={selectKickoffScope}
             onClarifyPlan={onClarifyPlan}
             onSubmitClarification={onSubmitClarification}
           />

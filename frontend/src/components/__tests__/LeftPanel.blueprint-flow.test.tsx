@@ -77,9 +77,9 @@ function Harness({
   onDispatch?: (action: any) => void;
 }) {
   const [messages, rawDispatch] = useReducer(chatReducer, initialMessages);
-  const [pendingPlan, setPendingPlan] = useState<object | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<any | null>(null);
   const scrollRef = makeScrollRef();
-  const { onConfirmPlan } = useStudio() as { onConfirmPlan: (plan: object) => void };
+  const { onConfirmPlan } = useStudio() as unknown as { onConfirmPlan: (plan: object) => void };
 
   const dispatch = (action: any) => {
     onDispatch?.(action);
@@ -106,7 +106,21 @@ function Harness({
         timestamp:        Date.now(),
       }),
     });
-    setPendingPlan({ id: 'plan-1' });
+    setPendingPlan({
+      id: 'plan-1',
+      plan: { id: 'plan-1' },
+      architectKickoff: {
+        selectedOptionId: 'core_backend',
+        plan: {
+          scopeOptions: [
+            { id: 'core', label: 'Build core', description: 'Core only' },
+            { id: 'core_backend', label: 'Build core + backend', description: 'Core with backend' },
+            { id: 'core_backend_ai', label: 'Build core + backend + AI', description: 'Core with backend and AI' },
+            { id: 'revise', label: 'Revise plan', description: 'Revise before build' },
+          ],
+        },
+      },
+    });
   };
 
   const confirmPlan = () => {
@@ -120,8 +134,21 @@ function Harness({
   const buildIt = () => {
     if (buildingRef.current) return;
     buildingRef.current = true;
-    onConfirmPlan({ id: 'plan-1' });
+    onConfirmPlan({
+      id: 'plan-1',
+      selectedOptionId: pendingPlan?.architectKickoff?.selectedOptionId,
+    });
     confirmPlan();
+  };
+
+  const selectKickoffScope = (optionId: 'core' | 'core_backend' | 'core_backend_ai') => {
+    setPendingPlan((prev: any) => ({
+      ...prev,
+      architectKickoff: {
+        ...prev.architectKickoff,
+        selectedOptionId: optionId,
+      },
+    }));
   };
 
   const cancelPlan = () => {
@@ -174,6 +201,7 @@ function Harness({
           confirmPlan={confirmPlan}
           cancelPlan={cancelPlan}
           onConfirmPlan={buildIt}
+          selectKickoffScope={selectKickoffScope}
         />
       </ChatErrorBoundary>
     </>
@@ -234,6 +262,29 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
     await user.click(screen.getByTestId('confirm-plan-btn'));
 
     expect(studioMock.onConfirmPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('S4b: Kickoff scope options are rendered as selectable controls', async () => {
+    render(<Harness />);
+
+    await user.click(screen.getByTestId('trigger-blueprint'));
+
+    expect(screen.getByTestId('kickoff-option-core')).toBeInTheDocument();
+    expect(screen.getByTestId('kickoff-option-core_backend')).toBeInTheDocument();
+    expect(screen.getByTestId('kickoff-option-core_backend_ai')).toBeInTheDocument();
+    expect(screen.getByText('Revise plan')).toBeInTheDocument();
+  });
+
+  it('S4c: Selected kickoff scope is preserved when build starts', async () => {
+    render(<Harness />);
+
+    await user.click(screen.getByTestId('trigger-blueprint'));
+    await user.click(screen.getByTestId('kickoff-option-core'));
+    await user.click(screen.getByTestId('confirm-plan-btn'));
+
+    expect(studioMock.onConfirmPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ selectedOptionId: 'core' }),
+    );
   });
 
   it('S5: Fast double-click on Build it dispatches REMOVE_BY_TYPE exactly once', async () => {
