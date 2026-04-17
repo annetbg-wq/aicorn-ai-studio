@@ -17,6 +17,7 @@
   "file_system_map": [
     "App.tsx",
     "ARCHITECTURE.md",
+    "components/AdmissionWarningModal.tsx",
     "components/AgentLabPanel.tsx",
     "components/AppSidebar.tsx",
     "components/BenchmarkDashboard.tsx",
@@ -100,6 +101,7 @@
     "scripts/generateManifest.ts",
     "services/adapters/ExportAdapter.ts",
     "services/adapters/PreviewAdapter.ts",
+    "services/admissionGate.ts",
     "services/agentConfigWarnings.ts",
     "services/AgentLoopService.ts",
     "services/ai/dispatcher.ts",
@@ -132,6 +134,7 @@
     "services/devAgentMode.ts",
     "services/DIAGNOSTICS_GUIDE.md",
     "services/DYNAMIC_MODELS.md",
+    "services/EditAdmissionService.ts",
     "services/EnvSecretsService.ts",
     "services/ExportService.ts",
     "services/FigmaClient.ts",
@@ -185,7 +188,9 @@
     "services/WhiteScreenDetector.ts",
     "services/__tests__/artifactParser.test.ts",
     "services/__tests__/ArtifactReviewerService.test.ts",
+    "services/__tests__/compileGuard.test.ts",
     "services/__tests__/diffReviewFlow.test.ts",
+    "services/__tests__/editAdmission.test.ts",
     "services/__tests__/previewBridge.test.ts",
     "services/__tests__/previewGuard.test.ts",
     "services/__tests__/previewLifecycleResolver.test.ts",
@@ -199,7 +204,9 @@
     "services/__tests__/WhiteScreenDetector.test.ts",
     "setupTests.ts",
     "shared/designSystem.ts",
+    "shared/previewBridgePaths.ts",
     "shared/projectModel.ts",
+    "shared/safePaths.ts",
     "shared/SandboxPackageRegistry.ts",
     "shared/types.ts",
     "theme/tokens.ts",
@@ -242,5 +249,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-15T23:38:46.993Z"
+  "last_scan_timestamp": "2026-04-17T16:17:17.987Z"
 }
