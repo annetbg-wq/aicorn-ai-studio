@@ -8,6 +8,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import path from 'path';
+import { resolvePreviewBridgePath } from '../../shared/previewBridgePaths';
 
 // ── Exact copy of the server-side detection function ────────────────────────
 // Kept in sync with vite.config.ts `isArtifactEnvelopeServer`.
@@ -133,5 +135,23 @@ describe('server-side shouldBlockWrite', () => {
 
   it('allows clean TSX in pages/Home.tsx', () => {
     expect(shouldBlockWrite('pages/Home.tsx', cleanTsx)).toBe(false);
+  });
+});
+
+describe('preview bridge path hardening', () => {
+  const previewSrc = path.resolve('c:/ai_studio/preview-workspace/src');
+
+  it('rejects ../ traversal for write/read/list routes', () => {
+    expect(() => resolvePreviewBridgePath(previewSrc, '../package.json')).toThrow(/must be relative|unsafe traversal/i);
+  });
+
+  it('rejects backslash traversal for write/read/list routes', () => {
+    expect(() => resolvePreviewBridgePath(previewSrc, '..\\package.json')).toThrow(/must be relative|unsafe traversal/i);
+  });
+
+  it('canonicalizes safe bridge paths', () => {
+    const resolved = resolvePreviewBridgePath(previewSrc, 'src/pages/Home.tsx');
+    expect(resolved.canonicalPath).toBe('pages/Home.tsx');
+    expect(resolved.fullPath).toBe(path.resolve(previewSrc, 'pages/Home.tsx'));
   });
 });

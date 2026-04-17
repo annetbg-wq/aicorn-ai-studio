@@ -5,6 +5,7 @@ import path from 'path'
 import fs from 'fs'
 import { execSync } from 'child_process'
 import { generateManifest } from './src/scripts/generateManifest'
+import { resolvePreviewBridgePath } from './src/shared/previewBridgePaths'
 
 // Canonical dev server port — override via VITE_PORT env var if needed.
 // strictPort: true means Vite will FAIL with a clear error if this port is occupied,
@@ -65,15 +66,17 @@ export default defineConfig({
         server.middlewares.use('/__list_preview', (req, res) => {
           const url = new URL(req.url!, 'http://localhost');
           const dirPath = url.searchParams.get('path') || '';
-          const fullPath = path.join(previewSrc, dirPath);
           try {
+            const { fullPath } = dirPath
+              ? resolvePreviewBridgePath(previewSrc, dirPath)
+              : { fullPath: previewSrc };
             const items = fs.readdirSync(fullPath, { withFileTypes: true });
             const entries = items.map(i => ({ name: i.name, isDirectory: i.isDirectory() }));
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ ok: true, entries }));
-          } catch {
-            res.statusCode = 404;
-            res.end(JSON.stringify({ ok: false }));
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, error: String(e) }));
           }
         });
 
@@ -81,14 +84,14 @@ export default defineConfig({
         server.middlewares.use('/__read_preview', (req, res) => {
           const url = new URL(req.url!, 'http://localhost');
           const filePath = url.searchParams.get('path') || '';
-          const fullPath = path.join(previewSrc, filePath);
           try {
+            const { fullPath } = resolvePreviewBridgePath(previewSrc, filePath);
             const content = fs.readFileSync(fullPath, 'utf-8');
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ ok: true, content }));
-          } catch {
-            res.statusCode = 404;
-            res.end(JSON.stringify({ ok: false }));
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, error: String(e) }));
           }
         });
 
@@ -225,13 +228,13 @@ export default defineConfig({
                 return;
               }
 
-              const fullPath = path.join(previewSrc, filePath);
+              const { fullPath, canonicalPath } = resolvePreviewBridgePath(previewSrc, filePath);
               fs.mkdirSync(path.dirname(fullPath), { recursive: true });
               fs.writeFileSync(fullPath, content, 'utf-8');
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ ok: true }));
+              res.end(JSON.stringify({ ok: true, path: canonicalPath }));
             } catch (e) {
-              res.statusCode = 500;
+              res.statusCode = 400;
               res.end(JSON.stringify({ error: String(e) }));
             }
           });
