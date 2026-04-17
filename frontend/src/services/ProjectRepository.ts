@@ -17,6 +17,15 @@ import { revisionManager } from './RevisionManager';
 import { showToast } from './toastBus';
 import { safeSetItem } from '../lib/safeStorage';
 import { scanBeforePreviewLoad } from './projectCorruptionScan';
+import {
+  DEFAULT_PROJECT_BRANCH_ID,
+  createProjectBranchArchitecture,
+  normalizeProjectBranchArchitecture,
+  upsertArchitectureSnapshot,
+  type ArchitectureSnapshot,
+  type PersistedProjectBranch,
+  type ProjectBranchArchitecture,
+} from '../shared/projectModel';
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -30,21 +39,108 @@ export interface ProjectRecord {
   createdAt:   string;
   updatedAt:   string;
   version:     number;
+  activeBranchId?: string;
+  branches?: Record<string, PersistedProjectBranch>;
   userId?:     string;
 }
 
 export interface ProjectMetaSummary {
-  id:        string;
-  name:      string;
-  theme:     string;
-  updatedAt: string;
-  version:   number;
+  id:             string;
+  name:           string;
+  theme:          string;
+  updatedAt:      string;
+  version:        number;
+  activeBranchId?: string;
+  branchIds?:     string[];
+  branchCount?:   number;
 }
 
 // ── Internal constants ─────────────────────────────────────────────────────────
 
 const LOCAL_META_KEY = 'aic_projects_meta'; // только метаданные, не файлы
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function createProjectBranchRecord(
+  project: ProjectRecord,
+  branchId: string,
+  now: string,
+): PersistedProjectBranch {
+  return {
+    id: branchId,
+    projectId: project.id,
+    name: branchId,
+    isDefault: (project.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID) === branchId,
+    createdAt: project.createdAt,
+    updatedAt: now,
+    files: {},
+    chatHistory: [],
+    revisions: [],
+    architecture: createProjectBranchArchitecture(project.id, branchId, branchId, now),
+  };
+}
+
+function normalizeProjectBranches(project: ProjectRecord): {
+  activeBranchId: string;
+  branches: Record<string, PersistedProjectBranch>;
+} {
+  const now = project.updatedAt || new Date().toISOString();
+  const activeBranchId = project.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
+
+  const branchEntries = Object.entries(project.branches ?? {}).map(([branchId, branch]) => {
+    const branchName = branch.name || branchId;
+    return [
+      branchId,
+      {
+        ...branch,
+        id: branch.id ?? branchId,
+        projectId: project.id,
+        name: branchName,
+        isDefault: branch.isDefault ?? branchId === activeBranchId,
+        createdAt: branch.createdAt ?? project.createdAt,
+        updatedAt: branch.updatedAt ?? now,
+        chatThreadId: branch.chatThreadId,
+        headRevisionId: branch.headRevisionId,
+        files: branch.files ?? {},
+        chatHistory: Array.isArray(branch.chatHistory) ? branch.chatHistory : [],
+        revisions: Array.isArray(branch.revisions) ? branch.revisions : [],
+        architecture: normalizeProjectBranchArchitecture(
+          branch.architecture,
+          project.id,
+          branchId,
+          branchName,
+          now,
+          {
+            chatThreadId: branch.chatThreadId,
+            headRevisionId: branch.headRevisionId,
+          },
+        ),
+      } satisfies PersistedProjectBranch,
+    ] as const;
+  });
+
+  const branches = Object.fromEntries(
+    branchEntries.map(([branchId, branch]) => [
+      branchId,
+      {
+        ...branch,
+        chatThreadId: branch.architecture.branch.chatThreadId ?? branch.chatThreadId,
+        headRevisionId: branch.architecture.branch.headRevisionId ?? branch.headRevisionId,
+      },
+    ]),
+  ) as Record<string, PersistedProjectBranch>;
+
+  if (!branches[activeBranchId]) {
+    branches[activeBranchId] = {
+      ...createProjectBranchRecord(project, activeBranchId, now),
+      isDefault: true,
+      files: project.files ?? {},
+      chatHistory: project.chatHistory ?? [],
+      revisions: (project as any).revisions ?? [],
+    };
+  }
+
+  return { activeBranchId, branches };
+}
 
 // ── Repository ─────────────────────────────────────────────────────────────────
 
@@ -63,11 +159,18 @@ export const ProjectRepository = {
 
       if (!error && data) {
         const meta: ProjectMetaSummary[] = data.map(row => ({
-          id:        row.id,
-          name:      row.name,
-          theme:     (row.code_snapshot as any)?.theme ?? 'dark-slate',
-          updatedAt: row.last_sync_at,
-          version:   row.version ?? 1,
+          id:             row.id,
+          name:           row.name,
+          theme:          (row.code_snapshot as any)?.theme ?? 'dark-slate',
+          updatedAt:      row.last_sync_at,
+          version:        row.version ?? 1,
+          activeBranchId: (row.code_snapshot as any)?.activeBranchId,
+          branchIds:      (row.code_snapshot as any)?.branches
+            ? Object.keys((row.code_snapshot as any).branches)
+            : undefined,
+          branchCount:    (row.code_snapshot as any)?.branches
+            ? Object.keys((row.code_snapshot as any).branches).length
+            : undefined,
         }));
         safeSetItem(LOCAL_META_KEY, JSON.stringify(meta));
         return meta;
@@ -82,11 +185,14 @@ export const ProjectRepository = {
 
     // Last resort: legacy ProjectStorage meta
     return ProjectStorage.listProjects().map(m => ({
-      id:        m.id,
-      name:      m.name,
-      theme:     m.theme ?? 'dark-slate',
-      updatedAt: m.updatedAt,
-      version:   1,
+      id:             m.id,
+      name:           m.name,
+      theme:          m.theme ?? 'dark-slate',
+      updatedAt:      m.updatedAt,
+      version:        1,
+      activeBranchId: m.activeBranchId,
+      branchIds:      m.branchIds,
+      branchCount:    m.branchCount,
     }));
   },
 
@@ -114,8 +220,17 @@ export const ProjectRepository = {
             createdAt:   snap?.createdAt ?? data.last_sync_at,
             updatedAt:   data.last_sync_at,
             version:     data.version ?? 1,
+            activeBranchId: snap?.activeBranchId,
+            branches: snap?.branches,
           };
           if (snap?.revisions) (record as any).revisions = snap.revisions;
+          const { activeBranchId, branches } = normalizeProjectBranches(record);
+          const activeBranch = branches[activeBranchId];
+          record.activeBranchId = activeBranchId;
+          record.branches = branches;
+          record.files = activeBranch?.files ?? record.files;
+          record.chatHistory = activeBranch?.chatHistory ?? record.chatHistory;
+          if (activeBranch?.revisions) (record as any).revisions = activeBranch.revisions;
           return record;
         }
       } catch { /* fall through */ }
@@ -124,7 +239,7 @@ export const ProjectRepository = {
     // Fallback: ProjectStorage (localStorage)
     const legacy = ProjectStorage.getProject(id);
     if (legacy) {
-      return {
+      const record: ProjectRecord = {
         id:          legacy.id,
         name:        legacy.name,
         description: legacy.description ?? '',
@@ -134,7 +249,17 @@ export const ProjectRepository = {
         createdAt:   legacy.createdAt,
         updatedAt:   legacy.updatedAt,
         version:     1,
+        activeBranchId: legacy.activeBranchId,
+        branches: legacy.branches,
       };
+      const { activeBranchId, branches } = normalizeProjectBranches(record);
+      const activeBranch = branches[activeBranchId];
+      record.activeBranchId = activeBranchId;
+      record.branches = branches;
+      record.files = activeBranch?.files ?? record.files;
+      record.chatHistory = activeBranch?.chatHistory ?? record.chatHistory;
+      if (activeBranch?.revisions) (record as any).revisions = activeBranch.revisions;
+      return record;
     }
 
     return null;
@@ -143,12 +268,16 @@ export const ProjectRepository = {
   // ── Сохранить проект ──────────────────────────────────────────────────────
 
   async saveProject(project: ProjectRecord): Promise<void> {
+    const { activeBranchId, branches } = normalizeProjectBranches(project);
+    const activeBranch = branches[activeBranchId];
     const snapshot: Record<string, unknown> = {
-      files:       project.files,
-      chatHistory: project.chatHistory,
-      theme:       project.theme,
-      description: project.description,
-      createdAt:   project.createdAt,
+      files:          activeBranch?.files ?? project.files,
+      chatHistory:    activeBranch?.chatHistory ?? project.chatHistory,
+      theme:          project.theme,
+      description:    project.description,
+      createdAt:      project.createdAt,
+      activeBranchId,
+      branches,
       // Extended metadata (v2)
       ...((project as any).intent         !== undefined && { intent:         (project as any).intent }),
       ...((project as any).source         !== undefined && { source:         (project as any).source }),
@@ -193,10 +322,12 @@ export const ProjectRepository = {
           name:        project.name,
           description: project.description,
           theme:       project.theme,
-          files:       project.files,
-          chatHistory: project.chatHistory as Array<{ role: string; content: string }>,
+          files:       activeBranch?.files ?? project.files,
+          chatHistory: (activeBranch?.chatHistory ?? project.chatHistory) as Array<{ role: string; content: string }>,
           createdAt:   project.createdAt,
           updatedAt:   project.updatedAt,
+          activeBranchId,
+          branches,
         });
       }
     } else {
@@ -206,10 +337,12 @@ export const ProjectRepository = {
         name:        project.name,
         description: project.description,
         theme:       project.theme,
-        files:       project.files,
-        chatHistory: project.chatHistory as Array<{ role: string; content: string }>,
+        files:       activeBranch?.files ?? project.files,
+        chatHistory: (activeBranch?.chatHistory ?? project.chatHistory) as Array<{ role: string; content: string }>,
         createdAt:   project.createdAt,
         updatedAt:   project.updatedAt,
+        activeBranchId,
+        branches,
       });
     }
 
@@ -220,11 +353,14 @@ export const ProjectRepository = {
       );
       const idx = cached.findIndex(p => p.id === project.id);
       const meta: ProjectMetaSummary = {
-        id:        project.id,
-        name:      project.name,
-        theme:     project.theme,
-        updatedAt: new Date().toISOString(),
-        version:   project.version,
+        id:             project.id,
+        name:           project.name,
+        theme:          project.theme,
+        updatedAt:      new Date().toISOString(),
+        version:        project.version,
+        activeBranchId,
+        branchIds:      Object.keys(branches),
+        branchCount:    Object.keys(branches).length,
       };
       if (idx >= 0) cached[idx] = meta;
       else cached.unshift(meta);
@@ -253,6 +389,72 @@ export const ProjectRepository = {
         JSON.stringify(cached.filter(p => p.id !== id))
       );
     } catch { /* non-fatal */ }
+  },
+
+  async getBranchArchitecture(
+    projectId: string,
+    branchId: string,
+  ): Promise<ProjectBranchArchitecture | null> {
+    const project = await this.getProject(projectId);
+    return project?.branches?.[branchId]?.architecture ?? null;
+  },
+
+  async saveBranchArchitecture(
+    projectId: string,
+    branchId: string,
+    architecture: ProjectBranchArchitecture,
+  ): Promise<void> {
+    const project = await this.getProject(projectId);
+    if (!project) {
+      throw new Error(`[ProjectRepository] Project not found: ${projectId}`);
+    }
+
+    const now = new Date().toISOString();
+    const existingBranch = project.branches?.[branchId] ?? createProjectBranchRecord(project, branchId, now);
+    const normalizedArchitecture = normalizeProjectBranchArchitecture(
+      architecture,
+      project.id,
+      branchId,
+      existingBranch.name || branchId,
+      now,
+      {
+        chatThreadId: architecture.branch?.chatThreadId ?? existingBranch.chatThreadId,
+        headRevisionId: architecture.branch?.headRevisionId ?? existingBranch.headRevisionId,
+      },
+    );
+
+    await this.saveProject({
+      ...project,
+      updatedAt: now,
+      branches: {
+        ...(project.branches ?? {}),
+        [branchId]: {
+          ...existingBranch,
+          projectId: project.id,
+          name: existingBranch.name || branchId,
+          updatedAt: now,
+          chatThreadId: normalizedArchitecture.branch.chatThreadId,
+          headRevisionId: normalizedArchitecture.branch.headRevisionId,
+          architecture: normalizedArchitecture,
+        },
+      },
+    });
+  },
+
+  async saveBranchArchitectureSnapshot(
+    projectId: string,
+    branchId: string,
+    snapshot: ArchitectureSnapshot,
+  ): Promise<void> {
+    const baseArchitecture =
+      await this.getBranchArchitecture(projectId, branchId)
+      ?? createProjectBranchArchitecture(projectId, branchId, branchId, snapshot.createdAt);
+
+    await this.saveBranchArchitecture(
+      projectId,
+      branchId,
+      upsertArchitectureSnapshot(baseArchitecture, snapshot, snapshot.createdAt),
+    );
   },
 
   // ── Загрузить проект в preview-workspace (канонический путь) ────────────────────

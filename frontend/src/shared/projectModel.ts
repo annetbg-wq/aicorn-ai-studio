@@ -1000,6 +1000,692 @@ export interface ExportArtifact {
   meta:       ExportArtifactMeta;
 }
 
+// ─── Branch-scoped architecture memory ───────────────────────────────────────
+
+export const DEFAULT_PROJECT_BRANCH_ID = 'main';
+export const ARCHITECTURE_MEMORY_MODEL_VERSION = 1 as const;
+
+export type ArchitectureMemoryModelVersion = typeof ARCHITECTURE_MEMORY_MODEL_VERSION;
+
+export type ArchitectureMemoryPhase = 'pre_build_draft' | 'post_build_actual';
+
+export type ArchitectureStatus =
+  | 'proposed'
+  | 'accepted'
+  | 'deferred'
+  | 'superseded'
+  | 'open';
+
+export type PlanStepStatus =
+  | ArchitectureStatus
+  | 'in_progress'
+  | 'completed'
+  | 'blocked';
+
+export type ArchitectureCapabilityKey =
+  | 'backend'
+  | 'auth'
+  | 'ai_chat'
+  | 'ai_generation'
+  | 'storage'
+  | 'map'
+  | 'scanner'
+  | 'notifications'
+  | 'analytics'
+  | 'payments'
+  | 'admin'
+  | (string & {});
+
+export type PlannedCapabilityState =
+  | 'required'
+  | 'planned'
+  | 'optional'
+  | 'deferred'
+  | 'not_planned';
+
+export type ActualCapabilityState =
+  | 'unknown'
+  | 'implemented'
+  | 'detected'
+  | 'partially_implemented'
+  | 'missing';
+
+export interface BranchScopedArchitectureEntity {
+  id:        string;
+  projectId: string;
+  branchId:  string;
+}
+
+export interface BranchArchitectureLinkage {
+  chatThreadId?:  string;
+  headRevisionId?: string;
+}
+
+export interface BranchBrief extends BranchScopedArchitectureEntity {
+  branchName:     string;
+  summary:        string;
+  status:         ArchitectureStatus;
+  chatThreadId?:  string;
+  headRevisionId?: string;
+  createdAt:      string;
+  updatedAt:      string;
+}
+
+export interface PlanStep extends BranchScopedArchitectureEntity {
+  planId:                 string;
+  title:                  string;
+  summary?:               string;
+  status:                 PlanStepStatus;
+  plannedCapabilityIds:   ArchitectureCapabilityKey[];
+  blockedByStepIds?:      string[];
+  deferredItemIds?:       string[];
+  implementationState:    'planned' | 'in_progress' | 'implemented' | 'blocked' | 'deferred';
+  actualStateRevisionId?: string;
+  createdAt:              string;
+  updatedAt:              string;
+}
+
+export interface ImplementationPlan extends BranchScopedArchitectureEntity {
+  title:                  string;
+  summary:                string;
+  phase:                  ArchitectureMemoryPhase;
+  status:                 ArchitectureStatus;
+  basedOnRevisionId?:     string;
+  chatThreadId?:          string;
+  stepIds:                string[];
+  steps:                  PlanStep[];
+  createdAt:              string;
+  updatedAt:              string;
+}
+
+export interface CapabilityManifestEntry extends BranchScopedArchitectureEntity {
+  capabilityId:           ArchitectureCapabilityKey;
+  title:                  string;
+  description?:           string;
+  status:                 ArchitectureStatus;
+  plannedState:           PlannedCapabilityState;
+  actualState:            ActualCapabilityState;
+  source:                 'manual' | 'detected' | 'mixed';
+  detectedFromRevisionId?: string;
+  decisionIds?:           string[];
+  createdAt:              string;
+  updatedAt:              string;
+}
+
+export interface CapabilityManifest extends BranchScopedArchitectureEntity {
+  title:              string;
+  phase:              ArchitectureMemoryPhase;
+  status:             ArchitectureStatus;
+  basedOnRevisionId?: string;
+  capabilities:       CapabilityManifestEntry[];
+  createdAt:          string;
+  updatedAt:          string;
+}
+
+export interface CapabilityDecision extends BranchScopedArchitectureEntity {
+  phase:                  ArchitectureMemoryPhase;
+  capabilityId:           ArchitectureCapabilityKey;
+  title:                  string;
+  summary:                string;
+  status:                 ArchitectureStatus;
+  rationale?:             string;
+  plannedState:           PlannedCapabilityState;
+  actualState:            ActualCapabilityState;
+  supersedesDecisionId?:  string;
+  createdAt:              string;
+  updatedAt:              string;
+}
+
+export interface ArchitectureDecision extends BranchScopedArchitectureEntity {
+  phase:                 ArchitectureMemoryPhase;
+  title:                 string;
+  summary:               string;
+  status:                ArchitectureStatus;
+  category:              'system' | 'data' | 'integration' | 'delivery' | 'security' | 'ux' | 'other';
+  rationale?:            string;
+  affectedCapabilityIds: ArchitectureCapabilityKey[];
+  supersedesDecisionId?: string;
+  createdAt:             string;
+  updatedAt:             string;
+}
+
+export interface ArchitectureConstraint extends BranchScopedArchitectureEntity {
+  phase:             ArchitectureMemoryPhase;
+  title:             string;
+  summary:           string;
+  status:            ArchitectureStatus;
+  constraintType:    'technical' | 'product' | 'compliance' | 'timeline' | 'resource' | 'other';
+  affectedStepIds?:  string[];
+  affectedCapabilityIds?: ArchitectureCapabilityKey[];
+  createdAt:         string;
+  updatedAt:         string;
+}
+
+export interface OpenArchitectureQuestion extends BranchScopedArchitectureEntity {
+  phase:                 ArchitectureMemoryPhase;
+  title:                 string;
+  summary:               string;
+  status:                ArchitectureStatus;
+  affectedCapabilityIds: ArchitectureCapabilityKey[];
+  createdAt:             string;
+  updatedAt:             string;
+}
+
+export interface DeferredItem extends BranchScopedArchitectureEntity {
+  phase:                 ArchitectureMemoryPhase;
+  title:                 string;
+  summary:               string;
+  status:                Extract<ArchitectureStatus, 'deferred' | 'accepted' | 'superseded' | 'open'>;
+  reason?:               string;
+  relatedStepId?:        string;
+  relatedDecisionId?:    string;
+  relatedCapabilityIds:  ArchitectureCapabilityKey[];
+  deferredUntilPhase?:   ArchitectureMemoryPhase;
+  createdAt:             string;
+  updatedAt:             string;
+}
+
+export interface ArchitectureSnapshot extends BranchScopedArchitectureEntity {
+  modelVersion:           ArchitectureMemoryModelVersion;
+  phase:                  ArchitectureMemoryPhase;
+  createdAt:              string;
+  basedOnRevisionId?:     string;
+  sourcePlanId?:          string;
+  previousSnapshotId?:    string;
+  branchBrief:            BranchBrief;
+  implementationPlan:     ImplementationPlan | null;
+  capabilityManifest:     CapabilityManifest | null;
+  capabilityDecisions:    CapabilityDecision[];
+  architectureDecisions:  ArchitectureDecision[];
+  constraints:            ArchitectureConstraint[];
+  openQuestions:          OpenArchitectureQuestion[];
+  deferredItems:          DeferredItem[];
+}
+
+export interface ProjectBranchArchitecture extends BranchScopedArchitectureEntity {
+  modelVersion:              ArchitectureMemoryModelVersion;
+  branch:                   BranchBrief;
+  draftSnapshot:            ArchitectureSnapshot | null;
+  actualSnapshot:           ArchitectureSnapshot | null;
+  snapshots:                ArchitectureSnapshot[];
+  implementationPlan:       ImplementationPlan | null;
+  capabilityManifest:       CapabilityManifest | null;
+  capabilityDecisions:      CapabilityDecision[];
+  architectureDecisions:    ArchitectureDecision[];
+  constraints:              ArchitectureConstraint[];
+  openQuestions:            OpenArchitectureQuestion[];
+  deferredItems:            DeferredItem[];
+  createdAt:                string;
+  updatedAt:                string;
+}
+
+export interface PersistedProjectBranch {
+  id:              string;
+  projectId:       string;
+  name:            string;
+  isDefault:       boolean;
+  createdAt:       string;
+  updatedAt:       string;
+  chatThreadId?:   string;
+  headRevisionId?: string;
+  files:           Record<string, string>;
+  chatHistory:     unknown[];
+  revisions?:      unknown[];
+  architecture:    ProjectBranchArchitecture;
+}
+
+const ARCHITECTURE_STATUS_TRANSITIONS: Record<ArchitectureStatus, ArchitectureStatus[]> = {
+  open: ['proposed', 'accepted', 'deferred', 'superseded'],
+  proposed: ['accepted', 'deferred', 'superseded', 'open'],
+  accepted: ['superseded'],
+  deferred: ['proposed', 'accepted', 'superseded', 'open'],
+  superseded: [],
+};
+
+export function canTransitionArchitectureStatus(
+  current: ArchitectureStatus,
+  next: ArchitectureStatus,
+): boolean {
+  if (current === next) return true;
+  return ARCHITECTURE_STATUS_TRANSITIONS[current].includes(next);
+}
+
+export function serializeArchitectureSnapshot(snapshot: ArchitectureSnapshot): string {
+  return JSON.stringify(snapshot);
+}
+
+export function parseArchitectureSnapshot(raw: string): ArchitectureSnapshot {
+  return JSON.parse(raw) as ArchitectureSnapshot;
+}
+
+function normalizeArchitecturePhase(
+  phase: ArchitectureMemoryPhase | null | undefined,
+  fallback: ArchitectureMemoryPhase = 'pre_build_draft',
+): ArchitectureMemoryPhase {
+  return phase === 'post_build_actual' ? 'post_build_actual' : fallback;
+}
+
+function normalizeBranchBrief(
+  value: Partial<BranchBrief> | null | undefined,
+  projectId: string,
+  branchId: string,
+  branchName: string,
+  now: string,
+  linkage: BranchArchitectureLinkage = {},
+): BranchBrief {
+  return {
+    id: value?.id ?? `branch-brief:${branchId}`,
+    projectId,
+    branchId,
+    branchName: value?.branchName ?? branchName,
+    summary: value?.summary ?? '',
+    status: value?.status ?? 'open',
+    chatThreadId: linkage.chatThreadId ?? value?.chatThreadId,
+    headRevisionId: linkage.headRevisionId ?? value?.headRevisionId,
+    createdAt: value?.createdAt ?? now,
+    updatedAt: value?.updatedAt ?? now,
+  };
+}
+
+function inferCapabilityManifestPhase(
+  manifest: CapabilityManifest | null | undefined,
+): ArchitectureMemoryPhase {
+  const hasActualState = Array.isArray(manifest?.capabilities)
+    && manifest.capabilities.some(capability => capability.actualState !== 'unknown');
+  return normalizeArchitecturePhase(
+    manifest?.phase,
+    hasActualState ? 'post_build_actual' : 'pre_build_draft',
+  );
+}
+
+export function createProjectBranchArchitecture(
+  projectId: string,
+  branchId: string,
+  branchName: string = branchId,
+  now: string = new Date().toISOString(),
+  linkage: BranchArchitectureLinkage = {},
+): ProjectBranchArchitecture {
+  const branch = normalizeBranchBrief(undefined, projectId, branchId, branchName, now, linkage);
+
+  return {
+    id: `branch-architecture:${branchId}`,
+    modelVersion: ARCHITECTURE_MEMORY_MODEL_VERSION,
+    projectId,
+    branchId,
+    branch,
+    draftSnapshot: null,
+    actualSnapshot: null,
+    snapshots: [],
+    implementationPlan: null,
+    capabilityManifest: null,
+    capabilityDecisions: [],
+    architectureDecisions: [],
+    constraints: [],
+    openQuestions: [],
+    deferredItems: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function normalizeProjectBranchArchitecture(
+  value: Partial<ProjectBranchArchitecture> | null | undefined,
+  projectId: string,
+  branchId: string,
+  branchName: string = branchId,
+  now: string = new Date().toISOString(),
+  linkage: BranchArchitectureLinkage = {},
+): ProjectBranchArchitecture {
+  const base = createProjectBranchArchitecture(projectId, branchId, branchName, now, linkage);
+  if (!value) return base;
+
+  const normalizePlan = (
+    plan: ImplementationPlan | null | undefined,
+  ): ImplementationPlan | null => {
+    if (!plan) return null;
+    const steps = Array.isArray(plan.steps)
+      ? plan.steps.map(step => ({ ...step, projectId, branchId }))
+      : [];
+    return {
+      ...plan,
+      projectId,
+      branchId,
+      phase: normalizeArchitecturePhase(plan.phase, 'pre_build_draft'),
+      basedOnRevisionId: plan.basedOnRevisionId ?? linkage.headRevisionId,
+      chatThreadId: plan.chatThreadId ?? linkage.chatThreadId,
+      steps,
+      stepIds: Array.isArray(plan.stepIds) && plan.stepIds.length > 0
+        ? plan.stepIds
+        : steps.map(step => step.id),
+    };
+  };
+
+  const normalizeManifest = (
+    manifest: CapabilityManifest | null | undefined,
+  ): CapabilityManifest | null => {
+    if (!manifest) return null;
+    return {
+      ...manifest,
+      projectId,
+      branchId,
+      phase: inferCapabilityManifestPhase(manifest),
+      basedOnRevisionId: manifest.basedOnRevisionId ?? linkage.headRevisionId,
+      capabilities: Array.isArray(manifest.capabilities)
+        ? manifest.capabilities.map(capability => ({
+            ...capability,
+            projectId,
+            branchId,
+          }))
+        : [],
+    };
+  };
+
+  const normalizeCapabilityDecision = (
+    decision: CapabilityDecision,
+  ): CapabilityDecision => ({
+    ...decision,
+    projectId,
+    branchId,
+    phase: normalizeArchitecturePhase(
+      decision.phase,
+      decision.actualState === 'unknown' ? 'pre_build_draft' : 'post_build_actual',
+    ),
+  });
+
+  const normalizeArchitectureDecision = (
+    decision: ArchitectureDecision,
+  ): ArchitectureDecision => ({
+    ...decision,
+    projectId,
+    branchId,
+    phase: normalizeArchitecturePhase(decision.phase, 'pre_build_draft'),
+  });
+
+  const normalizeConstraint = (
+    constraint: ArchitectureConstraint,
+  ): ArchitectureConstraint => ({
+    ...constraint,
+    projectId,
+    branchId,
+    phase: normalizeArchitecturePhase(constraint.phase, 'pre_build_draft'),
+  });
+
+  const normalizeQuestion = (
+    question: OpenArchitectureQuestion,
+  ): OpenArchitectureQuestion => ({
+    ...question,
+    projectId,
+    branchId,
+    phase: normalizeArchitecturePhase(question.phase, 'pre_build_draft'),
+  });
+
+  const normalizeDeferredItem = (
+    item: DeferredItem,
+  ): DeferredItem => ({
+    ...item,
+    projectId,
+    branchId,
+    phase: normalizeArchitecturePhase(item.phase, 'pre_build_draft'),
+  });
+
+  const normalizeSnapshot = (
+    snapshot: ArchitectureSnapshot | null | undefined,
+  ): ArchitectureSnapshot | null => {
+    if (!snapshot) return null;
+    const phase = normalizeArchitecturePhase(
+      snapshot.phase,
+      snapshot.capabilityManifest
+        ? inferCapabilityManifestPhase(snapshot.capabilityManifest)
+        : 'pre_build_draft',
+    );
+    const branchBrief = normalizeBranchBrief(
+      snapshot.branchBrief,
+      projectId,
+      branchId,
+      snapshot.branchBrief?.branchName ?? branchName,
+      snapshot.createdAt ?? now,
+      {
+        chatThreadId: snapshot.branchBrief?.chatThreadId ?? linkage.chatThreadId,
+        headRevisionId:
+          snapshot.branchBrief?.headRevisionId
+          ?? snapshot.basedOnRevisionId
+          ?? linkage.headRevisionId,
+      },
+    );
+    const implementationPlan = normalizePlan(snapshot.implementationPlan);
+    return {
+      ...snapshot,
+      modelVersion: snapshot.modelVersion ?? ARCHITECTURE_MEMORY_MODEL_VERSION,
+      projectId,
+      branchId,
+      phase,
+      basedOnRevisionId: snapshot.basedOnRevisionId ?? branchBrief.headRevisionId,
+      sourcePlanId: snapshot.sourcePlanId ?? implementationPlan?.id,
+      previousSnapshotId: snapshot.previousSnapshotId,
+      branchBrief,
+      implementationPlan,
+      capabilityManifest: normalizeManifest(snapshot.capabilityManifest),
+      capabilityDecisions: Array.isArray(snapshot.capabilityDecisions)
+        ? snapshot.capabilityDecisions.map(normalizeCapabilityDecision)
+        : [],
+      architectureDecisions: Array.isArray(snapshot.architectureDecisions)
+        ? snapshot.architectureDecisions.map(normalizeArchitectureDecision)
+        : [],
+      constraints: Array.isArray(snapshot.constraints)
+        ? snapshot.constraints.map(normalizeConstraint)
+        : [],
+      openQuestions: Array.isArray(snapshot.openQuestions)
+        ? snapshot.openQuestions.map(normalizeQuestion)
+        : [],
+      deferredItems: Array.isArray(snapshot.deferredItems)
+        ? snapshot.deferredItems.map(normalizeDeferredItem)
+        : [],
+    };
+  };
+
+  const snapshots = Array.isArray(value.snapshots)
+    ? value.snapshots
+        .map(snapshot => normalizeSnapshot(snapshot))
+        .filter((snapshot): snapshot is ArchitectureSnapshot => Boolean(snapshot))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    : base.snapshots;
+
+  const latestDraftSnapshot = snapshots.find(snapshot => snapshot.phase === 'pre_build_draft') ?? null;
+  const latestActualSnapshot = snapshots.find(snapshot => snapshot.phase === 'post_build_actual') ?? null;
+
+  return {
+    ...base,
+    ...value,
+    id: value.id ?? base.id,
+    modelVersion: value.modelVersion ?? ARCHITECTURE_MEMORY_MODEL_VERSION,
+    projectId,
+    branchId,
+    branch: normalizeBranchBrief(value.branch, projectId, branchId, branchName, now, linkage),
+    draftSnapshot: normalizeSnapshot(value.draftSnapshot) ?? latestDraftSnapshot,
+    actualSnapshot: normalizeSnapshot(value.actualSnapshot) ?? latestActualSnapshot,
+    snapshots,
+    implementationPlan: normalizePlan(value.implementationPlan),
+    capabilityManifest: normalizeManifest(value.capabilityManifest),
+    capabilityDecisions: Array.isArray(value.capabilityDecisions)
+      ? value.capabilityDecisions.map(normalizeCapabilityDecision)
+      : base.capabilityDecisions,
+    architectureDecisions: Array.isArray(value.architectureDecisions)
+      ? value.architectureDecisions.map(normalizeArchitectureDecision)
+      : base.architectureDecisions,
+    constraints: Array.isArray(value.constraints)
+      ? value.constraints.map(normalizeConstraint)
+      : base.constraints,
+    openQuestions: Array.isArray(value.openQuestions)
+      ? value.openQuestions.map(normalizeQuestion)
+      : base.openQuestions,
+    deferredItems: Array.isArray(value.deferredItems)
+      ? value.deferredItems.map(normalizeDeferredItem)
+      : base.deferredItems,
+    createdAt: value.createdAt ?? base.createdAt,
+    updatedAt: value.updatedAt ?? now,
+  };
+}
+
+export interface BranchArchitecturePhaseView extends BranchScopedArchitectureEntity {
+  modelVersion:           ArchitectureMemoryModelVersion;
+  phase:                  ArchitectureMemoryPhase;
+  branch:                 BranchBrief;
+  implementationPlan:     ImplementationPlan | null;
+  capabilityManifest:     CapabilityManifest | null;
+  capabilityDecisions:    CapabilityDecision[];
+  architectureDecisions:  ArchitectureDecision[];
+  constraints:            ArchitectureConstraint[];
+  openQuestions:          OpenArchitectureQuestion[];
+  deferredItems:          DeferredItem[];
+}
+
+function filterArchitecturePhase<T extends { phase: ArchitectureMemoryPhase }>(
+  items: T[],
+  phase: ArchitectureMemoryPhase,
+): T[] {
+  return items.filter(item => item.phase === phase);
+}
+
+export function getProjectBranchArchitectureView(
+  architecture: ProjectBranchArchitecture,
+  phase: ArchitectureMemoryPhase,
+): BranchArchitecturePhaseView {
+  return {
+    id: architecture.id,
+    modelVersion: architecture.modelVersion ?? ARCHITECTURE_MEMORY_MODEL_VERSION,
+    phase,
+    projectId: architecture.projectId,
+    branchId: architecture.branchId,
+    branch: architecture.branch,
+    implementationPlan:
+      architecture.implementationPlan?.phase === phase
+        ? architecture.implementationPlan
+        : null,
+    capabilityManifest:
+      architecture.capabilityManifest?.phase === phase
+        ? architecture.capabilityManifest
+        : null,
+    capabilityDecisions: filterArchitecturePhase(architecture.capabilityDecisions, phase),
+    architectureDecisions: filterArchitecturePhase(architecture.architectureDecisions, phase),
+    constraints: filterArchitecturePhase(architecture.constraints, phase),
+    openQuestions: filterArchitecturePhase(architecture.openQuestions, phase),
+    deferredItems: filterArchitecturePhase(architecture.deferredItems, phase),
+  };
+}
+
+export interface CreateArchitectureSnapshotOptions {
+  id?:               string;
+  createdAt?:        string;
+  basedOnRevisionId?: string;
+  sourcePlanId?:     string;
+  previousSnapshotId?: string;
+  branchBrief?:      Partial<BranchBrief>;
+}
+
+export function createArchitectureSnapshotFromBranchArchitecture(
+  architecture: ProjectBranchArchitecture,
+  phase: ArchitectureMemoryPhase,
+  options: CreateArchitectureSnapshotOptions = {},
+): ArchitectureSnapshot {
+  const createdAt = options.createdAt ?? new Date().toISOString();
+  const view = getProjectBranchArchitectureView(architecture, phase);
+  const branchBrief = normalizeBranchBrief(
+    { ...view.branch, ...(options.branchBrief ?? {}) },
+    architecture.projectId,
+    architecture.branchId,
+    options.branchBrief?.branchName ?? view.branch.branchName,
+    createdAt,
+    {
+      chatThreadId: options.branchBrief?.chatThreadId ?? view.branch.chatThreadId,
+      headRevisionId:
+        options.branchBrief?.headRevisionId
+        ?? options.basedOnRevisionId
+        ?? view.branch.headRevisionId,
+    },
+  );
+
+  return {
+    id: options.id ?? `architecture-snapshot:${architecture.branchId}:${phase}:${createdAt}`,
+    modelVersion: ARCHITECTURE_MEMORY_MODEL_VERSION,
+    projectId: architecture.projectId,
+    branchId: architecture.branchId,
+    phase,
+    createdAt,
+    basedOnRevisionId: options.basedOnRevisionId ?? branchBrief.headRevisionId,
+    sourcePlanId: options.sourcePlanId ?? view.implementationPlan?.id ?? architecture.implementationPlan?.id,
+    previousSnapshotId: options.previousSnapshotId,
+    branchBrief,
+    implementationPlan: view.implementationPlan,
+    capabilityManifest: view.capabilityManifest,
+    capabilityDecisions: [...view.capabilityDecisions],
+    architectureDecisions: [...view.architectureDecisions],
+    constraints: [...view.constraints],
+    openQuestions: [...view.openQuestions],
+    deferredItems: [...view.deferredItems],
+  };
+}
+
+export function upsertArchitectureSnapshot(
+  architecture: ProjectBranchArchitecture,
+  snapshot: ArchitectureSnapshot,
+  now: string = new Date().toISOString(),
+): ProjectBranchArchitecture {
+  return normalizeProjectBranchArchitecture(
+    {
+      ...architecture,
+      branch: {
+        ...architecture.branch,
+        chatThreadId:
+          snapshot.branchBrief?.chatThreadId
+          ?? architecture.branch.chatThreadId,
+        headRevisionId:
+          snapshot.branchBrief?.headRevisionId
+          ?? snapshot.basedOnRevisionId
+          ?? architecture.branch.headRevisionId,
+        updatedAt: now,
+      },
+      draftSnapshot: snapshot.phase === 'pre_build_draft' ? snapshot : architecture.draftSnapshot,
+      actualSnapshot: snapshot.phase === 'post_build_actual' ? snapshot : architecture.actualSnapshot,
+      snapshots: [
+        snapshot,
+        ...(architecture.snapshots ?? []).filter(existing => existing.id !== snapshot.id),
+      ],
+      updatedAt: now,
+    },
+    architecture.projectId,
+    architecture.branchId,
+    architecture.branch.branchName,
+    now,
+    {
+      chatThreadId:
+        snapshot.branchBrief?.chatThreadId
+        ?? architecture.branch.chatThreadId,
+      headRevisionId:
+        snapshot.branchBrief?.headRevisionId
+        ?? snapshot.basedOnRevisionId
+        ?? architecture.branch.headRevisionId,
+    },
+  );
+}
+
+export function getCurrentArchitectureDecisions(
+  decisions: ArchitectureDecision[],
+): ArchitectureDecision[] {
+  const supersededIds = new Set(
+    decisions
+      .filter(decision =>
+        (decision.status === 'accepted' || decision.status === 'superseded')
+        && Boolean(decision.supersedesDecisionId),
+      )
+      .map(decision => decision.supersedesDecisionId as string),
+  );
+
+  return decisions.filter(decision =>
+    decision.status === 'accepted'
+    && !supersededIds.has(decision.id),
+  );
+}
+
 // ─── Canonical project persistence type ──────────────────────────────────────
 
 /**
@@ -1017,6 +1703,9 @@ export interface ProjectMeta {
   theme:           string;
   createdAt:       string;
   updatedAt:       string;
+  activeBranchId?: string;
+  branchIds?:      string[];
+  branchCount?:    number;
   deployUrl?:      string;
   intent?:         string;
   source?:         'chat' | 'weekly-feed' | 'niche';
