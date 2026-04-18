@@ -74,6 +74,7 @@ import {
   type KickoffBuildScopeId,
 } from '../services/ArchitectPlannerService';
 import { ChatArchitectureService } from '../services/ChatArchitectureService';
+import { refreshArchitectureAfterBuild } from '../services/BranchArchitectureOrchestrationService';
 
 export type DeviceType = 'desktop' | 'iphone' | 'pixel' | 'ipad';
 export type FileMap     = Record<string, string>;
@@ -950,42 +951,82 @@ export const useStudio = () => {
       }
     }
 
+    const saveNow = new Date().toISOString();
+    const activeBranchId = existing?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
+    const existingBranch = existing?.branches?.[activeBranchId];
+    const mergedBranchFiles = {
+      ...(existingBranch?.files ?? existing?.files ?? {}),
+      ...pending.finalFiles,
+    };
+    const fallbackBranch = existingBranch ?? {
+      id: activeBranchId,
+      projectId: pending.projectId,
+      name: activeBranchId,
+      isDefault: true,
+      createdAt: existing?.createdAt ?? saveNow,
+      updatedAt: saveNow,
+      files: mergedBranchFiles,
+      chatHistory: [],
+      revisions: [],
+      architecture: createProjectBranchArchitecture(
+        pending.projectId,
+        activeBranchId,
+        activeBranchId,
+        saveNow,
+      ),
+    };
+    const refreshedArchitecture = refreshArchitectureAfterBuild(
+      fallbackBranch.architecture,
+      mergedBranchFiles,
+      {
+        language: appLanguage,
+        now: saveNow,
+        revisionId: fallbackBranch.headRevisionId,
+      },
+    );
+    const updatedBranch = {
+      ...fallbackBranch,
+      projectId: pending.projectId,
+      name: fallbackBranch.name || activeBranchId,
+      updatedAt: saveNow,
+      files: mergedBranchFiles,
+      chatHistory: pending.chatHistoryToSave,
+      revisions: newRevisions ?? fallbackBranch.revisions ?? existing?.revisions ?? [],
+      architecture: refreshedArchitecture.architecture,
+    };
+    const updatedBranches = {
+      ...(existing?.branches ?? {}),
+      [activeBranchId]: updatedBranch,
+    };
+
     if (existing) {
-      try {
-        ProjectManager.saveFiles(pending.projectId, {
-          ...existing.files,
-          ...pending.finalFiles,
-        });
-      } catch (saveErr: unknown) {
-        addLog(`[Project] ${(saveErr as Error)?.message ?? 'File save failed'}`);
-      }
-      const afterFilesSave = ProjectStorage.getProject(pending.projectId);
-      if (afterFilesSave) {
-        ProjectStorage.saveProject({
-          ...afterFilesSave,
-          chatHistory:    pending.chatHistoryToSave,
-          updatedAt:      new Date().toISOString(),
-          intent:         pending.userPrompt,
-          source:         pending.source,
-          plan:           pending.plan ?? afterFilesSave.plan ?? undefined,
-          logs:           pending.generationLogs,
-          errors:         pending.generationErrors.filter(e => e.includes('❌') || e.toLowerCase().includes('error')),
-          pagesCount:     pending.plan?.pages?.length ?? afterFilesSave.pagesCount ?? 0,
-          modelId:        pending.effectiveModel,
-          durationMs:     Date.now() - pending.generationStartMs,
-          generationMode,
-          billingCost:    projectCost,
-          billingTokens:  projectTokens,
-          revisions:      newRevisions ?? afterFilesSave.revisions,
-        });
-      }
+      ProjectStorage.saveProject({
+        ...existing,
+        activeBranchId,
+        branches: updatedBranches,
+        files: mergedBranchFiles,
+        chatHistory:    pending.chatHistoryToSave,
+        updatedAt:      saveNow,
+        intent:         pending.userPrompt,
+        source:         pending.source,
+        plan:           pending.plan ?? existing.plan ?? undefined,
+        logs:           pending.generationLogs,
+        errors:         pending.generationErrors.filter(e => e.includes('❌') || e.toLowerCase().includes('error')),
+        pagesCount:     pending.plan?.pages?.length ?? existing.pagesCount ?? 0,
+        modelId:        pending.effectiveModel,
+        durationMs:     Date.now() - pending.generationStartMs,
+        generationMode,
+        billingCost:    projectCost,
+        billingTokens:  projectTokens,
+        revisions:      newRevisions ?? existing.revisions,
+      });
     } else {
       const firstRevision: ProjectRevision = {
         id:           crypto.randomUUID(),
         prompt:       pending.userPrompt,
         source:       pending.source,
-        files:        pending.finalFiles,
-        createdAt:    new Date().toISOString(),
+        files:        mergedBranchFiles,
+        createdAt:    saveNow,
         modelId:      pending.effectiveModel,
         durationMs:   Date.now() - pending.generationStartMs,
         isBookmarked: false,
@@ -996,10 +1037,17 @@ export const useStudio = () => {
         name:           pending.projectTitle,
         description:    pending.userPrompt.slice(0, 120),
         theme:          pending.planTheme,
-        createdAt:      new Date().toISOString(),
-        updatedAt:      new Date().toISOString(),
-        files:          pending.finalFiles,
+        createdAt:      saveNow,
+        updatedAt:      saveNow,
+        files:          mergedBranchFiles,
         chatHistory:    pending.chatHistoryToSave,
+        activeBranchId,
+        branches: {
+          [activeBranchId]: {
+            ...updatedBranch,
+            revisions: [firstRevision],
+          },
+        },
         intent:         pending.userPrompt,
         source:         pending.source,
         plan:           pending.plan ?? undefined,
@@ -1029,7 +1077,7 @@ export const useStudio = () => {
       theme:       pending.planTheme,
       files:       existingForCloud?.files
                      ? { ...existingForCloud.files, ...pending.finalFiles }
-                     : pending.finalFiles,
+                     : mergedBranchFiles,
       chatHistory: pending.chatHistoryToSave,
       createdAt:   existingForCloud?.createdAt ?? new Date().toISOString(),
       updatedAt:   new Date().toISOString(),
@@ -1056,7 +1104,7 @@ export const useStudio = () => {
         : `[Project] Saved without preview (confirmed): ${pending.projectTitle}`,
     );
     return true;
-  }, [addLog, authUser?.id, generationMode, projectCost, projectTokens]);
+  }, [addLog, appLanguage, authUser?.id, generationMode, projectCost, projectTokens]);
   commitPendingProjectSaveRef.current = commitPendingProjectSave;
 
   useEffect(() => {

@@ -59,6 +59,11 @@ import { EditAdmissionService } from './EditAdmissionService';
 import type { AdmissionDecision } from './EditAdmissionService';
 import { resolveAdmissionDecision } from './admissionGate';
 import type { KickoffBuildScopeId } from './ArchitectPlannerService';
+import { ProjectStorage } from './ProjectStorage';
+import {
+  buildBranchGenerationGuidance,
+  formatBranchArchitecturePrompt,
+} from './BranchArchitectureOrchestrationService';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -2623,6 +2628,9 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     config.onLog(`[SimpleGeneration] Mode: ${isEditMode ? 'EDIT' : 'NEW'} (${Object.keys(existingFiles).length} disk files, studioHasFiles=${studioHasFiles})`);
     // Update trace with actual mode (we only knew after reading disk)
     trace.event('mode_detected', { mode: isEditMode ? 'edit' : 'new', diskFiles: Object.keys(existingFiles).length });
+    const storedProject = config.projectId ? ProjectStorage.getProject(config.projectId) : null;
+    const activeBranchId = storedProject?.activeBranchId ?? 'main';
+    const branchArchitecture = storedProject?.branches?.[activeBranchId]?.architecture ?? null;
 
     // ── Process attachments → build visual / doc context ─────────────────
     let attachmentContext = '';
@@ -2712,6 +2720,11 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         contextFiles = filtered;
       }
 
+      const branchGuidancePrompt = formatBranchArchitecturePrompt(
+        buildBranchGenerationGuidance(branchArchitecture, contextFiles, config.language ?? 'ru'),
+        config.language ?? 'ru',
+      );
+
       const currentCode = Object.entries(contextFiles)
         .map(([p, content]) => `<!--EXISTING_FILE:${p}-->\n${content}`)
         .join('\n\n');
@@ -2755,6 +2768,11 @@ Your ENTIRE response must be ONLY this JSON block. No prose, no explanation:
 {"artifact":{"entry":"src/App.tsx","files":[{"path":"src/...","content":"..."}]}}
 \`\`\`
 DO NOT write "Here's the..." or any text outside the json fence.`;
+
+      if (branchGuidancePrompt) {
+        editSystemPrompt += `\n\nBRANCH ARCHITECTURE GUIDANCE (HARD CONSTRAINT):\n${branchGuidancePrompt}`;
+        config.onLog('[SimpleGeneration] EDIT branch architecture guidance injected');
+      }
 
       if (config.designSystemPrompt) {
         editSystemPrompt += '\n\n' + config.designSystemPrompt;
@@ -3092,6 +3110,10 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
         : ConfigService.getMaxTokens('agent_build', 'coder_app');
 
     let plan: Record<string, unknown>;
+    const branchGuidancePrompt = formatBranchArchitecturePrompt(
+      buildBranchGenerationGuidance(branchArchitecture, config.files ?? {}, config.language ?? 'ru'),
+      config.language ?? 'ru',
+    );
 
     // ── Step 1: Architect (primary slot) — JSON plan — SKIPPED if prebuiltPlan ──
     if (config.prebuiltPlan) {
@@ -3114,6 +3136,9 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
       const architectUserPrompt = [
         `CURRENT USER REQUEST:\n${config.intent}`,
         attachmentContext ? `\n${attachmentContext}` : '',
+        branchGuidancePrompt
+          ? `\nCURRENT BRANCH ARCHITECTURE (keep the plan aligned with this branch):\n${branchGuidancePrompt}`
+          : '',
         recentHistoryContext
           ? `\nRECENT CHAT CONTEXT (preserve existing product direction/theme unless user explicitly asks to change):\n${recentHistoryContext}`
           : '',
@@ -3313,6 +3338,10 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
           ? '\n\nTECHNICAL BLUEPRINT (IMPLEMENTATION GUIDE):\n'
             + JSON.stringify(technicalBlueprint, null, 2)
           : '');
+    if (branchGuidancePrompt) {
+      coderSystemPrompt += '\n\nCURRENT BRANCH ARCHITECTURE GUIDANCE (HARD CONSTRAINT):\n' + branchGuidancePrompt;
+      config.onLog('[SimpleGeneration] NEW branch architecture guidance injected');
+    }
     const kickoffScopePrompt = formatKickoffScopePrompt(plan);
     if (kickoffScopePrompt) {
       coderSystemPrompt += '\n\nKICKOFF BUILD SCOPE (HARD CONSTRAINT):\n' + kickoffScopePrompt;
