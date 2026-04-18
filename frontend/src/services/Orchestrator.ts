@@ -14,6 +14,7 @@ import { ScannerService } from './ScannerService';
 import { metricsService } from './MetricsService';
 import { promptRegistry } from './PromptRegistry';
 import { ConfigService }  from './ConfigService';
+import { buildArtistLayerPrompt } from './designSystem';
 import type { AgentSlot, ApiProvider } from './ConfigService';
 import { ORCHESTRATOR_TIMEOUT_MS, withOrchestratorTimeout } from './orchestratorTimeout';
 import {
@@ -379,7 +380,7 @@ OUTPUT: generate a complete, self-contained single-page app that displays a work
 `;
 }
 
-const buildSystemPrompt = (
+export const buildSystemPrompt = (
   files: Record<string, string>,
   language?: string,
   manifest?: import('../shared/projectModel').ProductManifest,
@@ -545,6 +546,36 @@ Use semantic color classes from the design system (NOT hardcoded colors):
   ❌ bg-gray-800, text-blue-500, bg-slate-900 ← avoid hardcoded colors
 
 ═══════════════════════════════════════════════════
+  ASSET / SOURCE POLICY
+═══════════════════════════════════════════════════
+
+Components:
+  - Prefer existing shadcn/ui primitives and local block components
+  - Do NOT import other component libraries
+  - Custom components should compose approved primitives instead of replacing them
+
+Icons:
+  - Prefer lucide-react for all generic UI actions
+  - Use one icon family consistently across the product
+  - Reserve bespoke inline SVG only for logos or special illustrations
+
+Media:
+  - Default to self-contained gradients, inline SVG, shaped placeholders, or mock product visuals
+  - Remote images are allowed ONLY when realism is core to the product (for example travel, real estate, food, portfolio)
+    and the layout still works cleanly without them
+  - If you use remote media, provide a graceful self-contained fallback presentation
+
+Fonts:
+  - Prefer existing local or system-safe font stacks
+  - Remote fonts are allowed only when typography is central to the concept and the UI still works with fallbacks
+  - Never make layout integrity depend on a remote font loading successfully
+
+Advanced design resources:
+  - Allowed: CSS gradients, inline SVG patterns, data-URI textures, Framer Motion
+  - Avoid mixing multiple dramatic effects in one viewport
+  - Keep atmospheric layers secondary to readability and interaction clarity
+
+═══════════════════════════════════════════════════
   QUALITY STANDARDS (match professional app quality)
 ═══════════════════════════════════════════════════
 
@@ -663,6 +694,10 @@ Never use @/ paths — always ./ relative from the importing file.
 
 ## CURRENT PROJECT
 ${fileCtx || '(new project — build from scratch)'}
+${manifest?.artistLayer ? `
+## ARTIST LAYER — CURRENT SOURCE OF TRUTH
+${buildArtistLayerPrompt(manifest.artistLayer)}
+` : ''}
 ${scopeConstraint ? `
 ## SCOPE CONSTRAINT ⚠️ — STRICTLY ENFORCE
 ${scopeConstraint}

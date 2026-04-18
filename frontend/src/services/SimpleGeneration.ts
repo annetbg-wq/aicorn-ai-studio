@@ -42,6 +42,8 @@ import type {
   FileBlueprint,
   ProductManifest,
   DependencySpec,
+  ArtistLayerSpec,
+  RedesignIntent,
 } from '../shared/projectModel';
 import { syncRoutes, validateAllRouteLayers } from '../shared/projectModel';
 import { GenerationQualityService } from './benchmark/GenerationQualityService';
@@ -61,6 +63,14 @@ import type { AdmissionDecision } from './EditAdmissionService';
 import { resolveAdmissionDecision } from './admissionGate';
 import type { KickoffBuildScopeId } from './ArchitectPlannerService';
 import { ProjectStorage } from './ProjectStorage';
+import {
+  buildArtistLayerPrompt,
+  extractArtistLayerFromManifestText,
+  fallbackClassify,
+  hasMeaningfulArtistLayer,
+  resolveArtistLayer,
+  stripArtistLayerPrompt,
+} from './designSystem';
 import {
   buildBranchGenerationGuidance,
   formatBranchArchitecturePrompt,
@@ -107,6 +117,7 @@ export interface ProjectPlan {
   criticalUiRules?: string[];
   shadcnComponents: string[];
   icons:            string[];
+  artistLayer?:     ArtistLayerSpec;
   [key: string]: unknown; // allow extra fields from IdeaPlan
 }
 
@@ -164,6 +175,8 @@ export interface PipelineRunConfig {
     mimeType: string;
     textContent?: string;   // pre-extracted text for PDFs
   }>;
+  redesignIntent?: Partial<RedesignIntent>;
+  artistLayer?: ArtistLayerSpec;
   [key: string]: unknown;
 }
 
@@ -1804,6 +1817,98 @@ function enforcePlanModeRules(
   return plan;
 }
 
+function countInspectableFiles(files: Record<string, string> | undefined): number {
+  return Object.keys(files ?? {}).filter((name) =>
+    !name.startsWith('_')
+    && name !== 'PROJECT_MEMORY.md'
+    && !name.startsWith('PROJECT_MEMORY.')
+  ).length;
+}
+
+function enrichPlanWithArtistLayer(
+  rawPlan: Record<string, unknown>,
+  input: {
+    intent: string;
+    files?: Record<string, string>;
+    redesignIntent?: Partial<RedesignIntent>;
+    preferredArtistLayer?: ArtistLayerSpec | null;
+  },
+): Record<string, unknown> {
+  const plan = JSON.parse(JSON.stringify(rawPlan ?? {})) as Record<string, any>;
+  const existingArtistLayer = hasMeaningfulArtistLayer(plan.artistLayer)
+    ? plan.artistLayer as ArtistLayerSpec
+    : input.preferredArtistLayer;
+  const artistLayer = resolveArtistLayer({
+    idea: input.intent,
+    classification: fallbackClassify(input.intent),
+    pages: Array.isArray(plan.pages) ? plan.pages : [],
+    existingFileCount: countInspectableFiles(input.files),
+    appName: typeof plan.appName === 'string' ? plan.appName : undefined,
+    currentTheme: typeof plan.theme === 'string' ? plan.theme : undefined,
+    redesignIntentOverride: input.redesignIntent,
+    preferredArtistLayer: existingArtistLayer,
+  });
+
+  plan.artistLayer = artistLayer;
+  return plan;
+}
+
+function buildManifestFromPlanContext(
+  intent: string,
+  isMultiPage: boolean,
+  plan?: Record<string, unknown> | null,
+): ProductManifest {
+  const manifest = emptyManifest(intent);
+  manifest.isMultiPage = isMultiPage;
+  if (plan && typeof plan.appName === 'string') manifest.name = plan.appName;
+  if (plan && typeof plan.description === 'string') manifest.description = plan.description;
+  if (plan && plan.artistLayer) manifest.artistLayer = plan.artistLayer as ArtistLayerSpec;
+  return manifest;
+}
+
+function sanitizeSupportDesignPrompt(prompt?: string): string {
+  return stripArtistLayerPrompt(prompt);
+}
+
+function extractArtistLayerFromFiles(files: Record<string, string> | undefined): ArtistLayerSpec | null {
+  if (!files) return null;
+
+  const candidates = [
+    'PROJECT_MANIFEST.json',
+    '/PROJECT_MANIFEST.json',
+    'project-manifest.json',
+    '/project-manifest.json',
+  ];
+
+  for (const path of candidates) {
+    const artistLayer = extractArtistLayerFromManifestText(files[path]);
+    if (artistLayer) return artistLayer;
+  }
+
+  return null;
+}
+
+export function resolveArtistLayerForGeneration(input: {
+  intent: string;
+  files?: Record<string, string>;
+  pages?: Array<{ name?: string; path?: string; purpose?: string; showInNav?: boolean }>;
+  appName?: string;
+  currentTheme?: string;
+  redesignIntent?: Partial<RedesignIntent>;
+  preferredArtistLayer?: ArtistLayerSpec | null;
+}): ArtistLayerSpec {
+  return resolveArtistLayer({
+    idea: input.intent,
+    classification: fallbackClassify(input.intent),
+    pages: input.pages,
+    existingFileCount: countInspectableFiles(input.files),
+    appName: input.appName,
+    currentTheme: input.currentTheme,
+    redesignIntentOverride: input.redesignIntent,
+    preferredArtistLayer: input.preferredArtistLayer,
+  });
+}
+
 function buildFallbackAppFromRoutes(
   routePages: Array<{ path: string; name: string; file: string }>,
   mode: GenerationMode,
@@ -2180,6 +2285,7 @@ function enforceShadcn(llmFiles: Record<string, string>, onLog: (msg: string) =>
 function formatBlueprint(plan: any): string {
   const lines: string[] = [];
   const b = plan.blueprint;
+  const artistLayer = plan.artistLayer as ArtistLayerSpec | undefined;
 
   lines.push(`## ${plan.appName}`);
   lines.push(`_${plan.description}_`);
@@ -2206,6 +2312,39 @@ function formatBlueprint(plan: any): string {
       const guard = p.guard ? ` _(${p.guard})_` : '';
       lines.push(`${i + 1}. **${p.name}** — ${p.purpose}${guard}`);
     });
+    lines.push('');
+  }
+
+  if (artistLayer) {
+    lines.push('### Design Direction');
+    lines.push(`- **Visual archetype:** ${artistLayer.designDirection.visualArchetype}`);
+    lines.push(`- **Density / breathing room:** ${artistLayer.designDirection.density} / ${artistLayer.designDirection.breathingRoom}`);
+    lines.push(`- **Shell style:** ${artistLayer.designDirection.shellStyle}`);
+    lines.push(`- **Hierarchy emphasis:** ${artistLayer.designDirection.hierarchyEmphasis}`);
+    lines.push(`- **Content rhythm:** ${artistLayer.designDirection.contentRhythm}`);
+    lines.push(`- **CTA strategy:** ${artistLayer.designDirection.ctaStrategy}`);
+    lines.push(`- **Imagery strategy:** ${artistLayer.designDirection.imageryStrategy}`);
+    lines.push(`- **Motion strategy:** ${artistLayer.designDirection.motionStrategy}`);
+    lines.push(`- **Mobile composition:** ${artistLayer.designDirection.mobileComposition}`);
+    lines.push(`- **Avoid:** ${artistLayer.designDirection.avoidConstraints.join(' | ')}`);
+    lines.push('');
+
+    lines.push('### Redesign Intent');
+    lines.push(`- **Mode:** ${artistLayer.redesignIntent.mode}`);
+    lines.push(`- **Structure lock:** ${artistLayer.redesignIntent.structureLock}`);
+    lines.push(`- **Change envelope:** ${artistLayer.redesignIntent.changeEnvelope}`);
+    lines.push(`- **Visual system reset:** ${artistLayer.redesignIntent.visualSystemReset}`);
+    lines.push(`- **Screens in scope:** ${artistLayer.redesignIntent.screensInScope.join(', ') || 'all screens'}`);
+    lines.push(`- **Brand anchors:** ${artistLayer.redesignIntent.brandAnchorsToPreserve.join(' | ') || 'none'}`);
+    lines.push('');
+
+    lines.push('### Asset Policy');
+    lines.push(`- **Components:** ${artistLayer.assetPolicy.components.allowedSources.join(', ')}`);
+    lines.push(`- **Icons:** ${artistLayer.assetPolicy.icons.allowedSources.join(', ')}`);
+    lines.push(`- **Media:** ${artistLayer.assetPolicy.media.remoteAssetPolicy} — ${artistLayer.assetPolicy.media.fallbackPolicy}`);
+    lines.push(`- **Fonts:** ${artistLayer.assetPolicy.fonts.loadingStrategy} — fallbacks ${artistLayer.assetPolicy.fonts.fallbackFamilies.join(', ')}`);
+    lines.push(`- **Advanced resources:** ${artistLayer.assetPolicy.advancedResources.allowedSources.join(', ')}`);
+    lines.push(`- **Preview-safe fallback:** ${artistLayer.assetPolicy.previewSafeFallback.mediaStrategy}`);
     lines.push('');
   }
 
@@ -2260,6 +2399,116 @@ export function formatKickoffScopePrompt(plan: Record<string, unknown>): string 
       : '',
     'Treat this kickoff scope as a hard constraint for the current first build.',
   ].filter(Boolean).join('\n');
+}
+
+export function buildNewCoderSystemPrompt(input: {
+  mode: GenerationMode;
+  plan: Record<string, unknown>;
+  technicalBlueprint?: Record<string, unknown> | null;
+  branchGuidancePrompt?: string | null;
+  designSystemPrompt?: string;
+  memoryContext?: string;
+  envPrompt?: string;
+}): string {
+  let prompt = SYSTEM_PROMPT
+    + CSS_RECIPES
+    + SHADCN_CHEATSHEET
+    + '\n\nGENERATION_MODE:\n'
+    + input.mode
+    + '\n\nPRODUCT PLAN (SOURCE OF TRUTH):\n'
+    + JSON.stringify(input.plan, null, 2)
+    + (input.technicalBlueprint
+        ? '\n\nTECHNICAL BLUEPRINT (IMPLEMENTATION GUIDE):\n'
+          + JSON.stringify(input.technicalBlueprint, null, 2)
+        : '');
+
+  if (input.branchGuidancePrompt) {
+    prompt += '\n\nCURRENT BRANCH ARCHITECTURE GUIDANCE (HARD CONSTRAINT):\n' + input.branchGuidancePrompt;
+  }
+
+  const kickoffScopePrompt = formatKickoffScopePrompt(input.plan);
+  if (kickoffScopePrompt) {
+    prompt += '\n\nKICKOFF BUILD SCOPE (HARD CONSTRAINT):\n' + kickoffScopePrompt;
+  }
+
+  const sanitizedDesignPrompt = sanitizeSupportDesignPrompt(input.designSystemPrompt);
+  if (sanitizedDesignPrompt) {
+    prompt += '\n\n' + sanitizedDesignPrompt;
+  }
+  if (input.memoryContext) {
+    prompt += '\n\n' + input.memoryContext;
+  }
+  if (input.envPrompt) {
+    prompt += '\n\n' + input.envPrompt;
+  }
+
+  return prompt;
+}
+
+export function buildEditCoderSystemPrompt(input: {
+  currentCode: string;
+  routeLockBlock?: string;
+  branchGuidancePrompt?: string | null;
+  artistLayer?: ArtistLayerSpec | null;
+  designSystemPrompt?: string;
+  memoryContext?: string;
+  envPrompt?: string;
+}): string {
+  let prompt = `You are editing an existing React application.
+The user wants a SPECIFIC change. Apply ONLY what they asked for.
+
+CURRENT APPLICATION FILES:
+${input.currentCode}
+${input.routeLockBlock ?? ''}
+RULES:
+1. Output ONLY files that need modification as a JSON artifact:
+\`\`\`json
+{
+  "artifact": {
+    "entry": "src/App.tsx",
+    "files": [
+      { "path": "src/pages/Dashboard.tsx", "content": "...full modified file..." }
+    ]
+  }
+}
+\`\`\`
+2. Include ONLY files you are modifying. Do NOT include unchanged files.
+3. Each file's content must be the COMPLETE file, not a diff or patch.
+4. PRESERVE all existing functionality, state, imports, and types.
+5. Use the same design tokens and shadcn components as the existing code.
+6. DO NOT remove or rename existing routes — only ADD new ones if needed.
+7. DO NOT rename or restructure files unless explicitly asked.
+8. If adding a new page: create the page file AND include App.tsx with the new route added.
+   Do NOT rewrite existing routes — only append the new <Route> element.
+${SHADCN_CHEATSHEET}
+
+⚠ FINAL REMINDER — OUTPUT FORMAT:
+Your ENTIRE response must be ONLY this JSON block. No prose, no explanation:
+\`\`\`json
+{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/...","content":"..."}]}}
+\`\`\`
+DO NOT write "Here's the..." or any text outside the json fence.`;
+
+  if (input.branchGuidancePrompt) {
+    prompt += `\n\nBRANCH ARCHITECTURE GUIDANCE (HARD CONSTRAINT):\n${input.branchGuidancePrompt}`;
+  }
+
+  if (input.artistLayer) {
+    prompt += '\n\n' + buildArtistLayerPrompt(input.artistLayer);
+  }
+
+  const sanitizedDesignPrompt = sanitizeSupportDesignPrompt(input.designSystemPrompt);
+  if (sanitizedDesignPrompt) {
+    prompt += '\n\n' + sanitizedDesignPrompt;
+  }
+  if (input.memoryContext) {
+    prompt += '\n\n' + input.memoryContext;
+  }
+  if (input.envPrompt) {
+    prompt += '\n\n' + input.envPrompt;
+  }
+
+  return prompt;
 }
 
 export function resolveApprovedBuildPlan(
@@ -2757,57 +3006,34 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       const existingManifestRaw = contextFiles['route-manifest.json'] ?? existingFiles['route-manifest.json'] ?? '';
       const existingManifest = parseManifest(existingManifestRaw);
       const routeLockBlock = existingManifest ? '\n' + manifestToPromptBlock(existingManifest) + '\n' : '';
+      const preferredEditArtistLayer = config.artistLayer
+        ?? extractArtistLayerFromFiles(contextFiles)
+        ?? extractArtistLayerFromFiles(existingFiles);
+      const editArtistLayer = resolveArtistLayerForGeneration({
+        intent: config.intent,
+        files: contextFiles,
+        appName: storedProject?.name,
+        currentTheme: storedProject?.theme,
+        redesignIntent: config.redesignIntent,
+        preferredArtistLayer: preferredEditArtistLayer,
+      });
 
-      let editSystemPrompt = `You are editing an existing React application.
-The user wants a SPECIFIC change. Apply ONLY what they asked for.
-
-CURRENT APPLICATION FILES:
-${currentCode}
-${routeLockBlock}
-RULES:
-1. Output ONLY files that need modification as a JSON artifact:
-\`\`\`json
-{
-  "artifact": {
-    "entry": "src/App.tsx",
-    "files": [
-      { "path": "src/pages/Dashboard.tsx", "content": "...full modified file..." }
-    ]
-  }
-}
-\`\`\`
-2. Include ONLY files you are modifying. Do NOT include unchanged files.
-3. Each file's content must be the COMPLETE file, not a diff or patch.
-4. PRESERVE all existing functionality, state, imports, and types.
-5. Use the same design tokens and shadcn components as the existing code.
-6. DO NOT remove or rename existing routes — only ADD new ones if needed.
-7. DO NOT rename or restructure files unless explicitly asked.
-8. If adding a new page: create the page file AND include App.tsx with the new route added.
-   Do NOT rewrite existing routes — only append the new <Route> element.
-${SHADCN_CHEATSHEET}
-
-⚠ FINAL REMINDER — OUTPUT FORMAT:
-Your ENTIRE response must be ONLY this JSON block. No prose, no explanation:
-\`\`\`json
-{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/...","content":"..."}]}}
-\`\`\`
-DO NOT write "Here's the..." or any text outside the json fence.`;
-
+      let editSystemPrompt = buildEditCoderSystemPrompt({
+        currentCode,
+        routeLockBlock,
+        branchGuidancePrompt,
+        artistLayer: editArtistLayer,
+        designSystemPrompt: config.designSystemPrompt,
+        memoryContext,
+        envPrompt,
+      });
       if (branchGuidancePrompt) {
-        editSystemPrompt += `\n\nBRANCH ARCHITECTURE GUIDANCE (HARD CONSTRAINT):\n${branchGuidancePrompt}`;
         config.onLog('[SimpleGeneration] EDIT branch architecture guidance injected');
       }
-
-      if (config.designSystemPrompt) {
-        editSystemPrompt += '\n\n' + config.designSystemPrompt;
-      }
-      // Inject project memory context (known packages, routes, issues)
-      if (memoryContext) {
-        editSystemPrompt += '\n\n' + memoryContext;
-      }
-      // Inject env var instructions
-      if (envPrompt) {
-        editSystemPrompt += '\n\n' + envPrompt;
+      if (preferredEditArtistLayer) {
+        config.onLog('[SimpleGeneration] EDIT artist layer reused from existing context');
+      } else {
+        config.onLog('[SimpleGeneration] EDIT artist layer derived from fallback classification');
       }
 
       // Track file progress during streaming (total unknown in edit mode → 0)
@@ -3035,7 +3261,11 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
         id: crypto.randomUUID(),
         projectId: config.projectId ?? '',
         revisionId: config.revisionId ?? '',
-        manifest: { ...emptyManifest(config.intent), isMultiPage: editIsMultiPage },
+        manifest: {
+          ...emptyManifest(config.intent),
+          isMultiPage: editIsMultiPage,
+          artistLayer: editArtistLayer,
+        },
         files: editBlueprints,
         routes: editInferredRoutes,
         features: [],
@@ -3202,7 +3432,15 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
         config.onLog('[SimpleGeneration] Plan parse failed, using fallback plan');
       }
     }
-    plan = enforcePlanModeRules(plan, mode, config.intent, config.onLog);
+    plan = enrichPlanWithArtistLayer(
+      enforcePlanModeRules(plan, mode, config.intent, config.onLog),
+      {
+        intent: config.intent,
+        files: config.files,
+        redesignIntent: config.redesignIntent,
+        preferredArtistLayer: config.artistLayer,
+      },
+    );
     config.onLog(`[SimpleGeneration] Plan: ${JSON.stringify(plan).slice(0, 200)}`);
     console.log('[SimpleGeneration] Architect plan:', plan);
 
@@ -3216,6 +3454,7 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
 
     // ── Step 1.5: Tech Lead — plan → technical blueprint ───────────────
     config.onLog('[SimpleGeneration] Step 1.5: Tech Lead translating plan...');
+    config.onLog(`[SimpleGeneration] Artist layer ready: ${JSON.stringify((plan as { artistLayer?: ArtistLayerSpec }).artistLayer ?? {}).slice(0, 240)}`);
 
     let technicalBlueprint: Record<string, unknown> | null = null;
     try {
@@ -3299,11 +3538,19 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
       }
 
       if (typeof approval === 'object') {
-        plan = enforcePlanModeRules(
-          resolveApprovedBuildPlan(plan as ProjectPlan, approval, config.onLog) as unknown as Record<string, unknown>,
-          mode,
-          config.intent,
-          config.onLog,
+        plan = enrichPlanWithArtistLayer(
+          enforcePlanModeRules(
+            resolveApprovedBuildPlan(plan as ProjectPlan, approval, config.onLog) as unknown as Record<string, unknown>,
+            mode,
+            config.intent,
+            config.onLog,
+          ),
+          {
+            intent: config.intent,
+            files: config.files,
+            redesignIntent: config.redesignIntent,
+            preferredArtistLayer: config.artistLayer,
+          },
         );
         config.onLog('[SimpleGeneration] Approved build plan promoted to source of truth');
       }
@@ -3354,36 +3601,17 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
     config.onPhase({ phase: 'code', progress: 40 });
     config.onLog('[SimpleGeneration] Step 2: Coder generating...');
 
-    let coderSystemPrompt = SYSTEM_PROMPT
-      + CSS_RECIPES
-      + SHADCN_CHEATSHEET
-      + '\n\nGENERATION_MODE:\n'
-      + mode
-      + '\n\nPRODUCT PLAN (SOURCE OF TRUTH):\n'
-      + JSON.stringify(plan, null, 2)
-      + (technicalBlueprint
-          ? '\n\nTECHNICAL BLUEPRINT (IMPLEMENTATION GUIDE):\n'
-            + JSON.stringify(technicalBlueprint, null, 2)
-          : '');
+    const coderSystemPrompt = buildNewCoderSystemPrompt({
+      mode,
+      plan,
+      technicalBlueprint,
+      branchGuidancePrompt,
+      designSystemPrompt: config.designSystemPrompt,
+      memoryContext,
+      envPrompt,
+    });
     if (branchGuidancePrompt) {
-      coderSystemPrompt += '\n\nCURRENT BRANCH ARCHITECTURE GUIDANCE (HARD CONSTRAINT):\n' + branchGuidancePrompt;
       config.onLog('[SimpleGeneration] NEW branch architecture guidance injected');
-    }
-    const kickoffScopePrompt = formatKickoffScopePrompt(plan);
-    if (kickoffScopePrompt) {
-      coderSystemPrompt += '\n\nKICKOFF BUILD SCOPE (HARD CONSTRAINT):\n' + kickoffScopePrompt;
-    }
-
-    if (config.designSystemPrompt) {
-      coderSystemPrompt += '\n\n' + config.designSystemPrompt;
-    }
-    // Inject project memory (known packages, env vars, prior issues)
-    if (memoryContext) {
-      coderSystemPrompt += '\n\n' + memoryContext;
-    }
-    // Inject env var instructions
-    if (envPrompt) {
-      coderSystemPrompt += '\n\n' + envPrompt;
     }
 
     // Track file progress during streaming
@@ -3699,7 +3927,7 @@ Generate the complete application for: ${config.intent}`;
       id: crypto.randomUUID(),
       projectId: config.projectId ?? '',
       revisionId: config.revisionId ?? '',
-      manifest: { ...emptyManifest(config.intent), isMultiPage },
+      manifest: buildManifestFromPlanContext(config.intent, isMultiPage, plan),
       files: blueprints,
       routes: inferredRoutes,
       features: [],

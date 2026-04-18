@@ -174,6 +174,103 @@ export interface VisualMode {
   hasBottomNav:  boolean;
 }
 
+export type RedesignMode =
+  | 'preserve'
+  | 'partial_restyle'
+  | 'page_redesign'
+  | 'full_retheme'
+  | 'full_redesign';
+
+export type StructureLock = 'strict' | 'prefer' | 'flexible';
+
+export type RedesignChangeEnvelope =
+  | 'greenfield_foundation'
+  | 'visual_refresh_without_structural_change'
+  | 'scoped_redesign'
+  | 'full_visual_reset'
+  | 'structural_redesign';
+
+export interface DesignDirection {
+  visualArchetype:    string;
+  density:            VisualDensity;
+  breathingRoom:      'compressed' | 'balanced' | 'airy';
+  shellStyle:         string;
+  hierarchyEmphasis:  string;
+  contentRhythm:      string;
+  ctaStrategy:        string;
+  imageryStrategy:    string;
+  motionStrategy:     string;
+  mobileComposition:  string;
+  avoidConstraints:   string[];
+  rationale:          string[];
+}
+
+export interface RedesignIntent {
+  mode:                    RedesignMode;
+  structureLock:           StructureLock;
+  brandAnchorsToPreserve:  string[];
+  screensInScope:          string[];
+  visualSystemReset:       boolean;
+  changeEnvelope:          RedesignChangeEnvelope;
+  structureChangeAllowed:  boolean;
+  inspectionNotes:         string[];
+}
+
+export interface AssetSourcePolicy {
+  components: {
+    allowedSources:        string[];
+    preferredSources:      string[];
+    remoteComponentPolicy: 'disallow' | 'allow';
+    consistencyRules:      string[];
+    fallbackPolicy:        string;
+  };
+  icons: {
+    allowedSources:   string[];
+    preferredSource:  string;
+    consistencyRules: string[];
+    fallbackPolicy:   string;
+  };
+  media: {
+    remoteAssetPolicy: 'allow' | 'avoid' | 'prefer_fallback';
+    allowedSources:    string[];
+    consistencyRules:  string[];
+    fallbackPolicy:    string;
+    rationale:         string;
+  };
+  fonts: {
+    loadingStrategy:  'local_preferred' | 'remote_allowed' | 'system_only';
+    allowedSources:   string[];
+    fallbackFamilies: string[];
+    rationale:        string;
+  };
+  advancedResources: {
+    allowedSources:    string[];
+    remoteAssetPolicy: 'allow' | 'avoid' | 'case_by_case';
+    consistencyRules:  string[];
+    fallbackPolicy:    string;
+  };
+  previewSafeFallback: {
+    required:          boolean;
+    componentStrategy: string;
+    mediaStrategy:     string;
+    fontStrategy:      string;
+    iconStrategy:      string;
+  };
+}
+
+export interface ArtistLayerSpec {
+  version: 1;
+  classification: {
+    category:   string;
+    style:      string;
+    confidence: number;
+    reasoning:  string;
+  };
+  designDirection: DesignDirection;
+  redesignIntent:  RedesignIntent;
+  assetPolicy:     AssetSourcePolicy;
+}
+
 /**
  * Lightweight route declaration inside the manifest.
  * Precedes FileBlueprint assignment — no fileBlueprintId yet.
@@ -356,6 +453,8 @@ export interface ProductManifest {
   inferenceNotes?:   string[];
   /** Visual preset inferred from intent + mode — drives design token generation */
   visualPreset?:     import('./designSystem').VisualPresetId;
+  /** Inspectable pre-generation artist layer: direction, redesign intent, and asset policy */
+  artistLayer?:      ArtistLayerSpec;
   /**
    * When true, generation is restricted to single-page output only.
    * Multi-page, routes.json, router shell are forbidden. Set by
