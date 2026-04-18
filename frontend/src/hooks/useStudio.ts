@@ -202,13 +202,16 @@ export function recoverKickoffApprovalFailure(
   callbacks: {
     addLog: (msg: string) => void;
     appendErrorMessage: (content: string) => void;
+    resolvePendingConfirmation?: (decision: PlanApprovalDecision) => void;
     rejectBlueprint: (planId: string) => void;
   },
 ): PlanApprovalDecision {
+  const decision: PlanApprovalDecision = { confirmed: false };
   callbacks.addLog(`[Architect] Kickoff approval failed: ${message}`);
   callbacks.appendErrorMessage(`⚠️ Architect kickoff draft was not saved. Build not started.\n\n${message}`);
+  callbacks.resolvePendingConfirmation?.(decision);
   callbacks.rejectBlueprint(pendingPlanId ?? '');
-  return { confirmed: false };
+  return decision;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -2323,6 +2326,14 @@ export const useStudio = () => {
             content,
             timestamp: Date.now(),
           });
+        },
+        resolvePendingConfirmation: (decision) => {
+          planDecisionRef.current = decision;
+          if (blueprintIdRef.current) {
+            dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: blueprintIdRef.current, visible: false });
+            blueprintIdRef.current = null;
+          }
+          setPendingPlan(null);
         },
         rejectBlueprint: (planId) => {
           commandBus.dispatch({ type: 'REJECT_BLUEPRINT', planId });

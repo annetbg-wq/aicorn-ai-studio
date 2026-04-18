@@ -142,6 +142,29 @@ function normalizeProjectBranches(project: ProjectRecord): {
   return { activeBranchId, branches };
 }
 
+function pruneSupersededDraftSnapshots(
+  architecture: ProjectBranchArchitecture,
+  incomingSnapshot: ArchitectureSnapshot,
+): ProjectBranchArchitecture {
+  if (incomingSnapshot.phase !== 'pre_build_draft') {
+    return architecture;
+  }
+
+  const incomingStatus = incomingSnapshot.branchBrief?.status;
+  if (incomingStatus !== 'proposed' && incomingStatus !== 'accepted') {
+    return architecture;
+  }
+
+  return {
+    ...architecture,
+    snapshots: (architecture.snapshots ?? []).filter(existing => {
+      if (existing.id === incomingSnapshot.id) return false;
+      if (existing.phase !== 'pre_build_draft') return true;
+      return existing.branchBrief?.status !== 'proposed';
+    }),
+  };
+}
+
 // ── Repository ─────────────────────────────────────────────────────────────────
 
 export const ProjectRepository = {
@@ -449,11 +472,12 @@ export const ProjectRepository = {
     const baseArchitecture =
       await this.getBranchArchitecture(projectId, branchId)
       ?? createProjectBranchArchitecture(projectId, branchId, branchId, snapshot.createdAt);
+    const sanitizedArchitecture = pruneSupersededDraftSnapshots(baseArchitecture, snapshot);
 
     await this.saveBranchArchitecture(
       projectId,
       branchId,
-      upsertArchitectureSnapshot(baseArchitecture, snapshot, snapshot.createdAt),
+      upsertArchitectureSnapshot(sanitizedArchitecture, snapshot, snapshot.createdAt),
     );
   },
 

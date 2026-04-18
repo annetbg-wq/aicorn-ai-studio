@@ -544,6 +544,7 @@ export default function App() {
               currentProjectId={studio.currentProjectId ?? null}
               onLoadProject={handleLoadProject}
               onNavigateEngine={() => setView('engine')}
+              appLanguage={studio.appLanguage}
             />
           </div>
         )}
