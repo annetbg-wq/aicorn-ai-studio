@@ -137,6 +137,7 @@
     "services/DesignDiffService.ts",
     "services/designSystem/categories.ts",
     "services/designSystem/classifier.ts",
+    "services/designSystem/designDirection.ts",
     "services/designSystem/index.ts",
     "services/designSystem/promptBuilder.ts",
     "services/designSystem/styles.ts",
@@ -202,8 +203,10 @@
     "services/__tests__/BranchArchitectureOrchestrationService.test.ts",
     "services/__tests__/ChatArchitectureService.test.ts",
     "services/__tests__/compileGuard.test.ts",
+    "services/__tests__/designDirection.test.ts",
     "services/__tests__/diffReviewFlow.test.ts",
     "services/__tests__/editAdmission.test.ts",
+    "services/__tests__/orchestratorArtistLayer.test.ts",
     "services/__tests__/previewBridge.test.ts",
     "services/__tests__/previewGuard.test.ts",
     "services/__tests__/previewLifecycleResolver.test.ts",
@@ -266,5 +269,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-18T20:18:34.187Z"
+  "last_scan_timestamp": "2026-04-18T22:02:17.514Z"
 }

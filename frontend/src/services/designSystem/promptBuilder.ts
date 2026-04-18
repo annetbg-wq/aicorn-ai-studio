@@ -57,8 +57,11 @@ ${
 - Tailwind CSS for all styling
 - Import icons from lucide-react
 - Use inline styles ONLY for dynamic values (colors from palette above)
-- No external image URLs — use gradient placeholders or emoji
-- Component must be self-contained, no external dependencies beyond React/Tailwind/lucide-react
+- Use approved local primitives and existing studio components when available
+- Keep icons consistent and sourced from lucide-react
+- Prefer self-contained visuals unless the primary artist layer explicitly allows richer media realism
+- Maintain stable local/system font fallbacks
+- Component must be self-contained, no external dependencies beyond approved sources
 - Export default the main component
 - Include realistic sample data (5-10 items minimum)
 - Responsive: works on mobile (375px) and desktop (1280px)
