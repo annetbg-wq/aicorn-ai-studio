@@ -104,7 +104,7 @@ const ArchitectDashboard: React.FC<ArchitectDashboardProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [copy.noProjectBody, currentProjectId, projects]);
+  }, [currentProjectId]);
 
   const activeBranchName = activeProject?.branches?.[activeProject.activeBranchId ?? 'main']?.name
     ?? activeProject?.activeBranchId
@@ -135,9 +135,9 @@ const ArchitectDashboard: React.FC<ArchitectDashboardProps> = ({
       >
         <Layers size={15} color={colors.accent} />
         <span style={{ fontSize: 14, fontWeight: 700, color: colors.text, letterSpacing: '-0.02em' }}>
-          Product Architect
+          {copy.architectTitle}
         </span>
-        <span style={{ fontSize: 11, color: colors.sub }}>— branch architecture</span>
+        <span style={{ fontSize: 11, color: colors.sub }}>— {copy.architectSubtitle}</span>
         <div style={{ flex: 1 }} />
 
         {activeProject ? (
@@ -178,9 +178,9 @@ const ArchitectDashboard: React.FC<ArchitectDashboardProps> = ({
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <div style={{ flex: 1, minWidth: 0, background: colors.panelAlt, overflow: 'hidden' }}>
           {loading ? (
-            <StatePanel title={copy.loading} body={copy.noBranchBody} theme={colors} />
+            <StatePanel title={copy.loading} body={copy.loadingBody} theme={colors} />
           ) : error ? (
-            <StatePanel title={copy.loadErrorTitle} body={error} theme={colors} tone="error" />
+            <StatePanel title={copy.loadErrorTitle} body={`${copy.loadErrorBody} ${error}`} theme={colors} tone="error" />
           ) : !activeProject ? (
             <StatePanel title={copy.noProjectTitle} body={copy.noProjectBody} theme={colors} />
           ) : (
