@@ -22,12 +22,29 @@ interface GenerationReport {
   duration: number;
 }
 
+interface GenerationTrustState {
+  mode: 'fast_prototype' | 'architect_guided' | 'proposed_experiment';
+  modeLabel: string;
+  trustBasis: 'accepted_branch_architecture' | 'proposed_draft_guidance' | 'branch_memory_observation';
+  trustLabel: string;
+  summary: string;
+  conflictHandling: 'none' | 'override_request' | 'proposed_experiment' | 'revise_architecture';
+  conflictLabel: string | null;
+  conflictSummary: string | null;
+  indicators: Array<{
+    id: string;
+    label: string;
+    state: 'accepted' | 'planned' | 'open' | 'deferred';
+  }>;
+}
+
 interface ChatMessage {
   id: string;
   role: string;
   content: string | any[];
   type?: string;
   report?: GenerationReport;
+  generationTrust?: GenerationTrustState;
   questions?: string[];
 }
 
@@ -168,11 +185,123 @@ const LABELS: Record<string, Record<string, string>> = {
 
 // â”€â”€ Ð’ÑÐ¿Ð¾Ð¼Ð¾Ð³Ð°Ñ‚ÐµÐ»ÑŒÐ½Ñ‹Ðµ ÐºÐ¾Ð¼Ð¿Ð¾Ð½ÐµÐ½Ñ‚Ñ‹ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const FallbackPlanCard = ({ m, onConfirmPlan }: { m: any; onConfirmPlan: (m: object) => void }) => {
+const trustBadgeStyle = (
+  state: 'accepted' | 'planned' | 'open' | 'deferred',
+  isDark: boolean,
+) => {
+  switch (state) {
+    case 'accepted':
+      return {
+        background: isDark ? 'rgba(16,185,129,0.16)' : 'rgba(16,185,129,0.1)',
+        color: '#10b981',
+        border: '1px solid rgba(16,185,129,0.24)',
+      };
+    case 'open':
+      return {
+        background: isDark ? 'rgba(245,158,11,0.16)' : 'rgba(245,158,11,0.1)',
+        color: '#f59e0b',
+        border: '1px solid rgba(245,158,11,0.24)',
+      };
+    case 'deferred':
+      return {
+        background: isDark ? 'rgba(139,92,246,0.16)' : 'rgba(139,92,246,0.1)',
+        color: '#8b5cf6',
+        border: '1px solid rgba(139,92,246,0.24)',
+      };
+    case 'planned':
+    default:
+      return {
+        background: isDark ? 'rgba(99,102,241,0.16)' : 'rgba(99,102,241,0.1)',
+        color: '#6366f1',
+        border: '1px solid rgba(99,102,241,0.24)',
+      };
+  }
+};
+
+const GenerationTrustBanner = ({
+  trust,
+  isDark,
+  textColor,
+}: {
+  trust?: GenerationTrustState | null;
+  isDark: boolean;
+  textColor: string;
+}) => {
+  if (!trust) return null;
+
+  const extraIndicators = trust.indicators.filter(indicator =>
+    !(
+      (indicator.id === 'fast_prototype_mode' && trust.mode === 'fast_prototype')
+      || (indicator.id === 'accepted_branch_architecture' && trust.trustBasis === 'accepted_branch_architecture')
+      || (indicator.id === 'proposed_draft_guidance' && trust.trustBasis === 'proposed_draft_guidance')
+    ));
+
+  const trustBasisState: 'accepted' | 'planned' | 'open' = trust.trustBasis === 'accepted_branch_architecture'
+    ? 'accepted'
+    : trust.trustBasis === 'proposed_draft_guidance'
+      ? 'open'
+      : 'planned';
+
+  return (
+    <div
+      data-testid="generation-trust-banner"
+      style={{
+        marginTop: 10,
+        padding: '10px 12px',
+        borderRadius: 10,
+        border: `1px solid ${isDark ? 'rgba(148,163,184,0.18)' : 'rgba(148,163,184,0.2)'}`,
+        background: isDark ? 'rgba(15,23,42,0.22)' : 'rgba(248,250,252,0.88)',
+      }}
+    >
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 7 }}>
+        <span style={{ ...trustBadgeStyle('planned', isDark), fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '3px 8px' }}>
+          {trust.modeLabel}
+        </span>
+        <span style={{ ...trustBadgeStyle(trustBasisState, isDark), fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '3px 8px' }}>
+          {trust.trustLabel}
+        </span>
+        {extraIndicators.map(indicator => (
+          <span
+            key={indicator.id}
+            style={{ ...trustBadgeStyle(indicator.state, isDark), fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '3px 8px' }}
+          >
+            {indicator.label}
+          </span>
+        ))}
+        {trust.conflictLabel ? (
+          <span style={{ ...trustBadgeStyle('open', isDark), fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '3px 8px' }}>
+            {trust.conflictLabel}
+          </span>
+        ) : null}
+      </div>
+      <div style={{ fontSize: 12, lineHeight: 1.5, color: textColor }}>
+        {trust.summary}
+      </div>
+      {trust.conflictSummary ? (
+        <div data-testid="generation-trust-conflict" style={{ fontSize: 12, lineHeight: 1.5, color: '#f59e0b', marginTop: 6 }}>
+          {trust.conflictSummary}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+const FallbackPlanCard = ({
+  m,
+  onConfirmPlan,
+  isDark,
+  textColor,
+}: {
+  m: any;
+  onConfirmPlan: (m: object) => void;
+  isDark: boolean;
+  textColor: string;
+}) => {
   const [isConfirming, setIsConfirming] = useState(false);
   return (
     <div data-testid="generation-plan-card" className="plan-card-fallback">
       <div className="plan-content">{typeof m.content === 'string' ? m.content : 'Plan ready'}</div>
+      <GenerationTrustBanner trust={m.generationTrust} isDark={isDark} textColor={textColor} />
       <button
         data-testid="confirm-plan-btn"
         onClick={() => {
@@ -199,10 +328,11 @@ const TypingDots = () => (
 const GenerationReportCard: React.FC<{
   report: GenerationReport;
   content: string;
+  generationTrust?: GenerationTrustState | null;
   isDark: boolean;
   textColor: string;
   subText: string;
-}> = ({ report, content, isDark, textColor, subText }) => {
+}> = ({ report, content, generationTrust, isDark, textColor, subText }) => {
   const isNew = report.mode === 'NEW';
   const allFiles = isNew
     ? report.filesCreated
@@ -244,6 +374,7 @@ const GenerationReportCard: React.FC<{
           </div>
         )}
       </div>
+      <GenerationTrustBanner trust={generationTrust} isDark={isDark} textColor={textColor} />
     </div>
   );
 };
@@ -313,6 +444,7 @@ interface BlueprintCardProps {
   m: any;
   pendingPlan: LeftPanelProps['pendingPlan'];
   isPending: boolean;
+  isDark: boolean;
   textColor: string;
   subText: string;
   borderColor: string;
@@ -323,7 +455,7 @@ interface BlueprintCardProps {
 }
 
 const BlueprintCard: React.FC<BlueprintCardProps> = ({
-  m, pendingPlan, isPending, textColor, subText, borderColor, onConfirmPlan, selectKickoffScope, onClarifyPlan, cancelPlan,
+  m, pendingPlan, isPending, isDark, textColor, subText, borderColor, onConfirmPlan, selectKickoffScope, onClarifyPlan, cancelPlan,
 }) => {
   // Visibility guard — keeps fiber in the tree but renders nothing.
   // This prevents the insertBefore crash that occurs when a node is removed
@@ -373,6 +505,7 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
             __html: String(m.blueprintText).replace(/\[object Object\]/g, ''),
           }} />
         )}
+        <GenerationTrustBanner trust={m.generationTrust} isDark={isDark} textColor={textColor} />
       </div>
 
       {m.technicalBlueprint && JSON.stringify(m.technicalBlueprint).length > 20 && (
@@ -1043,6 +1176,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       m={m}
                       pendingPlan={pendingPlan}
                       isPending={pendingPlan !== null}
+                      isDark={isDark}
                       textColor={textColor}
                       subText={subText}
                       borderColor={borderColor}
@@ -1054,7 +1188,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                   );
                 }
                 // Fallback: always show Build it button even when payload is minimal.
-                return <FallbackPlanCard key={m.id} m={m} onConfirmPlan={onConfirmPlan} />;
+                return <FallbackPlanCard key={m.id} m={m} onConfirmPlan={onConfirmPlan} isDark={isDark} textColor={textColor} />;
               }
 
               return (
@@ -1071,6 +1205,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                     <GenerationReportCard
                       report={m.report}
                       content={typeof m.content === 'string' ? m.content : ''}
+                      generationTrust={m.generationTrust}
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}
