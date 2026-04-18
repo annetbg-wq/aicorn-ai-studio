@@ -9,7 +9,7 @@
  */
 
 import { llmFetchStream, llmFetch } from './LLMProxy';
-import { ConfigService } from './ConfigService';
+import { ConfigService, normalizeAppLanguage } from './ConfigService';
 import type { AgentSlot } from './ConfigService';
 import { Orchestrator } from './Orchestrator';
 import { compileWithRetry } from './compileGuard';
@@ -33,6 +33,7 @@ import type {
   PhaseEvent,
   UsageData,
   AgentPhase,
+  ProjectBranchArchitecture,
 } from '../shared/projectModel';
 import type {
   GenerationResult,
@@ -2293,6 +2294,26 @@ export function resolveApprovedBuildPlan(
   return approvedPlan;
 }
 
+export function buildBranchGuidancePromptForGeneration(input: {
+  branchArchitecture: ProjectBranchArchitecture | null | undefined;
+  files: Record<string, string>;
+  intent: string;
+  language?: string;
+  generationMode?: GenerationMode;
+}): string | null {
+  const normalizedLanguage = normalizeAppLanguage(input.language);
+  const guidance = buildBranchGenerationGuidance(
+    input.branchArchitecture,
+    input.files,
+    normalizedLanguage,
+    {
+      requestIntent: input.intent,
+      generationMode: input.generationMode,
+    },
+  );
+  return formatBranchArchitecturePrompt(guidance, normalizedLanguage);
+}
+
 // ─── Main Service ───────────────────────────────────────────────────────────
 
 export class SimpleGeneration {
@@ -2720,10 +2741,13 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         contextFiles = filtered;
       }
 
-      const branchGuidancePrompt = formatBranchArchitecturePrompt(
-        buildBranchGenerationGuidance(branchArchitecture, contextFiles, config.language ?? 'ru'),
-        config.language ?? 'ru',
-      );
+      const branchGuidancePrompt = buildBranchGuidancePromptForGeneration({
+        branchArchitecture,
+        files: contextFiles,
+        intent: config.intent,
+        language: config.language,
+        generationMode: config.generationMode,
+      });
 
       const currentCode = Object.entries(contextFiles)
         .map(([p, content]) => `<!--EXISTING_FILE:${p}-->\n${content}`)
@@ -3110,10 +3134,13 @@ DO NOT write "Here's the..." or any text outside the json fence.`;
         : ConfigService.getMaxTokens('agent_build', 'coder_app');
 
     let plan: Record<string, unknown>;
-    const branchGuidancePrompt = formatBranchArchitecturePrompt(
-      buildBranchGenerationGuidance(branchArchitecture, config.files ?? {}, config.language ?? 'ru'),
-      config.language ?? 'ru',
-    );
+    const branchGuidancePrompt = buildBranchGuidancePromptForGeneration({
+      branchArchitecture,
+      files: config.files ?? {},
+      intent: config.intent,
+      language: config.language,
+      generationMode: mode,
+    });
 
     // ── Step 1: Architect (primary slot) — JSON plan — SKIPPED if prebuiltPlan ──
     if (config.prebuiltPlan) {

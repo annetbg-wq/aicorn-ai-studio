@@ -1,6 +1,16 @@
 // ── Public types ─────────────────────────────────────────────────────────────
 
 import { supabase } from '../lib/supabase';
+import {
+  normalizeAppLanguage,
+  type SupportedAppLanguage,
+} from '../shared/appLanguage';
+
+export {
+  SUPPORTED_APP_LANGUAGES,
+  normalizeAppLanguage,
+} from '../shared/appLanguage';
+export type { SupportedAppLanguage } from '../shared/appLanguage';
 
 export type ApiProvider = 'openrouter' | 'anthropic' | 'openai' | 'google' | 'deepseek' | 'mistral' | 'groq';
 
@@ -139,11 +149,10 @@ export const ConfigService = {
 
   getLanguage(): string {
     const saved = get(K.LANGUAGE);
-    if (saved) return saved;
-    const br = (typeof navigator !== 'undefined' ? navigator.language?.slice(0, 2) : null) ?? 'en';
-    return ['en', 'ru', 'es', 'de', 'fr', 'zh'].includes(br) ? br : 'en';
+    if (saved) return normalizeAppLanguage(saved);
+    return normalizeAppLanguage(typeof navigator !== 'undefined' ? navigator.language : null);
   },
-  setLanguage(v: string): void { set(K.LANGUAGE, v); },
+  setLanguage(v: string): void { set(K.LANGUAGE, normalizeAppLanguage(v)); },
 
   // ── Auto-Route ────────────────────────────────────────────────────────────
 
