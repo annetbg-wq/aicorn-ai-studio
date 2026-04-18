@@ -2291,11 +2291,25 @@ export const useStudio = () => {
           const reportContent = isEditMode
             ? `Updated ${touchedNames.length} file${touchedNames.length !== 1 ? 's' : ''}`
             : 'Built your app!';
+          const storedProjectForReality = currentProjectId ? ProjectStorage.getProject(currentProjectId) : null;
+          const activeBranchIdForReality = storedProjectForReality?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
+          const branchArchitectureForReality =
+            storedProjectForReality?.branches?.[activeBranchIdForReality]?.architecture ?? null;
+          const branchReality = buildBranchGenerationGuidance(
+            branchArchitectureForReality,
+            finalFiles,
+            trustLanguage,
+            {
+              requestIntent: userPrompt,
+              generationMode,
+            },
+          )?.reality.ui ?? null;
           chatAppend({
             role: 'assistant',
             type: 'generation-report',
             content: reportContent,
             generationTrust,
+            branchReality,
             report: {
               mode: isEditMode ? 'EDIT' : 'NEW',
               theme: result.planTheme ?? 'default',
