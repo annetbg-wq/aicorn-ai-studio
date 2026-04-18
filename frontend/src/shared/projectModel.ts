@@ -1009,6 +1009,8 @@ export type ArchitectureMemoryModelVersion = typeof ARCHITECTURE_MEMORY_MODEL_VE
 
 export type ArchitectureMemoryPhase = 'pre_build_draft' | 'post_build_actual';
 
+export type ArchitectureMemorySource = 'architect' | 'branch_chat';
+
 export type ArchitectureStatus =
   | 'proposed'
   | 'accepted'
@@ -1059,6 +1061,24 @@ export interface BranchScopedArchitectureEntity {
 export interface BranchArchitectureLinkage {
   chatThreadId?:  string;
   headRevisionId?: string;
+}
+
+export type ChatDerivedArchitectureItemType =
+  | 'architecture_decision'
+  | 'architecture_constraint'
+  | 'open_architecture_question'
+  | 'deferred_item'
+  | 'superseded_decision';
+
+export interface BranchConversationLinkage {
+  source:           Extract<ArchitectureMemorySource, 'branch_chat'>;
+  conversationRef:  string;
+  chatThreadId:     string;
+  messageId:        string;
+  messageTimestamp: number;
+  messageRole?:     ChatRole;
+  itemType:         ChatDerivedArchitectureItemType;
+  extractedLanguage?: string;
 }
 
 export interface BranchBrief extends BranchScopedArchitectureEntity {
@@ -1128,6 +1148,8 @@ export interface CapabilityDecision extends BranchScopedArchitectureEntity {
   title:                  string;
   summary:                string;
   status:                 ArchitectureStatus;
+  source?:                ArchitectureMemorySource;
+  chatLink?:              BranchConversationLinkage;
   rationale?:             string;
   plannedState:           PlannedCapabilityState;
   actualState:            ActualCapabilityState;
@@ -1141,6 +1163,8 @@ export interface ArchitectureDecision extends BranchScopedArchitectureEntity {
   title:                 string;
   summary:               string;
   status:                ArchitectureStatus;
+  source?:               ArchitectureMemorySource;
+  chatLink?:             BranchConversationLinkage;
   category:              'system' | 'data' | 'integration' | 'delivery' | 'security' | 'ux' | 'other';
   rationale?:            string;
   affectedCapabilityIds: ArchitectureCapabilityKey[];
@@ -1154,6 +1178,8 @@ export interface ArchitectureConstraint extends BranchScopedArchitectureEntity {
   title:             string;
   summary:           string;
   status:            ArchitectureStatus;
+  source?:           ArchitectureMemorySource;
+  chatLink?:         BranchConversationLinkage;
   constraintType:    'technical' | 'product' | 'compliance' | 'timeline' | 'resource' | 'other';
   affectedStepIds?:  string[];
   affectedCapabilityIds?: ArchitectureCapabilityKey[];
@@ -1166,6 +1192,8 @@ export interface OpenArchitectureQuestion extends BranchScopedArchitectureEntity
   title:                 string;
   summary:               string;
   status:                ArchitectureStatus;
+  source?:               ArchitectureMemorySource;
+  chatLink?:             BranchConversationLinkage;
   affectedCapabilityIds: ArchitectureCapabilityKey[];
   createdAt:             string;
   updatedAt:             string;
@@ -1176,6 +1204,8 @@ export interface DeferredItem extends BranchScopedArchitectureEntity {
   title:                 string;
   summary:               string;
   status:                Extract<ArchitectureStatus, 'deferred' | 'accepted' | 'superseded' | 'open'>;
+  source?:               ArchitectureMemorySource;
+  chatLink?:             BranchConversationLinkage;
   reason?:               string;
   relatedStepId?:        string;
   relatedDecisionId?:    string;
