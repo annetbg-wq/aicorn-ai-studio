@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { KickoffBuildScopeId } from '../services/ArchitectPlannerService';
+import type { BranchRealityUiSummary } from '../services/BranchArchitectureOrchestrationService';
 import {
   Plus, Link2, Camera, Sparkles,
   Paperclip, History,
@@ -45,6 +46,7 @@ interface ChatMessage {
   type?: string;
   report?: GenerationReport;
   generationTrust?: GenerationTrustState;
+  branchReality?: BranchRealityUiSummary | null;
   questions?: string[];
 }
 
@@ -329,10 +331,11 @@ const GenerationReportCard: React.FC<{
   report: GenerationReport;
   content: string;
   generationTrust?: GenerationTrustState | null;
+  branchReality?: BranchRealityUiSummary | null;
   isDark: boolean;
   textColor: string;
   subText: string;
-}> = ({ report, content, generationTrust, isDark, textColor, subText }) => {
+}> = ({ report, content, generationTrust, branchReality, isDark, textColor, subText }) => {
   const isNew = report.mode === 'NEW';
   const allFiles = isNew
     ? report.filesCreated
@@ -375,6 +378,51 @@ const GenerationReportCard: React.FC<{
         )}
       </div>
       <GenerationTrustBanner trust={generationTrust} isDark={isDark} textColor={textColor} />
+      {branchReality ? (
+        <div
+          data-testid="generation-branch-reality"
+          style={{
+            marginTop: 10,
+            padding: '10px 12px',
+            borderRadius: 10,
+            border: `1px solid ${isDark ? 'rgba(148,163,184,0.18)' : 'rgba(148,163,184,0.2)'}`,
+            background: isDark ? 'rgba(15,23,42,0.22)' : 'rgba(248,250,252,0.88)',
+            display: 'grid',
+            gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <span style={{ ...trustBadgeStyle('planned', isDark), fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '3px 8px' }}>
+              {branchReality.sectionTitle}
+            </span>
+            <span style={{ ...trustBadgeStyle('accepted', isDark), fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '3px 8px' }}>
+              {branchReality.stateLabel}
+            </span>
+          </div>
+          <div style={{ fontSize: 12, lineHeight: 1.5, color: textColor }}>
+            {branchReality.summary}
+          </div>
+          <div style={{ display: 'grid', gap: 4, fontSize: 11, color: subText }}>
+            {[
+              { label: branchReality.alignedLabel, items: branchReality.alignedItems, empty: branchReality.alignedEmpty },
+              { label: branchReality.missingLabel, items: branchReality.missingItems, empty: branchReality.missingEmpty },
+              { label: branchReality.driftingLabel, items: branchReality.driftingItems, empty: branchReality.driftingEmpty },
+            ].map(section => (
+              <div key={section.label}>
+                <strong style={{ color: textColor }}>{section.label}:</strong>{' '}
+                {section.items.length > 0
+                  ? section.items.slice(0, 2).map(item => item.title).join(', ')
+                  : section.empty}
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: subText, lineHeight: 1.5 }}>
+            <strong style={{ color: textColor }}>{branchReality.nextPassLabel}:</strong>{' '}
+            {branchReality.nextPassTitle}
+            {branchReality.nextPassSummary ? ` — ${branchReality.nextPassSummary}` : ''}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -1206,6 +1254,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       report={m.report}
                       content={typeof m.content === 'string' ? m.content : ''}
                       generationTrust={m.generationTrust}
+                      branchReality={m.branchReality}
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}
