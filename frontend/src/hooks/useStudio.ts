@@ -59,6 +59,8 @@ import { buildFileDiff, type FileDiff } from '../components/DiffPreview';
 import { EditAdmissionService } from '../services/EditAdmissionService';
 import type { AdmissionDecision } from '../services/EditAdmissionService';
 import {
+  DEFAULT_PROJECT_BRANCH_ID,
+  createProjectBranchArchitecture,
   projectGraphToFileMap,
   fileMapToProjectGraph,
   type ProjectGraph,
@@ -71,6 +73,7 @@ import {
   type ArchitectKickoffPlan,
   type KickoffBuildScopeId,
 } from '../services/ArchitectPlannerService';
+import { ChatArchitectureService } from '../services/ChatArchitectureService';
 
 export type DeviceType = 'desktop' | 'iphone' | 'pixel' | 'ipad';
 export type FileMap     = Record<string, string>;
@@ -898,6 +901,7 @@ export const useStudio = () => {
   // or after explicit user confirmation if preview failed/blocked.
   const pendingProjectSaveRef = useRef<PendingProjectSave | null>(null);
   const pendingSavePromptShownRef = useRef(false);
+  const processedArchitectureMessagesRef = useRef<Set<string>>(new Set());
 
   const commitPendingProjectSave = useCallback((reason: 'preview-ready' | 'manual-no-preview') => {
     const pending = pendingProjectSaveRef.current;
@@ -1030,6 +1034,8 @@ export const useStudio = () => {
       createdAt:   existingForCloud?.createdAt ?? new Date().toISOString(),
       updatedAt:   new Date().toISOString(),
       version:     1,
+      activeBranchId: existingForCloud?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID,
+      branches: existingForCloud?.branches,
       intent:         pending.userPrompt,
       source:         pending.source,
       plan:           pending.plan ?? undefined,
@@ -1093,6 +1099,109 @@ export const useStudio = () => {
     if (currentProjectId) safeSetItem('CURRENT_PROJECT_ID', currentProjectId);
     else localStorage.removeItem('CURRENT_PROJECT_ID');
   }, [messages, files, currentProjectId]); // `files` is a useMemo — stable ref unless projectGraph or filesRaw changes
+
+  useEffect(() => {
+    if (!currentProjectId) {
+      processedArchitectureMessagesRef.current.clear();
+      return;
+    }
+
+    const storedProject = ProjectStorage.getProject(currentProjectId);
+    if (!storedProject) return;
+
+    const now = new Date().toISOString();
+    const activeBranchId = storedProject.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
+    const existingBranch = storedProject.branches?.[activeBranchId];
+    const nextChatHistory = JSON.stringify(existingBranch?.chatHistory ?? []);
+    const currentChatHistory = JSON.stringify(messages);
+    if (nextChatHistory === currentChatHistory) return;
+
+    ProjectStorage.saveProject({
+      ...storedProject,
+      updatedAt: now,
+      activeBranchId,
+      chatHistory: messages as any,
+      branches: {
+        ...(storedProject.branches ?? {}),
+        [activeBranchId]: {
+          ...(existingBranch ?? {
+            id: activeBranchId,
+            projectId: storedProject.id,
+            name: activeBranchId,
+            isDefault: true,
+            createdAt: storedProject.createdAt,
+            updatedAt: now,
+            files: storedProject.files ?? {},
+            chatHistory: [],
+            revisions: storedProject.revisions ?? [],
+            architecture: createProjectBranchArchitecture(
+              storedProject.id,
+              activeBranchId,
+              activeBranchId,
+              now,
+            ),
+          }),
+          projectId: storedProject.id,
+          name: existingBranch?.name ?? activeBranchId,
+          updatedAt: now,
+          files: existingBranch?.files ?? storedProject.files ?? {},
+          chatHistory: messages as any,
+        },
+      },
+    });
+  }, [messages, currentProjectId]);
+
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (!currentProjectId || !lastMessage?.id) return;
+
+    const messageKey = `${currentProjectId}:${lastMessage.id}`;
+    if (processedArchitectureMessagesRef.current.has(messageKey)) return;
+    processedArchitectureMessagesRef.current.add(messageKey);
+
+    const branchId = ProjectManager.resolveKickoffContext(currentProjectId).branchId;
+    let cancelled = false;
+
+    const persistArchitectureFromChat = async () => {
+      try {
+        const currentArchitecture = await ProjectRepository.getBranchArchitecture(currentProjectId, branchId);
+        const result = ChatArchitectureService.applyMessage({
+          projectId: currentProjectId,
+          branchId,
+          branchName: branchId,
+          language: appLanguage,
+          message: {
+            id: lastMessage.id,
+            role: lastMessage.role,
+            type: lastMessage.type,
+            content: lastMessage.content,
+            timestamp: lastMessage.timestamp,
+          },
+          architecture: currentArchitecture,
+        });
+
+        if (!result.changed) return;
+
+        await ProjectRepository.saveBranchArchitecture(currentProjectId, branchId, result.architecture);
+        if (!cancelled && result.extractedItemIds.length > 0) {
+          chatUpdate(lastMessage.id, {
+            architectureLinkIds: result.extractedItemIds,
+            architectureConversationRef: result.conversationRef,
+            architectureThreadId: result.chatThreadId,
+          });
+          addLog(`[Architect Chat] Saved ${result.extractedItemIds.length} chat-derived architecture item(s) to ${branchId}`);
+        }
+      } catch (error) {
+        addLog(`[Architect Chat] Failed to persist chat-derived architecture: ${(error as Error)?.message ?? String(error)}`);
+      }
+    };
+
+    void persistArchitectureFromChat();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, currentProjectId, appLanguage, addLog, chatUpdate]);
 
   // ── auto-scroll ───────────────────────────────────────────────────────────
   useEffect(() => {
