@@ -59,6 +59,10 @@ import { buildFileDiff, type FileDiff } from '../components/DiffPreview';
 import { EditAdmissionService } from '../services/EditAdmissionService';
 import type { AdmissionDecision } from '../services/EditAdmissionService';
 import {
+  buildBranchGenerationGuidance,
+  buildBranchTrustUiSummary,
+} from '../services/BranchArchitectureOrchestrationService';
+import {
   DEFAULT_PROJECT_BRANCH_ID,
   createProjectBranchArchitecture,
   projectGraphToFileMap,
@@ -1802,23 +1806,40 @@ export const useStudio = () => {
     // Reset chat to show conversation history while plan loads.
     dispatch({ type: 'RESET', payload: history });
 
+    // ── Language detection ────────────────────────────────────────────────────
+    let userLang = /[а-яА-Я]/.test(userPrompt) ? 'ru' : 'en';
+    if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') userLang = 'ru';
+    const trustLanguage = appLanguage || userLang;
+    const storedProjectForTrust = currentProjectId ? ProjectStorage.getProject(currentProjectId) : null;
+    const activeBranchIdForTrust = storedProjectForTrust?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
+    const branchArchitectureForTrust = storedProjectForTrust?.branches?.[activeBranchIdForTrust]?.architecture ?? null;
+    const generationTrust = buildBranchTrustUiSummary(
+      buildBranchGenerationGuidance(
+        branchArchitectureForTrust,
+        files,
+        trustLanguage,
+        {
+          requestIntent: userPrompt,
+          generationMode,
+        },
+      ),
+      trustLanguage,
+    );
+
     // ── Optimistic blueprint card — shown immediately while plan generates ─────
     const optimisticPlanMsgId = crypto.randomUUID();
     currentPlanMsgIdRef.current = optimisticPlanMsgId;
     dispatch({ type: 'APPEND', payload: {
-      id:             optimisticPlanMsgId,
-      role:           'assistant' as const,
-      type:           'blueprint',
-      timestamp:      Date.now(),
-      content:        `Plan: ${userPrompt.slice(0, 80)}`,
+      id:               optimisticPlanMsgId,
+      role:             'assistant' as const,
+      type:             'blueprint',
+      timestamp:        Date.now(),
+      content:          `Plan: ${userPrompt.slice(0, 80)}`,
       blueprintVisible: true,
-      progress:       0,
-      buildStatus:    'generating' as const,
+      progress:         0,
+      buildStatus:      'generating' as const,
+      generationTrust,
     } });
-
-    // ── Language detection ────────────────────────────────────────────────────
-    let userLang = /[а-яА-Я]/.test(userPrompt) ? 'ru' : 'en';
-    if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') userLang = 'ru';
 
     // ── Generate plan — replace optimistic card with real plan data ───────────
     let plan: Awaited<ReturnType<typeof GenerationPipeline.generatePlan>>;
@@ -2274,6 +2295,7 @@ export const useStudio = () => {
             role: 'assistant',
             type: 'generation-report',
             content: reportContent,
+            generationTrust,
             report: {
               mode: isEditMode ? 'EDIT' : 'NEW',
               theme: result.planTheme ?? 'default',
