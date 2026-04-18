@@ -2230,7 +2230,7 @@ function formatBlueprint(plan: any): string {
   return lines.join('\n');
 }
 
-function formatKickoffScopePrompt(plan: Record<string, unknown>): string | null {
+export function formatKickoffScopePrompt(plan: Record<string, unknown>): string | null {
   const kickoffScope = plan.kickoffScope as {
     id?: string;
     label?: string;
