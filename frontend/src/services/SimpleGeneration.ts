@@ -64,8 +64,10 @@ import { resolveAdmissionDecision } from './admissionGate';
 import type { KickoffBuildScopeId } from './ArchitectPlannerService';
 import { ProjectStorage } from './ProjectStorage';
 import {
+  type ArtistLayerPreference,
   buildArtistLayerPrompt,
-  extractArtistLayerFromManifestText,
+  extractArtistLayerFromKnownFiles,
+  extractArtistLayerPreferenceFromPromptText,
   fallbackClassify,
   hasMeaningfulArtistLayer,
   resolveArtistLayer,
@@ -1831,13 +1833,18 @@ function enrichPlanWithArtistLayer(
     intent: string;
     files?: Record<string, string>;
     redesignIntent?: Partial<RedesignIntent>;
-    preferredArtistLayer?: ArtistLayerSpec | null;
+    preferredArtistLayer?: ArtistLayerSpec | ArtistLayerPreference | null;
+    supportPrompt?: string;
   },
 ): Record<string, unknown> {
   const plan = JSON.parse(JSON.stringify(rawPlan ?? {})) as Record<string, any>;
-  const existingArtistLayer = hasMeaningfulArtistLayer(plan.artistLayer)
-    ? plan.artistLayer as ArtistLayerSpec
-    : input.preferredArtistLayer;
+  const existingArtistLayer = resolvePreferredArtistLayerContext({
+    preferredArtistLayer: hasMeaningfulArtistLayer(plan.artistLayer)
+      ? plan.artistLayer as ArtistLayerSpec
+      : input.preferredArtistLayer,
+    fileContexts: [input.files],
+    supportPrompt: input.supportPrompt,
+  }).preferredArtistLayer;
   const artistLayer = resolveArtistLayer({
     idea: input.intent,
     classification: fallbackClassify(input.intent),
@@ -1870,33 +1877,64 @@ function sanitizeSupportDesignPrompt(prompt?: string): string {
   return stripArtistLayerPrompt(prompt);
 }
 
-function extractArtistLayerFromFiles(files: Record<string, string> | undefined): ArtistLayerSpec | null {
-  if (!files) return null;
+type PreferredArtistLayerContext = {
+  preferredArtistLayer: ArtistLayerSpec | ArtistLayerPreference | null;
+  source: 'direct' | 'manifest-file' | 'support-prompt' | 'fallback';
+};
 
-  const candidates = [
-    'PROJECT_MANIFEST.json',
-    '/PROJECT_MANIFEST.json',
-    'project-manifest.json',
-    '/project-manifest.json',
-  ];
-
-  for (const path of candidates) {
-    const artistLayer = extractArtistLayerFromManifestText(files[path]);
-    if (artistLayer) return artistLayer;
+function resolvePreferredArtistLayerContext(input: {
+  preferredArtistLayer?: ArtistLayerSpec | ArtistLayerPreference | null;
+  fileContexts?: Array<Record<string, string> | undefined>;
+  supportPrompt?: string;
+}): PreferredArtistLayerContext {
+  if (input.preferredArtistLayer) {
+    return {
+      preferredArtistLayer: input.preferredArtistLayer,
+      source: 'direct',
+    };
   }
 
-  return null;
+  for (const files of input.fileContexts ?? []) {
+    const recoveredArtistLayer = extractArtistLayerFromKnownFiles(files);
+    if (recoveredArtistLayer) {
+      return {
+        preferredArtistLayer: recoveredArtistLayer,
+        source: 'manifest-file',
+      };
+    }
+  }
+
+  const promptPreference = extractArtistLayerPreferenceFromPromptText(input.supportPrompt);
+  if (promptPreference) {
+    return {
+      preferredArtistLayer: promptPreference,
+      source: 'support-prompt',
+    };
+  }
+
+  return {
+    preferredArtistLayer: null,
+    source: 'fallback',
+  };
 }
 
 export function resolveArtistLayerForGeneration(input: {
   intent: string;
   files?: Record<string, string>;
+  fileContexts?: Array<Record<string, string> | undefined>;
   pages?: Array<{ name?: string; path?: string; purpose?: string; showInNav?: boolean }>;
   appName?: string;
   currentTheme?: string;
   redesignIntent?: Partial<RedesignIntent>;
-  preferredArtistLayer?: ArtistLayerSpec | null;
+  preferredArtistLayer?: ArtistLayerSpec | ArtistLayerPreference | null;
+  supportPrompt?: string;
 }): ArtistLayerSpec {
+  const preferredArtistLayer = resolvePreferredArtistLayerContext({
+    preferredArtistLayer: input.preferredArtistLayer,
+    fileContexts: input.fileContexts ?? [input.files],
+    supportPrompt: input.supportPrompt,
+  }).preferredArtistLayer;
+
   return resolveArtistLayer({
     idea: input.intent,
     classification: fallbackClassify(input.intent),
@@ -1905,7 +1943,7 @@ export function resolveArtistLayerForGeneration(input: {
     appName: input.appName,
     currentTheme: input.currentTheme,
     redesignIntentOverride: input.redesignIntent,
-    preferredArtistLayer: input.preferredArtistLayer,
+    preferredArtistLayer,
   });
 }
 
@@ -2401,6 +2439,19 @@ export function formatKickoffScopePrompt(plan: Record<string, unknown>): string 
   ].filter(Boolean).join('\n');
 }
 
+function buildNewModeArtistLayerFocusBlock(plan: Record<string, unknown>): string {
+  if (!hasMeaningfulArtistLayer(plan.artistLayer)) return '';
+
+  const artistLayer = plan.artistLayer as ArtistLayerSpec;
+  return [
+    'PRODUCT PLAN ARTIST LAYER FOCUS:',
+    '- The single authoritative artist-layer source is PRODUCT PLAN.artistLayer in the JSON below.',
+    '- Do not invent, infer, or inject a second artist-layer source.',
+    '- Read these plan branches before coding: artistLayer.classification, artistLayer.designDirection, artistLayer.redesignIntent, artistLayer.assetPolicy.previewSafeFallback.',
+    `- Key anchors from that same JSON: visual archetype "${artistLayer.designDirection.visualArchetype}", change envelope "${artistLayer.redesignIntent.changeEnvelope}", preview-safe fallback "${artistLayer.assetPolicy.previewSafeFallback.mediaStrategy}".`,
+  ].join('\n');
+}
+
 export function buildNewCoderSystemPrompt(input: {
   mode: GenerationMode;
   plan: Record<string, unknown>;
@@ -2410,11 +2461,13 @@ export function buildNewCoderSystemPrompt(input: {
   memoryContext?: string;
   envPrompt?: string;
 }): string {
+  const artistLayerFocusBlock = buildNewModeArtistLayerFocusBlock(input.plan);
   let prompt = SYSTEM_PROMPT
     + CSS_RECIPES
     + SHADCN_CHEATSHEET
     + '\n\nGENERATION_MODE:\n'
     + input.mode
+    + (artistLayerFocusBlock ? '\n\n' + artistLayerFocusBlock : '')
     + '\n\nPRODUCT PLAN (SOURCE OF TRUTH):\n'
     + JSON.stringify(input.plan, null, 2)
     + (input.technicalBlueprint
@@ -3006,16 +3059,18 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       const existingManifestRaw = contextFiles['route-manifest.json'] ?? existingFiles['route-manifest.json'] ?? '';
       const existingManifest = parseManifest(existingManifestRaw);
       const routeLockBlock = existingManifest ? '\n' + manifestToPromptBlock(existingManifest) + '\n' : '';
-      const preferredEditArtistLayer = config.artistLayer
-        ?? extractArtistLayerFromFiles(contextFiles)
-        ?? extractArtistLayerFromFiles(existingFiles);
+      const preferredEditArtistLayerContext = resolvePreferredArtistLayerContext({
+        preferredArtistLayer: config.artistLayer,
+        fileContexts: [contextFiles, existingFiles],
+        supportPrompt: config.designSystemPrompt,
+      });
       const editArtistLayer = resolveArtistLayerForGeneration({
         intent: config.intent,
         files: contextFiles,
         appName: storedProject?.name,
         currentTheme: storedProject?.theme,
         redesignIntent: config.redesignIntent,
-        preferredArtistLayer: preferredEditArtistLayer,
+        preferredArtistLayer: preferredEditArtistLayerContext.preferredArtistLayer,
       });
 
       let editSystemPrompt = buildEditCoderSystemPrompt({
@@ -3030,8 +3085,12 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       if (branchGuidancePrompt) {
         config.onLog('[SimpleGeneration] EDIT branch architecture guidance injected');
       }
-      if (preferredEditArtistLayer) {
-        config.onLog('[SimpleGeneration] EDIT artist layer reused from existing context');
+      if (preferredEditArtistLayerContext.source === 'direct') {
+        config.onLog('[SimpleGeneration] EDIT artist layer reused from direct existing context');
+      } else if (preferredEditArtistLayerContext.source === 'manifest-file') {
+        config.onLog('[SimpleGeneration] EDIT artist layer recovered from project manifest context');
+      } else if (preferredEditArtistLayerContext.source === 'support-prompt') {
+        config.onLog('[SimpleGeneration] EDIT artist layer recovered from existing support prompt context');
       } else {
         config.onLog('[SimpleGeneration] EDIT artist layer derived from fallback classification');
       }
@@ -3434,13 +3493,14 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     }
     plan = enrichPlanWithArtistLayer(
       enforcePlanModeRules(plan, mode, config.intent, config.onLog),
-      {
-        intent: config.intent,
-        files: config.files,
-        redesignIntent: config.redesignIntent,
-        preferredArtistLayer: config.artistLayer,
-      },
-    );
+        {
+          intent: config.intent,
+          files: config.files,
+          redesignIntent: config.redesignIntent,
+          preferredArtistLayer: config.artistLayer,
+          supportPrompt: config.designSystemPrompt,
+        },
+      );
     config.onLog(`[SimpleGeneration] Plan: ${JSON.stringify(plan).slice(0, 200)}`);
     console.log('[SimpleGeneration] Architect plan:', plan);
 
@@ -3550,6 +3610,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
             files: config.files,
             redesignIntent: config.redesignIntent,
             preferredArtistLayer: config.artistLayer,
+            supportPrompt: config.designSystemPrompt,
           },
         );
         config.onLog('[SimpleGeneration] Approved build plan promoted to source of truth');
