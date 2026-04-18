@@ -14,7 +14,7 @@ import { ScannerService } from './ScannerService';
 import { metricsService } from './MetricsService';
 import { promptRegistry } from './PromptRegistry';
 import { ConfigService }  from './ConfigService';
-import { buildArtistLayerPrompt } from './designSystem';
+import { buildArtistLayerPrompt, extractArtistLayerFromKnownFiles } from './designSystem';
 import type { AgentSlot, ApiProvider } from './ConfigService';
 import { ORCHESTRATOR_TIMEOUT_MS, withOrchestratorTimeout } from './orchestratorTimeout';
 import {
@@ -389,6 +389,31 @@ export const buildSystemPrompt = (
   const fileCtx = Object.entries(files)
     .map(([n, c]) => `### ${n}\n\`\`\`\n${c.slice(0, 2500)}\n\`\`\``)
     .join('\n\n');
+  const recoveredArtistLayer = manifest?.artistLayer ?? extractArtistLayerFromKnownFiles(files);
+  const shouldSignalMissingArtistLayer = Boolean(manifest) || Object.keys(files).length > 0;
+  const artistLayerStatusBlock = manifest?.artistLayer
+    ? `
+## ARTIST LAYER — CURRENT SOURCE OF TRUTH
+${buildArtistLayerPrompt(manifest.artistLayer)}
+`
+    : recoveredArtistLayer
+    ? `
+## ARTIST LAYER — CURRENT SOURCE OF TRUTH
+Recovered from project manifest file context because manifest.artistLayer was missing.
+${buildArtistLayerPrompt(recoveredArtistLayer)}
+`
+    : !shouldSignalMissingArtistLayer
+    ? ''
+    : `
+## ARTIST LAYER STATUS
+Warning: manifest.artistLayer is missing and no inspectable artist-layer payload was found in project files. Preserve the current visual language and avoid speculative reclassification.
+`;
+
+  if (!manifest?.artistLayer && recoveredArtistLayer) {
+    console.warn('[Orchestrator] manifest.artistLayer missing; recovered artist layer from project manifest file context');
+  } else if (!manifest?.artistLayer && shouldSignalMissingArtistLayer) {
+    console.warn('[Orchestrator] manifest.artistLayer missing and no reusable artist layer was found in project files');
+  }
 
   return `You are AIC-RG Studio — an elite product builder.
 Stack: React + TypeScript + Tailwind CSS + Vite ESM. No other stacks.
@@ -694,10 +719,7 @@ Never use @/ paths — always ./ relative from the importing file.
 
 ## CURRENT PROJECT
 ${fileCtx || '(new project — build from scratch)'}
-${manifest?.artistLayer ? `
-## ARTIST LAYER — CURRENT SOURCE OF TRUTH
-${buildArtistLayerPrompt(manifest.artistLayer)}
-` : ''}
+${artistLayerStatusBlock}
 ${scopeConstraint ? `
 ## SCOPE CONSTRAINT ⚠️ — STRICTLY ENFORCE
 ${scopeConstraint}
