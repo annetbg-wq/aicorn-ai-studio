@@ -163,6 +163,7 @@ export function resolveStudioKickoffContext(
 export async function prepareKickoffBuildApproval(input: {
   pendingPlan: PendingBlueprintPlan;
   now?: string;
+  language?: string;
 }): Promise<{ approvedPlan: ProjectPlan; kickoffSnapshotId: string | null }> {
   const { pendingPlan } = input;
   const now = input.now ?? new Date().toISOString();
@@ -181,6 +182,7 @@ export async function prepareKickoffBuildApproval(input: {
     pendingPlan.architectKickoff.selectedOptionId,
     pendingPlan.plan,
     now,
+    input.language,
   );
 
   if ((preparation.buildPlan as { kickoffScope?: { id?: string } }).kickoffScope?.id
@@ -1775,6 +1777,7 @@ export const useStudio = () => {
             intent:     userPrompt,
             projectId:  kickoffContext.projectId,
             branchId:   kickoffContext.branchId,
+            language:   appLanguage,
             apiKey:     effectiveApiKey,
             modelId:    effectiveModel,
             signal:     controller.signal,
@@ -1785,6 +1788,7 @@ export const useStudio = () => {
             kickoffContext.branchId,
             architectPlan,
             new Date().toISOString(),
+            appLanguage,
           );
           pendingArchitectKickoffRef.current = {
             projectId: kickoffContext.projectId,
@@ -1799,7 +1803,7 @@ export const useStudio = () => {
             chatAppend({
               role:      'assistant' as const,
               type:      'text',
-              content:   ArchitectPlannerService.formatPlanForChat(architectPlan),
+              content:   ArchitectPlannerService.formatPlanForChat(architectPlan, appLanguage),
               timestamp: Date.now(),
             });
           }
@@ -2292,6 +2296,7 @@ export const useStudio = () => {
       const approval = pendingPlan
         ? await prepareKickoffBuildApproval({
             pendingPlan,
+            language: appLanguage,
           })
         : { approvedPlan: undefined, kickoffSnapshotId: null };
 
