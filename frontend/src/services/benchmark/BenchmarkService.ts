@@ -296,6 +296,14 @@ async function runSingleIntent(
     outcome,
     blockingCodes,
     error:         genResult.error ?? null,
+    visualQuality: genResult.visualQualitySummary
+      ? {
+          score: genResult.visualQualitySummary.score,
+          verdict: genResult.visualQualitySummary.verdict,
+          reasons: genResult.visualQualitySummary.reasons,
+          notes: genResult.visualQualitySummary.notes,
+        }
+      : undefined,
   };
 }
 

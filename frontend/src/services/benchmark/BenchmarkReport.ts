@@ -7,6 +7,7 @@
  */
 
 import type { IntentCategory } from './goldenIntents';
+import type { VisualQualityVerdict } from '../../shared/projectModel';
 
 // Re-export scorecard surface so BenchmarkReport is the single benchmark barrel
 export type {
@@ -36,6 +37,15 @@ export interface IntentRunResult {
   blockingCodes: string[];
   /** Non-null when outcome is 'failed'. */
   error:         string | null;
+  /** Optional per-intent visual-quality result, distinct from operational outcome. */
+  visualQuality?: IntentRunVisualQuality;
+}
+
+export interface IntentRunVisualQuality {
+  score:   number;
+  verdict: VisualQualityVerdict;
+  reasons: string[];
+  notes?:  string[];
 }
 
 // ── Full report ──────────────────────────────────────────────────────────────
@@ -61,6 +71,7 @@ export interface BenchmarkSummary {
   avgRouteCount:   number;
   avgFeatureCount: number;
   byCategory:   Record<IntentCategory, CategorySummary>;
+  visualQuality?: BenchmarkVisualQualitySummary;
 }
 
 export interface CategorySummary {
@@ -69,6 +80,13 @@ export interface CategorySummary {
   blocked:      number;
   failed:       number;
   avgDurationMs: number;
+}
+
+export interface BenchmarkVisualQualitySummary {
+  measuredIntents: number;
+  avgScore:        number;
+  verdictDistribution: Record<VisualQualityVerdict, number>;
+  notes?:          string[];
 }
 
 // ── Compute summary from results ─────────────────────────────────────────────
@@ -94,6 +112,39 @@ export function computeSummary(results: IntentRunResult[]): BenchmarkSummary {
     };
   }
 
+  const visualResults = results.filter(
+    (r): r is IntentRunResult & { visualQuality: IntentRunVisualQuality } => Boolean(r.visualQuality),
+  );
+  const visualQuality = visualResults.length > 0
+    ? (() => {
+        const verdictCounts: Record<VisualQualityVerdict, number> = {
+          strong: 0,
+          acceptable: 0,
+          weak: 0,
+        };
+
+        for (const result of visualResults) {
+          verdictCounts[result.visualQuality.verdict] += 1;
+        }
+
+        const notes: string[] = [];
+        if (visualResults.length < total) {
+          notes.push(`Visual quality available for ${visualResults.length} of ${total} intents.`);
+        }
+
+        return {
+          measuredIntents: visualResults.length,
+          avgScore: avg(visualResults.map(r => r.visualQuality.score)),
+          verdictDistribution: {
+            strong: verdictCounts.strong / visualResults.length,
+            acceptable: verdictCounts.acceptable / visualResults.length,
+            weak: verdictCounts.weak / visualResults.length,
+          },
+          notes: notes.length > 0 ? notes : undefined,
+        } satisfies BenchmarkVisualQualitySummary;
+      })()
+    : undefined;
+
   return {
     total,
     previewReady,
@@ -104,6 +155,7 @@ export function computeSummary(results: IntentRunResult[]): BenchmarkSummary {
     avgRouteCount:   avg(results.map(r => r.routeCount)),
     avgFeatureCount: avg(results.map(r => r.featureCount)),
     byCategory,
+    visualQuality,
   };
 }
 
@@ -113,6 +165,7 @@ export function renderMarkdownSummary(report: BenchmarkReport): string {
   const s = report.summary;
   const pct = (n: number) => total ? `${Math.round((n / s.total) * 100)}%` : '0%';
   const total = s.total;
+  const hasPerIntentVisualQuality = report.results.some(r => r.visualQuality);
 
   const lines: string[] = [
     `# Benchmark Report — ${report.runId}`,
@@ -134,11 +187,37 @@ export function renderMarkdownSummary(report: BenchmarkReport): string {
     `| Avg route count | ${s.avgRouteCount} |`,
     `| Avg feature count | ${s.avgFeatureCount} |`,
     '',
+  ];
+
+  if (s.visualQuality) {
+    lines.push(
+      '## Visual Quality',
+      '',
+      `| Metric | Value |`,
+      `|--------|-------|`,
+      `| Measured intents | ${s.visualQuality.measuredIntents} |`,
+      `| Avg visual score | ${s.visualQuality.avgScore} |`,
+      `| Strong verdict rate | ${Math.round(s.visualQuality.verdictDistribution.strong * 100)}% |`,
+      `| Acceptable verdict rate | ${Math.round(s.visualQuality.verdictDistribution.acceptable * 100)}% |`,
+      `| Weak verdict rate | ${Math.round(s.visualQuality.verdictDistribution.weak * 100)}% |`,
+      '',
+    );
+
+    if (s.visualQuality.notes && s.visualQuality.notes.length > 0) {
+      lines.push('Visual notes:');
+      for (const note of s.visualQuality.notes) {
+        lines.push(`- ${note}`);
+      }
+      lines.push('');
+    }
+  }
+
+  lines.push(
     '## By Category',
     '',
     '| Category | Total | Ready | Blocked | Failed | Avg time |',
     '|----------|-------|-------|---------|--------|----------|',
-  ];
+  );
 
   for (const [cat, cs] of Object.entries(s.byCategory)) {
     lines.push(
@@ -147,15 +226,26 @@ export function renderMarkdownSummary(report: BenchmarkReport): string {
   }
 
   lines.push('', '## Per-Intent Results', '');
-  lines.push('| ID | Category | Outcome | Files | Routes | Features | Time | Blocking |');
-  lines.push('|----|----------|---------|-------|--------|----------|------|----------|');
+  if (hasPerIntentVisualQuality) {
+    lines.push('| ID | Category | Outcome | Files | Routes | Features | Visual score | Visual verdict | Time | Blocking |');
+    lines.push('|----|----------|---------|-------|--------|----------|--------------|----------------|------|----------|');
+  } else {
+    lines.push('| ID | Category | Outcome | Files | Routes | Features | Time | Blocking |');
+    lines.push('|----|----------|---------|-------|--------|----------|------|----------|');
+  }
 
   for (const r of report.results) {
     const outcomeIcon = r.outcome === 'preview-ready' ? 'ready' : r.outcome;
     const blocking = r.blockingCodes.length > 0 ? r.blockingCodes.join(', ') : '-';
-    lines.push(
-      `| ${r.intentId} | ${r.category} | ${outcomeIcon} | ${r.fileCount} | ${r.routeCount} | ${r.featureCount} | ${(r.durationMs / 1000).toFixed(1)}s | ${blocking} |`,
-    );
+    if (hasPerIntentVisualQuality) {
+      lines.push(
+        `| ${r.intentId} | ${r.category} | ${outcomeIcon} | ${r.fileCount} | ${r.routeCount} | ${r.featureCount} | ${r.visualQuality?.score ?? '-'} | ${r.visualQuality?.verdict ?? '-'} | ${(r.durationMs / 1000).toFixed(1)}s | ${blocking} |`,
+      );
+    } else {
+      lines.push(
+        `| ${r.intentId} | ${r.category} | ${outcomeIcon} | ${r.fileCount} | ${r.routeCount} | ${r.featureCount} | ${(r.durationMs / 1000).toFixed(1)}s | ${blocking} |`,
+      );
+    }
   }
 
   lines.push('');
