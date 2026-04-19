@@ -18,6 +18,8 @@
  *   - Inspectable in DevTools: window.__generationTracer for live access
  */
 
+import type { DesignRecipeTelemetry } from '../shared/projectModel';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type SpanStatus = 'ok' | 'warn' | 'error' | 'skipped';
@@ -59,6 +61,8 @@ export interface GenerationTrace {
   fileCount?:  number;
   /** Human-readable summary of what went wrong (if outcome !== 'ok') */
   errorSummary?: string;
+  /** Optional local-only design telemetry for recipe learning. */
+  designTelemetry?: DesignRecipeTelemetry;
 }
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
@@ -183,11 +187,15 @@ export class TraceHandle {
   }
 
   /** Finish the trace, persist it, dispatch event. */
-  finish(outcome: SpanStatus, extra: { fileCount?: number; errorSummary?: string } = {}): void {
+  finish(
+    outcome: SpanStatus,
+    extra: { fileCount?: number; errorSummary?: string; designTelemetry?: DesignRecipeTelemetry } = {},
+  ): void {
     this._trace.outcome      = outcome;
     this._trace.e2eMs        = Date.now() - new Date(this._trace.startedAt).getTime();
     this._trace.fileCount    = extra.fileCount;
     this._trace.errorSummary = extra.errorSummary;
+    this._trace.designTelemetry = extra.designTelemetry;
 
     // Close any dangling spans
     for (const span of this._spanStack) {
@@ -291,6 +299,12 @@ class GenerationTracerClass {
       `  Tokens:   ${trace.tokens ? `${trace.tokens.prompt}p / ${trace.tokens.completion}c` : '—'}`,
     ];
     if (trace.errorSummary) lines.push(`  Error:    ${trace.errorSummary}`);
+    if (trace.designTelemetry) {
+      lines.push(
+        `  Design:   ${trace.designTelemetry.recipe.category}/${trace.designTelemetry.recipe.style}`
+        + ` → ${trace.designTelemetry.outcome.visualVerdict} (${trace.designTelemetry.outcome.visualScore})`,
+      );
+    }
     lines.push('  Spans:');
 
     function formatSpan(span: TraceSpan, indent: string): void {

@@ -21,6 +21,13 @@
  * Storage: localStorage key per project, max 64KB per project.
  */
 
+import type {
+  DesignCorrectionPatternSummary,
+  DesignLearningBucketSummary,
+  DesignLearningSummary,
+  DesignRecipeTelemetry,
+} from '../shared/projectModel';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface GenerationHistoryEntry {
@@ -90,6 +97,8 @@ export interface ProjectMemory {
   schemaDecisions:   SchemaDecision[];
   knownIssues:       KnownIssue[];
   generationHistory: GenerationHistoryEntry[];
+  /** Lightweight local recipe/outcome telemetry for future design learning. */
+  designTelemetry?:  DesignRecipeTelemetry[];
   /** Compact notes for the LLM — user or system can append. */
   notes:             string[];
   createdAt:         string;
@@ -118,6 +127,7 @@ function emptyMemory(projectId: string): ProjectMemory {
     schemaDecisions:   [],
     knownIssues:       [],
     generationHistory: [],
+    designTelemetry:   [],
     notes:             [],
     createdAt:         now,
     updatedAt:         now,
@@ -130,6 +140,7 @@ const KEY_PREFIX = 'PROJECT_MEM_';
 const MAX_HISTORY = 10;
 const MAX_ISSUES  = 20;
 const MAX_PACKAGES = 50;
+const MAX_DESIGN_TELEMETRY = 30;
 
 function storageKey(projectId: string): string {
   return KEY_PREFIX + projectId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -242,6 +253,7 @@ class ProjectMemoryServiceClass {
       // quota — trim history
       mem.generationHistory = mem.generationHistory.slice(-3);
       mem.knownIssues       = mem.knownIssues.slice(-5);
+      mem.designTelemetry   = (mem.designTelemetry ?? []).slice(-8);
       try {
         localStorage.setItem(storageKey(mem.projectId), JSON.stringify(mem));
       } catch { /* give up */ }
@@ -269,6 +281,7 @@ class ProjectMemoryServiceClass {
       errors?:      string[];
       stubbed?:     string;
       routes?:      RouteMemory[];
+      designTelemetry?: DesignRecipeTelemetry;
     },
   ): ProjectMemory {
     const mem = this.get(projectId);
@@ -344,6 +357,15 @@ class ProjectMemoryServiceClass {
       mem.generationHistory = mem.generationHistory.slice(-MAX_HISTORY);
     }
 
+    // Design telemetry
+    if (params.designTelemetry) {
+      const nextTelemetry = [
+        ...(mem.designTelemetry ?? []),
+        params.designTelemetry,
+      ];
+      mem.designTelemetry = nextTelemetry.slice(-MAX_DESIGN_TELEMETRY);
+    }
+
     // Known issues
     if (params.errors && params.errors.length > 0) {
       for (const err of params.errors.slice(0, 3)) {
@@ -371,6 +393,14 @@ class ProjectMemoryServiceClass {
 
     this.save(mem);
     return mem;
+  }
+
+  getDesignTelemetry(projectId: string): DesignRecipeTelemetry[] {
+    return this.get(projectId).designTelemetry ?? [];
+  }
+
+  summarizeDesignTelemetry(projectId: string): DesignLearningSummary {
+    return summarizeDesignTelemetryEntries(this.getDesignTelemetry(projectId));
   }
 
   /** Append a free-form note (e.g. from the user: "don't use dark backgrounds"). */
@@ -477,3 +507,103 @@ class ProjectMemoryServiceClass {
 }
 
 export const projectMemory = new ProjectMemoryServiceClass();
+
+function average(values: number[]): number {
+  if (values.length === 0) return 0;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function rate(matches: number, total: number): number {
+  return total > 0 ? matches / total : 0;
+}
+
+function summarizeBucketEntries(
+  entries: DesignRecipeTelemetry[],
+  keyForEntry: (entry: DesignRecipeTelemetry) => string,
+): DesignLearningBucketSummary[] {
+  const buckets = new Map<string, DesignRecipeTelemetry[]>();
+
+  for (const entry of entries) {
+    const key = keyForEntry(entry);
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(entry);
+    buckets.set(key, bucket);
+  }
+
+  return Array.from(buckets.entries())
+    .map(([key, bucket]) => ({
+      key,
+      sampleCount: bucket.length,
+      avgVisualScore: average(bucket.map((entry) => entry.outcome.visualScore)),
+      strongRate: rate(bucket.filter((entry) => entry.outcome.visualVerdict === 'strong').length, bucket.length),
+      weakRate: rate(bucket.filter((entry) => entry.outcome.visualVerdict === 'weak').length, bucket.length),
+      polishAppliedRate: rate(bucket.filter((entry) => entry.outcome.polishApplied).length, bucket.length),
+      polishImprovedRate: rate(bucket.filter((entry) => entry.outcome.qualityImprovedAfterPolish).length, bucket.length),
+    }))
+    .sort((a, b) =>
+      b.avgVisualScore - a.avgVisualScore
+      || b.sampleCount - a.sampleCount
+      || a.key.localeCompare(b.key))
+    .slice(0, 6);
+}
+
+function summarizeCorrectionPatterns(entries: DesignRecipeTelemetry[]): DesignCorrectionPatternSummary[] {
+  const patternMap = new Map<string, DesignRecipeTelemetry[]>();
+
+  for (const entry of entries) {
+    for (const pattern of entry.outcome.polishTriggerReasons) {
+      const bucket = patternMap.get(pattern) ?? [];
+      bucket.push(entry);
+      patternMap.set(pattern, bucket);
+    }
+  }
+
+  return Array.from(patternMap.entries())
+    .map(([pattern, bucket]) => {
+      const deltas = bucket
+        .map((entry) => entry.outcome.polishDeltaScore)
+        .filter((delta): delta is number => typeof delta === 'number');
+
+      return {
+        pattern,
+        sampleCount: bucket.length,
+        avgDeltaScore: average(deltas),
+        improveRate: rate(bucket.filter((entry) => entry.outcome.qualityImprovedAfterPolish).length, bucket.length),
+      };
+    })
+    .sort((a, b) =>
+      b.improveRate - a.improveRate
+      || b.avgDeltaScore - a.avgDeltaScore
+      || b.sampleCount - a.sampleCount
+      || a.pattern.localeCompare(b.pattern))
+    .slice(0, 8);
+}
+
+export function summarizeDesignTelemetryEntries(entries: DesignRecipeTelemetry[]): DesignLearningSummary {
+  const notes: string[] = [];
+  if (entries.length === 0) {
+    notes.push('No design telemetry recorded yet.');
+  }
+
+  return {
+    totalSamples: entries.length,
+    bestRecipes: summarizeBucketEntries(
+      entries,
+      (entry) => `${entry.recipe.category}/${entry.recipe.style}/${entry.recipe.visualArchetype}`,
+    ),
+    styleSummary: summarizeBucketEntries(
+      entries,
+      (entry) => `${entry.recipe.category}/${entry.recipe.style}`,
+    ),
+    redesignModeSummary: summarizeBucketEntries(
+      entries,
+      (entry) => `${entry.redesign.mode}/${entry.redesign.structureLock}`,
+    ),
+    assetPolicySummary: summarizeBucketEntries(
+      entries,
+      (entry) => `${entry.assets.mediaRemotePolicy}/${entry.assets.fontLoadingStrategy}/${entry.assets.componentRemotePolicy}`,
+    ),
+    correctionPatternSummary: summarizeCorrectionPatterns(entries),
+    notes: notes.length > 0 ? notes : undefined,
+  };
+}
