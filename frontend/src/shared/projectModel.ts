@@ -854,6 +854,65 @@ export interface GenerationQualitySummary {
   summary:  string;
 }
 
+// ─── VisualQualitySummary ──────────────────────────────────────────────────────
+
+export type VisualQualityVerdict = 'strong' | 'acceptable' | 'weak';
+
+export type VisualQualityBand = 'high' | 'medium' | 'low';
+
+export type VisualQualityDimensionId =
+  | 'visual-hierarchy'
+  | 'spacing-consistency'
+  | 'token-style-consistency'
+  | 'cta-prominence'
+  | 'clutter-breathing-room'
+  | 'mobile-fit'
+  | 'state-completeness';
+
+export type VisualQualitySignalSource =
+  | 'artist-layer'
+  | 'visual-preset'
+  | 'route-manifest'
+  | 'preview-meta'
+  | 'project-graph'
+  | 'file-structure';
+
+export interface VisualQualityEvidence {
+  id:     string;
+  source: VisualQualitySignalSource;
+  note:   string;
+}
+
+export interface VisualQualityDimensionSummary {
+  id:      VisualQualityDimensionId;
+  verdict: VisualQualityVerdict;
+  score:   number;
+  reasons: string[];
+  evidence?: VisualQualityEvidence[];
+  notes?:    string[];
+}
+
+/**
+ * Per-run visual-quality summary produced by VisualQualityService.
+ *
+ * Distinct from GenerationQualitySummary:
+ * - visual quality = hierarchy, spacing, consistency, CTA clarity, breathing room,
+ *   viewport discipline, and state treatment
+ * - technical quality = entry/guards/warnings/repair hints
+ *
+ * Built synchronously from structured local signals only — no screenshots,
+ * no network calls, no LLM calls.
+ */
+export interface VisualQualitySummary {
+  verdict:    VisualQualityVerdict;
+  band:       VisualQualityBand;
+  score:      number;
+  dimensions: VisualQualityDimensionSummary[];
+  reasons:    string[];
+  evidence?:  VisualQualityEvidence[];
+  notes?:     string[];
+}
+
 // ─── GenerationResult ─────────────────────────────────────────────────────────
 
 /**
@@ -991,6 +1050,15 @@ export interface GenerationResult {
    * Undefined on cancelled or pre-v5 results.
    */
   qualitySummary?: GenerationQualitySummary;
+
+  /**
+   * Lightweight per-run visual quality summary built from artist-layer,
+   * visual-preset, route, preview, graph, and lightweight file-structure signals.
+   *
+   * Populated by VisualQualityService.evaluate() in SimpleGeneration.
+   * Undefined on cancelled or pre-visual-critic results.
+   */
+  visualQualitySummary?: VisualQualitySummary;
 }
 
 // ─── Preview Lifecycle (readiness gate) ───────────────────────────────────────
