@@ -5,6 +5,8 @@
  * to ComparisonScorecardService.compare().  No external calls are made.
  */
 
+import type { VisualQualityVerdict } from '../../shared/projectModel';
+
 // ── Baseline entry ────────────────────────────────────────────────────────────
 
 export interface BaselineMetrics {
@@ -35,8 +37,23 @@ export interface BaselineMetrics {
    */
   exportCompleteness: number;
 
+  /**
+   * Optional visual-quality aggregate for comparison-ready baselines.
+   * Omit when the external tool has not been measured visually yet.
+   */
+  visualQuality?: BaselineVisualQualityMetrics;
+
   /** Free-text notes, methodology caveats, source URL, etc. */
   notes?: string;
+}
+
+export interface BaselineVisualQualityMetrics {
+  /** Average visual-quality score on the 0–100 studio scale. */
+  avgScore: number;
+  /** Fractional verdict distribution (0–1), when available. */
+  verdictDistribution?: Partial<Record<VisualQualityVerdict, number>>;
+  /** Optional methodology or caveat notes for the visual audit. */
+  notes?: string[];
 }
 
 // ── Thin validation helper ────────────────────────────────────────────────────
@@ -73,5 +90,5 @@ export const EXAMPLE_LOVABLE_BASELINE: BaselineMetrics = {
   avgFeatureCount:          5,
   blockedOrFailedRate:      0.20,
   exportCompleteness:       0.75,
-  notes:                    'Manual audit of 15 identical prompts. Export completeness based on missing component files.',
+  notes:                    'Manual audit of 15 identical prompts. Export completeness based on missing component files. Visual quality not yet measured in this illustrative baseline.',
 };

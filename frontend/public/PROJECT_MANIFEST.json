@@ -201,8 +201,10 @@
     "services/__tests__/architectureMemoryModel.test.ts",
     "services/__tests__/artifactParser.test.ts",
     "services/__tests__/ArtifactReviewerService.test.ts",
+    "services/__tests__/BenchmarkReport.visual-quality.test.ts",
     "services/__tests__/BranchArchitectureOrchestrationService.test.ts",
     "services/__tests__/ChatArchitectureService.test.ts",
+    "services/__tests__/ComparisonScorecardService.visual-quality.test.ts",
     "services/__tests__/compileGuard.test.ts",
     "services/__tests__/designDirection.test.ts",
     "services/__tests__/diffReviewFlow.test.ts",
@@ -271,5 +273,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-19T09:34:20.656Z"
+  "last_scan_timestamp": "2026-04-19T10:05:41.426Z"
 }

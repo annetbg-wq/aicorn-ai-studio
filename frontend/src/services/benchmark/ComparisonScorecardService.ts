@@ -39,6 +39,8 @@ export type ScorecardVerdict = 'win' | 'tie' | 'lose';
 export interface ScorecardRow {
   /** Metric identifier, matches BaselineMetrics keys where applicable. */
   metric: string;
+  /** Top-level section so visual quality stays distinct from operational metrics. */
+  section?: 'operational' | 'visual-quality';
   /** Human-readable label for display. */
   label: string;
   /** Studio (our tool) value — formatted string for display. */
@@ -112,6 +114,7 @@ function compareLowerBetter(studio: number, baseline: number): ScorecardVerdict 
 
 interface MetricDef {
   key:         string;
+  section:     'operational' | 'visual-quality';
   label:       string;
   direction:   'higher' | 'lower';
   format:      (v: number) => string;
@@ -122,6 +125,7 @@ interface MetricDef {
 const METRIC_DEFS: MetricDef[] = [
   {
     key:         'time-to-first-preview-ready',
+    section:     'operational',
     label:       'Time to first preview-ready',
     direction:   'lower',
     format:      v => `${(v / 1000).toFixed(1)}s`,
@@ -130,6 +134,7 @@ const METRIC_DEFS: MetricDef[] = [
   },
   {
     key:         'first-pass success rate',
+    section:     'operational',
     label:       'First-pass success rate',
     direction:   'higher',
     format:      v => `${(v * 100).toFixed(1)}%`,
@@ -138,6 +143,7 @@ const METRIC_DEFS: MetricDef[] = [
   },
   {
     key:         'file-count',
+    section:     'operational',
     label:       'File count (avg)',
     direction:   'higher',
     format:      v => v.toFixed(1),
@@ -146,6 +152,7 @@ const METRIC_DEFS: MetricDef[] = [
   },
   {
     key:         'route-count',
+    section:     'operational',
     label:       'Route count (avg)',
     direction:   'higher',
     format:      v => v.toFixed(1),
@@ -154,6 +161,7 @@ const METRIC_DEFS: MetricDef[] = [
   },
   {
     key:         'feature-count',
+    section:     'operational',
     label:       'Feature count (avg)',
     direction:   'higher',
     format:      v => v.toFixed(1),
@@ -162,6 +170,7 @@ const METRIC_DEFS: MetricDef[] = [
   },
   {
     key:         'blocked-or-failure-rate',
+    section:     'operational',
     label:       'Blocked/failure rate',
     direction:   'lower',
     format:      v => `${(v * 100).toFixed(1)}%`,
@@ -170,6 +179,7 @@ const METRIC_DEFS: MetricDef[] = [
   },
   {
     key:         'export completeness',
+    section:     'operational',
     label:       'Export completeness',
     direction:   'higher',
     format:      v => `${(v * 100).toFixed(1)}%`,
@@ -177,6 +187,36 @@ const METRIC_DEFS: MetricDef[] = [
     // Callers may pass a custom studioExportCompleteness via ScorecardOptions.
     studioGet:   _r => 1.0,
     baselineGet: b => b.exportCompleteness,
+  },
+];
+
+const VISUAL_METRIC_DEFS: MetricDef[] = [
+  {
+    key:         'visual-score',
+    section:     'visual-quality',
+    label:       'Visual quality score (avg)',
+    direction:   'higher',
+    format:      v => v.toFixed(0),
+    studioGet:   r => r.summary.visualQuality?.avgScore ?? 0,
+    baselineGet: b => b.visualQuality?.avgScore ?? 0,
+  },
+  {
+    key:         'strong-visual-verdict-rate',
+    section:     'visual-quality',
+    label:       'Strong visual verdict rate',
+    direction:   'higher',
+    format:      v => `${(v * 100).toFixed(1)}%`,
+    studioGet:   r => r.summary.visualQuality?.verdictDistribution.strong ?? 0,
+    baselineGet: b => b.visualQuality?.verdictDistribution?.strong ?? 0,
+  },
+  {
+    key:         'weak-visual-verdict-rate',
+    section:     'visual-quality',
+    label:       'Weak visual verdict rate',
+    direction:   'lower',
+    format:      v => `${(v * 100).toFixed(1)}%`,
+    studioGet:   r => r.summary.visualQuality?.verdictDistribution.weak ?? 0,
+    baselineGet: b => b.visualQuality?.verdictDistribution?.weak ?? 0,
   },
 ];
 
@@ -200,6 +240,9 @@ function verdictEmoji(v: ScorecardVerdict): string {
 function renderMarkdownComparison(
   report: Omit<ComparisonScorecardReport, 'json' | 'markdown'>,
 ): string {
+  const operationalRows = report.rows.filter(row => (row.section ?? 'operational') === 'operational');
+  const visualRows = report.rows.filter(row => row.section === 'visual-quality');
+
   const lines: string[] = [
     `# Comparison Scorecard — Studio vs ${report.baselineTool}`,
     '',
@@ -207,14 +250,32 @@ function renderMarkdownComparison(
     `**Model:** ${report.studioModel}  `,
     `**Generated:** ${report.generatedAt}`,
     '',
+    '## Operational Metrics',
+    '',
     `| Metric | Studio | ${report.baselineTool} | Verdict |`,
     `|--------|--------|${''.padEnd(report.baselineTool.length + 2, '-')}|---------|`,
   ];
 
-  for (const row of report.rows) {
+  for (const row of operationalRows) {
     lines.push(
       `| ${row.label} | ${row.studioValue} | ${row.baselineValue} | ${verdictEmoji(row.verdict)}${row.note ? ` — ${row.note}` : ''} |`,
     );
+  }
+
+  if (visualRows.length > 0) {
+    lines.push(
+      '',
+      '## Visual Quality',
+      '',
+      `| Metric | Studio | ${report.baselineTool} | Verdict |`,
+      `|--------|--------|${''.padEnd(report.baselineTool.length + 2, '-')}|---------|`,
+    );
+
+    for (const row of visualRows) {
+      lines.push(
+        `| ${row.label} | ${row.studioValue} | ${row.baselineValue} | ${verdictEmoji(row.verdict)}${row.note ? ` — ${row.note}` : ''} |`,
+      );
+    }
   }
 
   lines.push(
@@ -331,6 +392,27 @@ function detectRegressions(
 function fmtPct(v: number): string { return `${(v * 100).toFixed(1)}%`; }
 function fmtMs(v: number):  string { return `${(v / 1000).toFixed(1)}s`; }
 
+function hasVisualQualityComparisonData(
+  benchReport: BenchmarkReport,
+  baseline: BaselineMetrics,
+): boolean {
+  return Boolean(benchReport.summary.visualQuality && baseline.visualQuality);
+}
+
+function buildVisualMetricNote(
+  metricKey: string,
+  benchReport: BenchmarkReport,
+  baseline: BaselineMetrics,
+): string | undefined {
+  if (!benchReport.summary.visualQuality || !baseline.visualQuality) return undefined;
+
+  const baselineNotes = baseline.visualQuality.notes ?? [];
+  if (metricKey === 'visual-score' && baselineNotes.length > 0) {
+    return baselineNotes[0];
+  }
+  return undefined;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export const ComparisonScorecardService = {
@@ -346,7 +428,7 @@ export const ComparisonScorecardService = {
     const scorecardId = `sc-${Date.now().toString(36)}`;
     const generatedAt = new Date().toISOString();
 
-    const rows: ScorecardRow[] = METRIC_DEFS.map(def => {
+    const operationalRows: ScorecardRow[] = METRIC_DEFS.map(def => {
       let studioRaw = def.studioGet(benchReport);
       // Allow caller to override export completeness
       if (def.key === 'export completeness' && options.studioExportCompleteness !== undefined) {
@@ -361,12 +443,36 @@ export const ComparisonScorecardService = {
 
       return {
         metric:        def.key,
+        section:       def.section,
         label:         def.label,
         studioValue:   def.format(studioRaw),
         baselineValue: def.format(baselineRaw),
         verdict,
       };
     });
+
+    const visualRows: ScorecardRow[] = hasVisualQualityComparisonData(benchReport, baseline)
+      ? VISUAL_METRIC_DEFS.map(def => {
+          const studioRaw = def.studioGet(benchReport);
+          const baselineRaw = def.baselineGet(baseline);
+          const verdict: ScorecardVerdict =
+            def.direction === 'lower'
+              ? compareLowerBetter(studioRaw, baselineRaw)
+              : compareHigherBetter(studioRaw, baselineRaw);
+
+          return {
+            metric:        def.key,
+            section:       def.section,
+            label:         def.label,
+            studioValue:   def.format(studioRaw),
+            baselineValue: def.format(baselineRaw),
+            verdict,
+            note:          buildVisualMetricNote(def.key, benchReport, baseline),
+          };
+        })
+      : [];
+
+    const rows = [...operationalRows, ...visualRows];
 
     const wins  = rows.filter(r => r.verdict === 'win').length;
     const ties  = rows.filter(r => r.verdict === 'tie').length;
@@ -433,6 +539,13 @@ export const ComparisonScorecardService = {
       avgFeatureCount:          s.avgFeatureCount,
       blockedOrFailedRate:      s.total > 0 ? (s.blocked + s.failed) / s.total : 0,
       exportCompleteness:       1.0,
+      visualQuality: s.visualQuality
+        ? {
+            avgScore: s.visualQuality.avgScore,
+            verdictDistribution: s.visualQuality.verdictDistribution,
+            notes: s.visualQuality.notes,
+          }
+        : undefined,
     };
   },
 };
