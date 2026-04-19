@@ -3,6 +3,12 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { KickoffBuildScopeId } from '../services/ArchitectPlannerService';
 import type { BranchRealityUiSummary } from '../services/BranchArchitectureOrchestrationService';
+import { normalizeAppLanguage } from '../shared/appLanguage';
+import type {
+  GenerationReport,
+  VisualQualityDimensionId,
+  VisualQualitySummary,
+} from '../shared/projectModel';
 import {
   Plus, Link2, Camera, Sparkles,
   Paperclip, History,
@@ -13,15 +19,6 @@ import type { Snapshot, Attachment, ComposerContextItem } from '../hooks/useStud
 // ProjectsList removed â€” see ProjectsScreen
 
 // â”€â”€ Ð˜Ð½Ñ‚ÐµÑ€Ñ„ÐµÐ¹Ñ Ð¿Ñ€Ð¾Ð¿ÑÐ¾Ð² â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-interface GenerationReport {
-  mode: 'NEW' | 'EDIT';
-  theme: string;
-  filesCreated: string[];
-  filesModified: string[];
-  pageCount: number;
-  duration: number;
-}
 
 interface GenerationTrustState {
   mode: 'fast_prototype' | 'architect_guided' | 'proposed_experiment';
@@ -142,6 +139,34 @@ const LABELS: Record<string, Record<string, string>> = {
     placeholder: 'How can we build today?',
     emptyTagline: 'Describe your idea below, or pick one from the sidebar',
     billing: 'Project Billing', session: 'Session', total: 'Total',
+    visualQuality: 'Visual Quality',
+    visualQualityHigh: 'High',
+    visualQualityMedium: 'Medium',
+    visualQualityLow: 'Low',
+    visualQualityVerdictStrong: 'Looks visually strong',
+    visualQualityVerdictAcceptable: 'Visually acceptable with a few rough edges',
+    visualQualityVerdictWeak: 'Needs visual cleanup',
+    visualReasonHierarchyStrong: 'Clear visual hierarchy',
+    visualReasonHierarchyAcceptable: 'Hierarchy is mostly clear',
+    visualReasonHierarchyWeak: 'Weak hierarchy',
+    visualReasonSpacingStrong: 'Consistent spacing rhythm',
+    visualReasonSpacingAcceptable: 'Spacing rhythm is mostly consistent',
+    visualReasonSpacingWeak: 'Inconsistent spacing rhythm',
+    visualReasonTokensStrong: 'Consistent visual tokens',
+    visualReasonTokensAcceptable: 'Visual tokens are mostly consistent',
+    visualReasonTokensWeak: 'Mixed visual tokens',
+    visualReasonCtaStrong: 'CTA is visually clear',
+    visualReasonCtaAcceptable: 'CTA clarity is workable',
+    visualReasonCtaWeak: 'CTA not visually dominant',
+    visualReasonClutterStrong: 'Comfortable breathing room',
+    visualReasonClutterAcceptable: 'Layout breathing room is workable',
+    visualReasonClutterWeak: 'Crowded layout',
+    visualReasonMobileStrong: 'Good viewport discipline',
+    visualReasonMobileAcceptable: 'Mobile fit is workable',
+    visualReasonMobileWeak: 'Mobile fit is thin',
+    visualReasonStateStrong: 'Empty/loading/error states are covered',
+    visualReasonStateAcceptable: 'Core states are partly covered',
+    visualReasonStateWeak: 'Missing empty/loading/error polish',
   },
   ru: {
     file: 'Файл', voice: 'Голос', history: 'История',
@@ -150,6 +175,34 @@ const LABELS: Record<string, Record<string, string>> = {
     placeholder: 'Что строим сегодня?',
     emptyTagline: 'Опишите идею ниже или выберите в сайдбаре',
     billing: 'Биллинг проекта', session: 'Сессия', total: 'Итого',
+    visualQuality: 'Визуальное качество',
+    visualQualityHigh: 'Высокое',
+    visualQualityMedium: 'Среднее',
+    visualQualityLow: 'Низкое',
+    visualQualityVerdictStrong: 'Визуально выглядит сильно',
+    visualQualityVerdictAcceptable: 'Визуально приемлемо, но шероховатости остались',
+    visualQualityVerdictWeak: 'Нужна визуальная доработка',
+    visualReasonHierarchyStrong: 'Четкая визуальная иерархия',
+    visualReasonHierarchyAcceptable: 'Иерархия в целом читается',
+    visualReasonHierarchyWeak: 'Слабая иерархия',
+    visualReasonSpacingStrong: 'Ровный ритм отступов',
+    visualReasonSpacingAcceptable: 'Ритм отступов в целом ровный',
+    visualReasonSpacingWeak: 'Неровный ритм отступов',
+    visualReasonTokensStrong: 'Последовательные визуальные токены',
+    visualReasonTokensAcceptable: 'Визуальные токены в целом последовательны',
+    visualReasonTokensWeak: 'Смешанные визуальные токены',
+    visualReasonCtaStrong: 'CTA читается сразу',
+    visualReasonCtaAcceptable: 'CTA читается приемлемо',
+    visualReasonCtaWeak: 'CTA не доминирует визуально',
+    visualReasonClutterStrong: 'Есть комфортный воздух в макете',
+    visualReasonClutterAcceptable: 'Воздуха в макете в целом хватает',
+    visualReasonClutterWeak: 'Перегруженный макет',
+    visualReasonMobileStrong: 'Хорошая дисциплина вьюпорта',
+    visualReasonMobileAcceptable: 'Мобильная посадка приемлема',
+    visualReasonMobileWeak: 'Слабая мобильная посадка',
+    visualReasonStateStrong: 'Состояния empty/loading/error покрыты',
+    visualReasonStateAcceptable: 'Ключевые состояния покрыты частично',
+    visualReasonStateWeak: 'Не хватает polish для empty/loading/error',
   },
   es: {
     file: 'Archivo', voice: 'Voz', history: 'Historial',
@@ -158,6 +211,34 @@ const LABELS: Record<string, Record<string, string>> = {
     placeholder: 'Â¿QuÃ© construimos hoy?',
     emptyTagline: 'Describe tu idea abajo o elige del âš¡ panel lateral',
     billing: 'FacturaciÃ³n', session: 'SesiÃ³n', total: 'Total',
+    visualQuality: 'Calidad visual',
+    visualQualityHigh: 'Alta',
+    visualQualityMedium: 'Media',
+    visualQualityLow: 'Baja',
+    visualQualityVerdictStrong: 'Se ve visualmente fuerte',
+    visualQualityVerdictAcceptable: 'Visualmente aceptable, con algunos bordes por pulir',
+    visualQualityVerdictWeak: 'Necesita limpieza visual',
+    visualReasonHierarchyStrong: 'JerarquÃ­a visual clara',
+    visualReasonHierarchyAcceptable: 'La jerarquÃ­a es bastante clara',
+    visualReasonHierarchyWeak: 'JerarquÃ­a dÃ©bil',
+    visualReasonSpacingStrong: 'Ritmo de espaciado consistente',
+    visualReasonSpacingAcceptable: 'El ritmo de espaciado es bastante consistente',
+    visualReasonSpacingWeak: 'Ritmo de espaciado inconsistente',
+    visualReasonTokensStrong: 'Tokens visuales consistentes',
+    visualReasonTokensAcceptable: 'Los tokens visuales son bastante consistentes',
+    visualReasonTokensWeak: 'Tokens visuales mezclados',
+    visualReasonCtaStrong: 'La CTA se entiende visualmente',
+    visualReasonCtaAcceptable: 'La claridad de la CTA es aceptable',
+    visualReasonCtaWeak: 'La CTA no domina visualmente',
+    visualReasonClutterStrong: 'Buen aire visual',
+    visualReasonClutterAcceptable: 'El aire visual es aceptable',
+    visualReasonClutterWeak: 'DiseÃ±o recargado',
+    visualReasonMobileStrong: 'Buena disciplina de viewport',
+    visualReasonMobileAcceptable: 'El ajuste mÃ³vil es aceptable',
+    visualReasonMobileWeak: 'El ajuste mÃ³vil es dÃ©bil',
+    visualReasonStateStrong: 'Los estados vacÃ­o/carga/error estÃ¡n cubiertos',
+    visualReasonStateAcceptable: 'Los estados clave estÃ¡n cubiertos parcialmente',
+    visualReasonStateWeak: 'Falta pulido en vacÃ­o/carga/error',
   },
   de: {
     file: 'Datei', voice: 'Stimme', history: 'Verlauf',
@@ -166,6 +247,34 @@ const LABELS: Record<string, Record<string, string>> = {
     placeholder: 'Was bauen wir heute?',
     emptyTagline: 'Beschreibe deine Idee unten oder wÃ¤hle aus dem âš¡ MenÃ¼',
     billing: 'Abrechnung', session: 'Sitzung', total: 'Gesamt',
+    visualQuality: 'Visuelle QualitÃ¤t',
+    visualQualityHigh: 'Hoch',
+    visualQualityMedium: 'Mittel',
+    visualQualityLow: 'Niedrig',
+    visualQualityVerdictStrong: 'Wirkt visuell stark',
+    visualQualityVerdictAcceptable: 'Visuell akzeptabel mit etwas RestschÃ¤rfe',
+    visualQualityVerdictWeak: 'Braucht visuelle Ãœberarbeitung',
+    visualReasonHierarchyStrong: 'Klare visuelle Hierarchie',
+    visualReasonHierarchyAcceptable: 'Die Hierarchie ist Ã¼berwiegend klar',
+    visualReasonHierarchyWeak: 'Schwache Hierarchie',
+    visualReasonSpacingStrong: 'Konsistenter AbstÃ¤nderhythmus',
+    visualReasonSpacingAcceptable: 'Der AbstÃ¤nderhythmus ist Ã¼berwiegend konsistent',
+    visualReasonSpacingWeak: 'Inkonsistenter AbstÃ¤nderhythmus',
+    visualReasonTokensStrong: 'Konsistente visuelle Tokens',
+    visualReasonTokensAcceptable: 'Visuelle Tokens sind Ã¼berwiegend konsistent',
+    visualReasonTokensWeak: 'Gemischte visuelle Tokens',
+    visualReasonCtaStrong: 'CTA ist visuell klar',
+    visualReasonCtaAcceptable: 'CTA-Klarheit ist brauchbar',
+    visualReasonCtaWeak: 'CTA ist nicht visuell dominant',
+    visualReasonClutterStrong: 'Angenehm viel Luft im Layout',
+    visualReasonClutterAcceptable: 'Der Freiraum im Layout ist brauchbar',
+    visualReasonClutterWeak: 'Ãœberladenes Layout',
+    visualReasonMobileStrong: 'Gute Viewport-Disziplin',
+    visualReasonMobileAcceptable: 'Mobile Anpassung ist brauchbar',
+    visualReasonMobileWeak: 'Schwache Mobile-Anpassung',
+    visualReasonStateStrong: 'Leere/Laden/Fehler-ZustÃ¤nde sind abgedeckt',
+    visualReasonStateAcceptable: 'KernzustÃ¤nde sind teilweise abgedeckt',
+    visualReasonStateWeak: 'Polish fÃ¼r Leere/Laden/Fehler fehlt',
   },
   fr: {
     file: 'Fichier', voice: 'Voix', history: 'Historique',
@@ -174,6 +283,34 @@ const LABELS: Record<string, Record<string, string>> = {
     placeholder: "Que construisons-nous aujourd'hui?",
     emptyTagline: 'DÃ©crivez votre idÃ©e ci-dessous ou choisissez dans le âš¡ panneau',
     billing: 'Facturation', session: 'Session', total: 'Total',
+    visualQuality: 'QualitÃ© visuelle',
+    visualQualityHigh: 'Ã‰levÃ©e',
+    visualQualityMedium: 'Moyenne',
+    visualQualityLow: 'Faible',
+    visualQualityVerdictStrong: 'Le rendu visuel est solide',
+    visualQualityVerdictAcceptable: 'Visuellement acceptable, avec quelques aspÃ©ritÃ©s',
+    visualQualityVerdictWeak: 'A besoin dâ€™un nettoyage visuel',
+    visualReasonHierarchyStrong: 'HiÃ©rarchie visuelle claire',
+    visualReasonHierarchyAcceptable: 'La hiÃ©rarchie est plutÃ´t claire',
+    visualReasonHierarchyWeak: 'HiÃ©rarchie faible',
+    visualReasonSpacingStrong: 'Rythme dâ€™espacement cohÃ©rent',
+    visualReasonSpacingAcceptable: 'Le rythme dâ€™espacement est plutÃ´t cohÃ©rent',
+    visualReasonSpacingWeak: 'Rythme dâ€™espacement incohÃ©rent',
+    visualReasonTokensStrong: 'Tokens visuels cohÃ©rents',
+    visualReasonTokensAcceptable: 'Les tokens visuels sont plutÃ´t cohÃ©rents',
+    visualReasonTokensWeak: 'Tokens visuels mÃ©langÃ©s',
+    visualReasonCtaStrong: 'Le CTA est visuellement clair',
+    visualReasonCtaAcceptable: 'La clartÃ© du CTA est correcte',
+    visualReasonCtaWeak: 'Le CTA ne domine pas visuellement',
+    visualReasonClutterStrong: 'Bonne respiration du layout',
+    visualReasonClutterAcceptable: 'La respiration du layout est correcte',
+    visualReasonClutterWeak: 'Mise en page chargÃ©e',
+    visualReasonMobileStrong: 'Bonne discipline de viewport',
+    visualReasonMobileAcceptable: 'Lâ€™adaptation mobile est correcte',
+    visualReasonMobileWeak: 'Lâ€™adaptation mobile est faible',
+    visualReasonStateStrong: 'Les Ã©tats vide/chargement/erreur sont couverts',
+    visualReasonStateAcceptable: 'Les Ã©tats clÃ©s sont partiellement couverts',
+    visualReasonStateWeak: 'Le polish vide/chargement/erreur manque',
   },
   zh: {
     file: 'æ–‡ä»¶', voice: 'è¯­éŸ³', history: 'åŽ†å²',
@@ -182,6 +319,34 @@ const LABELS: Record<string, Record<string, string>> = {
     placeholder: 'ä»Šå¤©æž„å»ºä»€ä¹ˆï¼Ÿ',
     emptyTagline: 'åœ¨ä¸‹æ–¹æè¿°æ‚¨çš„æƒ³æ³•ï¼Œæˆ–ä»Ž âš¡ ä¾§æ é€‰æ‹©',
     billing: 'é¡¹ç›®è´¦å•', session: 'æœ¬æ¬¡', total: 'åˆè®¡',
+    visualQuality: 'è§†è§‰è´¨é‡',
+    visualQualityHigh: 'é«˜',
+    visualQualityMedium: 'ä¸­',
+    visualQualityLow: 'ä½Ž',
+    visualQualityVerdictStrong: 'è§†è§‰è¡¨çŽ°è¾ƒå¼º',
+    visualQualityVerdictAcceptable: 'è§†è§‰ä¸Šå¯æŽ¥å—ï¼Œä½†ä»æœ‰ä¸€äº›ç²—ç³™å¤„',
+    visualQualityVerdictWeak: 'éœ€è¦è¿›è¡Œè§†è§‰æ•´ç†',
+    visualReasonHierarchyStrong: 'è§†è§‰å±‚çº§æ¸…æ™°',
+    visualReasonHierarchyAcceptable: 'å±‚çº§åŸºæœ¬æ¸…æ™°',
+    visualReasonHierarchyWeak: 'å±‚çº§åå¼±',
+    visualReasonSpacingStrong: 'é—´è·èŠ‚å¥ä¸€è‡´',
+    visualReasonSpacingAcceptable: 'é—´è·èŠ‚å¥åŸºæœ¬ä¸€è‡´',
+    visualReasonSpacingWeak: 'é—´è·èŠ‚å¥ä¸ä¸€è‡´',
+    visualReasonTokensStrong: 'è§†è§‰ token ä¸€è‡´',
+    visualReasonTokensAcceptable: 'è§†è§‰ token åŸºæœ¬ä¸€è‡´',
+    visualReasonTokensWeak: 'è§†è§‰ token æ··ç”¨',
+    visualReasonCtaStrong: 'CTA è§†è§‰ä¸Šå¾ˆæ¸…æ™°',
+    visualReasonCtaAcceptable: 'CTA æ¸…æ™°åº¦å°šå¯',
+    visualReasonCtaWeak: 'CTA ä¸å¤Ÿçªå‡º',
+    visualReasonClutterStrong: 'å¸ƒå±€ç•™ç™½èˆ’é€‚',
+    visualReasonClutterAcceptable: 'å¸ƒå±€ç•™ç™½å°šå¯',
+    visualReasonClutterWeak: 'å¸ƒå±€è¿‡äºŽæ‹¥æŒ¤',
+    visualReasonMobileStrong: 'è§†å£çºªå¾‹è‰¯å¥½',
+    visualReasonMobileAcceptable: 'ç§»åŠ¨ç«¯é€‚é…å°šå¯',
+    visualReasonMobileWeak: 'ç§»åŠ¨ç«¯é€‚é…åå¼±',
+    visualReasonStateStrong: 'ç©º/åŠ è½½/é”™è¯¯çŠ¶æ€å·²è¦†ç›–',
+    visualReasonStateAcceptable: 'å…³é”®çŠ¶æ€éƒ¨åˆ†è¦†ç›–',
+    visualReasonStateWeak: 'ç©º/åŠ è½½/é”™è¯¯ç¼ºå°‘æ‰“ç£¨',
   },
 };
 
@@ -218,6 +383,173 @@ const trustBadgeStyle = (
         border: '1px solid rgba(99,102,241,0.24)',
       };
   }
+};
+
+const VISUAL_REASON_KEY_MAP: Record<
+  VisualQualityDimensionId,
+  { strong: string; acceptable: string; weak: string }
+> = {
+  'visual-hierarchy': {
+    strong: 'visualReasonHierarchyStrong',
+    acceptable: 'visualReasonHierarchyAcceptable',
+    weak: 'visualReasonHierarchyWeak',
+  },
+  'spacing-consistency': {
+    strong: 'visualReasonSpacingStrong',
+    acceptable: 'visualReasonSpacingAcceptable',
+    weak: 'visualReasonSpacingWeak',
+  },
+  'token-style-consistency': {
+    strong: 'visualReasonTokensStrong',
+    acceptable: 'visualReasonTokensAcceptable',
+    weak: 'visualReasonTokensWeak',
+  },
+  'cta-prominence': {
+    strong: 'visualReasonCtaStrong',
+    acceptable: 'visualReasonCtaAcceptable',
+    weak: 'visualReasonCtaWeak',
+  },
+  'clutter-breathing-room': {
+    strong: 'visualReasonClutterStrong',
+    acceptable: 'visualReasonClutterAcceptable',
+    weak: 'visualReasonClutterWeak',
+  },
+  'mobile-fit': {
+    strong: 'visualReasonMobileStrong',
+    acceptable: 'visualReasonMobileAcceptable',
+    weak: 'visualReasonMobileWeak',
+  },
+  'state-completeness': {
+    strong: 'visualReasonStateStrong',
+    acceptable: 'visualReasonStateAcceptable',
+    weak: 'visualReasonStateWeak',
+  },
+};
+
+function visualBadgeState(
+  summary: VisualQualitySummary,
+): 'accepted' | 'planned' | 'open' {
+  if (summary.band === 'high') return 'accepted';
+  if (summary.band === 'medium') return 'planned';
+  return 'open';
+}
+
+function getVisualBandLabel(
+  summary: VisualQualitySummary,
+  t: (key: string) => string,
+): string {
+  if (summary.band === 'high') return t('visualQualityHigh');
+  if (summary.band === 'medium') return t('visualQualityMedium');
+  return t('visualQualityLow');
+}
+
+function getVisualVerdictLabel(
+  summary: VisualQualitySummary,
+  t: (key: string) => string,
+): string {
+  if (summary.verdict === 'strong') return t('visualQualityVerdictStrong');
+  if (summary.verdict === 'acceptable') return t('visualQualityVerdictAcceptable');
+  return t('visualQualityVerdictWeak');
+}
+
+function getVisualReasonLabels(
+  summary: VisualQualitySummary,
+  t: (key: string) => string,
+): string[] {
+  const verdictWeight = (verdict: VisualQualitySummary['verdict']) =>
+    summary.verdict === 'weak'
+      ? (verdict === 'weak' ? 0 : verdict === 'acceptable' ? 1 : 2)
+      : summary.verdict === 'strong'
+        ? (verdict === 'strong' ? 0 : verdict === 'acceptable' ? 1 : 2)
+        : (verdict === 'acceptable' ? 0 : verdict === 'weak' ? 1 : 2);
+
+  const orderedDimensions = [...summary.dimensions].sort((a, b) => {
+    const verdictDelta = verdictWeight(a.verdict) - verdictWeight(b.verdict);
+    if (verdictDelta !== 0) return verdictDelta;
+    return summary.verdict === 'strong' ? b.score - a.score : a.score - b.score;
+  });
+
+  const labels: string[] = [];
+  for (const dimension of orderedDimensions) {
+    const key = VISUAL_REASON_KEY_MAP[dimension.id]?.[dimension.verdict];
+    if (!key) continue;
+    const label = t(key);
+    if (!labels.includes(label)) labels.push(label);
+    if (labels.length === 5) break;
+  }
+
+  return labels.slice(0, Math.max(3, Math.min(5, labels.length)));
+}
+
+const VisualQualityBanner = ({
+  summary,
+  isDark,
+  textColor,
+  subText,
+  t,
+}: {
+  summary?: VisualQualitySummary;
+  isDark: boolean;
+  textColor: string;
+  subText: string;
+  t: (key: string) => string;
+}) => {
+  if (!summary) return null;
+
+  const reasons = getVisualReasonLabels(summary, t);
+
+  return (
+    <div
+      data-testid="generation-visual-quality"
+      style={{
+        marginTop: 10,
+        padding: '10px 12px',
+        borderRadius: 10,
+        border: `1px solid ${isDark ? 'rgba(148,163,184,0.18)' : 'rgba(148,163,184,0.2)'}`,
+        background: isDark ? 'rgba(15,23,42,0.22)' : 'rgba(248,250,252,0.88)',
+        display: 'grid',
+        gap: 7,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: subText, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          {t('visualQuality')}
+        </span>
+        <span
+          style={{
+            ...trustBadgeStyle(visualBadgeState(summary), isDark),
+            fontSize: 10,
+            fontWeight: 700,
+            borderRadius: 999,
+            padding: '3px 8px',
+          }}
+        >
+          {getVisualBandLabel(summary, t)}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, lineHeight: 1.5, color: textColor }}>
+        {getVisualVerdictLabel(summary, t)}
+      </div>
+      <div data-testid="generation-visual-quality-reasons" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {reasons.map((reason) => (
+          <span
+            key={reason}
+            style={{
+              fontSize: 11,
+              lineHeight: 1.4,
+              color: textColor,
+              borderRadius: 999,
+              padding: '3px 8px',
+              background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.04)',
+              border: `1px solid ${isDark ? 'rgba(148,163,184,0.18)' : 'rgba(148,163,184,0.2)'}`,
+            }}
+          >
+            {reason}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 };
 
 const GenerationTrustBanner = ({
@@ -335,7 +667,8 @@ const GenerationReportCard: React.FC<{
   isDark: boolean;
   textColor: string;
   subText: string;
-}> = ({ report, content, generationTrust, branchReality, isDark, textColor, subText }) => {
+  t: (key: string) => string;
+}> = ({ report, content, generationTrust, branchReality, isDark, textColor, subText, t }) => {
   const isNew = report.mode === 'NEW';
   const allFiles = isNew
     ? report.filesCreated
@@ -378,6 +711,13 @@ const GenerationReportCard: React.FC<{
         )}
       </div>
       <GenerationTrustBanner trust={generationTrust} isDark={isDark} textColor={textColor} />
+      <VisualQualityBanner
+        summary={report.visualQuality}
+        isDark={isDark}
+        textColor={textColor}
+        subText={subText}
+        t={t}
+      />
       {branchReality ? (
         <div
           data-testid="generation-branch-reality"
@@ -995,7 +1335,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
   onConfirmPlan = () => confirmPlan(), selectKickoffScope = () => {}, onClarifyPlan = () => {}, onSubmitClarification = () => {},
 }) => {
-  const lang = LABELS[appLanguage] ?? LABELS['en'];
+  const normalizedLanguage = normalizeAppLanguage(appLanguage);
+  const lang = LABELS[normalizedLanguage] ?? LABELS['en'];
   const t = (key: string) => lang[key] ?? LABELS['en'][key] ?? key;
   const [historyOpen, setHistoryOpen]         = useState(false);
   const [previewSnap, setPreviewSnap]         = useState<Snapshot | null>(null);
@@ -1258,6 +1599,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}
+                      t={t}
                     />
                   ) : (
                     <div className="relative max-w-[92%]">

@@ -913,6 +913,23 @@ export interface VisualQualitySummary {
   notes?:     string[];
 }
 
+/**
+ * Compact user-facing generation report shown in chat after a completed run.
+ *
+ * Keeps technical generation status and visual quality separate:
+ * - report metadata = mode/theme/files/pages/duration
+ * - report.visualQuality = optional compact visual critic payload
+ */
+export interface GenerationReport {
+  mode: 'NEW' | 'EDIT';
+  theme: string;
+  filesCreated: string[];
+  filesModified: string[];
+  pageCount: number;
+  duration: number;
+  visualQuality?: VisualQualitySummary;
+}
+
 // ─── GenerationResult ─────────────────────────────────────────────────────────
 
 /**
