@@ -13,7 +13,7 @@ import { ConfigService, normalizeAppLanguage } from './ConfigService';
 import type { AgentSlot } from './ConfigService';
 import { Orchestrator } from './Orchestrator';
 import { type AgentExecutionRoute } from './buildAgentRouting';
-import { compileWithRetry } from './compileGuard';
+import { compileWithRetry, classifyRepairFailure, type CompileLoopResult } from './compileGuard';
 import { validateImports, formatUnresolved } from './importValidator';
 import {
   buildManifestFromPlan,
@@ -1792,6 +1792,22 @@ function markExecutionFailure(
     reasons: [{ code: 'FAST_GATE_FAILED', filePath: '', message }],
     durationMs: 0,
   };
+  changePackage.warnings = nextWarnings;
+  changePackage.repairHints = nextRepairHints;
+
+  return { warnings: nextWarnings, repairHints: nextRepairHints };
+}
+
+function markPartialShipResult(
+  changePackage: ChangePackage,
+  message: string,
+): { warnings: string[]; repairHints: Array<{ code: string; strategy: 'block' | 'auto-fix' | 'retry' }> } {
+  const nextWarnings = [...(changePackage.warnings ?? []), message];
+  const nextRepairHints = [
+    ...(changePackage.repairHints ?? []),
+    { code: 'partial-ship-active', strategy: 'retry' as const },
+  ];
+
   changePackage.warnings = nextWarnings;
   changePackage.repairHints = nextRepairHints;
 
@@ -5016,10 +5032,17 @@ Generate the complete application for: ${config.intent}`;
         : `[SimpleGeneration] Fast gate failed: ${(fastGate.errors ?? ['Unknown compile error'])[0]}`,
     );
 
-    let compiled = {
+    let compiled: CompileLoopResult = {
+      outcome: fastGate.success ? 'no_repair_needed' : 'fatal_non_viable',
       success: fastGate.success,
       attempts: 1,
       errors: fastGate.errors,
+      stopReason: fastGate.success ? 'no_repair_needed' : 'fast_gate_failed',
+      partialShip: false,
+      degraded: false,
+      minimumViableCandidate: fastGate.success,
+      budgetExhausted: false,
+      failureClassification: null,
     };
 
     if (fastGate.success) {
@@ -5030,6 +5053,12 @@ Generate the complete application for: ${config.intent}`;
         reason: 'fast_gate_passed',
       });
       config.onLog('[SimpleGeneration] Repair decision: not needed');
+      previewLog('final_stop_reason', {
+        buildId: revId,
+        source: 'SimpleGeneration.run',
+        stopReason: 'no_repair_needed',
+      });
+      config.onLog('[SimpleGeneration] Final stop reason: no_repair_needed');
     } else {
       previewLog('repair_decision', {
         buildId: revId,
@@ -5052,24 +5081,74 @@ Generate the complete application for: ${config.intent}`;
       });
     }
 
-    closeCompile({ status: compiled.success ? 'ok' : 'error', data: { attempts: compiled.attempts } });
-    if (compiled.success) {
-      await revisionManager.promote(revId);
-      config.onLog(`[Revision] candidate promoted (${compiled.attempts} attempt(s))`);
+    const candidateViable = compiled.success && compiled.minimumViableCandidate;
+    closeCompile({ status: candidateViable ? 'ok' : 'error', data: { attempts: compiled.attempts } });
+    if (candidateViable) {
+      try {
+        await revisionManager.promote(revId);
+        config.onLog(
+          compiled.partialShip
+            ? `[Revision] partial ship promoted (${compiled.attempts} attempt(s))`
+            : `[Revision] candidate promoted (${compiled.attempts} attempt(s))`,
+        );
+      } catch (err) {
+        const promoteMsg = err instanceof Error ? err.message : String(err);
+        const promoteClassification = classifyRepairFailure([promoteMsg]);
+        previewLog('failure_classified', {
+          buildId: revId,
+          source: 'SimpleGeneration.run',
+          severity: promoteClassification.severity,
+          reason: promoteClassification.reason,
+          signature: promoteClassification.signature,
+          errors: [promoteMsg],
+        });
+        previewLog('repair_decision', {
+          buildId: revId,
+          source: 'SimpleGeneration.run',
+          decision: 'stop',
+          reason: 'promotion_blocked',
+        });
+        previewLog('final_stop_reason', {
+          buildId: revId,
+          source: 'SimpleGeneration.run',
+          stopReason: 'promotion_blocked',
+        });
+        config.onLog(
+          `[SimpleGeneration] Promotion blocked after candidate execution (${promoteClassification.reason})`,
+        );
+        compiled = {
+          outcome: promoteClassification.severity === 'non_fatal'
+            ? 'non_fatal_non_viable'
+            : 'fatal_non_viable',
+          success: false,
+          attempts: compiled.attempts,
+          errors: [promoteMsg],
+          stopReason: 'promotion_blocked',
+          partialShip: false,
+          degraded: false,
+          minimumViableCandidate: false,
+          budgetExhausted: false,
+          failureClassification: promoteClassification,
+        };
+      }
     } else {
       previewLog('promotion_blocked_fast_gate_failed', {
         buildId: revId,
         source: 'SimpleGeneration.run',
         attempts: compiled.attempts,
         errors: compiled.errors ?? [],
+        stopReason: compiled.stopReason,
       });
       revisionManager.rejectCandidate(
         revId,
-        'fast_gate_failed',
+        compiled.stopReason,
         compiled.errors?.join('\n') ?? 'Compile failed',
       );
       config.onLog(`[Revision] compile failed after ${compiled.attempts} attempt(s)`);
       config.onLog('[SimpleGeneration] Promotion blocked because fast gate failed');
+      config.onLog(
+        `[SimpleGeneration] Candidate viability was not satisfied (${compiled.outcome})`,
+      );
     }
 
     // Notify editor (code tab) — files always shown regardless of compile result
@@ -5113,7 +5192,9 @@ Generate the complete application for: ${config.intent}`;
       graph,
       operations: ops,
       message: compiled.success
-        ? cleanCoderMessage(raw)
+        ? (compiled.partialShip
+          ? `Partial ship: ${compiled.errors?.[0] ?? 'minimum viable candidate promoted in degraded mode'}`
+          : cleanCoderMessage(raw))
         : (compiled.errors?.join('\n') ?? 'Candidate execution failed before promotion'),
       phase: 'idle' as AgentPhase,
       usedModel: config.modelId || '',
@@ -5131,7 +5212,20 @@ Generate the complete application for: ${config.intent}`;
         ? undefined
         : (compiled.errors?.join('\n') ?? 'Candidate execution failed before promotion'),
     };
-    if (!compiled.success) {
+    if (compiled.partialShip) {
+      const partialMessage = compiled.errors?.[0] ?? 'Partial ship promoted after bounded repair';
+      const partialMeta = markPartialShipResult(changePackage, partialMessage);
+      result.warnings = [{
+        severity: 'warning' as const,
+        source: 'runtime' as const,
+        code: 'PARTIAL_SHIP_ACTIVE',
+        filePath: '',
+        message: partialMessage,
+      }];
+      result.repairHints = partialMeta.repairHints;
+      result.qualitySummary = GenerationQualityService.evaluate(result);
+      config.onLog('[SimpleGeneration] Partial ship active: degraded candidate promoted');
+    } else if (!compiled.success) {
       const failureMessage = compiled.errors?.join('\n') ?? 'Candidate execution failed before promotion';
       const failureMeta = markExecutionFailure(changePackage, failureMessage);
       result.warnings = [{

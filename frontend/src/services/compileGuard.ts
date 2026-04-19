@@ -11,9 +11,10 @@
 import { revisionManager } from './RevisionManager';
 import { commandBus } from './studioCommandBus';
 import { parseArtifact, parseFileMarkers } from './artifactParser';
+import { previewLog } from './PreviewController';
 import { canonicalizeProjectPath } from '../shared/safePaths';
 
-const MAX_ATTEMPTS = 3;
+const MAX_REPAIR_ATTEMPTS = 2;
 
 interface CompileLoopConfig {
   revId:    string;
@@ -28,10 +29,40 @@ interface CompileLoopConfig {
   recheckAdmission?: (nextCandidatePaths: string[]) => Promise<boolean>;
 }
 
-interface CompileLoopResult {
+export type RepairFailureSeverity = 'fatal' | 'non_fatal';
+export type RepairProgressStatus = 'progress' | 'no_progress';
+export type RepairDecision = 'retry' | 'stop' | 'partial_ship' | 'no_repair_needed';
+export type CompileLoopOutcome =
+  | 'no_repair_needed'
+  | 'repair_succeeded'
+  | 'partial_ship'
+  | 'non_fatal_degraded_acceptable'
+  | 'non_fatal_non_viable'
+  | 'fatal_non_viable';
+
+export interface RepairFailureClassification {
+  severity: RepairFailureSeverity;
+  reason: string;
+  signature: string;
+}
+
+export interface RepairProgressEvaluation {
+  status: RepairProgressStatus;
+  previousSignature: string | null;
+  currentSignature: string;
+}
+
+export interface CompileLoopResult {
+  outcome:      CompileLoopOutcome;
   success:      boolean;
   attempts:     number;
   errors?:      string[];
+  stopReason:   string;
+  partialShip:  boolean;
+  degraded:     boolean;
+  minimumViableCandidate: boolean;
+  budgetExhausted: boolean;
+  failureClassification: RepairFailureClassification | null;
 }
 
 function isValidFile(path: string, content: string): boolean {
@@ -112,7 +143,7 @@ Return ONLY a JSON artifact:
       return 0;
     }
 
-    prompt = `Fix this React/TypeScript compilation error (attempt ${attemptNum}/${MAX_ATTEMPTS}).
+    prompt = `Fix this React/TypeScript compilation error (attempt ${attemptNum}/${MAX_REPAIR_ATTEMPTS}).
 
 ERROR:
 ${errorText}
@@ -192,6 +223,131 @@ Fix ONLY the error. Keep all functionality. Output ONLY the JSON.`;
   return written;
 }
 
+function normalizeFailureSignature(errors: string[]): string {
+  return errors
+    .map(error => error
+      .toLowerCase()
+      .replace(/\b[0-9]+\b/g, '#')
+      .replace(/[a-f0-9]{8}-[a-f0-9-]{27,}/g, '<id>')
+      .replace(/["'][^"']+["']/g, '"path"')
+      .replace(/\s+/g, ' ')
+      .trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(' | ')
+    .slice(0, 400);
+}
+
+export function classifyRepairFailure(errors: string[]): RepairFailureClassification {
+  const signature = normalizeFailureSignature(errors);
+  const errorText = errors.join('\n').toLowerCase();
+
+  if (!errorText.trim()) {
+    return { severity: 'non_fatal', reason: 'warning_only_issue', signature: 'warning-only' };
+  }
+
+  if (
+    errors.every(error => /^\s*(warning|warn)[:\s]/i.test(error)) ||
+    /warning-level issue/.test(errorText)
+  ) {
+    return { severity: 'non_fatal', reason: 'warning_only_issue', signature };
+  }
+
+  if (
+    /failed to resolve import/.test(errorText) &&
+    /\.(png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|otf|mp4|mp3|webm)(?:["']|\s|$)/.test(errorText)
+  ) {
+    return { severity: 'non_fatal', reason: 'missing_non_critical_asset', signature };
+  }
+
+  if (/white_screen_after_ready|preview is blank|white screen/.test(errorText)) {
+    return { severity: 'fatal', reason: 'boot_blank_screen', signature };
+  }
+
+  if (/preview-mounted not received|did not mount|timed out|timeout/.test(errorText)) {
+    return { severity: 'fatal', reason: 'boot_timeout', signature };
+  }
+
+  if (/failed to resolve import|cannot find module|module not found/.test(errorText)) {
+    return { severity: 'fatal', reason: 'compile_dependency_failure', signature };
+  }
+
+  if (/before initialization|is not defined|hydrate|bootstrap|startup|initial/i.test(errorText)) {
+    return { severity: 'fatal', reason: 'entry_runtime_initialization_failure', signature };
+  }
+
+  return { severity: 'fatal', reason: 'candidate_execution_failure', signature };
+}
+
+export function evaluateRepairProgress(
+  previousSignature: string | null,
+  currentSignature: string,
+): RepairProgressEvaluation {
+  return {
+    status: previousSignature && previousSignature === currentSignature ? 'no_progress' : 'progress',
+    previousSignature,
+    currentSignature,
+  };
+}
+
+function logFailureClassified(
+  config: CompileLoopConfig,
+  classification: RepairFailureClassification,
+  errors: string[],
+): void {
+  previewLog('failure_classified', {
+    buildId: config.revId,
+    severity: classification.severity,
+    reason: classification.reason,
+    signature: classification.signature,
+    errors,
+  });
+  config.onLog(
+    `[CompileGuard] Failure classified: ${classification.severity} (${classification.reason})`,
+  );
+}
+
+function logProgressEvaluated(
+  config: CompileLoopConfig,
+  progress: RepairProgressEvaluation,
+): void {
+  previewLog('progress_evaluated', {
+    buildId: config.revId,
+    status: progress.status,
+    previousSignature: progress.previousSignature,
+    currentSignature: progress.currentSignature,
+  });
+  config.onLog(`[CompileGuard] Progress evaluated: ${progress.status}`);
+}
+
+function logRepairDecision(
+  config: CompileLoopConfig,
+  decision: RepairDecision,
+  reason: string,
+  extra: Record<string, unknown> = {},
+): void {
+  previewLog('repair_decision', {
+    buildId: config.revId,
+    decision,
+    reason,
+    ...extra,
+  });
+  config.onLog(`[CompileGuard] Repair decision: ${decision} (${reason})`);
+}
+
+function logFinalStopReason(
+  config: CompileLoopConfig,
+  stopReason: string,
+  extra: Record<string, unknown> = {},
+): void {
+  previewLog('final_stop_reason', {
+    buildId: config.revId,
+    stopReason,
+    ...extra,
+  });
+  config.onLog(`[CompileGuard] Final stop reason: ${stopReason}`);
+}
+
 /**
  * Generate a minimal stub component that renders an error message.
  * Used as route-level fallback when a page file can't be fixed.
@@ -232,70 +388,148 @@ function stubComponent(filePath: string, errorMsg: string): string {
  *    replace the broken file with a stub, recompile once more
  */
 export async function compileWithRetry(config: CompileLoopConfig): Promise<CompileLoopResult> {
+  let executionAttempts = 0;
+  let repairAttemptsUsed = 0;
+  let budgetExhausted = false;
   let lastErrors: string[] = [];
-  let nextAttempt = 1;
+  let lastClassification: RepairFailureClassification | null = null;
+  let previousSignature: string | null = null;
+  let nonFatalWithoutRepair = false;
+  let stopReason = 'repair_not_started';
 
   if (config.initialFailureErrors && config.initialFailureErrors.length > 0) {
     lastErrors = config.initialFailureErrors;
-    nextAttempt = 2;
-    config.onLog('[CompileGuard] Continuing from failed fast gate result');
-
-    if (!config.callFix) {
-      config.onLog('[CompileGuard] No fix agent configured — skipping to recovery');
-      nextAttempt = MAX_ATTEMPTS + 1;
-    } else {
-      try {
-        const filesFixed = await attemptFix(lastErrors, config, 1);
-        if (filesFixed === 0) {
-          config.onLog('[CompileGuard] Fix agent produced no output — skipping to recovery');
-          nextAttempt = MAX_ATTEMPTS + 1;
-        }
-      } catch (e: unknown) {
-        if (e instanceof DOMException && e.name === 'AbortError') throw e;
-        config.onLog(`[CompileGuard] Fix agent error: ${String(e)} — skipping to recovery`);
-        nextAttempt = MAX_ATTEMPTS + 1;
-      }
+    executionAttempts = 1;
+    lastClassification = classifyRepairFailure(lastErrors);
+    previousSignature = lastClassification.signature;
+    logFailureClassified(config, lastClassification, lastErrors);
+  } else {
+    executionAttempts = 1;
+    const initialResult = await revisionManager.compileCandidate(config.revId);
+    if (initialResult.success) {
+      logRepairDecision(config, 'no_repair_needed', 'initial_compile_passed');
+      logFinalStopReason(config, 'no_repair_needed');
+      return {
+        outcome: 'no_repair_needed',
+        success: true,
+        attempts: executionAttempts,
+        stopReason: 'no_repair_needed',
+        partialShip: false,
+        degraded: false,
+        minimumViableCandidate: true,
+        budgetExhausted: false,
+        failureClassification: null,
+      };
     }
+    lastErrors = initialResult.errors ?? ['Unknown compile error'];
+    lastClassification = classifyRepairFailure(lastErrors);
+    previousSignature = lastClassification.signature;
+    logFailureClassified(config, lastClassification, lastErrors);
   }
 
-  for (let attempt = nextAttempt; attempt <= MAX_ATTEMPTS; attempt++) {
-    config.onLog(`[CompileGuard] Compile attempt ${attempt}/${MAX_ATTEMPTS}...`);
+  if (lastClassification.severity === 'non_fatal') {
+    nonFatalWithoutRepair = true;
+    stopReason = 'non_fatal_issue_no_repair';
+    logRepairDecision(config, 'no_repair_needed', lastClassification.reason);
+  }
 
-    const result = await revisionManager.compileCandidate(config.revId);
-
-    if (result.success) {
-      if (attempt > 1) {
-        config.onLog(`[CompileGuard] ✓ Compiled after ${attempt} attempt(s)`);
-      }
-      return { success: true, attempts: attempt };
-    }
-
-    lastErrors = result.errors ?? ['Unknown compile error'];
-    config.onLog(`[CompileGuard] Compile failed: ${lastErrors[0]?.slice(0, 200)}`);
-
-    if (attempt === MAX_ATTEMPTS) break; // fall through to route-level recovery
+  while (!nonFatalWithoutRepair && repairAttemptsUsed < MAX_REPAIR_ATTEMPTS) {
+    repairAttemptsUsed++;
+    previewLog('repair_attempt_started', {
+      buildId: config.revId,
+      attempt: repairAttemptsUsed,
+      maxAttempts: MAX_REPAIR_ATTEMPTS,
+    });
+    config.onLog(
+      `[CompileGuard] Repair attempt ${repairAttemptsUsed}/${MAX_REPAIR_ATTEMPTS} started`,
+    );
 
     if (!config.callFix) {
-      config.onLog('[CompileGuard] No fix agent configured — skipping to recovery');
+      stopReason = 'no_fix_agent_configured';
+      logRepairDecision(config, 'stop', stopReason);
       break;
     }
 
     try {
-      const filesFixed = await attemptFix(lastErrors, config, attempt);
+      const filesFixed = await attemptFix(lastErrors, config, repairAttemptsUsed);
       if (filesFixed === 0) {
-        config.onLog('[CompileGuard] Fix agent produced no output — skipping to recovery');
+        stopReason = 'no_fix_output';
+        logRepairDecision(config, 'stop', stopReason);
         break;
       }
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') throw e;
-      config.onLog(`[CompileGuard] Fix agent error: ${String(e)} — skipping to recovery`);
+      stopReason = 'fix_agent_error';
+      config.onLog(`[CompileGuard] Fix agent error: ${String(e)} — stopping bounded repair`);
+      logRepairDecision(config, 'stop', stopReason, {
+        error: String(e),
+      });
       break;
     }
+
+    executionAttempts++;
+    const result = await revisionManager.compileCandidate(config.revId);
+
+    if (result.success) {
+      stopReason = 'repair_succeeded';
+      logFinalStopReason(config, stopReason, {
+        attempts: executionAttempts,
+      });
+      return {
+        outcome: 'repair_succeeded',
+        success: true,
+        attempts: executionAttempts,
+        stopReason,
+        partialShip: false,
+        degraded: false,
+        minimumViableCandidate: true,
+        budgetExhausted: false,
+        failureClassification: lastClassification,
+      };
+    }
+
+    lastErrors = result.errors ?? ['Unknown compile error'];
+    lastClassification = classifyRepairFailure(lastErrors);
+    logFailureClassified(config, lastClassification, lastErrors);
+
+    const progress = evaluateRepairProgress(previousSignature, lastClassification.signature);
+    logProgressEvaluated(config, progress);
+    previousSignature = lastClassification.signature;
+
+    if (lastClassification.severity === 'non_fatal') {
+      nonFatalWithoutRepair = true;
+      stopReason = 'non_fatal_issue_after_repair';
+      logRepairDecision(config, 'no_repair_needed', lastClassification.reason);
+      break;
+    }
+
+    if (progress.status === 'no_progress') {
+      stopReason = 'no_progress';
+      logRepairDecision(config, 'stop', stopReason);
+      break;
+    }
+
+    if (repairAttemptsUsed >= MAX_REPAIR_ATTEMPTS) {
+      budgetExhausted = true;
+      stopReason = 'repair_budget_exhausted';
+      previewLog('repair_budget_exhausted', {
+        buildId: config.revId,
+        attemptsUsed: repairAttemptsUsed,
+        maxAttempts: MAX_REPAIR_ATTEMPTS,
+      });
+      config.onLog('[CompileGuard] Repair budget exhausted');
+      break;
+    }
+
+    logRepairDecision(config, 'retry', lastClassification.reason, {
+      nextAttempt: repairAttemptsUsed + 1,
+    });
   }
 
   // ── Route-level recovery ──────────────────────────────────────────────────
-  // Instead of total failure, replace the broken file with a stub component.
-  // The rest of the app remains interactive — only the broken page shows an error.
+  // Partial ship path: replace a broken route file with a stub component.
+  // This is allowed only when the candidate can still boot successfully after
+  // the substitution, which makes the result an explicit degraded candidate.
   const errorText = lastErrors.join('\n');
   const brokenFile = extractFileFromError(errorText);
 
@@ -305,28 +539,108 @@ export async function compileWithRetry(config: CompileLoopConfig): Promise<Compi
     if (!currentPaths.includes(brokenFile) && config.recheckAdmission) {
       const approved = await config.recheckAdmission([...new Set([...currentPaths, brokenFile])]);
       if (!approved) {
-        config.onLog(`[CompileGuard] Recovery stub rejected for new path: ${brokenFile}`);
+        stopReason = 'partial_ship_rejected_by_admission';
+        config.onLog(`[CompileGuard] Partial ship stub rejected for new path: ${brokenFile}`);
+        logRepairDecision(config, 'stop', stopReason);
+        logFinalStopReason(config, stopReason);
         commandBus.dispatch({ type: 'PREVIEW_FAILED', error: lastErrors.join('\n') });
-        return { success: false, attempts: MAX_ATTEMPTS, errors: lastErrors };
+        return {
+          outcome: nonFatalWithoutRepair ? 'non_fatal_non_viable' : 'fatal_non_viable',
+          success: false,
+          attempts: executionAttempts,
+          errors: lastErrors,
+          stopReason,
+          partialShip: false,
+          degraded: false,
+          minimumViableCandidate: false,
+          budgetExhausted,
+          failureClassification: lastClassification,
+        };
       }
     } else if (!currentPaths.includes(brokenFile) && !config.recheckAdmission) {
-      config.onLog(`[CompileGuard] Recovery blocked for new path: ${brokenFile}`);
+      stopReason = 'partial_ship_blocked_for_new_path';
+      config.onLog(`[CompileGuard] Partial ship blocked for new path: ${brokenFile}`);
+      logRepairDecision(config, 'stop', stopReason);
+      logFinalStopReason(config, stopReason);
       commandBus.dispatch({ type: 'PREVIEW_FAILED', error: lastErrors.join('\n') });
-      return { success: false, attempts: MAX_ATTEMPTS, errors: lastErrors };
+      return {
+        outcome: nonFatalWithoutRepair ? 'non_fatal_non_viable' : 'fatal_non_viable',
+        success: false,
+        attempts: executionAttempts,
+        errors: lastErrors,
+        stopReason,
+        partialShip: false,
+        degraded: false,
+        minimumViableCandidate: false,
+        budgetExhausted,
+        failureClassification: lastClassification,
+      };
     }
-    config.onLog(`[CompileGuard] Route-level recovery: stubbing ${brokenFile}`);
+
+    stopReason = stopReason === 'repair_not_started' ? 'partial_ship_candidate' : stopReason;
+    logRepairDecision(config, 'partial_ship', `stub_${brokenFile}`);
+    config.onLog(`[CompileGuard] Partial ship: stubbing ${brokenFile}`);
     const stub = stubComponent(brokenFile, lastErrors[0] ?? 'Compilation error');
     await revisionManager.writeCandidateFile(config.revId, '/' + brokenFile, stub);
 
+    executionAttempts++;
     const recoveryResult = await revisionManager.compileCandidate(config.revId);
     if (recoveryResult.success) {
-      config.onLog(`[CompileGuard] ✓ Recovered — ${brokenFile} replaced with stub, rest of app works`);
-      return { success: true, attempts: MAX_ATTEMPTS, errors: [`${brokenFile} replaced with error stub`] };
+      stopReason = nonFatalWithoutRepair
+        ? 'non_fatal_degraded_acceptable'
+        : 'partial_ship';
+      logFinalStopReason(config, stopReason, {
+        partialShip: true,
+        brokenFile,
+      });
+      config.onLog(
+        `[CompileGuard] Partial ship succeeded — ${brokenFile} replaced with error stub`,
+      );
+      return {
+        outcome: nonFatalWithoutRepair
+          ? 'non_fatal_degraded_acceptable'
+          : 'partial_ship',
+        success: true,
+        attempts: executionAttempts,
+        errors: [`${brokenFile} replaced with error stub`],
+        stopReason,
+        partialShip: true,
+        degraded: true,
+        minimumViableCandidate: true,
+        budgetExhausted,
+        failureClassification: lastClassification,
+      };
     }
-    config.onLog(`[CompileGuard] Recovery compile also failed — full failure`);
+    lastErrors = recoveryResult.errors ?? ['Partial ship compile failed'];
+    lastClassification = classifyRepairFailure(lastErrors);
+    logFailureClassified(config, lastClassification, lastErrors);
+    const progress = evaluateRepairProgress(previousSignature, lastClassification.signature);
+    logProgressEvaluated(config, progress);
+    if (stopReason === 'repair_not_started' || stopReason === 'partial_ship_candidate') {
+      stopReason = 'partial_ship_failed';
+    }
+    config.onLog('[CompileGuard] Partial ship compile also failed');
   }
 
-  config.onLog(`[CompileGuard] ✗ All recovery attempts exhausted`);
+  if (stopReason === 'repair_not_started') {
+    stopReason = budgetExhausted ? 'repair_budget_exhausted' : 'fatal_candidate_unresolved';
+  }
+
+  logFinalStopReason(config, stopReason, {
+    budgetExhausted,
+  });
+  config.onLog('[CompileGuard] ✗ Bounded repair stopped without viable candidate');
   commandBus.dispatch({ type: 'PREVIEW_FAILED', error: lastErrors.join('\n') });
-  return { success: false, attempts: MAX_ATTEMPTS, errors: lastErrors };
+  return {
+    outcome: nonFatalWithoutRepair ? 'non_fatal_non_viable' : 'fatal_non_viable',
+    success: false,
+    attempts: executionAttempts,
+    errors: lastErrors,
+    stopReason,
+    partialShip: false,
+    degraded: false,
+    minimumViableCandidate: false,
+    budgetExhausted,
+    failureClassification: lastClassification,
+  };
 }

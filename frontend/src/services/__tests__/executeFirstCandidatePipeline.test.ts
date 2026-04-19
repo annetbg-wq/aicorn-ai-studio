@@ -100,6 +100,15 @@ describe('Execute-first candidate pipeline', () => {
       if (url.includes('__read_preview?path=themes/')) {
         return Promise.resolve({ ok: false, status: 404 });
       }
+      if (url.includes('__read_preview?path=')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            ok: true,
+            content: 'export default function App() { return <main>Existing preview file</main>; }',
+          }),
+        });
+      }
       if (url.includes('/dev-agent-mode')) {
         return Promise.reject(new Error('dev-agent-mode unavailable in test'));
       }
@@ -275,6 +284,180 @@ describe('Execute-first candidate pipeline', () => {
     expect(events.some(e => e.event === 'repair_decision' && e.payload.decision === 'needed')).toBe(true);
     expect(events.some(e => e.event === 'promotion_blocked_fast_gate_failed')).toBe(true);
     expect(events.some(e => e.event === 'candidate_rejected')).toBe(true);
+    expect(events.some(e => e.event === 'candidate_promoted')).toBe(false);
+  });
+
+  it('does not discard a non-fatal candidate when degraded acceptable viability exists', async () => {
+    const { SimpleGeneration } = await import('../SimpleGeneration');
+    const { revisionManager } = await import('../RevisionManager');
+
+    resetRevisionManagerSingleton(revisionManager);
+    const events = captureTimelineEvents();
+    const logs: string[] = [];
+
+    const artifact = JSON.stringify({
+      artifact: {
+        entry: 'src/App.tsx',
+        files: [
+          {
+            path: 'src/App.tsx',
+            content: [
+              "import BrokenPage from './BrokenPage';",
+              '',
+              'export default function App() {',
+              '  return <BrokenPage />;',
+              '}',
+            ].join('\n'),
+          },
+          {
+            path: 'src/BrokenPage.tsx',
+            content: 'export default function BrokenPage() { return <main>Decorative asset path</main>; }',
+          },
+        ],
+      },
+    });
+
+    llmProxyMock.llmFetchStream
+      .mockResolvedValueOnce(makeStreamingResponse('{"technicalBlueprint":{"stack":["react"]}}'))
+      .mockResolvedValueOnce(makeStreamingResponse(artifact));
+
+    vi.spyOn(revisionManager, 'fullClearPreview').mockResolvedValue(undefined);
+    const compileSpy = vi.spyOn(revisionManager, 'compileCandidate')
+      .mockResolvedValueOnce({
+        success: false,
+        errors: ['Failed to resolve import "./logo.svg" from "src/BrokenPage.tsx"'],
+        _compiled: false,
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        _compiled: true,
+      });
+    const promoteSpy = vi.spyOn(revisionManager, 'promote').mockResolvedValue(undefined);
+    const rejectSpy = vi.spyOn(revisionManager, 'rejectCandidate');
+
+    const result = await SimpleGeneration.run({
+      intent: 'build an app with a non-fatal decorative asset issue',
+      history: [],
+      files: {},
+      primaryRoute: makeRoute('primary', 'primary-model'),
+      buildRoute: makeRoute('build', 'build-model'),
+      fixRoute: makeRoute('fix', 'fix-model'),
+      qaRoute: makeRoute('qa', 'qa-model'),
+      apiKey: 'build-key',
+      modelId: 'build-model',
+      fixModelId: 'fix-model',
+      onStream: () => {},
+      onFiles: () => {},
+      onPhase: () => {},
+      onLog: (msg) => logs.push(msg),
+      onPlan: () => {},
+      singlePageSafeMode: true,
+      generationMode: 'landing',
+      prebuiltPlan: makePlan(),
+    });
+
+    expect(result.status).toBe('complete');
+    expect(result.message).toContain('Partial ship:');
+    expect(result.warnings[0]?.code).toBe('PARTIAL_SHIP_ACTIVE');
+    expect(compileSpy).toHaveBeenCalledTimes(2);
+    expect(promoteSpy).toHaveBeenCalledTimes(1);
+    expect(rejectSpy).not.toHaveBeenCalled();
+    expect(llmProxyMock.llmFetchStream).toHaveBeenCalledTimes(2);
+    expect(logs.some(msg => msg.includes('Fast gate failed'))).toBe(true);
+    expect(logs.some(msg => msg.includes('Partial ship active: degraded candidate promoted'))).toBe(true);
+    expect(logs.some(msg => msg.includes('candidate promoted'))).toBe(true);
+
+    expect(events.some(e => e.event === 'fast_gate_result' && e.payload.result === 'failed')).toBe(true);
+    expect(events.some(e => e.event === 'final_stop_reason' && e.payload.stopReason === 'non_fatal_degraded_acceptable')).toBe(true);
+    expect(events.some(e => e.event === 'candidate_rejected')).toBe(false);
+  });
+
+  it('does not overwrite last-good when the bounded repair budget is exhausted', async () => {
+    const { SimpleGeneration } = await import('../SimpleGeneration');
+    const { revisionManager } = await import('../RevisionManager');
+
+    resetRevisionManagerSingleton(revisionManager);
+    (revisionManager as unknown as { activeRevisionId: string | null }).activeRevisionId = 'last-good-rev';
+    const events = captureTimelineEvents();
+    const logs: string[] = [];
+
+    const artifact = JSON.stringify({
+      artifact: {
+        entry: 'src/App.tsx',
+        files: [
+          {
+            path: 'src/App.tsx',
+            content: 'export default function App() { return <main>Budget failure path</main>; }',
+          },
+        ],
+      },
+    });
+
+    llmProxyMock.llmFetchStream
+      .mockResolvedValueOnce(makeStreamingResponse('{"technicalBlueprint":{"stack":["react"]}}'))
+      .mockResolvedValueOnce(makeStreamingResponse(artifact))
+      .mockResolvedValueOnce(makeStreamingResponse(JSON.stringify({
+        artifact: {
+          files: [{ path: 'src/App.tsx', content: 'export default function App() { return <main>Fix 1</main>; }' }],
+        },
+      })))
+      .mockResolvedValueOnce(makeStreamingResponse(JSON.stringify({
+        artifact: {
+          files: [{ path: 'src/App.tsx', content: 'export default function App() { return <main>Fix 2</main>; }' }],
+        },
+      })));
+
+    vi.spyOn(revisionManager, 'fullClearPreview').mockResolvedValue(undefined);
+    const compileSpy = vi.spyOn(revisionManager, 'compileCandidate')
+      .mockResolvedValueOnce({
+        success: false,
+        errors: ['Failed to resolve import "./Panel" from "src/App.tsx"'],
+        _compiled: false,
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        errors: ['Runtime bootstrap changed in src/App.tsx'],
+        _compiled: false,
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        errors: ['Yet another runtime break in src/App.tsx'],
+        _compiled: false,
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        errors: ['Partial ship also failed'],
+        _compiled: false,
+      });
+    const promoteSpy = vi.spyOn(revisionManager, 'promote').mockResolvedValue(undefined);
+
+    const result = await SimpleGeneration.run({
+      intent: 'build an app that burns the bounded repair budget',
+      history: [],
+      files: {},
+      primaryRoute: makeRoute('primary', 'primary-model'),
+      buildRoute: makeRoute('build', 'build-model'),
+      fixRoute: makeRoute('fix', 'fix-model'),
+      qaRoute: makeRoute('qa', 'qa-model'),
+      apiKey: 'build-key',
+      modelId: 'build-model',
+      fixModelId: 'fix-model',
+      onStream: () => {},
+      onFiles: () => {},
+      onPhase: () => {},
+      onLog: (msg) => logs.push(msg),
+      onPlan: () => {},
+      singlePageSafeMode: true,
+      generationMode: 'landing',
+      prebuiltPlan: makePlan(),
+    });
+
+    expect(result.status).toBe('failed');
+    expect(compileSpy).toHaveBeenCalledTimes(4);
+    expect(promoteSpy).not.toHaveBeenCalled();
+    expect(revisionManager.getActiveRevisionId()).toBe('last-good-rev');
+    expect(logs.some(msg => msg.includes('Repair budget exhausted'))).toBe(true);
+    expect(events.some(e => e.event === 'repair_budget_exhausted')).toBe(true);
     expect(events.some(e => e.event === 'candidate_promoted')).toBe(false);
   });
 });
