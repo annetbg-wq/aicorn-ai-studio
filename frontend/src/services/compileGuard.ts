@@ -20,6 +20,8 @@ interface CompileLoopConfig {
   apiKey:   string;
   onLog:    (msg: string) => void;
   signal?:  AbortSignal;
+  /** Failed fast-gate result already observed before entering the repair loop. */
+  initialFailureErrors?: string[];
   /** LLM call delegate — avoids duplicating callLLM / endpoint logic. */
   callFix?: (prompt: string, signal?: AbortSignal) => Promise<string>;
   /** Admission re-check used when compileGuard expands the candidate file set. */
@@ -231,8 +233,32 @@ function stubComponent(filePath: string, errorMsg: string): string {
  */
 export async function compileWithRetry(config: CompileLoopConfig): Promise<CompileLoopResult> {
   let lastErrors: string[] = [];
+  let nextAttempt = 1;
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  if (config.initialFailureErrors && config.initialFailureErrors.length > 0) {
+    lastErrors = config.initialFailureErrors;
+    nextAttempt = 2;
+    config.onLog('[CompileGuard] Continuing from failed fast gate result');
+
+    if (!config.callFix) {
+      config.onLog('[CompileGuard] No fix agent configured — skipping to recovery');
+      nextAttempt = MAX_ATTEMPTS + 1;
+    } else {
+      try {
+        const filesFixed = await attemptFix(lastErrors, config, 1);
+        if (filesFixed === 0) {
+          config.onLog('[CompileGuard] Fix agent produced no output — skipping to recovery');
+          nextAttempt = MAX_ATTEMPTS + 1;
+        }
+      } catch (e: unknown) {
+        if (e instanceof DOMException && e.name === 'AbortError') throw e;
+        config.onLog(`[CompileGuard] Fix agent error: ${String(e)} — skipping to recovery`);
+        nextAttempt = MAX_ATTEMPTS + 1;
+      }
+    }
+  }
+
+  for (let attempt = nextAttempt; attempt <= MAX_ATTEMPTS; attempt++) {
     config.onLog(`[CompileGuard] Compile attempt ${attempt}/${MAX_ATTEMPTS}...`);
 
     const result = await revisionManager.compileCandidate(config.revId);
