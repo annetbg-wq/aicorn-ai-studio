@@ -67,6 +67,8 @@ import {
   createProjectBranchArchitecture,
   projectGraphToFileMap,
   fileMapToProjectGraph,
+  type GenerationReport,
+  type GenerationResult,
   type ProjectGraph,
   type PreviewLifecycleStage,
 } from '../shared/projectModel';
@@ -222,6 +224,39 @@ export function recoverKickoffApprovalFailure(
   callbacks.resolvePendingConfirmation?.(decision);
   callbacks.rejectBlueprint(pendingPlanId ?? '');
   return decision;
+}
+
+export function buildGenerationReport(input: {
+  result: Pick<GenerationResult, 'operations' | 'planTheme' | 'visualQualitySummary'>;
+  filesSnapshot: FileMap;
+  finalFiles: FileMap;
+  startMs: number;
+}): GenerationReport {
+  const isEditMode = Object.keys(input.filesSnapshot).filter(
+    k => /\.(tsx?|jsx?)$/.test(k) && !k.startsWith('_'),
+  ).length > 0;
+  const reportableFiles = Object.keys(input.finalFiles).filter(k => !k.startsWith('_'));
+  const touchedNames: string[] = [];
+
+  for (const op of input.result.operations) {
+    if (op.op !== 'rename' && !op.name.startsWith('_')) {
+      touchedNames.push(op.name);
+    }
+  }
+
+  return {
+    mode: isEditMode ? 'EDIT' : 'NEW',
+    theme: input.result.planTheme ?? 'default',
+    filesCreated: isEditMode
+      ? touchedNames.filter(f => !input.filesSnapshot[f])
+      : reportableFiles,
+    filesModified: isEditMode
+      ? touchedNames.filter(f => !!input.filesSnapshot[f])
+      : [],
+    pageCount: reportableFiles.filter(f => f.includes('pages/')).length,
+    duration: Math.round((Date.now() - input.startMs) / 1000),
+    visualQuality: input.result.visualQualitySummary,
+  };
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -2272,24 +2307,17 @@ export const useStudio = () => {
           if (!optimisticFiles && first && 'name' in first) setActiveFile(first.name as string);
 
           // ── Generation report ────────────────────────────────────────────
-          const isEditMode = Object.keys(filesSnapshot).filter(
-            k => /\.(tsx?|jsx?)$/.test(k) && !k.startsWith('_'),
-          ).length > 0;
-          const reportableFiles = Object.keys(finalFiles).filter(k => !k.startsWith('_'));
-          const touchedNames: string[] = [];
-          for (const op of result.operations) {
-            if (op.op !== 'rename' && !op.name.startsWith('_')) {
-              touchedNames.push(op.name);
-            }
-          }
-          const reportFilesCreated = isEditMode
-            ? touchedNames.filter(f => !filesSnapshot[f])
-            : reportableFiles;
-          const reportFilesModified = isEditMode
-            ? touchedNames.filter(f => !!filesSnapshot[f])
-            : [];
-          const reportContent = isEditMode
-            ? `Updated ${touchedNames.length} file${touchedNames.length !== 1 ? 's' : ''}`
+          const report = buildGenerationReport({
+            result,
+            filesSnapshot,
+            finalFiles,
+            startMs,
+          });
+          const touchedCount = report.mode === 'EDIT'
+            ? report.filesCreated.length + report.filesModified.length
+            : report.filesCreated.length;
+          const reportContent = report.mode === 'EDIT'
+            ? `Updated ${touchedCount} file${touchedCount !== 1 ? 's' : ''}`
             : 'Built your app!';
           const storedProjectForReality = currentProjectId ? ProjectStorage.getProject(currentProjectId) : null;
           const activeBranchIdForReality = storedProjectForReality?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
@@ -2310,14 +2338,7 @@ export const useStudio = () => {
             content: reportContent,
             generationTrust,
             branchReality,
-            report: {
-              mode: isEditMode ? 'EDIT' : 'NEW',
-              theme: result.planTheme ?? 'default',
-              filesCreated: reportFilesCreated,
-              filesModified: reportFilesModified,
-              pageCount: reportableFiles.filter(f => f.includes('pages/')).length,
-              duration: Math.round((Date.now() - startMs) / 1000),
-            },
+            report,
           });
         }
       });
