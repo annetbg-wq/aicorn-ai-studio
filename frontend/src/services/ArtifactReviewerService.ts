@@ -1,5 +1,5 @@
 import type { ArtifactContract, ArtifactFile } from '../types/artifact';
-import { parseArtifact } from './artifactParser';
+import { parseArtifact, looksLikeSourceCode } from './artifactParser';
 import type { AgentExecutionRoute } from './buildAgentRouting';
 import { llmFetch } from './LLMProxy';
 
@@ -116,7 +116,7 @@ function tryExtractFromEnvelope(
       if (!item || typeof item !== 'object') continue;
       const f = item as Record<string, unknown>;
       if (typeof f.content !== 'string' || f.content.length < 50) continue;
-      if (/(?:import\s|export\s|function\s|const\s|return\s*[(<]|=>)/.test(f.content)) {
+      if (looksLikeSourceCode(f.content)) {
         return f.content;
       }
     }
@@ -133,35 +133,18 @@ export class ArtifactReviewerService {
   // Preserved for the EDIT path. Throws on unrecoverable issues.
 
   static review(artifact: ArtifactContract): ArtifactContract {
-    const cleanedFiles = artifact.files
-      .map((file): ArtifactFile | null => {
-        const trimmed = file.content.trim();
-        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-          try {
-            const nested = JSON.parse(trimmed) as { files?: unknown };
-            if (nested && typeof nested === 'object' && Array.isArray(nested.files)) {
-              return null;
-            }
-          } catch {
-            // Keep original file content when JSON parsing fails.
-          }
-        }
-        return file;
-      })
-      .filter((file): file is ArtifactFile => Boolean(file));
+    const { artifact: heuristicArtifact } =
+      ArtifactReviewerService._deepHeuristicRepair(artifact, () => {});
 
-    if (cleanedFiles.length === 0) {
-      throw new Error('REVIEWER_FAIL: 0 files after cleaning');
+    if (heuristicArtifact.files.length === 0) {
+      throw new Error('ARTIFACT_SEMANTIC_PARSE_FAIL: 0 files after heuristic repair');
     }
 
-    if (!artifact.entry || !cleanedFiles.find((file) => file.path === artifact.entry)) {
+    if (!heuristicArtifact.entry || !heuristicArtifact.files.find((file) => file.path === heuristicArtifact.entry)) {
       throw new Error('REVIEWER_FAIL: invalid entry point');
     }
 
-    return {
-      ...artifact,
-      files: cleanedFiles,
-    };
+    return heuristicArtifact;
   }
 
   // ── Deep heuristic repair ────────────────────────────────────────────────────
@@ -296,8 +279,10 @@ export class ArtifactReviewerService {
       ArtifactReviewerService._deepHeuristicRepair(artifact, onLog);
 
     if (heuristicArtifact.files.length === 0) {
-      onLog('[ArtifactReviewer] hard fail: 0 files remain after heuristic — artifact unrecoverable');
-      throw new Error('REVIEWER_FAIL: 0 files after heuristic repair');
+      onLog('[ArtifactReviewer] semantic fail: 0 files remain after heuristic — classifying as retryable');
+      // Prefix with ARTIFACT_SEMANTIC_PARSE_FAIL so SimpleGeneration can catch and
+      // convert this into a retryable generation failure rather than a hard crash.
+      throw new Error('ARTIFACT_SEMANTIC_PARSE_FAIL: 0 files after heuristic repair');
     }
 
     // ── Step 2: Decide whether AI review is needed ─────────────────────────

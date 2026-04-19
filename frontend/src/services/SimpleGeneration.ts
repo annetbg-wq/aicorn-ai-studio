@@ -25,9 +25,15 @@ import {
   MANIFEST_PATH,
   type RouteManifest,
 } from './RouteManifestService';
-import { parseArtifact, convertLegacyFiles, parseFileMarkers } from './artifactParser';
+import {
+  parseArtifact,
+  convertLegacyFiles,
+  parseFileMarkers,
+  classifyArtifactHealth,
+  type ArtifactSemanticIssue,
+} from './artifactParser';
 import { ArtifactReviewerService } from './ArtifactReviewerService';
-import type { ArtifactContract } from '../types/artifact';
+import type { ArtifactContract, ArtifactParseResult } from '../types/artifact';
 import type {
   LLMMessage,
   FileOperation,
@@ -1691,6 +1697,85 @@ function emptyChangePackage(graph: ProjectGraph, ops: FileOperation[]): ChangePa
   };
 }
 
+function formatArtifactSemanticIssue(issue: ArtifactSemanticIssue): string {
+  return `${issue.failClass}: ${issue.detail}`;
+}
+
+function inspectArtifactAttempt(raw: string): {
+  parseResult: ArtifactParseResult;
+  semanticIssue: ArtifactSemanticIssue | null;
+} {
+  const parseResult = parseArtifact(raw);
+  const semanticIssue = classifyArtifactHealth(raw, parseResult.artifact ?? null);
+  return { parseResult, semanticIssue };
+}
+
+function buildArtifactFailureResult(input: {
+  intent: string;
+  modelId?: string;
+  startMs: number;
+  message: string;
+  warningCode: string;
+  fallbackUsed: boolean;
+  parseSuccess: boolean;
+}): GenerationResult {
+  const now = new Date().toISOString();
+  const failedId = crypto.randomUUID();
+  const emptyGraph: ProjectGraph = {
+    version: 1 as const,
+    id: '',
+    projectId: '',
+    revisionId: '',
+    manifest: emptyManifest(input.intent),
+    files: [],
+    routes: [],
+    features: [],
+    externalDependencies: [],
+    entryFileId: '',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  metricsService.logGeneration({
+    generation_id:   failedId,
+    intent:          input.intent,
+    model_id:        input.modelId || '',
+    duration_ms:     Date.now() - input.startMs,
+    file_count:      0,
+    parse_success:   input.parseSuccess,
+    fallback_used:   input.fallbackUsed,
+    compile_success: false,
+    autofix_needed:  false,
+    autofix_success: false,
+    error_message:   input.message.slice(0, 500),
+  });
+
+  return {
+    id: failedId,
+    status: 'failed',
+    graph: emptyGraph,
+    operations: [],
+    message: input.message,
+    phase: 'idle' as AgentPhase,
+    usedModel: input.modelId || '',
+    selfCorrected: false,
+    iterations: 1,
+    durationMs: Date.now() - input.startMs,
+    createdAt: now,
+    dependencies: [],
+    previewMeta: { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
+    warnings: [{
+      severity: 'error' as const,
+      source: 'integrity' as const,
+      code: input.warningCode,
+      filePath: '',
+      message: input.message,
+    }],
+    repairHints: [],
+    changePackage: emptyChangePackage(emptyGraph, []),
+  };
+}
+
 /** Build a ChangePackage with route validation drift hints. */
 function buildRouteAwareChangePackage(
   graph: ProjectGraph,
@@ -3191,10 +3276,28 @@ async function maybeApplyVisualPolish(input: {
     return input.baseResult;
   }
 
-  const polishParseResult = parseArtifact(polishRaw);
+  const { parseResult: polishParseResult, semanticIssue: polishSemanticIssue } = inspectArtifactAttempt(polishRaw);
   let polishDependencies: string[] = [];
   let polishDependencySpecs: DependencySpec[] = [];
   const polishLlmFiles: Record<string, string> = {};
+
+  if (polishSemanticIssue) {
+    const issueText = formatArtifactSemanticIssue(polishSemanticIssue);
+    input.config.onLog(`[SimpleGeneration] visual polish: artifact ingress failed (${issueText}) — keeping previous revision`);
+    input.baseResult.visualPolishSummary = {
+      mode,
+      outcome: 'failed',
+      attempts: 1,
+      maxPasses: decision.maxPasses,
+      triggerVerdict: baseSummary.verdict,
+      triggerScore: baseSummary.score,
+      triggerReasons: decision.triggerReasons,
+      finalVerdict: input.baseResult.visualQualitySummary?.verdict,
+      finalScore: input.baseResult.visualQualitySummary?.score,
+      note: `Polish artifact rejected at ingress (${polishSemanticIssue.failClass.toLowerCase()}).`,
+    };
+    return input.baseResult;
+  }
 
   if (polishParseResult.success && polishParseResult.artifact) {
     const cleanArtifact = ArtifactReviewerService.review(polishParseResult.artifact);
@@ -3952,11 +4055,25 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       closeEditCoder({ data: { chars: editRaw.length } });
       config.onLog(`[SimpleGeneration] EDIT Coder response: ${editRaw.length} chars`);
 
-      const editParseResult = parseArtifact(editRaw);
+      const { parseResult: editParseResult, semanticIssue: editSemanticIssue } = inspectArtifactAttempt(editRaw);
       config.onLog(`[SimpleGeneration] EDIT parse: success=${editParseResult.success}, fallback=${editParseResult.fallbackUsed}`);
       let editDependencies: string[] = [];
       let editDependencySpecs: DependencySpec[] = [];
       const editLlmFiles: Record<string, string> = {};
+      if (editSemanticIssue) {
+        const issueText = formatArtifactSemanticIssue(editSemanticIssue);
+        config.onLog(`[SimpleGeneration] ❌ EDIT artifact ingress failed (${issueText}) — aborting before reviewer`);
+        config.onPhase({ phase: 'idle', progress: 100 });
+        return buildArtifactFailureResult({
+          intent: config.intent,
+          modelId: config.modelId,
+          startMs,
+          message: issueText,
+          warningCode: editSemanticIssue.failClass,
+          fallbackUsed: editParseResult.fallbackUsed,
+          parseSuccess: editParseResult.success,
+        });
+      }
       if (editParseResult.success && editParseResult.artifact) {
         const cleanEditArtifact = ArtifactReviewerService.review(editParseResult.artifact);
         editDependencies = cleanEditArtifact.dependencies ?? [];
@@ -4559,15 +4676,27 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     console.log('[SimpleGeneration] RAW last 200:', raw.slice(-200));
 
     // Parse artifact (JSON first, FILE markers as fallback)
-    const parseResult = parseArtifact(raw);
+    const { parseResult, semanticIssue: firstSemanticIssue } = inspectArtifactAttempt(raw);
     config.onLog(`[SimpleGeneration] Parse: success=${parseResult.success}, fallback=${parseResult.fallbackUsed}`);
 
-    // ── Retry once with explicit error if parse failed ─────────────────────
-    let finalParseResult = parseResult;
-    if (!parseResult.success || !parseResult.artifact) {
-      config.onLog('[SimpleGeneration] ⚠ Parse failed — retrying with explicit format instruction');
+    // ── Semantic health check — catches poisoned/truncated artifacts that
+    //    parse nominally but would cause REVIEWER_FAIL: 0 files later ─────
+    if (firstSemanticIssue) {
+      config.onLog(
+        `[SimpleGeneration] ⚠ Artifact ingress issue (${formatArtifactSemanticIssue(firstSemanticIssue)})`,
+      );
+    }
 
-      const retryPrompt = `Your previous response could not be parsed as a JSON artifact.
+    // ── Retry once with explicit error if parse failed or semantic check fired
+    let finalAttempt = { parseResult, semanticIssue: firstSemanticIssue };
+    if (!parseResult.success || !parseResult.artifact || firstSemanticIssue) {
+      const retryReason = firstSemanticIssue
+        ? `Artifact ingress failed (${formatArtifactSemanticIssue(firstSemanticIssue)})`
+        : `Artifact parse failed (${parseResult.error ?? 'unknown parse error'})`;
+      config.onLog(`[SimpleGeneration] ⚠ ${retryReason} — retrying with explicit format instruction`);
+
+      const retryPrompt = `Your previous response had an artifact ingress failure.
+Problem: ${retryReason}
 The response started with: "${raw.slice(0, 200)}"
 
 You MUST respond with ONLY a JSON artifact in this exact format:
@@ -4590,67 +4719,86 @@ Generate the complete application for: ${config.intent}`;
       );
       config.onLog(`[SimpleGeneration] Retry response: ${retryRaw.length} chars`);
 
-      const retryResult = parseArtifact(retryRaw);
-      config.onLog(`[SimpleGeneration] Retry parse: success=${retryResult.success}, fallback=${retryResult.fallbackUsed}`);
-
-      if (retryResult.success && retryResult.artifact) {
-        finalParseResult = retryResult;
+      finalAttempt = inspectArtifactAttempt(retryRaw);
+      config.onLog(`[SimpleGeneration] Retry parse: success=${finalAttempt.parseResult.success}, fallback=${finalAttempt.parseResult.fallbackUsed}`);
+      if (finalAttempt.semanticIssue) {
+        config.onLog(
+          `[SimpleGeneration] ⚠ Retry artifact ingress issue (${formatArtifactSemanticIssue(finalAttempt.semanticIssue)})`,
+        );
       }
     }
 
-    if (!finalParseResult.success || !finalParseResult.artifact) {
-      config.onLog('[SimpleGeneration] ❌ Complete parse failure — no files extracted after retry');
+    if (finalAttempt.semanticIssue) {
+      const issueText = formatArtifactSemanticIssue(finalAttempt.semanticIssue);
+      config.onLog(`[SimpleGeneration] ❌ Artifact ingress failed after retry (${issueText})`);
       config.onPhase({ phase: 'idle', progress: 100 });
-      const now = new Date().toISOString();
-      const failedId = crypto.randomUUID();
-      metricsService.logGeneration({
-        generation_id:   failedId,
-        intent:          config.intent,
-        model_id:        config.modelId || '',
-        duration_ms:     Date.now() - startMs,
-        file_count:      0,
-        parse_success:   false,
-        fallback_used:   finalParseResult.fallbackUsed ?? false,
-        compile_success: false,
-        autofix_needed:  false,
-        autofix_success: false,
-        error_message:   (finalParseResult.error ?? 'Artifact parse failed').slice(0, 500),
+      return buildArtifactFailureResult({
+        intent: config.intent,
+        modelId: config.modelId,
+        startMs,
+        message: issueText,
+        warningCode: finalAttempt.semanticIssue.failClass,
+        fallbackUsed: finalAttempt.parseResult.fallbackUsed,
+        parseSuccess: finalAttempt.parseResult.success,
       });
-      return {
-        id: failedId,
-        status: 'failed',
-        graph: { version: 1 as const, id: '', projectId: '', revisionId: '', manifest: emptyManifest(config.intent), files: [], routes: [], features: [], externalDependencies: [], entryFileId: '', createdAt: now, updatedAt: now },
-        operations: [],
-        message: finalParseResult.error ?? 'Parse failure',
-        phase: 'idle' as AgentPhase,
-        usedModel: config.modelId || '',
-        selfCorrected: false, iterations: 1, durationMs: Date.now() - startMs,
-        createdAt: now, dependencies: [], previewMeta: { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
-        warnings: [{ severity: 'error' as const, source: 'integrity' as const, code: 'ARTIFACT_PARSE_FAILED', filePath: '', message: finalParseResult.error ?? 'No parseable artifact' }], repairHints: [],
-        changePackage: emptyChangePackage(
-          { version: 1 as const, id: '', projectId: '', revisionId: '', manifest: emptyManifest(config.intent), files: [], routes: [], features: [], externalDependencies: [], entryFileId: '', createdAt: now, updatedAt: now },
-          [],
-        ),
-      };
     }
 
-    const artifact: ArtifactContract = finalParseResult.artifact;
+    if (!finalAttempt.parseResult.success || !finalAttempt.parseResult.artifact) {
+      config.onLog('[SimpleGeneration] ❌ Complete parse failure — no files extracted after retry');
+      config.onPhase({ phase: 'idle', progress: 100 });
+      return buildArtifactFailureResult({
+        intent: config.intent,
+        modelId: config.modelId,
+        startMs,
+        message: finalAttempt.parseResult.error ?? 'Parse failure',
+        warningCode: 'ARTIFACT_PARSE_FAILED',
+        fallbackUsed: finalAttempt.parseResult.fallbackUsed ?? false,
+        parseSuccess: false,
+      });
+    }
+
+    const artifact: ArtifactContract = finalAttempt.parseResult.artifact;
     if (!config.qaRoute) {
       throw new Error(
         '[SimpleGeneration] ROUTING VIOLATION: standard generation reached ArtifactReviewerService ' +
         'without canonical qaRoute. Pass resolveStandardRoute("qa") via PipelineRunConfig.',
       );
     }
-    const cleanArtifact = await ArtifactReviewerService.reviewWithAI({
-      intent:      config.intent,
-      planContext: typeof plan === 'object' && plan !== null
-        ? JSON.stringify(plan).slice(0, 800)
-        : undefined,
-      artifact,
-      qaRoute: config.qaRoute,
-      onLog:   config.onLog,
-      signal:  config.signal,
-    });
+    // Safety net: if a semantically broken artifact slipped past the pre-check
+    // (e.g. retry also poisoned), convert REVIEWER_FAIL into a retryable
+    // generation failure rather than letting it propagate as an uncaught throw.
+    let cleanArtifact: ArtifactContract;
+    try {
+      cleanArtifact = await ArtifactReviewerService.reviewWithAI({
+        intent:      config.intent,
+        planContext: typeof plan === 'object' && plan !== null
+          ? JSON.stringify(plan).slice(0, 800)
+          : undefined,
+        artifact,
+        qaRoute: config.qaRoute,
+        onLog:   config.onLog,
+        signal:  config.signal,
+      });
+    } catch (reviewErr) {
+      const reviewMsg = String((reviewErr as Error)?.message ?? reviewErr);
+      if (
+        reviewMsg.startsWith('ARTIFACT_SEMANTIC_PARSE_FAIL:') ||
+        reviewMsg.startsWith('REVIEWER_FAIL:')
+      ) {
+        config.onLog(`[SimpleGeneration] ❌ Reviewer semantic fail (retryable generation failure) — ${reviewMsg}`);
+        config.onPhase({ phase: 'idle', progress: 100 });
+        return buildArtifactFailureResult({
+          intent: config.intent,
+          modelId: config.modelId,
+          startMs,
+          message: reviewMsg,
+          warningCode: 'ARTIFACT_SEMANTIC_PARSE_FAIL',
+          fallbackUsed: false,
+          parseSuccess: false,
+        });
+      }
+      throw reviewErr;
+    }
     const artifactDependencies = cleanArtifact.dependencies ?? [];
     const artifactDependencySpecs = toDependencySpecs(artifactDependencies);
     const entryFile = cleanArtifact.entry || 'src/App.tsx';
@@ -4910,8 +5058,8 @@ Generate the complete application for: ${config.intent}`;
       model_id:        result.usedModel,
       duration_ms:     durationMs,
       file_count:      ops.length,
-      parse_success:   finalParseResult.success,
-      fallback_used:   finalParseResult.fallbackUsed ?? false,
+      parse_success:   finalAttempt.parseResult.success,
+      fallback_used:   finalAttempt.parseResult.fallbackUsed ?? false,
       compile_success: compiled.success,
       autofix_needed:  compiled.attempts > 1,
       autofix_success: compiled.attempts > 1 && compiled.success,
