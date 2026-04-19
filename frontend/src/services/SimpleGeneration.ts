@@ -47,6 +47,7 @@ import type {
 } from '../shared/projectModel';
 import { syncRoutes, validateAllRouteLayers } from '../shared/projectModel';
 import { GenerationQualityService } from './benchmark/GenerationQualityService';
+import { VisualQualityService } from './benchmark/VisualQualityService';
 import { metricsService } from './MetricsService';
 import { revisionManager } from './RevisionManager';
 import { previewController, previewLog, setTimelineContext } from './PreviewController';
@@ -3353,6 +3354,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         repairHints: [],
       };
       editResult.qualitySummary = GenerationQualityService.evaluate(editResult);
+      editResult.visualQualitySummary = VisualQualityService.evaluate(editResult);
       config.onLog(`[SimpleGeneration] quality: ${editResult.qualitySummary.severity} — ${editResult.qualitySummary.summary}`);
 
       metricsService.logGeneration({
@@ -4023,6 +4025,7 @@ Generate the complete application for: ${config.intent}`;
       repairHints: [],
     };
     result.qualitySummary = GenerationQualityService.evaluate(result);
+    result.visualQualitySummary = VisualQualityService.evaluate(result);
     config.onLog(`[SimpleGeneration] quality: ${result.qualitySummary.severity} — ${result.qualitySummary.summary}`);
 
     metricsService.logGeneration({
