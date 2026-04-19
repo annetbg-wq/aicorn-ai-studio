@@ -55,6 +55,9 @@ import type {
   VisualPolishMode,
   VisualQualityDimensionId,
   VisualQualitySummary,
+  TraceRouteRecord,
+  TraceRunOutcome,
+  TraceSafeModelLabel,
 } from '../shared/projectModel';
 import { projectGraphToFileMap, syncRoutes, validateAllRouteLayers } from '../shared/projectModel';
 import { GenerationQualityService } from './benchmark/GenerationQualityService';
@@ -89,6 +92,11 @@ import {
   buildBranchGenerationGuidance,
   formatBranchArchitecturePrompt,
 } from './BranchArchitectureOrchestrationService';
+import {
+  buildSkippedFinalLivePreviewCheck,
+  runFinalLivePreviewCheck,
+  type FinalLivePreviewCheckResult,
+} from './WhiteScreenDetector';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -214,6 +222,7 @@ export interface PipelineRunConfig {
 }
 
 type GenerationMode = 'landing' | 'app' | 'superapp';
+type ShipOutcome = 'SHIP_OK' | 'SHIP_PARTIAL' | 'SHIP_FAIL';
 
 // ── Edit admission helper ─────────────────────────────────────────────────────
 
@@ -1783,19 +1792,50 @@ function markExecutionFailure(
   const nextWarnings = [...(changePackage.warnings ?? []), message];
   const nextRepairHints = [
     ...(changePackage.repairHints ?? []),
-    { code: 'fast-gate-failed', strategy: 'retry' as const },
+    { code: 'candidate-not-viable', strategy: 'retry' as const },
   ];
 
   changePackage.guardResults.runtime = {
     passed: false,
     failingFiles: [],
-    reasons: [{ code: 'FAST_GATE_FAILED', filePath: '', message }],
+    reasons: [{ code: 'CANDIDATE_NOT_VIABLE', filePath: '', message }],
     durationMs: 0,
   };
   changePackage.warnings = nextWarnings;
   changePackage.repairHints = nextRepairHints;
 
   return { warnings: nextWarnings, repairHints: nextRepairHints };
+}
+
+function markFinalCheckFailure(
+  changePackage: ChangePackage,
+  message: string,
+): { warnings: string[]; repairHints: Array<{ code: string; strategy: 'block' | 'auto-fix' | 'retry' }> } {
+  const nextWarnings = [...(changePackage.warnings ?? []), message];
+  const nextRepairHints = [
+    ...(changePackage.repairHints ?? []),
+    { code: 'final-check-failed', strategy: 'block' as const },
+  ];
+
+  changePackage.guardResults.runtime = {
+    passed: false,
+    failingFiles: [],
+    reasons: [{ code: 'FINAL_CHECK_FAILED', filePath: '', message }],
+    durationMs: 0,
+  };
+  changePackage.warnings = nextWarnings;
+  changePackage.repairHints = nextRepairHints;
+
+  return { warnings: nextWarnings, repairHints: nextRepairHints };
+}
+
+function resolveShipOutcome(
+  compiled: CompileLoopResult,
+  finalCheck: FinalLivePreviewCheckResult,
+): ShipOutcome {
+  if (!compiled.success || !compiled.minimumViableCandidate) return 'SHIP_FAIL';
+  if (finalCheck.status !== 'passed') return 'SHIP_FAIL';
+  return compiled.partialShip || compiled.degraded ? 'SHIP_PARTIAL' : 'SHIP_OK';
 }
 
 function markPartialShipResult(
@@ -3869,6 +3909,81 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       mode:      'new',        // updated below once we know isEditMode
       projectId: config.projectId,
     });
+    const buildTraceLabels = (route?: AgentExecutionRoute): TraceSafeModelLabel | undefined => (
+      route
+        ? {
+            provider: route.provider,
+            model: route.modelId,
+            slot: route.slot,
+            route: `${route.provider}:${route.slot}`,
+          }
+        : undefined
+    );
+    const formatTraceRoute = (role: string, route?: AgentExecutionRoute): TraceRouteRecord | null => (
+      route
+        ? {
+            role,
+            provider: route.provider,
+            model: route.modelId,
+            slot: route.slot,
+            route: `${route.provider}:${route.slot}`,
+            keySource: route.keySource,
+            fallbackReason: route.fallbackReason,
+            reason: route.reason,
+          }
+        : null
+    );
+    const summarizePlanForTrace = (planValue: Record<string, unknown> | null | undefined): string => {
+      if (!planValue) return 'No structured plan was available.';
+      const appName = typeof planValue.appName === 'string' ? planValue.appName : 'Untitled app';
+      const theme = typeof planValue.theme === 'string' ? planValue.theme : 'default theme';
+      const pages = Array.isArray(planValue.pages) ? planValue.pages.length : 0;
+      return `${appName} with ${pages} planned page${pages === 1 ? '' : 's'} using ${theme}.`;
+    };
+    const summarizeArtistLayerForTrace = (artistLayer?: ArtistLayerSpec | null): string => {
+      if (!artistLayer) return 'No artist layer was resolved.';
+      const category = artistLayer.classification?.category ?? 'uncategorized';
+      const style = artistLayer.classification?.style ?? 'default';
+      const archetype = artistLayer.designDirection?.visualArchetype ?? 'standard interface';
+      return `${category}/${style} direction with ${archetype}.`;
+    };
+    const shipSummaryForTrace = (outcome: TraceRunOutcome, stopReason?: string | null): string => {
+      if (outcome === 'ship_ok') return 'Candidate passed the gates and was promoted.';
+      if (outcome === 'ship_partial') return 'A degraded but viable candidate was promoted.';
+      if (outcome === 'cancelled') return 'Generation stopped before promotion.';
+      return `Candidate was not promoted${stopReason ? ` (${stopReason})` : ''}.`;
+    };
+    const finalizeTraceResult = (
+      result: GenerationResult,
+      meta: {
+        outcome: 'ok' | 'warn' | 'error' | 'skipped';
+        finalOutcome: TraceRunOutcome;
+        stopReason?: string;
+        errorSummary?: string;
+        fileCount?: number;
+      },
+    ): GenerationResult => {
+      trace.finish(meta.outcome, {
+        fileCount: meta.fileCount ?? result.operations.length,
+        errorSummary: meta.errorSummary ?? result.error,
+        designTelemetry: result.designTelemetry,
+        stopReason: meta.stopReason,
+        finalOutcome: meta.finalOutcome,
+      });
+      const snapshot = trace.snapshot();
+      result.visibleReasoningTrace = snapshot.visibleReasoningTrace;
+      result.fullDebugTrace = snapshot.fullDebugTrace;
+      return result;
+    };
+    trace.setRoutes(
+      [
+        formatTraceRoute('primary', config.primaryRoute),
+        formatTraceRoute('build', config.buildRoute),
+        formatTraceRoute('fix', config.fixRoute),
+        formatTraceRoute('qa', config.qaRoute),
+        formatTraceRoute('spec', config.specRoute),
+      ].filter(Boolean) as TraceRouteRecord[],
+    );
 
     // ── Project memory: load context from prior generations ───────────────
     const memoryContext = config.projectId
@@ -3917,7 +4032,36 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     const isEditMode = studioHasFiles && Object.keys(existingFiles).length > 0;
     config.onLog(`[SimpleGeneration] Mode: ${isEditMode ? 'EDIT' : 'NEW'} (${Object.keys(existingFiles).length} disk files, studioHasFiles=${studioHasFiles})`);
     // Update trace with actual mode (we only knew after reading disk)
+    trace.setMode(isEditMode ? 'edit' : 'new');
     trace.event('mode_detected', { mode: isEditMode ? 'edit' : 'new', diskFiles: Object.keys(existingFiles).length });
+    const intentStepId = trace.beginStep({
+      kind: 'intent_understanding',
+      summary: isEditMode
+        ? 'Understanding the requested edit and checking the existing project context.'
+        : 'Understanding the request and selecting the generation path.',
+      labels: buildTraceLabels(config.primaryRoute),
+      metadata: {
+        diskFiles: Object.keys(existingFiles).length,
+        studioHasFiles,
+        historyMessages: config.history.length,
+        attachmentCount: config.attachments?.length ?? 0,
+      },
+    });
+    trace.recordPrompt({
+      kind: 'intent_understanding',
+      label: 'user_prompt',
+      summary: 'Original user request captured for the run.',
+      excerpt: config.intent,
+      labels: buildTraceLabels(config.primaryRoute),
+      promptChars: config.intent.length,
+    });
+    trace.finishStep(intentStepId, {
+      status: 'completed',
+      summary: isEditMode
+        ? `Using the edit path with ${Object.keys(existingFiles).length} existing file${Object.keys(existingFiles).length === 1 ? '' : 's'}.`
+        : 'Using the new-generation path.',
+      labels: buildTraceLabels(isEditMode ? config.buildRoute : config.primaryRoute),
+    });
     const storedProject = config.projectId ? ProjectStorage.getProject(config.projectId) : null;
     const activeBranchId = storedProject?.activeBranchId ?? 'main';
     const branchArchitecture = storedProject?.branches?.[activeBranchId]?.architecture ?? null;
@@ -3949,6 +4093,12 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     if (isEditMode) {
       config.onPhase({ phase: 'code', progress: 30 });
       config.onLog('[SimpleGeneration] EDIT mode — skipping Architect');
+      trace.appendStep({
+        kind: 'architect_plan',
+        status: 'skipped',
+        summary: 'Skipped formal architect planning because the run is editing an existing project.',
+        labels: buildTraceLabels(config.primaryRoute),
+      });
 
       // ── Collect full file context (RevisionManager preferred, disk fallback) ──
       let contextFiles: Record<string, string> = { ...existingFiles };
@@ -4063,6 +4213,20 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       } else {
         config.onLog('[SimpleGeneration] EDIT artist layer derived from fallback classification');
       }
+      trace.setDesignSummary(summarizeArtistLayerForTrace(editArtistLayer));
+      trace.appendStep({
+        kind: 'design_direction',
+        summary: `Reusing the existing design direction: ${summarizeArtistLayerForTrace(editArtistLayer)}`,
+        labels: buildTraceLabels(config.primaryRoute),
+        metadata: {
+          source: preferredEditArtistLayerContext.source,
+          artistLayer: {
+            classification: editArtistLayer.classification,
+            designDirection: editArtistLayer.designDirection,
+            redesignIntent: editArtistLayer.redesignIntent,
+          },
+        },
+      });
 
       // Track file progress during streaming (total unknown in edit mode → 0)
       const editTracker = createFileTracker(config.onStream, 0);
@@ -4078,6 +4242,20 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           : '',
       ].join('\n');
 
+      const editCoderStepId = trace.beginStep({
+        kind: 'coder_generation',
+        summary: 'Generating the requested code edits.',
+        labels: buildTraceLabels(config.buildRoute),
+        metadata: { mode: 'edit' },
+      });
+      trace.recordPrompt({
+        kind: 'coder_generation',
+        label: 'edit_coder_prompt',
+        summary: 'Prepared the edit coder system and user prompts.',
+        excerpt: `${editSystemPrompt}\n\n${editUserPrompt}`,
+        labels: buildTraceLabels(config.buildRoute),
+        promptChars: editSystemPrompt.length + editUserPrompt.length,
+      });
       const closeEditCoder = trace.span('coder_edit', { mode: 'edit' });
       const editRaw = await callLLM(
         editSystemPrompt,
@@ -4091,6 +4269,19 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       );
       editTracker.finalise();
       closeEditCoder({ data: { chars: editRaw.length } });
+      trace.recordOutput({
+        kind: 'coder_generation',
+        summary: 'Received the edit coder response.',
+        excerpt: editRaw,
+        labels: buildTraceLabels(config.buildRoute),
+        metadata: { chars: editRaw.length },
+      });
+      trace.finishStep(editCoderStepId, {
+        status: 'completed',
+        summary: 'Generated edit candidate code for review.',
+        labels: buildTraceLabels(config.buildRoute),
+        metadata: { chars: editRaw.length },
+      });
       config.onLog(`[SimpleGeneration] EDIT Coder response: ${editRaw.length} chars`);
 
       const { parseResult: editParseResult, semanticIssue: editSemanticIssue } = inspectArtifactAttempt(editRaw);
@@ -4101,8 +4292,28 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       if (editSemanticIssue) {
         const issueText = formatArtifactSemanticIssue(editSemanticIssue);
         config.onLog(`[SimpleGeneration] ❌ EDIT artifact ingress failed (${issueText}) — aborting before reviewer`);
+        trace.appendStep({
+          kind: 'reviewer_result',
+          status: 'failed',
+          summary: 'Artifact ingress failed before the edit candidate could be reviewed.',
+          errorSummary: issueText,
+          parserDecision: {
+            success: editParseResult.success,
+            fallbackUsed: editParseResult.fallbackUsed,
+            issueCode: editSemanticIssue.failClass,
+            issueSummary: issueText,
+          },
+          labels: buildTraceLabels(config.buildRoute),
+        });
+        trace.appendStep({
+          kind: 'ship_decision',
+          status: 'failed',
+          summary: shipSummaryForTrace('ship_fail', 'artifact_ingress_failed'),
+          errorSummary: issueText,
+          stopReason: 'artifact_ingress_failed',
+        });
         config.onPhase({ phase: 'idle', progress: 100 });
-        return buildArtifactFailureResult({
+        return finalizeTraceResult(buildArtifactFailureResult({
           intent: config.intent,
           modelId: config.modelId,
           startMs,
@@ -4110,6 +4321,11 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           warningCode: editSemanticIssue.failClass,
           fallbackUsed: editParseResult.fallbackUsed,
           parseSuccess: editParseResult.success,
+        }), {
+          outcome: 'error',
+          finalOutcome: 'ship_fail',
+          stopReason: 'artifact_ingress_failed',
+          errorSummary: issueText,
         });
       }
       if (editParseResult.success && editParseResult.artifact) {
@@ -4132,6 +4348,22 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         config.onLog('[SimpleGeneration] EDIT: fell back to FILE markers');
       }
       config.onLog(`[SimpleGeneration] EDIT parsed: ${Object.keys(editLlmFiles).length} files`);
+      trace.appendStep({
+        kind: 'reviewer_result',
+        summary: `Parsed and accepted ${Object.keys(editLlmFiles).length} edited file${Object.keys(editLlmFiles).length === 1 ? '' : 's'}.`,
+        labels: buildTraceLabels(config.buildRoute),
+        parserDecision: {
+          success: editParseResult.success,
+          fallbackUsed: editParseResult.fallbackUsed,
+        },
+        reviewerDecision: {
+          outcome: 'artifact_accepted',
+          acceptedFiles: Object.keys(editLlmFiles).length,
+        },
+        metadata: {
+          dependencies: editDependencies,
+        },
+      });
 
       enforceShadcn(editLlmFiles, config.onLog);
 
@@ -4169,10 +4401,21 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
 
       // Buffer changed files into candidate revision
       config.onPhase({ phase: 'verify', progress: 85 });
+      const editMaterializeStepId = trace.beginStep({
+        kind: 'candidate_materialize',
+        summary: 'Writing edited files into a candidate revision.',
+        labels: buildTraceLabels(config.buildRoute),
+        metadata: { fileCount: Object.keys(editLlmFiles).length },
+      });
       for (const [p, content] of Object.entries(editLlmFiles)) {
         await revisionManager.writeCandidateFile(revId, p, content);
         config.onLog(`[Revision] buffered: ${p} (${content.length} chars)`);
       }
+      trace.finishStep(editMaterializeStepId, {
+        status: 'completed',
+        summary: `Buffered ${Object.keys(editLlmFiles).length} edited file${Object.keys(editLlmFiles).length === 1 ? '' : 's'} for compilation.`,
+        labels: buildTraceLabels(config.buildRoute),
+      });
       config.onLog(`[SimpleGeneration] EDIT: buffered ${Object.keys(editLlmFiles).length} files (preserved ${Object.keys(existingFiles).length})`);
 
       await SimpleGeneration.installPreviewDeps(editDependencies, config.projectId);
@@ -4190,6 +4433,12 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       if (!editAdmitted) {
         await revisionManager.rollback();
         config.onPhase({ phase: 'idle', progress: 100 });
+        trace.appendStep({
+          kind: 'ship_decision',
+          status: 'skipped',
+          summary: shipSummaryForTrace('cancelled', 'edit_admission_blocked'),
+          stopReason: 'edit_admission_blocked',
+        });
         const editCancelNow = new Date().toISOString();
         const editCancelGraph: ProjectGraph = {
           version: 1 as const,
@@ -4205,7 +4454,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           createdAt: editCancelNow,
           updatedAt: editCancelNow,
         };
-        return {
+        return finalizeTraceResult({
           id:            crypto.randomUUID(),
           status:        'cancelled' as const,
           graph:         editCancelGraph,
@@ -4222,18 +4471,92 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           previewMeta:   { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
           warnings:      [],
           repairHints:   [],
-        };
+        }, {
+          outcome: 'warn',
+          finalOutcome: 'cancelled',
+          stopReason: 'edit_admission_blocked',
+        });
       }
 
       // Compile candidate — flush to disk + check Vite (with self-correction loop)
+      trace.appendStep({
+        kind: 'fast_gate',
+        status: 'skipped',
+        summary: 'Edit runs reuse the compile repair loop directly instead of a separate fast gate stage.',
+        labels: buildTraceLabels(config.buildRoute),
+      });
+      let editRepairPromptCount = 0;
       const editCompiled = await compileWithRetry({
         revId, apiKey: config.apiKey, onLog: config.onLog, signal: config.signal,
-        callFix: (prompt, sig) => callLLM(
-          'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig, undefined, config.fixRoute,
-        ),
+        callFix: async (prompt, sig) => {
+          editRepairPromptCount += 1;
+          const repairStepId = trace.beginStep({
+            kind: 'repair_attempt',
+            summary: `Preparing repair attempt ${editRepairPromptCount}.`,
+            labels: buildTraceLabels(config.fixRoute),
+            attemptNumber: editRepairPromptCount,
+          });
+          trace.recordPrompt({
+            kind: 'repair_attempt',
+            label: 'edit_repair_prompt',
+            summary: `Prepared repair prompt for edit attempt ${editRepairPromptCount}.`,
+            excerpt: prompt,
+            labels: buildTraceLabels(config.fixRoute),
+            attemptNumber: editRepairPromptCount,
+            promptChars: prompt.length,
+          });
+          const fixResponse = await callLLM(
+            'You fix React/TypeScript compilation errors.',
+            prompt,
+            'fix',
+            config.apiKey,
+            undefined,
+            sig,
+            undefined,
+            config.fixRoute,
+          );
+          trace.recordOutput({
+            kind: 'repair_attempt',
+            summary: `Received repair output for edit attempt ${editRepairPromptCount}.`,
+            excerpt: fixResponse,
+            labels: buildTraceLabels(config.fixRoute),
+            attemptNumber: editRepairPromptCount,
+          });
+          trace.finishStep(repairStepId, {
+            status: 'completed',
+            summary: `Generated a repair candidate for edit attempt ${editRepairPromptCount}.`,
+            labels: buildTraceLabels(config.fixRoute),
+            attemptNumber: editRepairPromptCount,
+          });
+          return fixResponse;
+        },
         recheckAdmission: (nextCandidatePaths) =>
           runAdmissionCheck(revId, 'compile-fix', config, nextCandidatePaths),
       });
+      if (editRepairPromptCount === 0) {
+        trace.appendStep({
+          kind: 'repair_attempt',
+          status: 'skipped',
+          summary: 'No repair prompt was needed during the edit compile loop.',
+          labels: buildTraceLabels(config.fixRoute),
+          stopReason: editCompiled.stopReason,
+          compileRuntimeLogs: editCompiled.errors,
+        });
+      } else {
+        trace.recordDebugEvent({
+          kind: 'repair_attempt',
+          summary: `Edit repair loop finished after ${editCompiled.attempts} compile attempt(s).`,
+          labels: buildTraceLabels(config.fixRoute),
+          attemptNumber: editCompiled.attempts,
+          stopReason: editCompiled.stopReason,
+          compileRuntimeLogs: editCompiled.errors,
+          metadata: {
+            success: editCompiled.success,
+            partialShip: editCompiled.partialShip,
+            degraded: editCompiled.degraded,
+          },
+        });
+      }
       if (editCompiled.success) {
         // ── Diff review gate: significant edits require user approval ──────
         // reviewResult: string[] = accepted file paths (partial or full apply), false = reject all
@@ -4260,10 +4583,40 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         if (reviewResult === false) {
           await revisionManager.rollback();
           config.onLog('[Revision] candidate rejected by user — rolled back');
+          trace.recordDebugEvent({
+            kind: 'reviewer_result',
+            summary: 'User rejected the edit diff review.',
+            reviewerDecision: {
+              outcome: 'diff_rejected',
+              acceptedFiles: 0,
+              rejectedFiles: allFileDiffs.length,
+            },
+            diffMetadata: {
+              changedFiles: allFileDiffs.length,
+              acceptedFiles: 0,
+              rejectedFiles: allFileDiffs.length,
+            },
+          });
         } else {
           // Partial apply: restore old content for rejected files in the candidate
           const selectedSet = new Set(reviewResult);
           const rejectedFiles = allFileDiffs.filter(d => !selectedSet.has(d.path));
+          trace.recordDebugEvent({
+            kind: 'reviewer_result',
+            summary: rejectedFiles.length > 0
+              ? 'User accepted a partial diff review.'
+              : 'Diff review accepted the edited candidate.',
+            reviewerDecision: {
+              outcome: rejectedFiles.length > 0 ? 'diff_partial_accept' : 'diff_accepted',
+              acceptedFiles: reviewResult.length,
+              rejectedFiles: rejectedFiles.length,
+            },
+            diffMetadata: {
+              changedFiles: allFileDiffs.length,
+              acceptedFiles: reviewResult.length,
+              rejectedFiles: rejectedFiles.length,
+            },
+          });
           if (rejectedFiles.length > 0) {
             config.onLog(`[SimpleGeneration] Partial apply: restoring ${rejectedFiles.length} rejected file(s)`);
             for (const diff of rejectedFiles) {
@@ -4395,19 +4748,30 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         saved:        editCompiled.success,
       });
       config.onLog(`[QualityGates] ${formatQualityReport(editQualityReport)}`);
+      const editTraceOutcome: TraceRunOutcome = editCompiled.success ? 'ship_ok' : 'ship_fail';
+      trace.appendStep({
+        kind: 'ship_decision',
+        status: editCompiled.success ? 'completed' : 'failed',
+        summary: shipSummaryForTrace(editTraceOutcome, editCompiled.stopReason),
+        errorSummary: editCompiled.success ? undefined : editCompiled.errors?.[0],
+        stopReason: editCompiled.stopReason,
+        compileRuntimeLogs: editCompiled.errors,
+        labels: buildTraceLabels(config.buildRoute),
+        metadata: {
+          attempts: editCompiled.attempts,
+          success: editCompiled.success,
+        },
+      });
 
       // ── Trace: finish ────────────────────────────────────────────────────
       trace.addTokens(0, 0); // token data comes from LLMProxy events if wired
-      trace.finish(
-        editCompiled.success ? 'ok' : 'error',
-        {
-          fileCount:    editOps.length,
-          errorSummary: editCompiled.success ? undefined : editCompiled.errors?.[0]?.slice(0, 200),
-          designTelemetry: editResult.designTelemetry,
-        },
-      );
-
-      return editResult;
+      return finalizeTraceResult(editResult, {
+        outcome: editCompiled.success ? 'ok' : 'error',
+        finalOutcome: editTraceOutcome,
+        stopReason: editCompiled.stopReason,
+        errorSummary: editCompiled.success ? undefined : editCompiled.errors?.[0]?.slice(0, 200),
+        fileCount: editOps.length,
+      });
     }
 
     // ── NEW MODE ──────────────────────────────────────────────────────────
@@ -4436,6 +4800,17 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     if (config.prebuiltPlan) {
       plan = config.prebuiltPlan as unknown as Record<string, unknown>;
       config.onLog('[SimpleGeneration] Architect skipped — plan from WeeklyFeed (internet-sourced)');
+      trace.appendStep({
+        kind: 'architect_plan',
+        status: 'skipped',
+        summary: 'Using a prebuilt plan instead of generating a fresh architect plan.',
+        labels: buildTraceLabels(config.primaryRoute),
+        metadata: {
+          source: 'prebuilt_plan',
+          planSummary: summarizePlanForTrace(plan),
+        },
+      });
+      trace.setArchitectSummary(summarizePlanForTrace(plan));
       config.onPhase({ phase: 'code', progress: 30 });
     } else {
       config.onPhase({ phase: 'think', progress: 10 });
@@ -4461,6 +4836,20 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           : '',
       ].join('\n');
 
+      const architectStepId = trace.beginStep({
+        kind: 'architect_plan',
+        summary: 'Planning the product structure and implementation outline.',
+        labels: buildTraceLabels(config.primaryRoute),
+        metadata: { mode },
+      });
+      trace.recordPrompt({
+        kind: 'architect_plan',
+        label: 'architect_prompt',
+        summary: 'Prepared the architect plan prompt.',
+        excerpt: `${architectPrompt}\n\n${architectUserPrompt}`,
+        labels: buildTraceLabels(config.primaryRoute),
+        promptChars: architectPrompt.length + architectUserPrompt.length,
+      });
       const closeArchitect = trace.span('architect', { mode });
       const planRaw = await callLLM(
         architectPrompt,
@@ -4473,6 +4862,13 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         config.primaryRoute,
       );
       closeArchitect({ data: { chars: planRaw.length } });
+      trace.recordOutput({
+        kind: 'architect_plan',
+        summary: 'Received the architect plan response.',
+        excerpt: planRaw,
+        labels: buildTraceLabels(config.primaryRoute),
+        metadata: { chars: planRaw.length },
+      });
 
       try {
         // Log thinking block if present
@@ -4488,11 +4884,29 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         }
         const cleaned = jsonPart.trim().replace(/^```json?\s*\n?/, '').replace(/\n?```\s*$/, '');
         plan = JSON.parse(extractFirstJsonObject(cleaned) ?? cleaned);
+        trace.finishStep(architectStepId, {
+          status: 'completed',
+          summary: 'Architect plan parsed successfully.',
+          labels: buildTraceLabels(config.primaryRoute),
+          metadata: {
+            planSummary: summarizePlanForTrace(plan),
+          },
+        });
       } catch {
         plan = buildDefaultPlan(mode, config.intent);
         config.onLog('[SimpleGeneration] Plan parse failed, using fallback plan');
+        trace.finishStep(architectStepId, {
+          status: 'warning',
+          summary: 'Architect response could not be parsed, so a fallback plan was used.',
+          labels: buildTraceLabels(config.primaryRoute),
+          errorSummary: 'Plan parse failed',
+          metadata: {
+            planSummary: summarizePlanForTrace(plan),
+          },
+        });
       }
     }
+    trace.setArchitectSummary(summarizePlanForTrace(plan));
     plan = enrichPlanWithArtistLayer(
       enforcePlanModeRules(plan, mode, config.intent, config.onLog),
         {
@@ -4505,6 +4919,22 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       );
     config.onLog(`[SimpleGeneration] Plan: ${JSON.stringify(plan).slice(0, 200)}`);
     console.log('[SimpleGeneration] Architect plan:', plan);
+    trace.setDesignSummary(summarizeArtistLayerForTrace((plan as { artistLayer?: ArtistLayerSpec }).artistLayer));
+    trace.appendStep({
+      kind: 'design_direction',
+      summary: `Resolved the design direction: ${summarizeArtistLayerForTrace((plan as { artistLayer?: ArtistLayerSpec }).artistLayer)}`,
+      labels: buildTraceLabels(config.primaryRoute),
+      metadata: {
+        planSummary: summarizePlanForTrace(plan),
+        artistLayer: (plan as { artistLayer?: ArtistLayerSpec }).artistLayer
+          ? {
+              classification: (plan as { artistLayer?: ArtistLayerSpec }).artistLayer?.classification,
+              designDirection: (plan as { artistLayer?: ArtistLayerSpec }).artistLayer?.designDirection,
+              redesignIntent: (plan as { artistLayer?: ArtistLayerSpec }).artistLayer?.redesignIntent,
+            }
+          : null,
+      },
+    });
 
     // Feed plan steps to the UI
     const planSteps = (plan.pages as Array<{ name: string }> | undefined)
@@ -4564,6 +4994,12 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       const confirmed = typeof approval === 'boolean' ? approval : approval.confirmed;
       if (!confirmed) {
         config.onLog('[SimpleGeneration] User cancelled — generation stopped');
+        trace.appendStep({
+          kind: 'ship_decision',
+          status: 'skipped',
+          summary: shipSummaryForTrace('cancelled', 'generation_cancelled_before_materialization'),
+          stopReason: 'generation_cancelled_before_materialization',
+        });
         revisionManager.rejectCandidate(revId, 'generation_cancelled_before_materialization');
         config.onPhase({ phase: 'idle', progress: 0 });
         const cancelNow = new Date().toISOString();
@@ -4581,7 +5017,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           createdAt: cancelNow,
           updatedAt: cancelNow,
         };
-        return {
+        return finalizeTraceResult({
           id:            crypto.randomUUID(),
           status:        'cancelled' as const,
           graph:         emptyGraph,
@@ -4599,7 +5035,11 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           previewMeta:   { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
           warnings:      [],
           repairHints:   [],
-        };
+        }, {
+          outcome: 'warn',
+          finalOutcome: 'cancelled',
+          stopReason: 'generation_cancelled_before_materialization',
+        });
       }
 
       if (typeof approval === 'object') {
@@ -4619,6 +5059,16 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           },
         );
         config.onLog('[SimpleGeneration] Approved build plan promoted to source of truth');
+        trace.setArchitectSummary(summarizePlanForTrace(plan));
+        trace.setDesignSummary(summarizeArtistLayerForTrace((plan as { artistLayer?: ArtistLayerSpec }).artistLayer));
+        trace.recordDebugEvent({
+          kind: 'design_direction',
+          summary: 'Updated the approved build plan after user confirmation.',
+          labels: buildTraceLabels(config.primaryRoute),
+          metadata: {
+            planSummary: summarizePlanForTrace(plan),
+          },
+        });
       }
     }
 
@@ -4694,6 +5144,23 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         : '',
     ].join('\n');
 
+    const newCoderStepId = trace.beginStep({
+      kind: 'coder_generation',
+      summary: 'Generating the implementation candidate.',
+      labels: buildTraceLabels(config.buildRoute),
+      metadata: {
+        mode,
+        expectedFiles: expectedFileCount,
+      },
+    });
+    trace.recordPrompt({
+      kind: 'coder_generation',
+      label: 'new_coder_prompt',
+      summary: 'Prepared the coder generation prompt.',
+      excerpt: `${coderSystemPrompt}\n\n${coderUserPrompt}`,
+      labels: buildTraceLabels(config.buildRoute),
+      promptChars: coderSystemPrompt.length + coderUserPrompt.length,
+    });
     const closeNewCoder = trace.span('coder_new', { mode, expectedFiles: expectedFileCount });
     const raw = await callLLM(
       coderSystemPrompt,
@@ -4707,6 +5174,19 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     );
     tracker.finalise();
     closeNewCoder({ data: { chars: raw.length } });
+    trace.recordOutput({
+      kind: 'coder_generation',
+      summary: 'Received the coder generation response.',
+      excerpt: raw,
+      labels: buildTraceLabels(config.buildRoute),
+      metadata: { chars: raw.length },
+    });
+    trace.finishStep(newCoderStepId, {
+      status: 'completed',
+      summary: 'Generated a candidate artifact for parsing and review.',
+      labels: buildTraceLabels(config.buildRoute),
+      metadata: { chars: raw.length },
+    });
     config.onLog(`[SimpleGeneration] Coder response: ${raw.length} chars`);
 
     // 5. Parse files from LLM output
@@ -4733,6 +5213,15 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         ? `Artifact ingress failed (${formatArtifactSemanticIssue(firstSemanticIssue)})`
         : `Artifact parse failed (${parseResult.error ?? 'unknown parse error'})`;
       config.onLog(`[SimpleGeneration] ⚠ ${retryReason} — retrying with explicit format instruction`);
+      const artifactRetryStepId = trace.beginStep({
+        kind: 'artifact_retry',
+        summary: 'Retrying artifact generation with stricter formatting guidance.',
+        labels: buildTraceLabels(config.buildRoute),
+        attemptNumber: 2,
+        metadata: {
+          retryReason,
+        },
+      });
 
       const retryPrompt = `Your previous response had an artifact ingress failure.
 Problem: ${retryReason}
@@ -4745,6 +5234,15 @@ You MUST respond with ONLY a JSON artifact in this exact format:
 
 No text before or after. No markdown except the json fence.
 Generate the complete application for: ${config.intent}`;
+      trace.recordPrompt({
+        kind: 'artifact_retry',
+        label: 'artifact_retry_prompt',
+        summary: 'Prepared the retry prompt for artifact regeneration.',
+        excerpt: retryPrompt,
+        labels: buildTraceLabels(config.buildRoute),
+        attemptNumber: 2,
+        promptChars: retryPrompt.length,
+      });
 
       const retryRaw = await callLLM(
         coderSystemPrompt,
@@ -4757,6 +5255,14 @@ Generate the complete application for: ${config.intent}`;
         config.buildRoute,
       );
       config.onLog(`[SimpleGeneration] Retry response: ${retryRaw.length} chars`);
+      trace.recordOutput({
+        kind: 'artifact_retry',
+        summary: 'Received the artifact retry response.',
+        excerpt: retryRaw,
+        labels: buildTraceLabels(config.buildRoute),
+        attemptNumber: 2,
+        metadata: { chars: retryRaw.length },
+      });
 
       finalAttempt = inspectArtifactAttempt(retryRaw);
       config.onLog(`[SimpleGeneration] Retry parse: success=${finalAttempt.parseResult.success}, fallback=${finalAttempt.parseResult.fallbackUsed}`);
@@ -4765,14 +5271,57 @@ Generate the complete application for: ${config.intent}`;
           `[SimpleGeneration] ⚠ Retry artifact ingress issue (${formatArtifactSemanticIssue(finalAttempt.semanticIssue)})`,
         );
       }
+      trace.finishStep(artifactRetryStepId, {
+        status: finalAttempt.semanticIssue || !finalAttempt.parseResult.success ? 'warning' : 'completed',
+        summary: finalAttempt.semanticIssue || !finalAttempt.parseResult.success
+          ? 'Artifact retry still needs attention after the second attempt.'
+          : 'Artifact retry produced a usable candidate.',
+        labels: buildTraceLabels(config.buildRoute),
+        attemptNumber: 2,
+        parserDecision: {
+          success: finalAttempt.parseResult.success,
+          fallbackUsed: finalAttempt.parseResult.fallbackUsed,
+          issueCode: finalAttempt.semanticIssue?.failClass,
+          issueSummary: finalAttempt.semanticIssue
+            ? formatArtifactSemanticIssue(finalAttempt.semanticIssue)
+            : undefined,
+        },
+      });
+    } else {
+      trace.appendStep({
+        kind: 'artifact_retry',
+        status: 'skipped',
+        summary: 'Artifact parsing succeeded on the first attempt.',
+        labels: buildTraceLabels(config.buildRoute),
+      });
     }
 
     if (finalAttempt.semanticIssue) {
       const issueText = formatArtifactSemanticIssue(finalAttempt.semanticIssue);
       config.onLog(`[SimpleGeneration] ❌ Artifact ingress failed after retry (${issueText})`);
+      trace.appendStep({
+        kind: 'reviewer_result',
+        status: 'failed',
+        summary: 'Artifact ingress failed before execution.',
+        errorSummary: issueText,
+        parserDecision: {
+          success: finalAttempt.parseResult.success,
+          fallbackUsed: finalAttempt.parseResult.fallbackUsed,
+          issueCode: finalAttempt.semanticIssue.failClass,
+          issueSummary: issueText,
+        },
+        labels: buildTraceLabels(config.buildRoute),
+      });
+      trace.appendStep({
+        kind: 'ship_decision',
+        status: 'failed',
+        summary: shipSummaryForTrace('ship_fail', 'artifact_ingress_failed'),
+        errorSummary: issueText,
+        stopReason: 'artifact_ingress_failed',
+      });
       revisionManager.rejectCandidate(revId, 'artifact_ingress_failed', issueText);
       config.onPhase({ phase: 'idle', progress: 100 });
-      return buildArtifactFailureResult({
+      return finalizeTraceResult(buildArtifactFailureResult({
         intent: config.intent,
         modelId: config.modelId,
         startMs,
@@ -4780,18 +5329,43 @@ Generate the complete application for: ${config.intent}`;
         warningCode: finalAttempt.semanticIssue.failClass,
         fallbackUsed: finalAttempt.parseResult.fallbackUsed,
         parseSuccess: finalAttempt.parseResult.success,
+      }), {
+        outcome: 'error',
+        finalOutcome: 'ship_fail',
+        stopReason: 'artifact_ingress_failed',
+        errorSummary: issueText,
       });
     }
 
     if (!finalAttempt.parseResult.success || !finalAttempt.parseResult.artifact) {
       config.onLog('[SimpleGeneration] ❌ Complete parse failure — no files extracted after retry');
+      trace.appendStep({
+        kind: 'reviewer_result',
+        status: 'failed',
+        summary: 'Artifact parsing failed and produced no executable files.',
+        errorSummary: finalAttempt.parseResult.error ?? 'Parse failure',
+        parserDecision: {
+          success: false,
+          fallbackUsed: finalAttempt.parseResult.fallbackUsed,
+          issueCode: 'ARTIFACT_PARSE_FAILED',
+          issueSummary: finalAttempt.parseResult.error ?? 'Parse failure',
+        },
+        labels: buildTraceLabels(config.buildRoute),
+      });
+      trace.appendStep({
+        kind: 'ship_decision',
+        status: 'failed',
+        summary: shipSummaryForTrace('ship_fail', 'artifact_parse_failed'),
+        errorSummary: finalAttempt.parseResult.error ?? 'Parse failure',
+        stopReason: 'artifact_parse_failed',
+      });
       revisionManager.rejectCandidate(
         revId,
         'artifact_parse_failed',
         finalAttempt.parseResult.error ?? 'Parse failure',
       );
       config.onPhase({ phase: 'idle', progress: 100 });
-      return buildArtifactFailureResult({
+      return finalizeTraceResult(buildArtifactFailureResult({
         intent: config.intent,
         modelId: config.modelId,
         startMs,
@@ -4799,10 +5373,32 @@ Generate the complete application for: ${config.intent}`;
         warningCode: 'ARTIFACT_PARSE_FAILED',
         fallbackUsed: finalAttempt.parseResult.fallbackUsed ?? false,
         parseSuccess: false,
+      }), {
+        outcome: 'error',
+        finalOutcome: 'ship_fail',
+        stopReason: 'artifact_parse_failed',
+        errorSummary: finalAttempt.parseResult.error ?? 'Parse failure',
       });
     }
 
     const artifact: ArtifactContract = finalAttempt.parseResult.artifact;
+    trace.appendStep({
+      kind: 'reviewer_result',
+      summary: `Artifact review accepted ${artifact.files.length} file${artifact.files.length === 1 ? '' : 's'} for execution.`,
+      labels: buildTraceLabels(config.buildRoute),
+      parserDecision: {
+        success: finalAttempt.parseResult.success,
+        fallbackUsed: finalAttempt.parseResult.fallbackUsed,
+      },
+      reviewerDecision: {
+        outcome: 'artifact_accepted',
+        acceptedFiles: artifact.files.length,
+      },
+      metadata: {
+        entry: artifact.entry || 'src/App.tsx',
+        dependencies: artifact.dependencies ?? [],
+      },
+    });
     previewLog('artifact_accepted_for_execution', {
       buildId: revId,
       source: 'SimpleGeneration.run',
@@ -4830,13 +5426,20 @@ Generate the complete application for: ${config.intent}`;
 
     if (Object.keys(llmFiles).length === 0) {
       config.onLog('[SimpleGeneration] ❌ All parsed files were invalid (artifact envelope injected as file content)');
+      trace.appendStep({
+        kind: 'ship_decision',
+        status: 'failed',
+        summary: shipSummaryForTrace('ship_fail', 'artifact_execution_input_empty'),
+        errorSummary: 'Artifact content was injected into file bodies.',
+        stopReason: 'artifact_execution_input_empty',
+      });
       revisionManager.rejectCandidate(
         revId,
         'artifact_execution_input_empty',
         'Artifact content was injected into file body; retry generation.',
       );
       config.onPhase({ phase: 'idle', progress: 100 });
-      return buildArtifactFailureResult({
+      return finalizeTraceResult(buildArtifactFailureResult({
         intent: config.intent,
         modelId: config.modelId,
         startMs,
@@ -4844,6 +5447,11 @@ Generate the complete application for: ${config.intent}`;
         warningCode: 'ARTIFACT_EXECUTION_INPUT_EMPTY',
         fallbackUsed: finalAttempt.parseResult.fallbackUsed ?? false,
         parseSuccess: finalAttempt.parseResult.success,
+      }), {
+        outcome: 'error',
+        finalOutcome: 'ship_fail',
+        stopReason: 'artifact_execution_input_empty',
+        errorSummary: 'Artifact content was injected into file bodies.',
       });
     }
 
@@ -4929,6 +5537,14 @@ Generate the complete application for: ${config.intent}`;
 
     let writtenCount = 0;
     config.onLog(`[SimpleGeneration] Candidate materialization start (${Object.keys(candidateFilesToMaterialize).length} files)`);
+    const materializeStepId = trace.beginStep({
+      kind: 'candidate_materialize',
+      summary: 'Materializing the candidate files for compilation.',
+      labels: buildTraceLabels(config.buildRoute),
+      metadata: {
+        fileCount: Object.keys(candidateFilesToMaterialize).length,
+      },
+    });
     try {
       const materialized = await revisionManager.materializeCandidateFiles(
         revId,
@@ -4943,12 +5559,33 @@ Generate the complete application for: ${config.intent}`;
         config.onLog(`[Revision] theme buffered: ${selectedTheme}`);
       }
       config.onLog(`[SimpleGeneration] Candidate materialization success (${writtenCount} files)`);
+      trace.finishStep(materializeStepId, {
+        status: 'completed',
+        summary: `Materialized ${writtenCount} candidate file${writtenCount === 1 ? '' : 's'}.`,
+        labels: buildTraceLabels(config.buildRoute),
+        metadata: {
+          selectedTheme,
+        },
+      });
     } catch (err) {
       const materializeMsg = err instanceof Error ? err.message : String(err);
       config.onLog(`[SimpleGeneration] ❌ Candidate materialization failed — ${materializeMsg}`);
+      trace.finishStep(materializeStepId, {
+        status: 'failed',
+        summary: 'Candidate materialization failed before compilation.',
+        labels: buildTraceLabels(config.buildRoute),
+        errorSummary: materializeMsg,
+      });
+      trace.appendStep({
+        kind: 'ship_decision',
+        status: 'failed',
+        summary: shipSummaryForTrace('ship_fail', 'candidate_materialization_failed'),
+        errorSummary: materializeMsg,
+        stopReason: 'candidate_materialization_failed',
+      });
       revisionManager.rejectCandidate(revId, 'candidate_materialization_failed', materializeMsg);
       config.onPhase({ phase: 'idle', progress: 100 });
-      return buildArtifactFailureResult({
+      return finalizeTraceResult(buildArtifactFailureResult({
         intent: config.intent,
         modelId: config.modelId,
         startMs,
@@ -4956,6 +5593,11 @@ Generate the complete application for: ${config.intent}`;
         warningCode: 'CANDIDATE_MATERIALIZATION_FAILED',
         fallbackUsed: finalAttempt.parseResult.fallbackUsed ?? false,
         parseSuccess: finalAttempt.parseResult.success,
+      }), {
+        outcome: 'error',
+        finalOutcome: 'ship_fail',
+        stopReason: 'candidate_materialization_failed',
+        errorSummary: materializeMsg,
       });
     }
 
@@ -4974,6 +5616,12 @@ Generate the complete application for: ${config.intent}`;
     if (!newAdmitted) {
       await revisionManager.rollback();
       config.onPhase({ phase: 'idle', progress: 100 });
+      trace.appendStep({
+        kind: 'ship_decision',
+        status: 'skipped',
+        summary: shipSummaryForTrace('cancelled', 'generation_admission_blocked'),
+        stopReason: 'generation_admission_blocked',
+      });
       const cancelNow2 = new Date().toISOString();
       const cancelGraph: ProjectGraph = {
         version: 1 as const,
@@ -4990,7 +5638,7 @@ Generate the complete application for: ${config.intent}`;
         updatedAt: cancelNow2,
       };
       config.onFiles(ops); // still update editor with what was generated
-      return {
+      return finalizeTraceResult({
         id:            crypto.randomUUID(),
         status:        'cancelled' as const,
         graph:         cancelGraph,
@@ -5007,10 +5655,20 @@ Generate the complete application for: ${config.intent}`;
         previewMeta:   { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
         warnings:      [],
         repairHints:   [],
-      };
+      }, {
+        outcome: 'warn',
+        finalOutcome: 'cancelled',
+        stopReason: 'generation_admission_blocked',
+      });
     }
 
     // Compile candidate — flush to disk + check Vite (with self-correction loop)
+    const fastGateStepId = trace.beginStep({
+      kind: 'fast_gate',
+      summary: 'Running the fast gate to compile and boot the candidate.',
+      labels: buildTraceLabels(config.buildRoute),
+      metadata: { files: writtenCount },
+    });
     const closeCompile = trace.span('compile', { files: writtenCount });
     previewLog('fast_gate_start', {
       buildId: revId,
@@ -5031,6 +5689,16 @@ Generate the complete application for: ${config.intent}`;
         ? '[SimpleGeneration] Fast gate passed'
         : `[SimpleGeneration] Fast gate failed: ${(fastGate.errors ?? ['Unknown compile error'])[0]}`,
     );
+    trace.finishStep(fastGateStepId, {
+      status: fastGate.success ? 'completed' : 'failed',
+      summary: fastGate.success
+        ? 'Fast gate compiled and booted the candidate successfully.'
+        : 'Fast gate failed, so the repair loop was considered.',
+      labels: buildTraceLabels(config.buildRoute),
+      errorSummary: fastGate.success ? undefined : fastGate.errors?.[0],
+      compileRuntimeLogs: fastGate.errors,
+      stopReason: fastGate.success ? 'no_repair_needed' : 'fast_gate_failed',
+    });
 
     let compiled: CompileLoopResult = {
       outcome: fastGate.success ? 'no_repair_needed' : 'fatal_non_viable',
@@ -5044,6 +5712,7 @@ Generate the complete application for: ${config.intent}`;
       budgetExhausted: false,
       failureClassification: null,
     };
+    let repairPromptCount = 0;
 
     if (fastGate.success) {
       previewLog('repair_decision', {
@@ -5059,6 +5728,13 @@ Generate the complete application for: ${config.intent}`;
         stopReason: 'no_repair_needed',
       });
       config.onLog('[SimpleGeneration] Final stop reason: no_repair_needed');
+      trace.appendStep({
+        kind: 'repair_attempt',
+        status: 'skipped',
+        summary: 'No repair prompt was needed after the fast gate passed.',
+        labels: buildTraceLabels(config.fixRoute),
+        stopReason: 'no_repair_needed',
+      });
     } else {
       previewLog('repair_decision', {
         buildId: revId,
@@ -5073,23 +5749,136 @@ Generate the complete application for: ${config.intent}`;
         onLog: config.onLog,
         signal: config.signal,
         initialFailureErrors: fastGate.errors,
-        callFix: (prompt, sig) => callLLM(
-          'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig, undefined, config.fixRoute,
-        ),
+        callFix: async (prompt, sig) => {
+          repairPromptCount += 1;
+          const repairStepId = trace.beginStep({
+            kind: 'repair_attempt',
+            summary: `Preparing repair attempt ${repairPromptCount}.`,
+            labels: buildTraceLabels(config.fixRoute),
+            attemptNumber: repairPromptCount,
+          });
+          trace.recordPrompt({
+            kind: 'repair_attempt',
+            label: 'compile_repair_prompt',
+            summary: `Prepared repair prompt for attempt ${repairPromptCount}.`,
+            excerpt: prompt,
+            labels: buildTraceLabels(config.fixRoute),
+            attemptNumber: repairPromptCount,
+            promptChars: prompt.length,
+          });
+          const fixResponse = await callLLM(
+            'You fix React/TypeScript compilation errors.',
+            prompt,
+            'fix',
+            config.apiKey,
+            undefined,
+            sig,
+            undefined,
+            config.fixRoute,
+          );
+          trace.recordOutput({
+            kind: 'repair_attempt',
+            summary: `Received repair output for attempt ${repairPromptCount}.`,
+            excerpt: fixResponse,
+            labels: buildTraceLabels(config.fixRoute),
+            attemptNumber: repairPromptCount,
+          });
+          trace.finishStep(repairStepId, {
+            status: 'completed',
+            summary: `Generated a repair candidate for attempt ${repairPromptCount}.`,
+            labels: buildTraceLabels(config.fixRoute),
+            attemptNumber: repairPromptCount,
+          });
+          return fixResponse;
+        },
         recheckAdmission: (nextCandidatePaths) =>
           runAdmissionCheck(revId, 'compile-fix', config, nextCandidatePaths),
       });
+      if (repairPromptCount === 0) {
+        trace.appendStep({
+          kind: 'repair_attempt',
+          status: 'warning',
+          summary: 'Repair stopped before any fix prompt could be issued.',
+          labels: buildTraceLabels(config.fixRoute),
+          stopReason: compiled.stopReason,
+          compileRuntimeLogs: compiled.errors,
+        });
+      } else {
+        trace.recordDebugEvent({
+          kind: 'repair_attempt',
+          summary: `Repair loop finished after ${compiled.attempts} compile attempt(s).`,
+          labels: buildTraceLabels(config.fixRoute),
+          attemptNumber: compiled.attempts,
+          stopReason: compiled.stopReason,
+          compileRuntimeLogs: compiled.errors,
+          metadata: {
+            success: compiled.success,
+            partialShip: compiled.partialShip,
+            degraded: compiled.degraded,
+            budgetExhausted: compiled.budgetExhausted,
+          },
+        });
+      }
     }
 
     const candidateViable = compiled.success && compiled.minimumViableCandidate;
     closeCompile({ status: candidateViable ? 'ok' : 'error', data: { attempts: compiled.attempts } });
-    if (candidateViable) {
+    previewLog('final_check_started', {
+      buildId: revId,
+      source: 'SimpleGeneration.run',
+      candidateViable,
+      stopReason: compiled.stopReason,
+      partialShip: compiled.partialShip,
+      degraded: compiled.degraded,
+      attempts: compiled.attempts,
+    });
+    config.onLog('[SimpleGeneration] Final live-preview check started');
+
+    const finalCheck = candidateViable
+      ? await runFinalLivePreviewCheck(revId)
+      : buildSkippedFinalLivePreviewCheck(
+        revId,
+        'candidate_not_viable',
+        'Skipped final live-preview check because the candidate did not remain viable after bounded repair',
+      );
+
+    previewLog('final_check_result', {
+      buildId: revId,
+      source: 'SimpleGeneration.run',
+      result: finalCheck.status,
+      reason: finalCheck.reason,
+      message: finalCheck.message,
+      controllerStatus: finalCheck.controllerStatus,
+      controllerRevisionId: finalCheck.controllerRevisionId,
+      immediateBlank: finalCheck.immediateBlank,
+      probeOutcome: finalCheck.probeOutcome,
+      probeReason: finalCheck.probeReason,
+    });
+    config.onLog(
+      `[SimpleGeneration] Final live-preview check ${finalCheck.status}: ${finalCheck.message}`,
+    );
+
+    let shipOutcome = resolveShipOutcome(compiled, finalCheck);
+    if (shipOutcome === 'SHIP_OK' || shipOutcome === 'SHIP_PARTIAL') {
+      const promotionMode = shipOutcome === 'SHIP_PARTIAL' ? 'degraded' : 'normal';
       try {
-        await revisionManager.promote(revId);
+        await revisionManager.promote(revId, { mode: promotionMode });
+        previewLog('promotion_decision', {
+          buildId: revId,
+          source: 'SimpleGeneration.run',
+          decision: promotionMode === 'degraded' ? 'promote_degraded' : 'promote_normal',
+          promotionMode,
+          shipOutcome,
+        });
         config.onLog(
-          compiled.partialShip
-            ? `[Revision] partial ship promoted (${compiled.attempts} attempt(s))`
+          shipOutcome === 'SHIP_PARTIAL'
+            ? `[Revision] degraded candidate promoted (${compiled.attempts} attempt(s))`
             : `[Revision] candidate promoted (${compiled.attempts} attempt(s))`,
+        );
+        config.onLog(
+          shipOutcome === 'SHIP_PARTIAL'
+            ? '[SimpleGeneration] Promotion decision: degraded promotion allowed'
+            : '[SimpleGeneration] Promotion decision: normal promotion allowed',
         );
       } catch (err) {
         const promoteMsg = err instanceof Error ? err.message : String(err);
@@ -5108,6 +5897,13 @@ Generate the complete application for: ${config.intent}`;
           decision: 'stop',
           reason: 'promotion_blocked',
         });
+        previewLog('promotion_decision', {
+          buildId: revId,
+          source: 'SimpleGeneration.run',
+          decision: 'blocked',
+          reason: 'promotion_blocked',
+          attemptedShipOutcome: shipOutcome,
+        });
         previewLog('final_stop_reason', {
           buildId: revId,
           source: 'SimpleGeneration.run',
@@ -5116,6 +5912,7 @@ Generate the complete application for: ${config.intent}`;
         config.onLog(
           `[SimpleGeneration] Promotion blocked after candidate execution (${promoteClassification.reason})`,
         );
+        shipOutcome = 'SHIP_FAIL';
         compiled = {
           outcome: promoteClassification.severity === 'non_fatal'
             ? 'non_fatal_non_viable'
@@ -5131,12 +5928,47 @@ Generate the complete application for: ${config.intent}`;
           failureClassification: promoteClassification,
         };
       }
+    } else if (candidateViable) {
+      previewLog('promotion_decision', {
+        buildId: revId,
+        source: 'SimpleGeneration.run',
+        decision: 'blocked',
+        reason: 'final_check_failed',
+        finalCheckReason: finalCheck.reason,
+      });
+      config.onLog(
+        `[SimpleGeneration] Promotion decision: blocked by final live-preview check (${finalCheck.reason ?? 'unknown'})`,
+      );
+      await revisionManager.rollback();
+      const finalCheckClassification = classifyRepairFailure([finalCheck.message]);
+      compiled = {
+        outcome: finalCheckClassification.severity === 'non_fatal'
+          ? 'non_fatal_non_viable'
+          : 'fatal_non_viable',
+        success: false,
+        attempts: compiled.attempts,
+        errors: [finalCheck.message],
+        stopReason: 'final_check_failed',
+        partialShip: false,
+        degraded: false,
+        minimumViableCandidate: false,
+        budgetExhausted: false,
+        failureClassification: finalCheckClassification,
+      };
     } else {
-      previewLog('promotion_blocked_fast_gate_failed', {
+      previewLog('promotion_decision', {
+        buildId: revId,
+        source: 'SimpleGeneration.run',
+        decision: 'blocked',
+        reason: 'candidate_not_viable',
+        stopReason: compiled.stopReason,
+      });
+      previewLog('promotion_blocked_candidate_not_viable', {
         buildId: revId,
         source: 'SimpleGeneration.run',
         attempts: compiled.attempts,
         errors: compiled.errors ?? [],
+        outcome: compiled.outcome,
         stopReason: compiled.stopReason,
       });
       revisionManager.rejectCandidate(
@@ -5145,11 +5977,48 @@ Generate the complete application for: ${config.intent}`;
         compiled.errors?.join('\n') ?? 'Compile failed',
       );
       config.onLog(`[Revision] compile failed after ${compiled.attempts} attempt(s)`);
-      config.onLog('[SimpleGeneration] Promotion blocked because fast gate failed');
+      config.onLog(
+        '[SimpleGeneration] Promotion decision: blocked because the candidate was not viable after bounded repair',
+      );
       config.onLog(
         `[SimpleGeneration] Candidate viability was not satisfied (${compiled.outcome})`,
       );
     }
+    previewLog('ship_outcome', {
+      buildId: revId,
+      source: 'SimpleGeneration.run',
+      shipOutcome,
+      finalCheckResult: finalCheck.status,
+      stopReason: compiled.stopReason,
+      partialShip: compiled.partialShip,
+      degraded: compiled.degraded,
+    });
+    config.onLog(`[SimpleGeneration] Ship outcome: ${shipOutcome}`);
+    const finalTraceOutcome: TraceRunOutcome =
+      shipOutcome === 'SHIP_OK'
+        ? 'ship_ok'
+        : shipOutcome === 'SHIP_PARTIAL'
+          ? 'ship_partial'
+          : 'ship_fail';
+    trace.appendStep({
+      kind: 'ship_decision',
+      status: shipOutcome === 'SHIP_FAIL' ? 'failed' : 'completed',
+      summary: shipSummaryForTrace(finalTraceOutcome, compiled.stopReason),
+      errorSummary: shipOutcome === 'SHIP_FAIL' ? (compiled.errors?.[0] ?? finalCheck.message) : undefined,
+      stopReason: compiled.stopReason,
+      compileRuntimeLogs: [
+        ...(compiled.errors ?? []),
+        finalCheck.message,
+      ],
+      labels: buildTraceLabels(config.buildRoute),
+      metadata: {
+        shipOutcome,
+        finalCheckStatus: finalCheck.status,
+        attempts: compiled.attempts,
+        partialShip: compiled.partialShip,
+        degraded: compiled.degraded,
+      },
+    });
 
     // Notify editor (code tab) — files always shown regardless of compile result
     config.onFiles(ops);
@@ -5186,13 +6055,14 @@ Generate the complete application for: ${config.intent}`;
     const changePackage = buildRouteAwareChangePackage(graph, ops, routeDrifts);
 
     // 10. Return result — preview is handled by preview-manager lifecycle
+    const shipSucceeded = shipOutcome !== 'SHIP_FAIL';
     let result: GenerationResult = {
       id: crypto.randomUUID(),
-      status: compiled.success ? 'complete' : 'failed',
+      status: shipSucceeded ? 'complete' : 'failed',
       graph,
       operations: ops,
-      message: compiled.success
-        ? (compiled.partialShip
+      message: shipSucceeded
+        ? (shipOutcome === 'SHIP_PARTIAL'
           ? `Partial ship: ${compiled.errors?.[0] ?? 'minimum viable candidate promoted in degraded mode'}`
           : cleanCoderMessage(raw))
         : (compiled.errors?.join('\n') ?? 'Candidate execution failed before promotion'),
@@ -5208,34 +6078,46 @@ Generate the complete application for: ${config.intent}`;
       previewMeta: { entryFile, framework: 'react', isMultiPage },
       warnings: [],
       repairHints: [],
-      error: compiled.success
+      error: shipSucceeded
         ? undefined
         : (compiled.errors?.join('\n') ?? 'Candidate execution failed before promotion'),
     };
-    if (compiled.partialShip) {
+    if (shipOutcome === 'SHIP_PARTIAL') {
       const partialMessage = compiled.errors?.[0] ?? 'Partial ship promoted after bounded repair';
       const partialMeta = markPartialShipResult(changePackage, partialMessage);
       result.warnings = [{
         severity: 'warning' as const,
-        source: 'runtime' as const,
+        source: 'runtime-guard' as const,
         code: 'PARTIAL_SHIP_ACTIVE',
         filePath: '',
         message: partialMessage,
       }];
-      result.repairHints = partialMeta.repairHints;
+      result.repairHints = partialMeta.repairHints.map(hint => ({
+        code: hint.code,
+        filePath: '',
+        message: partialMessage,
+        suggestion: `Triage strategy: ${hint.strategy}`,
+      }));
       result.qualitySummary = GenerationQualityService.evaluate(result);
       config.onLog('[SimpleGeneration] Partial ship active: degraded candidate promoted');
-    } else if (!compiled.success) {
+    } else if (!shipSucceeded) {
       const failureMessage = compiled.errors?.join('\n') ?? 'Candidate execution failed before promotion';
-      const failureMeta = markExecutionFailure(changePackage, failureMessage);
+      const failureMeta = compiled.stopReason === 'final_check_failed'
+        ? markFinalCheckFailure(changePackage, failureMessage)
+        : markExecutionFailure(changePackage, failureMessage);
       result.warnings = [{
         severity: 'error' as const,
-        source: 'runtime' as const,
-        code: 'FAST_GATE_FAILED',
+        source: 'runtime-guard' as const,
+        code: compiled.stopReason === 'final_check_failed' ? 'FINAL_CHECK_FAILED' : 'CANDIDATE_NOT_VIABLE',
         filePath: '',
         message: failureMessage,
       }];
-      result.repairHints = failureMeta.repairHints;
+      result.repairHints = failureMeta.repairHints.map(hint => ({
+        code: hint.code,
+        filePath: '',
+        message: failureMessage,
+        suggestion: `Triage strategy: ${hint.strategy}`,
+      }));
     } else {
       result.qualitySummary = GenerationQualityService.evaluate(result);
       result.visualQualitySummary = VisualQualityService.evaluate(result);
@@ -5292,7 +6174,7 @@ Generate the complete application for: ${config.intent}`;
         intent:   config.intent,
         mode:     'new',
         files:    outputFiles,
-        outcome:  compiled.success ? 'success' : 'failed',
+        outcome:  shipSucceeded ? 'success' : 'failed',
         errors:   compiled.errors,
         stubbed:  compiled.errors
           ? compiled.errors.find(e => e.includes('replaced with error stub'))?.match(/(\S+\.tsx)/)?.[1]
@@ -5313,22 +6195,19 @@ Generate the complete application for: ${config.intent}`;
       plan,
       files:        outputFiles,
       compileResult: compiled,
-      saved:        compiled.success,
+      saved:        shipSucceeded,
     });
     config.onLog(`[QualityGates] ${formatQualityReport(qualityReport)}`);
 
     // ── Trace: finish ──────────────────────────────────────────────────────
     trace.event('quality_score', { score: qualityReport.score, passedForPublish: qualityReport.passedForPublish });
-    trace.finish(
-      compiled.success ? 'ok' : 'error',
-      {
-        fileCount:    ops.length,
-        errorSummary: compiled.success ? undefined : compiled.errors?.[0]?.slice(0, 200),
-        designTelemetry: result.designTelemetry,
-      },
-    );
-
-    return result;
+    return finalizeTraceResult(result, {
+      outcome: shipSucceeded ? 'ok' : 'error',
+      finalOutcome: finalTraceOutcome,
+      stopReason: compiled.stopReason,
+      errorSummary: shipSucceeded ? undefined : compiled.errors?.[0]?.slice(0, 200),
+      fileCount: ops.length,
+    });
   }
 
   // ── Level 2: Auto-fixer — called on iframe-error ─────────────────────────
