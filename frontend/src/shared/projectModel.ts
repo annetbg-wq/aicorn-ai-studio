@@ -913,6 +913,23 @@ export interface VisualQualitySummary {
   notes?:     string[];
 }
 
+export type VisualPolishMode = 'fast_prototype' | 'architect_guided';
+
+export type VisualPolishOutcome = 'not-needed' | 'skipped' | 'applied' | 'failed';
+
+export interface VisualPolishSummary {
+  mode:           VisualPolishMode;
+  outcome:        VisualPolishOutcome;
+  attempts:       number;
+  maxPasses:      number;
+  triggerVerdict?: VisualQualityVerdict;
+  triggerScore?:   number;
+  triggerReasons: string[];
+  finalVerdict?:   VisualQualityVerdict;
+  finalScore?:     number;
+  note?:          string;
+}
+
 /**
  * Compact user-facing generation report shown in chat after a completed run.
  *
@@ -928,6 +945,7 @@ export interface GenerationReport {
   pageCount: number;
   duration: number;
   visualQuality?: VisualQualitySummary;
+  visualPolish?:  VisualPolishSummary;
 }
 
 // ─── GenerationResult ─────────────────────────────────────────────────────────
@@ -1076,6 +1094,14 @@ export interface GenerationResult {
    * Undefined on cancelled or pre-visual-critic results.
    */
   visualQualitySummary?: VisualQualitySummary;
+
+  /**
+   * Optional bounded visual polish metadata.
+   *
+   * Populated when SimpleGeneration runs or considers a critic-driven polish pass.
+   * Distinct from technical self-correction and compile retry semantics.
+   */
+  visualPolishSummary?: VisualPolishSummary;
 }
 
 // ─── Preview Lifecycle (readiness gate) ───────────────────────────────────────
