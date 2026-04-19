@@ -167,6 +167,12 @@ const LABELS: Record<string, Record<string, string>> = {
     visualReasonStateStrong: 'Empty/loading/error states are covered',
     visualReasonStateAcceptable: 'Core states are partly covered',
     visualReasonStateWeak: 'Missing empty/loading/error polish',
+    visualPolish: 'Visual polish',
+    visualPolishAppliedBadge: 'Polished',
+    visualPolishFailedBadge: 'Kept safe',
+    visualPolishAppliedFast: 'One quiet visual polish pass ran before finish.',
+    visualPolishAppliedGuided: 'One guided visual polish pass ran before finish.',
+    visualPolishFailed: 'A polish pass was attempted, but the safer revision was kept.',
   },
   ru: {
     file: 'Файл', voice: 'Голос', history: 'История',
@@ -203,6 +209,12 @@ const LABELS: Record<string, Record<string, string>> = {
     visualReasonStateStrong: 'Состояния empty/loading/error покрыты',
     visualReasonStateAcceptable: 'Ключевые состояния покрыты частично',
     visualReasonStateWeak: 'Не хватает polish для empty/loading/error',
+    visualPolish: 'Визуальная доработка',
+    visualPolishAppliedBadge: 'Доработано',
+    visualPolishFailedBadge: 'Оставлена безопасная версия',
+    visualPolishAppliedFast: 'Перед завершением прошел один тихий визуальный polish-проход.',
+    visualPolishAppliedGuided: 'Перед завершением прошел один направленный визуальный polish-проход.',
+    visualPolishFailed: 'Попытка polish была, но сохранена более безопасная версия.',
   },
   es: {
     file: 'Archivo', voice: 'Voz', history: 'Historial',
@@ -239,6 +251,12 @@ const LABELS: Record<string, Record<string, string>> = {
     visualReasonStateStrong: 'Los estados vacÃ­o/carga/error estÃ¡n cubiertos',
     visualReasonStateAcceptable: 'Los estados clave estÃ¡n cubiertos parcialmente',
     visualReasonStateWeak: 'Falta pulido en vacÃ­o/carga/error',
+    visualPolish: 'Pulido visual',
+    visualPolishAppliedBadge: 'Pulido',
+    visualPolishFailedBadge: 'Se mantuvo la versiÃ³n segura',
+    visualPolishAppliedFast: 'Se aplicÃ³ una pasada silenciosa de pulido visual antes de terminar.',
+    visualPolishAppliedGuided: 'Se aplicÃ³ una pasada guiada de pulido visual antes de terminar.',
+    visualPolishFailed: 'Se intentÃ³ una pasada de pulido, pero se mantuvo la versiÃ³n mÃ¡s segura.',
   },
   de: {
     file: 'Datei', voice: 'Stimme', history: 'Verlauf',
@@ -275,6 +293,12 @@ const LABELS: Record<string, Record<string, string>> = {
     visualReasonStateStrong: 'Leere/Laden/Fehler-ZustÃ¤nde sind abgedeckt',
     visualReasonStateAcceptable: 'KernzustÃ¤nde sind teilweise abgedeckt',
     visualReasonStateWeak: 'Polish fÃ¼r Leere/Laden/Fehler fehlt',
+    visualPolish: 'Visuelles Polish',
+    visualPolishAppliedBadge: 'Poliert',
+    visualPolishFailedBadge: 'Sichere Version behalten',
+    visualPolishAppliedFast: 'Vor dem Abschluss lief ein leiser visueller Polish-Durchgang.',
+    visualPolishAppliedGuided: 'Vor dem Abschluss lief ein gefÃ¼hrter visueller Polish-Durchgang.',
+    visualPolishFailed: 'Ein Polish-Durchgang wurde versucht, aber die sicherere Version blieb erhalten.',
   },
   fr: {
     file: 'Fichier', voice: 'Voix', history: 'Historique',
@@ -311,6 +335,12 @@ const LABELS: Record<string, Record<string, string>> = {
     visualReasonStateStrong: 'Les Ã©tats vide/chargement/erreur sont couverts',
     visualReasonStateAcceptable: 'Les Ã©tats clÃ©s sont partiellement couverts',
     visualReasonStateWeak: 'Le polish vide/chargement/erreur manque',
+    visualPolish: 'Polish visuel',
+    visualPolishAppliedBadge: 'Poli',
+    visualPolishFailedBadge: 'Version sÃ»re conservÃ©e',
+    visualPolishAppliedFast: 'Un passage discret de polish visuel a eu lieu avant la fin.',
+    visualPolishAppliedGuided: 'Un passage guidÃ© de polish visuel a eu lieu avant la fin.',
+    visualPolishFailed: 'Une passe de polish a Ã©tÃ© tentÃ©e, mais la version la plus sÃ»re a Ã©tÃ© conservÃ©e.',
   },
   zh: {
     file: 'æ–‡ä»¶', voice: 'è¯­éŸ³', history: 'åŽ†å²',
@@ -347,6 +377,12 @@ const LABELS: Record<string, Record<string, string>> = {
     visualReasonStateStrong: 'ç©º/åŠ è½½/é”™è¯¯çŠ¶æ€å·²è¦†ç›–',
     visualReasonStateAcceptable: 'å…³é”®çŠ¶æ€éƒ¨åˆ†è¦†ç›–',
     visualReasonStateWeak: 'ç©º/åŠ è½½/é”™è¯¯ç¼ºå°‘æ‰“ç£¨',
+    visualPolish: 'è§†è§‰æ‰“ç£¨',
+    visualPolishAppliedBadge: 'å·²æ‰“ç£¨',
+    visualPolishFailedBadge: 'ä¿ç•™å®‰å…¨ç‰ˆæœ¬',
+    visualPolishAppliedFast: 'åœ¨å®Œæˆå‰å·²è¿›è¡Œä¸€æ¬¡è½»é‡è§†è§‰æ‰“ç£¨ã€‚',
+    visualPolishAppliedGuided: 'åœ¨å®Œæˆå‰å·²è¿›è¡Œä¸€æ¬¡å¼•å¯¼å¼è§†è§‰æ‰“ç£¨ã€‚',
+    visualPolishFailed: 'ç³»ç»Ÿå°è¯•äº†ä¸€æ¬¡æ‰“ç£¨ï¼Œä½†ä¿ç•™äº†æ›´å®‰å…¨çš„ç‰ˆæœ¬ã€‚',
   },
 };
 
@@ -552,6 +588,79 @@ const VisualQualityBanner = ({
   );
 };
 
+const getVisualPolishMessage = (
+  summary: GenerationReport['visualPolish'],
+  t: (key: string) => string,
+): string | null => {
+  if (!summary) return null;
+  if (summary.outcome === 'applied') {
+    return summary.mode === 'architect_guided'
+      ? t('visualPolishAppliedGuided')
+      : t('visualPolishAppliedFast');
+  }
+  if (summary.outcome === 'failed') {
+    return t('visualPolishFailed');
+  }
+  return null;
+};
+
+const VisualPolishBanner = ({
+  summary,
+  isDark,
+  textColor,
+  subText,
+  t,
+}: {
+  summary?: GenerationReport['visualPolish'];
+  isDark: boolean;
+  textColor: string;
+  subText: string;
+  t: (key: string) => string;
+}) => {
+  const message = getVisualPolishMessage(summary, t);
+  if (!summary || !message) return null;
+
+  const badge = summary.outcome === 'applied'
+    ? t('visualPolishAppliedBadge')
+    : t('visualPolishFailedBadge');
+  const badgeState = summary.outcome === 'applied' ? 'accepted' : 'planned';
+
+  return (
+    <div
+      data-testid="generation-visual-polish"
+      style={{
+        marginTop: 10,
+        padding: '10px 12px',
+        borderRadius: 10,
+        border: `1px solid ${isDark ? 'rgba(148,163,184,0.18)' : 'rgba(148,163,184,0.2)'}`,
+        background: isDark ? 'rgba(15,23,42,0.22)' : 'rgba(248,250,252,0.88)',
+        display: 'grid',
+        gap: 7,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: subText, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          {t('visualPolish')}
+        </span>
+        <span
+          style={{
+            ...trustBadgeStyle(badgeState, isDark),
+            fontSize: 10,
+            fontWeight: 700,
+            borderRadius: 999,
+            padding: '3px 8px',
+          }}
+        >
+          {badge}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, lineHeight: 1.5, color: textColor }}>
+        {message}
+      </div>
+    </div>
+  );
+};
+
 const GenerationTrustBanner = ({
   trust,
   isDark,
@@ -713,6 +822,13 @@ const GenerationReportCard: React.FC<{
       <GenerationTrustBanner trust={generationTrust} isDark={isDark} textColor={textColor} />
       <VisualQualityBanner
         summary={report.visualQuality}
+        isDark={isDark}
+        textColor={textColor}
+        subText={subText}
+        t={t}
+      />
+      <VisualPolishBanner
+        summary={report.visualPolish}
         isDark={isDark}
         textColor={textColor}
         subText={subText}

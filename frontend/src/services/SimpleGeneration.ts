@@ -44,8 +44,11 @@ import type {
   DependencySpec,
   ArtistLayerSpec,
   RedesignIntent,
+  VisualPolishMode,
+  VisualQualityDimensionId,
+  VisualQualitySummary,
 } from '../shared/projectModel';
-import { syncRoutes, validateAllRouteLayers } from '../shared/projectModel';
+import { projectGraphToFileMap, syncRoutes, validateAllRouteLayers } from '../shared/projectModel';
 import { GenerationQualityService } from './benchmark/GenerationQualityService';
 import { VisualQualityService } from './benchmark/VisualQualityService';
 import { metricsService } from './MetricsService';
@@ -180,6 +183,7 @@ export interface PipelineRunConfig {
   }>;
   redesignIntent?: Partial<RedesignIntent>;
   artistLayer?: ArtistLayerSpec;
+  visualPolishMode?: VisualPolishMode;
   [key: string]: unknown;
 }
 
@@ -266,6 +270,28 @@ function toDependencySpecs(deps: string[]): DependencySpec[] {
         isDevDependency: false,
       };
     });
+}
+
+function mergeDependencySpecs(...groups: Array<DependencySpec[] | undefined>): DependencySpec[] {
+  const merged = new Map<string, DependencySpec>();
+
+  for (const group of groups) {
+    for (const dep of group ?? []) {
+      if (!dep?.id) continue;
+      merged.set(dep.id, merged.has(dep.id)
+        ? {
+            ...merged.get(dep.id)!,
+            ...dep,
+            importedBy: Array.from(new Set([
+              ...(merged.get(dep.id)?.importedBy ?? []),
+              ...(dep.importedBy ?? []),
+            ])),
+          }
+        : dep);
+    }
+  }
+
+  return Array.from(merged.values());
 }
 
 // ─── Architect Prompt (Step 1 — planning only) ─────────────────────────────
@@ -2617,6 +2643,650 @@ export function buildBranchGuidancePromptForGeneration(input: {
   return formatBranchArchitecturePrompt(guidance, normalizedLanguage);
 }
 
+const VISUAL_POLISH_MAX_PASSES = 1;
+
+const VISUAL_POLISH_REASON_MAP: Record<VisualQualityDimensionId, string> = {
+  'visual-hierarchy': 'weak hierarchy',
+  'spacing-consistency': 'inconsistent spacing',
+  'token-style-consistency': 'mixed visual tokens',
+  'cta-prominence': 'CTA not prominent',
+  'clutter-breathing-room': 'crowded layout',
+  'mobile-fit': 'poor mobile fit',
+  'state-completeness': 'poor state polish',
+};
+
+const VISUAL_POLISH_ICON_IMPORT_PATTERN =
+  /from\s+['"]([^'"]*(?:lucide-react|@heroicons|react-icons|phosphor-react|@radix-ui\/react-icons)[^'"]*)['"]/g;
+const VISUAL_POLISH_REMOTE_URL_PATTERN = /https?:\/\/[^\s"'`)<>]+/gi;
+const VISUAL_POLISH_REMOTE_FONT_PATTERN =
+  /https?:\/\/(?:fonts\.(?:googleapis|gstatic|bunny\.net)|use\.typekit\.net|fonts\.adobe\.com)[^\s"'`)<>]*/gi;
+const VISUAL_POLISH_REMOTE_COMPONENT_PATTERN =
+  /from\s+['"](@mui\/[^'"]+|antd(?:\/[^'"]+)?|@chakra-ui\/[^'"]+|@mantine\/[^'"]+|semantic-ui-react|primereact(?:\/[^'"]+)?|flowbite-react|@nextui-org\/[^'"]+|@headlessui\/react|@radix-ui\/themes)['"]/g;
+
+function visualVerdictRank(verdict: VisualQualitySummary['verdict']): number {
+  return verdict === 'strong' ? 2 : verdict === 'acceptable' ? 1 : 0;
+}
+
+function buildGraphFromFileMap(input: {
+  files: Record<string, string>;
+  manifest: ProductManifest;
+  dependencies?: DependencySpec[];
+  projectId?: string;
+  revisionId?: string;
+  now?: string;
+}): ProjectGraph {
+  const now = input.now ?? new Date().toISOString();
+  const blueprints: FileBlueprint[] = Object.entries(input.files).map(
+    ([path, content]) => makeBlueprint(path, content),
+  );
+  const routes = syncRoutes(blueprints, []);
+  const isMultiPage = routes.length > 1;
+  const entryFilePath = input.files['src/App.tsx']
+    ? 'src/App.tsx'
+    : Object.keys(input.files)[0] ?? 'src/App.tsx';
+
+  return {
+    version: 1 as const,
+    id: crypto.randomUUID(),
+    projectId: input.projectId ?? '',
+    revisionId: input.revisionId ?? '',
+    manifest: {
+      ...input.manifest,
+      isMultiPage,
+    },
+    files: blueprints,
+    routes,
+    features: [],
+    externalDependencies: input.dependencies ?? [],
+    entryFileId: djb2(entryFilePath),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function buildChangedFileOps(
+  previousFiles: Record<string, string>,
+  nextFiles: Record<string, string>,
+): FileOperation[] {
+  return Object.entries(nextFiles)
+    .filter(([path, content]) => previousFiles[path] !== content)
+    .map(([name, content]) => ({ op: 'upsert' as const, name, content }));
+}
+
+function normalizePolishFileMap(files: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(files).map(([path, content]) => [toSrcKey(path), content]),
+  );
+}
+
+export function resolveVisualPolishMode(config: Pick<PipelineRunConfig, 'visualPolishMode' | 'waitForConfirmation'>): VisualPolishMode {
+  if (config.visualPolishMode) return config.visualPolishMode;
+  return config.waitForConfirmation ? 'architect_guided' : 'fast_prototype';
+}
+
+export function getVisualPolishTargets(summary: Pick<VisualQualitySummary, 'dimensions' | 'reasons'>): string[] {
+  const labels: string[] = [];
+  const orderedDimensions = [...summary.dimensions].sort((a, b) => {
+    const verdictDelta = visualVerdictRank(a.verdict) - visualVerdictRank(b.verdict);
+    if (verdictDelta !== 0) return verdictDelta;
+    return a.score - b.score;
+  });
+
+  for (const dimension of orderedDimensions) {
+    if (dimension.verdict !== 'weak') continue;
+    const label = VISUAL_POLISH_REASON_MAP[dimension.id];
+    if (!label || labels.includes(label)) continue;
+    labels.push(label);
+    if (labels.length === 5) return labels;
+  }
+
+  for (const reason of summary.reasons) {
+    const normalizedReason = reason.trim().replace(/[.]+$/g, '');
+    if (!normalizedReason || labels.includes(normalizedReason)) continue;
+    labels.push(normalizedReason);
+    if (labels.length === 5) break;
+  }
+
+  return labels.slice(0, 5);
+}
+
+export function decideVisualPolishPass(input: {
+  summary?: VisualQualitySummary;
+  mode: VisualPolishMode;
+  attempts?: number;
+  maxPasses?: number;
+}): { shouldAttempt: boolean; maxPasses: number; triggerReasons: string[]; note: string } {
+  const maxPasses = Math.max(1, input.maxPasses ?? VISUAL_POLISH_MAX_PASSES);
+  const attempts = input.attempts ?? 0;
+
+  if (!input.summary) {
+    return {
+      shouldAttempt: false,
+      maxPasses,
+      triggerReasons: [],
+      note: 'Visual critic data was unavailable, so polish was skipped.',
+    };
+  }
+
+  if (attempts >= maxPasses) {
+    return {
+      shouldAttempt: false,
+      maxPasses,
+      triggerReasons: getVisualPolishTargets(input.summary),
+      note: 'Visual polish stayed bounded after reaching the one-pass limit.',
+    };
+  }
+
+  if (input.summary.verdict !== 'weak') {
+    return {
+      shouldAttempt: false,
+      maxPasses,
+      triggerReasons: getVisualPolishTargets(input.summary),
+      note: 'Visual quality cleared the polish threshold on the first pass.',
+    };
+  }
+
+  const weakCount = input.summary.dimensions.filter((dimension) => dimension.verdict === 'weak').length;
+  const triggerReasons = getVisualPolishTargets(input.summary);
+
+  if (input.mode === 'fast_prototype' && input.summary.score > 45 && weakCount < 4) {
+    return {
+      shouldAttempt: false,
+      maxPasses,
+      triggerReasons,
+      note: 'Fast prototype mode keeps the first pass unless the visual result is clearly weak.',
+    };
+  }
+
+  return {
+    shouldAttempt: true,
+    maxPasses,
+    triggerReasons,
+    note: input.mode === 'architect_guided'
+      ? 'Architect-guided mode escalated a weak visual result into one bounded polish pass.'
+      : 'Fast prototype mode allowed one quiet polish pass because the visual result was clearly weak.',
+  };
+}
+
+function collectRegexMatches(input: string, pattern: RegExp): string[] {
+  const matches = input.match(pattern) ?? [];
+  return Array.from(new Set(matches.map((match) => match.trim()).filter(Boolean)));
+}
+
+function collectIconLibraries(files: Record<string, string>): Set<string> {
+  const libraries = new Set<string>();
+
+  for (const content of Object.values(files)) {
+    for (const match of content.matchAll(VISUAL_POLISH_ICON_IMPORT_PATTERN)) {
+      const importPath = match[1] ?? '';
+      if (importPath.includes('lucide-react')) libraries.add('lucide-react');
+      else if (importPath.includes('@heroicons')) libraries.add('@heroicons');
+      else if (importPath.includes('react-icons')) libraries.add('react-icons');
+      else if (importPath.includes('phosphor-react')) libraries.add('phosphor-react');
+      else if (importPath.includes('@radix-ui/react-icons')) libraries.add('@radix-ui/react-icons');
+    }
+  }
+
+  return libraries;
+}
+
+function collectRemoteComponentLibraries(files: Record<string, string>): Set<string> {
+  const libraries = new Set<string>();
+
+  for (const content of Object.values(files)) {
+    for (const match of content.matchAll(VISUAL_POLISH_REMOTE_COMPONENT_PATTERN)) {
+      const importPath = (match[1] ?? '').trim();
+      if (importPath) libraries.add(importPath);
+    }
+  }
+
+  return libraries;
+}
+
+export function buildVisualPolishInstructionBlock(input: {
+  summary: VisualQualitySummary;
+  mode: VisualPolishMode;
+  artistLayer?: ArtistLayerSpec | null;
+}): string {
+  const targets = getVisualPolishTargets(input.summary);
+  const redesignIntent = input.artistLayer?.redesignIntent;
+  const assetPolicy = input.artistLayer?.assetPolicy;
+  const lines: string[] = [
+    'VISUAL POLISH PASS (ONE PASS ONLY):',
+    '- You are refining the current app, not regenerating it from scratch.',
+    '- Make a single bounded pass focused only on the weak visual issues listed below.',
+    '- Preserve the existing product scope, functionality, routes, data flow, and preview safety.',
+    `- Polish mode: ${input.mode}. Keep the pass quiet and lightweight unless the current critic finding explicitly justifies a stronger visual adjustment.`,
+    '- Prioritize visible improvements to hierarchy, spacing, CTA clarity, breathing room, mobile discipline, and state treatment.',
+  ];
+
+  if (targets.length > 0) {
+    lines.push('- Critic findings to address:');
+    targets.forEach((target) => lines.push(`  - ${target}`));
+  }
+
+  if (redesignIntent) {
+    lines.push('- Redesign intent constraints:');
+    lines.push(`  - Mode: ${redesignIntent.mode}`);
+    lines.push(`  - Structure lock: ${redesignIntent.structureLock}`);
+    if (redesignIntent.mode === 'preserve' || redesignIntent.mode === 'partial_restyle') {
+      lines.push('  - Do not silently rewrite the information architecture, routing structure, or screen layout model.');
+      lines.push('  - Limit changes to visual emphasis, spacing, grouping, and state presentation.');
+    } else if (redesignIntent.mode === 'full_redesign') {
+      lines.push('  - Deeper visual restructuring is allowed, but keep product scope intact and avoid gratuitous route churn.');
+    } else {
+      lines.push('  - Keep structural edits tightly scoped to the critic findings.');
+    }
+    if (redesignIntent.structureLock === 'strict') {
+      lines.push('  - Structure lock is strict: do not add, remove, rename, or reshuffle routes/files during polish.');
+    } else if (redesignIntent.structureLock === 'prefer') {
+      lines.push('  - Prefer the existing structure. Only touch structure if a cited visual problem cannot be solved otherwise.');
+    }
+    if (redesignIntent.screensInScope.length > 0) {
+      lines.push(`  - Keep polish focused on these screens: ${redesignIntent.screensInScope.join(', ')}.`);
+    }
+  }
+
+  if (assetPolicy) {
+    lines.push('- Asset and source policy constraints:');
+    lines.push(`  - Components: ${assetPolicy.components.remoteComponentPolicy} remote component kits; prefer ${assetPolicy.components.preferredSources.join(', ') || assetPolicy.components.allowedSources.join(', ') || 'existing local components'}.`);
+    lines.push(`  - Icons: stay on ${assetPolicy.icons.preferredSource}; do not mix in a second icon family unless it is already present and explicitly allowed.`);
+    lines.push(`  - Media: ${assetPolicy.media.remoteAssetPolicy} remote assets; keep previews aligned with ${assetPolicy.previewSafeFallback.mediaStrategy}.`);
+    lines.push(`  - Fonts: ${assetPolicy.fonts.loadingStrategy}; preserve ${assetPolicy.previewSafeFallback.fontStrategy}.`);
+  }
+
+  lines.push('- Return only the modified files in the usual JSON artifact format.');
+
+  return lines.join('\n');
+}
+
+export function validateVisualPolishAgainstArtistLayer(input: {
+  candidateFiles: Record<string, string>;
+  baselineFiles: Record<string, string>;
+  artistLayer?: ArtistLayerSpec | null;
+}): { valid: boolean; violations: string[] } {
+  const artistLayer = input.artistLayer;
+  if (!artistLayer) {
+    return { valid: true, violations: [] };
+  }
+
+  const violations: string[] = [];
+  const candidatePaths = new Set(Object.keys(input.candidateFiles));
+  const baselinePaths = new Set(Object.keys(input.baselineFiles));
+  const addedPaths = Array.from(candidatePaths).filter((path) => !baselinePaths.has(path));
+  const redesignIntent = artistLayer.redesignIntent;
+
+  if (
+    addedPaths.length > 0
+    && (
+      redesignIntent.mode === 'preserve'
+      || redesignIntent.mode === 'partial_restyle'
+      || redesignIntent.structureLock === 'strict'
+    )
+  ) {
+    violations.push(`Polish introduced new files despite ${redesignIntent.mode}/${redesignIntent.structureLock} constraints: ${addedPaths.slice(0, 4).join(', ')}`);
+  }
+
+  const baselineIcons = collectIconLibraries(input.baselineFiles);
+  const candidateIcons = collectIconLibraries(input.candidateFiles);
+  const newIcons = Array.from(candidateIcons).filter((icon) => !baselineIcons.has(icon));
+  if (newIcons.length > 0) {
+    const allowedIcons = new Set(artistLayer.assetPolicy.icons.allowedSources);
+    const preferredIcon = artistLayer.assetPolicy.icons.preferredSource;
+    const blockedIcons = newIcons.filter((icon) => icon !== preferredIcon || (allowedIcons.size > 0 && !allowedIcons.has(icon)));
+    if (blockedIcons.length > 0) {
+      violations.push(`Polish introduced icon sources outside the preferred policy: ${blockedIcons.join(', ')}`);
+    }
+  }
+
+  const baselineRemoteUrls = new Set(collectRegexMatches(Object.values(input.baselineFiles).join('\n'), VISUAL_POLISH_REMOTE_URL_PATTERN));
+  const candidateRemoteUrls = collectRegexMatches(Object.values(input.candidateFiles).join('\n'), VISUAL_POLISH_REMOTE_URL_PATTERN);
+  const newRemoteUrls = candidateRemoteUrls.filter((url) => !baselineRemoteUrls.has(url));
+
+  if (artistLayer.assetPolicy.media.remoteAssetPolicy === 'avoid' && newRemoteUrls.length > 0) {
+    violations.push(`Polish introduced remote asset URLs despite the current media policy: ${newRemoteUrls.slice(0, 4).join(', ')}`);
+  }
+
+  const baselineRemoteFonts = new Set(collectRegexMatches(Object.values(input.baselineFiles).join('\n'), VISUAL_POLISH_REMOTE_FONT_PATTERN));
+  const candidateRemoteFonts = collectRegexMatches(Object.values(input.candidateFiles).join('\n'), VISUAL_POLISH_REMOTE_FONT_PATTERN);
+  const newRemoteFonts = candidateRemoteFonts.filter((url) => !baselineRemoteFonts.has(url));
+  if (artistLayer.assetPolicy.fonts.loadingStrategy !== 'remote_allowed' && newRemoteFonts.length > 0) {
+    violations.push(`Polish introduced remote font loading despite the current font policy: ${newRemoteFonts.slice(0, 3).join(', ')}`);
+  }
+
+  const baselineRemoteComponents = collectRemoteComponentLibraries(input.baselineFiles);
+  const candidateRemoteComponents = collectRemoteComponentLibraries(input.candidateFiles);
+  const newRemoteComponents = Array.from(candidateRemoteComponents).filter((lib) => !baselineRemoteComponents.has(lib));
+  if (artistLayer.assetPolicy.components.remoteComponentPolicy === 'disallow' && newRemoteComponents.length > 0) {
+    violations.push(`Polish introduced remote component libraries despite the current component policy: ${newRemoteComponents.join(', ')}`);
+  }
+
+  return {
+    valid: violations.length === 0,
+    violations,
+  };
+}
+
+function didVisualPolishImprove(previousSummary: VisualQualitySummary, nextSummary: VisualQualitySummary): boolean {
+  if (visualVerdictRank(nextSummary.verdict) > visualVerdictRank(previousSummary.verdict)) {
+    return true;
+  }
+
+  return nextSummary.score >= previousSummary.score + 3;
+}
+
+async function maybeApplyVisualPolish(input: {
+  baseResult: GenerationResult;
+  currentFiles: Record<string, string>;
+  config: PipelineRunConfig;
+  startMs?: number;
+  branchGuidancePrompt?: string | null;
+  artistLayer?: ArtistLayerSpec | null;
+  memoryContext?: string;
+  envPrompt?: string;
+  summary?: VisualQualitySummary;
+  attempts?: number;
+  dependencies?: DependencySpec[];
+  resultMessage?: string;
+  routeAware?: boolean;
+}): Promise<GenerationResult> {
+  const mode = resolveVisualPolishMode(input.config);
+  const decision = decideVisualPolishPass({
+    summary: input.summary ?? input.baseResult.visualQualitySummary,
+    mode,
+    attempts: input.attempts ?? 0,
+  });
+  const baseSummary = input.summary ?? input.baseResult.visualQualitySummary;
+
+  if (!baseSummary || !decision.shouldAttempt) {
+    input.baseResult.visualPolishSummary = {
+      mode,
+      outcome: baseSummary?.verdict === 'weak' ? 'skipped' : 'not-needed',
+      attempts: input.attempts ?? 0,
+      maxPasses: decision.maxPasses,
+      triggerVerdict: baseSummary?.verdict,
+      triggerScore: baseSummary?.score,
+      triggerReasons: decision.triggerReasons,
+      finalVerdict: input.baseResult.visualQualitySummary?.verdict,
+      finalScore: input.baseResult.visualQualitySummary?.score,
+      note: decision.note,
+    };
+    return input.baseResult;
+  }
+
+  input.config.onLog(`[SimpleGeneration] visual polish: starting one ${mode} pass for ${decision.triggerReasons.join(', ') || 'weak visual issues'}`);
+
+  const currentCode = Object.entries(input.currentFiles)
+    .filter(([path]) => !path.startsWith('_'))
+    .map(([path, content]) => `<!--EXISTING_FILE:${path}-->\n${content}`)
+    .join('\n\n');
+
+  const polishPrompt = buildEditCoderSystemPrompt({
+    currentCode,
+    branchGuidancePrompt: input.branchGuidancePrompt,
+    artistLayer: input.artistLayer,
+    designSystemPrompt: input.config.designSystemPrompt,
+    memoryContext: input.memoryContext,
+    envPrompt: input.envPrompt,
+  });
+  const polishUserPrompt = [
+    `CURRENT USER REQUEST:\n${input.config.intent}`,
+    '',
+    buildVisualPolishInstructionBlock({
+      summary: baseSummary,
+      mode,
+      artistLayer: input.artistLayer,
+    }),
+  ].join('\n');
+
+  let polishRaw = '';
+  try {
+    polishRaw = await callLLM(
+      polishPrompt,
+      polishUserPrompt,
+      'build',
+      input.config.apiKey,
+      undefined,
+      input.config.signal,
+    );
+  } catch (error) {
+    input.config.onLog(`[SimpleGeneration] visual polish: LLM request failed — ${String(error)}`);
+    input.baseResult.visualPolishSummary = {
+      mode,
+      outcome: 'failed',
+      attempts: 1,
+      maxPasses: decision.maxPasses,
+      triggerVerdict: baseSummary.verdict,
+      triggerScore: baseSummary.score,
+      triggerReasons: decision.triggerReasons,
+      finalVerdict: input.baseResult.visualQualitySummary?.verdict,
+      finalScore: input.baseResult.visualQualitySummary?.score,
+      note: 'Polish request failed, so the safer first-pass revision was kept.',
+    };
+    return input.baseResult;
+  }
+
+  const polishParseResult = parseArtifact(polishRaw);
+  let polishDependencies: string[] = [];
+  let polishDependencySpecs: DependencySpec[] = [];
+  const polishLlmFiles: Record<string, string> = {};
+
+  if (polishParseResult.success && polishParseResult.artifact) {
+    const cleanArtifact = ArtifactReviewerService.review(polishParseResult.artifact);
+    polishDependencies = cleanArtifact.dependencies ?? [];
+    polishDependencySpecs = toDependencySpecs(polishDependencies);
+    for (const file of cleanArtifact.files) {
+      const normalizedPath = toSrcKey(file.path);
+      if (looksLikeArtifactEnvelope(file.content)) continue;
+      polishLlmFiles[normalizedPath] = file.content;
+    }
+  } else {
+    const legacyFiles = parseFileMarkers(polishRaw);
+    Object.assign(polishLlmFiles, normalizePolishFileMap(legacyFiles));
+  }
+
+  enforceShadcn(polishLlmFiles, input.config.onLog);
+
+  for (const [filePath, content] of Object.entries({ ...polishLlmFiles })) {
+    if (!validateFile(filePath, content)) {
+      input.config.onLog(`[SimpleGeneration] visual polish: skipped invalid file ${filePath}`);
+      delete polishLlmFiles[filePath];
+    }
+  }
+
+  const candidateFiles = {
+    ...input.currentFiles,
+    ...polishLlmFiles,
+  };
+  const candidateOps = buildChangedFileOps(input.currentFiles, candidateFiles);
+
+  if (candidateOps.length === 0) {
+    input.baseResult.visualPolishSummary = {
+      mode,
+      outcome: 'failed',
+      attempts: 1,
+      maxPasses: decision.maxPasses,
+      triggerVerdict: baseSummary.verdict,
+      triggerScore: baseSummary.score,
+      triggerReasons: decision.triggerReasons,
+      finalVerdict: input.baseResult.visualQualitySummary?.verdict,
+      finalScore: input.baseResult.visualQualitySummary?.score,
+      note: 'Polish returned no usable file changes, so the original revision was kept.',
+    };
+    return input.baseResult;
+  }
+
+  const policyCheck = validateVisualPolishAgainstArtistLayer({
+    candidateFiles,
+    baselineFiles: input.currentFiles,
+    artistLayer: input.artistLayer,
+  });
+  if (!policyCheck.valid) {
+    input.config.onLog(`[SimpleGeneration] visual polish: blocked by artist-layer policy — ${policyCheck.violations.join(' | ')}`);
+    input.baseResult.visualPolishSummary = {
+      mode,
+      outcome: 'failed',
+      attempts: 1,
+      maxPasses: decision.maxPasses,
+      triggerVerdict: baseSummary.verdict,
+      triggerScore: baseSummary.score,
+      triggerReasons: decision.triggerReasons,
+      finalVerdict: input.baseResult.visualQualitySummary?.verdict,
+      finalScore: input.baseResult.visualQualitySummary?.score,
+      note: policyCheck.violations[0] ?? 'Polish was blocked to preserve the current redesign and asset policy.',
+    };
+    return input.baseResult;
+  }
+
+  const polishRevisionId = await revisionManager.createCandidate();
+  try {
+    for (const [path, content] of Object.entries(input.currentFiles)) {
+      await revisionManager.writeCandidateFile(polishRevisionId, path, content);
+    }
+    for (const [path, content] of Object.entries(candidateFiles)) {
+      if (input.currentFiles[path] === content) continue;
+      await revisionManager.writeCandidateFile(polishRevisionId, path, content);
+    }
+
+    await SimpleGeneration.installPreviewDeps(polishDependencies, input.config.projectId);
+
+    const polishCompiled = await compileWithRetry({
+      revId: polishRevisionId,
+      apiKey: input.config.apiKey,
+      onLog: input.config.onLog,
+      signal: input.config.signal,
+      callFix: (prompt, sig) => callLLM(
+        'You fix React/TypeScript compilation errors.',
+        prompt,
+        'fix',
+        input.config.apiKey,
+        undefined,
+        sig,
+      ),
+      recheckAdmission: (nextCandidatePaths) =>
+        runAdmissionCheck(polishRevisionId, 'visual-polish-fix', input.config, nextCandidatePaths),
+    });
+
+    if (!polishCompiled.success) {
+      input.config.onLog(`[SimpleGeneration] visual polish: compile failed after ${polishCompiled.attempts} attempt(s)`);
+      await revisionManager.rollback();
+      input.baseResult.visualPolishSummary = {
+        mode,
+        outcome: 'failed',
+        attempts: 1,
+        maxPasses: decision.maxPasses,
+        triggerVerdict: baseSummary.verdict,
+        triggerScore: baseSummary.score,
+        triggerReasons: decision.triggerReasons,
+        finalVerdict: input.baseResult.visualQualitySummary?.verdict,
+        finalScore: input.baseResult.visualQualitySummary?.score,
+        note: 'Polish did not compile cleanly, so the last good revision was kept.',
+      };
+      return input.baseResult;
+    }
+
+    const polishedNow = new Date().toISOString();
+    const polishedGraph = buildGraphFromFileMap({
+      files: candidateFiles,
+      manifest: {
+        ...input.baseResult.graph.manifest,
+        artistLayer: input.artistLayer ?? input.baseResult.graph.manifest.artistLayer,
+      },
+      dependencies: mergeDependencySpecs(
+        input.baseResult.graph.externalDependencies,
+        input.dependencies,
+        polishDependencySpecs,
+      ),
+      projectId: input.config.projectId ?? input.baseResult.graph.projectId,
+      revisionId: input.config.revisionId ?? polishRevisionId,
+      now: polishedNow,
+    });
+    const polishedOps = buildChangedFileOps(input.currentFiles, candidateFiles);
+    const polishedRouteDrifts = validateAllRouteLayers(polishedGraph);
+    const polishedChangePackage = input.routeAware
+      ? buildRouteAwareChangePackage(polishedGraph, polishedOps, polishedRouteDrifts)
+      : emptyChangePackage(polishedGraph, polishedOps);
+    const polishedResult: GenerationResult = {
+      ...input.baseResult,
+      graph: polishedGraph,
+      operations: polishedOps,
+      message: input.resultMessage ?? input.baseResult.message,
+      durationMs: input.startMs ? Date.now() - input.startMs : input.baseResult.durationMs,
+      changePackage: polishedChangePackage,
+      dependencies: mergeDependencySpecs(input.baseResult.dependencies, polishDependencySpecs),
+      previewMeta: {
+        entryFile: polishedGraph.files.find((file) => file.path === 'src/App.tsx')?.path ?? input.baseResult.previewMeta.entryFile,
+        framework: 'react',
+        isMultiPage: polishedGraph.routes.length > 1,
+      },
+      createdAt: polishedNow,
+      selfCorrected: input.baseResult.selfCorrected || polishCompiled.attempts > 1,
+      iterations: input.baseResult.iterations + 1,
+    };
+    polishedResult.qualitySummary = GenerationQualityService.evaluate(polishedResult);
+    polishedResult.visualQualitySummary = VisualQualityService.evaluate(polishedResult);
+
+    if (!didVisualPolishImprove(baseSummary, polishedResult.visualQualitySummary)) {
+      input.config.onLog('[SimpleGeneration] visual polish: no measurable visual improvement — keeping previous revision');
+      await revisionManager.rollback();
+      input.baseResult.visualPolishSummary = {
+        mode,
+        outcome: 'failed',
+        attempts: 1,
+        maxPasses: decision.maxPasses,
+        triggerVerdict: baseSummary.verdict,
+        triggerScore: baseSummary.score,
+        triggerReasons: decision.triggerReasons,
+        finalVerdict: input.baseResult.visualQualitySummary?.verdict,
+        finalScore: input.baseResult.visualQualitySummary?.score,
+        note: 'Polish did not improve the visual verdict enough to replace the safer first pass.',
+      };
+      return input.baseResult;
+    }
+
+    await revisionManager.promote(polishRevisionId);
+    input.config.onFiles(candidateOps);
+    input.config.onLog(`[SimpleGeneration] visual polish: promoted improved revision (${polishedResult.visualQualitySummary.verdict}, ${polishedResult.visualQualitySummary.score})`);
+
+    polishedResult.visualPolishSummary = {
+      mode,
+      outcome: 'applied',
+      attempts: 1,
+      maxPasses: decision.maxPasses,
+      triggerVerdict: baseSummary.verdict,
+      triggerScore: baseSummary.score,
+      triggerReasons: decision.triggerReasons,
+      finalVerdict: polishedResult.visualQualitySummary.verdict,
+      finalScore: polishedResult.visualQualitySummary.score,
+      note: mode === 'architect_guided'
+        ? 'A guided visual polish pass ran before the result was finalized.'
+        : 'A quiet visual polish pass ran before the result was finalized.',
+    };
+
+    return polishedResult;
+  } catch (error) {
+    input.config.onLog(`[SimpleGeneration] visual polish: failed — ${String(error)}`);
+    try {
+      await revisionManager.rollback();
+    } catch {
+      // Keep the original result even if rollback logging fails.
+    }
+    input.baseResult.visualPolishSummary = {
+      mode,
+      outcome: 'failed',
+      attempts: 1,
+      maxPasses: decision.maxPasses,
+      triggerVerdict: baseSummary.verdict,
+      triggerScore: baseSummary.score,
+      triggerReasons: decision.triggerReasons,
+      finalVerdict: input.baseResult.visualQualitySummary?.verdict,
+      finalScore: input.baseResult.visualQualitySummary?.score,
+      note: 'Polish failed, so the safer first-pass revision was kept.',
+    };
+    return input.baseResult;
+  }
+}
+
 // ─── Main Service ───────────────────────────────────────────────────────────
 
 export class SimpleGeneration {
@@ -2993,6 +3663,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           config.onLog(`[SimpleGeneration] EDIT context: merged ${Object.keys(revFiles).length} revision files`);
         }
       }
+      const fullEditContextFiles = { ...contextFiles };
 
       // ── Token budget gate: if > 30k tokens (~120k chars), keep only relevant files ──
       const TOKEN_CHAR_BUDGET = 120_000;
@@ -3310,32 +3981,24 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       config.onLog(`[SimpleGeneration] done: ${editOps.length} files, ${editDurationMs}ms`);
 
       const editNow = new Date().toISOString();
-      const editBlueprints: FileBlueprint[] = Object.entries(editFinalFiles).map(
-        ([p, c]) => makeBlueprint(p, c),
-      );
-      // Infer routes from page-role files (same as NEW mode)
-      const editInferredRoutes = syncRoutes(editBlueprints, []);
-      const editIsMultiPage = editInferredRoutes.length > 1;
-      const editGraph: ProjectGraph = {
-        version: 1 as const,
-        id: crypto.randomUUID(),
-        projectId: config.projectId ?? '',
-        revisionId: config.revisionId ?? '',
+      const editBaseFiles = normalizePolishFileMap(fullEditContextFiles);
+      const editResultFiles = {
+        ...editBaseFiles,
+        ...editFinalFiles,
+      };
+      const editGraph = buildGraphFromFileMap({
+        files: editResultFiles,
         manifest: {
           ...emptyManifest(config.intent),
-          isMultiPage: editIsMultiPage,
           artistLayer: editArtistLayer,
         },
-        files: editBlueprints,
-        routes: editInferredRoutes,
-        features: [],
-        externalDependencies: editDependencySpecs,
-        entryFileId: djb2('src/App.tsx'),
-        createdAt: editNow,
-        updatedAt: editNow,
-      };
+        dependencies: editDependencySpecs,
+        projectId: config.projectId ?? '',
+        revisionId: config.revisionId ?? '',
+        now: editNow,
+      });
 
-      const editResult: GenerationResult = {
+      let editResult: GenerationResult = {
         id: crypto.randomUUID(),
         status: 'complete',
         graph: editGraph,
@@ -3348,14 +4011,29 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         durationMs: editDurationMs,
         createdAt: editNow,
         changePackage: emptyChangePackage(editGraph, editOps),
-        dependencies: editDependencySpecs,
-        previewMeta: { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: false },
+        dependencies: editGraph.externalDependencies,
+        previewMeta: { entryFile: 'src/App.tsx', framework: 'react', isMultiPage: editGraph.routes.length > 1 },
         warnings: [],
         repairHints: [],
       };
       editResult.qualitySummary = GenerationQualityService.evaluate(editResult);
       editResult.visualQualitySummary = VisualQualityService.evaluate(editResult);
       config.onLog(`[SimpleGeneration] quality: ${editResult.qualitySummary.severity} — ${editResult.qualitySummary.summary}`);
+      editResult = await maybeApplyVisualPolish({
+        baseResult: editResult,
+        currentFiles: editResultFiles,
+        config,
+        startMs,
+        branchGuidancePrompt,
+        artistLayer: editArtistLayer,
+        memoryContext,
+        envPrompt,
+        summary: editResult.visualQualitySummary,
+        dependencies: editDependencySpecs,
+        resultMessage: cleanCoderMessage(editRaw, 'Updated files and refreshing preview.'),
+        routeAware: false,
+      });
+      const editOutputFiles = projectGraphToFileMap(editResult.graph);
 
       metricsService.logGeneration({
         generation_id:   editResult.id,
@@ -3376,14 +4054,14 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         projectMemory.recordGeneration(config.projectId, {
           intent:       config.intent,
           mode:         'edit',
-          files:        editFinalFiles,
+          files:        editOutputFiles,
           outcome:      editCompiled.success ? 'success' : 'failed',
           errors:       editCompiled.errors,
           stubbed:      editCompiled.errors ? editCompiled.errors.find(e => e.includes('replaced with error stub'))?.match(/(\S+\.tsx)/)?.[1] : undefined,
         });
         // Sync detected env vars to EnvSecretsService
         const { detectEnvVars } = await import('./ProjectMemoryService');
-        const envMap = detectEnvVars(editFinalFiles);
+        const envMap = detectEnvVars(editOutputFiles);
         envSecretsService.syncDetected(config.projectId, [...envMap.keys()]);
       }
 
@@ -3391,7 +4069,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       const editQualityReport = runQualityGates({
         projectId:    config.projectId ?? '_edit',
         mode:         'edit',
-        files:        editFinalFiles,
+        files:        editOutputFiles,
         existingFiles,
         compileResult: editCompiled,
         saved:        editCompiled.success,
@@ -4005,7 +4683,7 @@ Generate the complete application for: ${config.intent}`;
     const changePackage = buildRouteAwareChangePackage(graph, ops, routeDrifts);
 
     // 10. Return result — preview is handled by preview-manager lifecycle
-    const result: GenerationResult = {
+    let result: GenerationResult = {
       id: crypto.randomUUID(),
       status: 'complete',
       graph,
@@ -4027,6 +4705,21 @@ Generate the complete application for: ${config.intent}`;
     result.qualitySummary = GenerationQualityService.evaluate(result);
     result.visualQualitySummary = VisualQualityService.evaluate(result);
     config.onLog(`[SimpleGeneration] quality: ${result.qualitySummary.severity} — ${result.qualitySummary.summary}`);
+    result = await maybeApplyVisualPolish({
+      baseResult: result,
+      currentFiles: finalFiles,
+      config,
+      startMs,
+      branchGuidancePrompt,
+      artistLayer: result.graph.manifest.artistLayer,
+      memoryContext,
+      envPrompt,
+      summary: result.visualQualitySummary,
+      dependencies: artifactDependencySpecs,
+      resultMessage: cleanCoderMessage(raw),
+      routeAware: true,
+    });
+    const outputFiles = projectGraphToFileMap(result.graph);
 
     metricsService.logGeneration({
       generation_id:   result.id,
@@ -4056,7 +4749,7 @@ Generate the complete application for: ${config.intent}`;
         appName:  (plan.appName as string) || '',
         intent:   config.intent,
         mode:     'new',
-        files:    finalFiles,
+        files:    outputFiles,
         outcome:  compiled.success ? 'success' : 'failed',
         errors:   compiled.errors,
         stubbed:  compiled.errors
@@ -4066,7 +4759,7 @@ Generate the complete application for: ${config.intent}`;
       });
       // Sync detected env vars
       const { detectEnvVars } = await import('./ProjectMemoryService');
-      const envMap = detectEnvVars(finalFiles);
+      const envMap = detectEnvVars(outputFiles);
       envSecretsService.syncDetected(config.projectId, [...envMap.keys()]);
     }
 
@@ -4075,7 +4768,7 @@ Generate the complete application for: ${config.intent}`;
       projectId:    config.projectId ?? '_new',
       mode:         'new',
       plan,
-      files:        finalFiles,
+      files:        outputFiles,
       compileResult: compiled,
       saved:        compiled.success,
     });

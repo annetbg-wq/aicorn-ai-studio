@@ -227,7 +227,7 @@ export function recoverKickoffApprovalFailure(
 }
 
 export function buildGenerationReport(input: {
-  result: Pick<GenerationResult, 'operations' | 'planTheme' | 'visualQualitySummary'>;
+  result: Pick<GenerationResult, 'operations' | 'planTheme' | 'visualQualitySummary' | 'visualPolishSummary'>;
   filesSnapshot: FileMap;
   finalFiles: FileMap;
   startMs: number;
@@ -256,6 +256,7 @@ export function buildGenerationReport(input: {
     pageCount: reportableFiles.filter(f => f.includes('pages/')).length,
     duration: Math.round((Date.now() - input.startMs) / 1000),
     visualQuality: input.result.visualQualitySummary,
+    visualPolish: input.result.visualPolishSummary,
   };
 }
 
@@ -2038,6 +2039,9 @@ export const useStudio = () => {
         // on the very first request when there's no context to ground on.
         singlePageSafeMode: existingCodeCount === 0,
         generationMode,
+        visualPolishMode: generationTrust.mode === 'fast_prototype'
+          ? 'fast_prototype'
+          : 'architect_guided',
         attachments: capturedAttachments,
         prebuiltPlan: prebuiltPlanFromContext,
         onStream: (streamText) => {

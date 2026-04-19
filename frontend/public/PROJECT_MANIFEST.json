@@ -221,6 +221,7 @@
     "services/__tests__/ProjectRepository.architectureMemory.test.ts",
     "services/__tests__/revisionSemantics.test.ts",
     "services/__tests__/routeGraph.test.ts",
+    "services/__tests__/SimpleGeneration.visualPolish.test.ts",
     "services/__tests__/simpleGenerationKickoff.test.ts",
     "services/__tests__/visualEditBridge.test.ts",
     "services/__tests__/VisualQualityService.test.ts",
@@ -273,5 +274,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-19T10:05:41.426Z"
+  "last_scan_timestamp": "2026-04-19T10:31:15.124Z"
 }
