@@ -81,6 +81,8 @@ import {
 } from '../services/ArchitectPlannerService';
 import { ChatArchitectureService } from '../services/ChatArchitectureService';
 import { refreshArchitectureAfterBuild } from '../services/BranchArchitectureOrchestrationService';
+import { resolveStandardRoute } from '../services/buildAgentRouting';
+import type { AgentExecutionRoute } from '../services/buildAgentRouting';
 
 export type DeviceType = 'desktop' | 'iphone' | 'pixel' | 'ipad';
 export type FileMap     = Record<string, string>;
@@ -1878,12 +1880,17 @@ export const useStudio = () => {
     } });
 
     // ── Generate plan — replace optimistic card with real plan data ───────────
+    // Resolve planRoute here so generatePlan uses canonical routing (not ConfigService fallback).
+    // planRoute always uses 'primary' slot — autoRoute escalation only affects the main coder,
+    // not the plan-generation call which always runs on the primary slot semantically.
+    const planRoute = resolveStandardRoute('primary', { onLog: addLog });
     let plan: Awaited<ReturnType<typeof GenerationPipeline.generatePlan>>;
     try {
       plan = await GenerationPipeline.generatePlan({
         intent:   userPrompt,
         userLang,
-        apiKey:   effectiveApiKey,
+        apiKey:   planRoute.apiKey,
+        route:    planRoute,
         signal:   controller.signal,
       });
     } catch (planErr) {
@@ -1934,18 +1941,37 @@ export const useStudio = () => {
         }
       : contextWithProjectId;
 
-    // ── Resolve primary model: agent config → ConfigService fallback chain ─
-    const resolvedPrimary = agentConfigs.primary.modelId || ConfigService.resolveModel('primary');
-
-    // ── Auto-routing: select optimal model for this task ──────────────────
-    let effectiveModel = resolvedPrimary;
+    // ── Determine execution slot (autoRoute may escalate primary → build) ─────
+    // Slot selection is the only routing decision made here.
+    // All provider / model / key / endpoint resolution happens inside resolveStandardRoute.
+    let primarySlot: 'primary' | 'build' = 'primary';
     if (autoRoute) {
-      const decision = ResourceManager.selectModel(baseIntent || userPrompt, contextFiles);
-      effectiveModel  = decision.model.id;
-      addLog(`🤖 ${decision.reason}`);
-      addLog(`   Cost tier: ${ResourceManager.tierLabel(decision.tier)} · ~$${decision.model.costPer1k.toFixed(4)}/1k tokens`);
+      const { tier, taskType, signals } = ResourceManager.classifyTask(baseIntent || userPrompt, contextFiles);
+      const signalList = signals.join(' · ') || 'default';
+      if (tier === 3) {
+        primarySlot = 'build';
+        addLog(`🤖 [AutoRoute] T3 Expert — escalating to build slot: "${taskType}" [${signalList}]`);
+      } else {
+        addLog(`🤖 [AutoRoute] T${tier} ${ResourceManager.tierLabel(tier)} — primary slot: "${taskType}" [${signalList}]`);
+      }
     }
-    console.log('[useStudio] resolved model=', effectiveModel);
+
+    // ── Canonical route resolution — single source of truth for this generation
+    const primaryRoute = resolveStandardRoute(primarySlot, { onLog: addLog });
+    const buildRoute   = resolveStandardRoute('build',      { onLog: addLog });
+    const fixRoute     = resolveStandardRoute('fix',        { onLog: addLog });
+    const specRoute    = resolveStandardRoute('spec',       { onLog: addLog });
+    const qaRoute      = resolveStandardRoute('qa',         { onLog: addLog });
+
+    addLog(
+      `[Route] primary: slot=${primaryRoute.slot} provider=${primaryRoute.provider} model=${primaryRoute.modelId}` +
+      (primaryRoute.fallbackReason ? ` [fallback: ${primaryRoute.fallbackReason}]` : ''),
+    );
+    addLog(
+      `[Route] build:   slot=${buildRoute.slot} provider=${buildRoute.provider} model=${buildRoute.modelId}` +
+      (buildRoute.fallbackReason ? ` [fallback: ${buildRoute.fallbackReason}]` : ''),
+    );
+    console.log('[useStudio] routes resolved — primary:', primaryRoute.modelId, 'build:', buildRoute.modelId);
 
     try {
       let optimisticFiles: FileMap | null = null;
@@ -1992,8 +2018,8 @@ export const useStudio = () => {
             projectId:  kickoffContext.projectId,
             branchId:   kickoffContext.branchId,
             language:   appLanguage,
-            apiKey:     effectiveApiKey,
-            modelId:    effectiveModel,
+            apiKey:     primaryRoute.apiKey,
+            modelId:    primaryRoute.modelId,
             signal:     controller.signal,
             onLog:      addLog,
           });
@@ -2026,13 +2052,19 @@ export const useStudio = () => {
         }
       }
 
-      const runOnce = (intentArg: string, modelArg: string) => GenerationPipeline.run({
-        intent:    intentArg,
+      const runOnce = (intentArg: string, buildRouteOverride?: AgentExecutionRoute) => GenerationPipeline.run({
+        intent:       intentArg,
         history,
-        files:     contextWithTheme,
-        apiKey:    effectiveApiKey,
-        modelId:   modelArg,
-        fixModelId: agentConfigs.fix.modelId || ConfigService.resolveModel('fix'),
+        files:        contextWithTheme,
+        primaryRoute,
+        buildRoute:   buildRouteOverride ?? buildRoute,
+        fixRoute,
+        specRoute,
+        qaRoute,
+        // kept for metrics/tracing (deprecated as routing truth)
+        apiKey:    primaryRoute.apiKey,
+        modelId:   (buildRouteOverride ?? buildRoute).modelId,
+        fixModelId: fixRoute.modelId,
         designSystemPrompt: designPrompt,
         // Enable single-page safe mode on genesis (no existing code files).
         // This prevents the model from generating broken multi-page output
@@ -2169,7 +2201,7 @@ export const useStudio = () => {
         signal:   controller.signal,
         onUsage:  (usage: UsageData) => {
           reqUsage = usage;
-          const cost = calcCost(modelArg, usage);
+          const cost = calcCost(buildRoute.modelId, usage);
           setSessionCost(prev => prev + cost);
           setSessionTokens(prev => prev + usage.promptTokens + usage.completionTokens);
         },
@@ -2178,13 +2210,12 @@ export const useStudio = () => {
 
       let result;
       try {
-        result = await runOnce(baseIntent, effectiveModel);
+        result = await runOnce(baseIntent);
       } catch (firstErr: any) {
         const firstErrMsg = String(firstErr?.message ?? '');
         const isTimeout = /timed out|timeout/i.test(firstErrMsg);
         if (!isTimeout || controller.signal.aborted) throw firstErr;
 
-        const fallbackModel = agentConfigs.fix.modelId || ConfigService.resolveModel('fix') || effectiveModel;
         const compactContextPack = hasComposerContext
           ? [
               'CONTEXT PACK (compact):',
@@ -2197,9 +2228,9 @@ export const useStudio = () => {
           compactContextPack,
         ].filter(Boolean).join('\n\n');
 
-        addLog(`[Retry] Timeout on ${effectiveModel}. Retrying once with ${fallbackModel}.`, 'warn');
+        addLog(`[Retry] Timeout on ${buildRoute.modelId}. Retrying with fix route (${fixRoute.modelId}).`, 'warn');
         startTransition(() => updatePlan({ buildStatus: 'generating', streamingCode: '' }));
-        result = await runOnce(retryIntent, fallbackModel);
+        result = await runOnce(retryIntent, fixRoute);
       }
 
       if (result.status === 'cancelled') {
@@ -2399,7 +2430,7 @@ export const useStudio = () => {
           ],
           userPrompt,
           source: effectiveSource,
-          effectiveModel,
+          effectiveModel: buildRoute.modelId,
           generationStartMs,
           generationLogs: [...generationLogs],
           generationErrors: [...generationErrors],

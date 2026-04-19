@@ -1,7 +1,6 @@
 import type { ArtifactContract, ArtifactFile } from '../types/artifact';
 import { parseArtifact } from './artifactParser';
-import { ConfigService } from './ConfigService';
-import { Orchestrator } from './Orchestrator';
+import type { AgentExecutionRoute } from './buildAgentRouting';
 import { llmFetch } from './LLMProxy';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -10,6 +9,7 @@ export interface ReviewerInput {
   intent: string;
   planContext?: string;
   artifact: ArtifactContract;
+  qaRoute: AgentExecutionRoute;
   onLog: (msg: string) => void;
   signal?: AbortSignal;
 }
@@ -223,13 +223,8 @@ export class ArtifactReviewerService {
   private static async _callQAReviewer(
     artifact: ArtifactContract,
     input: ReviewerInput,
-    qaKey: string,
+    qaRoute: AgentExecutionRoute,
   ): Promise<ArtifactContract | null> {
-    const qaModelId = ConfigService.resolveModel('qa');
-    const qaConfig  = ConfigService.getAgentConfig('agent_qa');
-    const provider  = qaConfig.provider || 'openrouter';
-    const endpoint  = Orchestrator.getEndpoint(provider);
-
     // Build a compact representation of the artifact so we stay within token budget.
     const compactFiles = artifact.files.map(f => ({
       path: f.path,
@@ -258,7 +253,7 @@ export class ArtifactReviewerService {
     ].filter(Boolean).join('\n');
 
     const body = JSON.stringify({
-      model:       qaModelId,
+      model:       qaRoute.modelId,
       messages: [
         { role: 'system', content: REVIEWER_SYSTEM_PROMPT },
         { role: 'user',   content: userMessage },
@@ -269,12 +264,12 @@ export class ArtifactReviewerService {
     });
 
     const headers: Record<string, string> = {
-      'Authorization': `Bearer ${qaKey}`,
+      'Authorization': `Bearer ${qaRoute.apiKey}`,
       'Content-Type':  'application/json',
       'HTTP-Referer':  window.location.origin,
     };
 
-    const resp = await llmFetch(endpoint, headers, body);
+    const resp = await llmFetch(qaRoute.endpoint, headers, body);
     const json = await resp.json() as { choices?: Array<{ message?: { content?: string } }> };
     const content = json.choices?.[0]?.message?.content ?? '';
     if (!content) return null;
@@ -293,7 +288,7 @@ export class ArtifactReviewerService {
   // detected issues AND the QA slot has an API key configured.
 
   static async reviewWithAI(input: ReviewerInput): Promise<ArtifactContract> {
-    const { artifact, onLog } = input;
+    const { artifact, onLog, qaRoute } = input;
     onLog(`[ArtifactReviewer] invoked — ${artifact.files.length} files to review`);
 
     // ── Step 1: Deep heuristic repair (always runs, free) ──────────────────
@@ -306,10 +301,8 @@ export class ArtifactReviewerService {
     }
 
     // ── Step 2: Decide whether AI review is needed ─────────────────────────
-    const qaKey = ConfigService.getKeyForAgent('qa');
-
-    if (!qaKey) {
-      onLog('[ArtifactReviewer] QA slot has no API key — using heuristic result only');
+    if (!qaRoute.apiKey) {
+      onLog('[ArtifactReviewer] QA route has no API key — using heuristic result only');
       return heuristicArtifact;
     }
 
@@ -324,7 +317,7 @@ export class ArtifactReviewerService {
       const aiArtifact = await ArtifactReviewerService._callQAReviewer(
         heuristicArtifact,
         input,
-        qaKey,
+        qaRoute,
       );
 
       if (aiArtifact && aiArtifact.files.length > 0) {
