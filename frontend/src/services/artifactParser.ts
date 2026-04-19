@@ -253,3 +253,104 @@ export function parseArtifact(raw: string): ArtifactParseResult {
 
   return { success: false, error: 'No parseable artifact found', fallbackUsed: true };
 }
+
+// ─── Semantic health classification ───────────────────────────────────────────
+
+export const ARTIFACT_FAIL_TRUNCATED         = 'ARTIFACT_TRUNCATED'          as const;
+export const ARTIFACT_FAIL_POISONED_ENVELOPE = 'ARTIFACT_POISONED_ENVELOPE'  as const;
+export const ARTIFACT_FAIL_SEMANTIC          = 'ARTIFACT_SEMANTIC_PARSE_FAIL' as const;
+
+export type ArtifactSemanticFailClass =
+  | typeof ARTIFACT_FAIL_TRUNCATED
+  | typeof ARTIFACT_FAIL_POISONED_ENVELOPE
+  | typeof ARTIFACT_FAIL_SEMANTIC;
+
+export interface ArtifactSemanticIssue {
+  failClass: ArtifactSemanticFailClass;
+  detail:    string;
+}
+
+/**
+ * Lightweight source-code heuristic used only for artifact ingress health
+ * checks and nested-envelope extraction. Keep it permissive enough to avoid
+ * rejecting minimal valid modules, but still biased toward code-like text.
+ */
+export function looksLikeSourceCode(content: string): boolean {
+  const t = content.trim();
+  if (t.length < 8) return false;
+  return (
+    /(?:^|[\s;])(import|export|function|class|interface|type|const|let|var|enum)\b/.test(t) ||
+    /return\s*[(<{[]/.test(t) ||
+    /=>/.test(t) ||
+    /<[A-Za-z][\w:-]*/.test(t)
+  );
+}
+
+/**
+ * Returns true when the raw output begins like a JSON artifact envelope but
+ * does not end with a valid, balanced JSON object. Covers two cases:
+ * 1. Stream cut mid-string (no closing brace at all)
+ * 2. JSON.parse rejects the full string despite it ending with '}'
+ */
+export function looksLikeTruncatedArtifact(raw: string): boolean {
+  const t = raw.trim();
+  if (!t.startsWith('{')) return false;
+  if (!/"artifact"\s*:/.test(t) && !/"files"\s*:/.test(t)) return false;
+  // Cheapest check: doesn't end with '}'
+  if (!t.endsWith('}')) return true;
+  // If JSON.parse succeeds the envelope is complete
+  try { JSON.parse(t); return false; } catch { /* fall through */ }
+  // Ends with '}' but is not valid JSON — likely premature brace closure
+  return true;
+}
+
+/**
+ * Inspects a parsed artifact for semantic problems that would cause
+ * ArtifactReviewerService._deepHeuristicRepair to drop all files,
+ * ultimately producing "REVIEWER_FAIL: 0 files after heuristic repair".
+ *
+ * Returns a classified issue when the artifact is semantically unrecoverable,
+ * or null when it looks acceptable.
+ */
+export function classifyArtifactHealth(
+  raw: string,
+  artifact: ArtifactContract | null,
+): ArtifactSemanticIssue | null {
+  if (looksLikeTruncatedArtifact(raw)) {
+    return { failClass: ARTIFACT_FAIL_TRUNCATED, detail: 'raw output appears truncated' };
+  }
+
+  if (!artifact || artifact.files.length === 0) return null;
+
+  // Mirror ArtifactReviewerService.isNestedEnvelope logic — same pattern,
+  // kept in sync intentionally to pre-screen before the reviewer runs.
+  const isEnvelopeLike = (content: string): boolean => {
+    const t = content.trim();
+    return (
+      t.startsWith('{') &&
+      (/"artifact"\s*:/.test(t) || /"files"\s*:/.test(t)) &&
+      /"content"\s*:/.test(t)
+    );
+  };
+
+  // POISONED: every file looks like a nested artifact envelope.
+  // Heuristic repair would drop all of them → REVIEWER_FAIL: 0 files.
+  if (artifact.files.every(f => isEnvelopeLike(f.content))) {
+    return {
+      failClass: ARTIFACT_FAIL_POISONED_ENVELOPE,
+      detail: `all ${artifact.files.length} file(s) contain nested artifact envelopes — heuristic repair would drop all`,
+    };
+  }
+
+  // SEMANTIC: non-envelope files exist but none contains recognizable source code.
+  const goodFiles = artifact.files.filter(f => !isEnvelopeLike(f.content));
+  const hasCode = goodFiles.some(f => looksLikeSourceCode(f.content));
+  if (goodFiles.length > 0 && !hasCode) {
+    return {
+      failClass: ARTIFACT_FAIL_SEMANTIC,
+      detail: 'no file contains recognizable source code patterns',
+    };
+  }
+
+  return null;
+}
