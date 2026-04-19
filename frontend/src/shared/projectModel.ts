@@ -1012,6 +1012,137 @@ export interface DesignLearningSummary {
   notes?:                   string[];
 }
 
+export type TraceStepKind =
+  | 'intent_understanding'
+  | 'architect_plan'
+  | 'design_direction'
+  | 'coder_generation'
+  | 'artifact_retry'
+  | 'candidate_materialize'
+  | 'fast_gate'
+  | 'repair_attempt'
+  | 'reviewer_result'
+  | 'ship_decision';
+
+export type TraceStepStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'warning'
+  | 'failed'
+  | 'skipped';
+
+export type TraceRunOutcome =
+  | 'ship_ok'
+  | 'ship_partial'
+  | 'ship_fail'
+  | 'cancelled'
+  | 'superseded';
+
+export interface TraceTimingMetadata {
+  startedAt:  string;
+  endedAt?:   string;
+  durationMs?: number;
+}
+
+export interface TraceSafeModelLabel {
+  provider?: string;
+  model?:    string;
+  slot?:     string;
+  route?:    string;
+}
+
+export interface TraceRouteRecord extends TraceSafeModelLabel {
+  role:            string;
+  keySource?:      string;
+  fallbackReason?: string;
+  reason?:         string;
+}
+
+export interface TracePromptRecord {
+  label:          string;
+  summary:        string;
+  excerpt?:       string;
+  promptChars?:   number;
+  responseChars?: number;
+}
+
+export interface TraceParserDecision {
+  success:       boolean;
+  fallbackUsed?: boolean;
+  issueCode?:    string;
+  issueSummary?: string;
+}
+
+export interface TraceReviewerDecision {
+  outcome:         string;
+  acceptedFiles?:  number;
+  rejectedFiles?:  number;
+  details?:        string;
+}
+
+export interface TraceDiffMetadata {
+  changedFiles:   number;
+  acceptedFiles?: number;
+  rejectedFiles?: number;
+}
+
+export interface VisibleReasoningStep {
+  id:             string;
+  kind:           TraceStepKind;
+  status:         TraceStepStatus;
+  summary:        string;
+  isActive:       boolean;
+  errorSummary?:  string;
+  attemptNumber?: number;
+  timing?:        TraceTimingMetadata;
+  labels?:        TraceSafeModelLabel;
+}
+
+export interface VisibleReasoningTrace {
+  runId:         string;
+  startedAt:     string;
+  finishedAt?:   string;
+  activeStepId?: string | null;
+  finalOutcome?: TraceRunOutcome;
+  steps:         VisibleReasoningStep[];
+}
+
+export interface FullDebugTraceEvent {
+  id:                string;
+  order:             number;
+  type:              'step' | 'prompt' | 'output' | 'decision' | 'log';
+  kind:              TraceStepKind;
+  status:            TraceStepStatus;
+  summary:           string;
+  errorSummary?:     string;
+  attemptNumber?:    number;
+  timing?:           TraceTimingMetadata;
+  labels?:           TraceSafeModelLabel;
+  prompt?:           TracePromptRecord;
+  outputExcerpt?:    string;
+  parserDecision?:   TraceParserDecision;
+  reviewerDecision?: TraceReviewerDecision;
+  compileRuntimeLogs?: string[];
+  diffMetadata?:     TraceDiffMetadata;
+  stopReason?:       string;
+  metadata?:         Record<string, unknown>;
+}
+
+export interface FullDebugTrace {
+  runId:            string;
+  startedAt:        string;
+  finishedAt?:      string;
+  userPrompt:       string;
+  finalOutcome?:    TraceRunOutcome;
+  stopReason?:      string;
+  routes:           TraceRouteRecord[];
+  architectSummary?: string;
+  designSummary?:   string;
+  promptRecords:    TracePromptRecord[];
+  events:           FullDebugTraceEvent[];
+}
+
 /**
  * Compact user-facing generation report shown in chat after a completed run.
  *
@@ -1192,6 +1323,8 @@ export interface GenerationResult {
    * Stored locally for future prompt evolution and recipe analysis.
    */
   designTelemetry?: DesignRecipeTelemetry;
+  visibleReasoningTrace?: VisibleReasoningTrace;
+  fullDebugTrace?:        FullDebugTrace;
 }
 
 // ─── Preview Lifecycle (readiness gate) ───────────────────────────────────────
