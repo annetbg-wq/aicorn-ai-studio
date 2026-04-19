@@ -14,6 +14,7 @@
 
 import { SimpleGeneration as GenerationPipeline } from '../SimpleGeneration';
 import { ConfigService } from '../ConfigService';
+import { resolveStandardRoute } from '../buildAgentRouting';
 import { goldenIntents, type GoldenIntent, type IntentCategory } from './goldenIntents';
 import { goldenTests, type GoldenTest } from './goldenTests';
 import { parseArtifact } from '../artifactParser';
@@ -161,10 +162,12 @@ async function runSingleGoldenTest(
   modelId: string,
   signal?: AbortSignal,
 ): Promise<GoldenTestDetail> {
-  const buildModelId = ConfigService.resolveModel('build') || modelId || ConfigService.getModel();
-  const buildApiKey  = ConfigService.getKeyForAgent('build') || apiKey || ConfigService.getApiKey();
+  const primaryRoute = resolveStandardRoute('primary');
+  const buildRoute   = resolveStandardRoute('build');
+  const fixRoute     = resolveStandardRoute('fix');
+  const qaRoute      = resolveStandardRoute('qa');
 
-  console.log(`[GoldenSuite] Using model: ${buildModelId} (from ${buildModelId !== modelId ? 'ConfigService' : 'parameter'})`);
+  console.log(`[GoldenSuite] routes: primary=${primaryRoute.modelId} build=${buildRoute.modelId}`);
 
   const t0 = performance.now();
   let rawResponse = '';
@@ -172,11 +175,15 @@ async function runSingleGoldenTest(
 
   try {
     await GenerationPipeline.run({
-      intent:   test.prompt,
-      history:  [],
-      files:    {},
-      apiKey:   buildApiKey,
-      modelId:  buildModelId,
+      intent:       test.prompt,
+      history:      [],
+      files:        {},
+      primaryRoute,
+      buildRoute,
+      fixRoute,
+      qaRoute,
+      apiKey:    buildRoute.apiKey,
+      modelId:   buildRoute.modelId,
       onStream: (chunk: string) => { rawResponse += chunk; },
       onFiles:  () => {},
       onPhase:  () => {},
@@ -246,14 +253,22 @@ async function runSingleIntent(
   let genResult: GenerationResult | null = null;
   let error: string | null = null;
 
+  const bPrimaryRoute = resolveStandardRoute('primary');
+  const bBuildRoute   = resolveStandardRoute('build');
+  const bFixRoute     = resolveStandardRoute('fix');
+  const bQaRoute      = resolveStandardRoute('qa');
   try {
     genResult = await GenerationPipeline.run({
-      intent:   intent.prompt,
-      history:  [],
-      files:    {},
-      apiKey:   cfg.apiKey,
-      modelId:  cfg.modelId,
-      fixModelId: cfg.fixModelId,
+      intent:       intent.prompt,
+      history:      [],
+      files:        {},
+      primaryRoute: bPrimaryRoute,
+      buildRoute:   bBuildRoute,
+      fixRoute:     bFixRoute,
+      qaRoute:      bQaRoute,
+      apiKey:    bBuildRoute.apiKey,
+      modelId:   bBuildRoute.modelId,
+      fixModelId: bFixRoute.modelId,
       onStream: () => {},
       onFiles:  () => {},
       onPhase:  () => {},

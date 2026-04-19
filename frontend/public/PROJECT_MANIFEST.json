@@ -203,6 +203,7 @@
     "services/__tests__/ArtifactReviewerService.test.ts",
     "services/__tests__/BenchmarkReport.visual-quality.test.ts",
     "services/__tests__/BranchArchitectureOrchestrationService.test.ts",
+    "services/__tests__/buildAgentRouting.test.ts",
     "services/__tests__/ChatArchitectureService.test.ts",
     "services/__tests__/ComparisonScorecardService.visual-quality.test.ts",
     "services/__tests__/compileGuard.test.ts",
@@ -277,5 +278,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-19T10:50:47.013Z"
+  "last_scan_timestamp": "2026-04-19T14:09:06.639Z"
 }

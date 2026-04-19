@@ -12,6 +12,7 @@ import { llmFetchStream, llmFetch } from './LLMProxy';
 import { ConfigService, normalizeAppLanguage } from './ConfigService';
 import type { AgentSlot } from './ConfigService';
 import { Orchestrator } from './Orchestrator';
+import { type AgentExecutionRoute } from './buildAgentRouting';
 import { compileWithRetry } from './compileGuard';
 import { validateImports, formatUnresolved } from './importValidator';
 import {
@@ -141,7 +142,25 @@ export interface PipelineRunConfig {
   history:        LLMMessage[];
   files:          Record<string, string>;
   designSystemPrompt?: string;
+  /**
+   * Canonical routing for architect / planning calls (primary slot).
+   * Required for standard-path execution. Produced by resolveStandardRoute('primary').
+   */
+  primaryRoute:   AgentExecutionRoute;
+  /**
+   * Canonical routing for coder / build calls (build slot).
+   * Required for standard-path execution. Produced by resolveStandardRoute('build').
+   */
+  buildRoute:     AgentExecutionRoute;
+  /** Optional canonical routing for autofix calls (fix slot). Falls back to ConfigService when absent. */
+  fixRoute?:      AgentExecutionRoute;
+  /** Canonical routing for vision / image-analysis calls (spec slot). Required when attachments include images. */
+  specRoute?:     AgentExecutionRoute;
+  /** Canonical routing for QA reviewer calls (qa slot). Required when NEW-mode artifact review reaches AI repair. */
+  qaRoute?:       AgentExecutionRoute;
+  /** @deprecated Routing truth now lives in primaryRoute/buildRoute. Kept for metrics/tracing only. */
   apiKey:         string;
+  /** @deprecated Routing truth now lives in primaryRoute/buildRoute. Kept for metrics/tracing only. */
   modelId:        string;
   fixModelId?:    string;
   onStream:       (text: string) => void;
@@ -2058,14 +2077,32 @@ async function callLLM(
   onStream?: (text: string) => void,
   signal?: AbortSignal,
   maxTokensOverride?: number,
+  route?: AgentExecutionRoute,
+  opts?: { allowLegacyFallback?: boolean },
 ): Promise<string> {
-  const modelId = ConfigService.resolveModel(slot as AgentSlot);
-  const apiKey = ConfigService.getKeyForAgent(slot as AgentSlot) || fallbackApiKey;
+  // Standard-path callers must pass a canonical route object.
+  // Legacy fallback is allowed only for explicitly opted-in non-standard callers.
+  let modelId: string;
+  let apiKey: string;
+  let endpoint: string;
 
-  // Resolve endpoint from the agent's configured provider
-  const agentKey = slot === 'primary' ? 'agent_primary' : slot === 'build' ? 'agent_build' : 'agent_fix';
-  const provider = ConfigService.getAgentConfig(agentKey).provider || 'openrouter';
-  const endpoint = Orchestrator.getEndpoint(provider);
+  if (route) {
+    modelId  = route.modelId;
+    apiKey   = route.apiKey;
+    endpoint = route.endpoint;
+  } else if (opts?.allowLegacyFallback) {
+    modelId  = ConfigService.resolveModel(slot as AgentSlot);
+    apiKey   = ConfigService.getKeyForAgent(slot as AgentSlot) || fallbackApiKey;
+    const agentKey = slot === 'primary' ? 'agent_primary' : slot === 'build' ? 'agent_build' : 'agent_fix';
+    const provider = ConfigService.getAgentConfig(agentKey).provider || 'openrouter';
+    endpoint = Orchestrator.getEndpoint(provider);
+  } else {
+    throw new Error(
+      '[callLLM] ROUTING VIOLATION: callLLM invoked without canonical route object. ' +
+      `slot=${slot}. Standard-path callers must pass AgentExecutionRoute; ` +
+      'legacy callers must opt into allowLegacyFallback explicitly.',
+    );
+  }
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -2189,6 +2226,10 @@ async function callLLM(
   }
 }
 
+function isRoutingViolationError(error: unknown): error is Error {
+  return error instanceof Error && error.message.includes('ROUTING VIOLATION');
+}
+
 // ─── Vision Analysis Helper ──────────────────────────────────────────────────
 
 /**
@@ -2202,13 +2243,20 @@ async function analyzeImageWithVision(
   fallbackApiKey: string,
   onLog?: (msg: string) => void,
   signal?: AbortSignal,
+  specRoute?: AgentExecutionRoute,
 ): Promise<string> {
   onLog?.('[Intake] Analyzing image with Vision...');
 
-  const modelId  = ConfigService.resolveModel('spec');
-  const apiKey   = ConfigService.getKeyForAgent('spec') || fallbackApiKey;
-  const provider = ConfigService.getAgentConfig('agent_spec').provider || 'openrouter';
-  const endpoint = Orchestrator.getEndpoint(provider);
+  if (!specRoute) {
+    throw new Error(
+      '[analyzeImageWithVision] ROUTING VIOLATION: vision analysis called without canonical ' +
+      'spec route. Pass config.specRoute (resolveStandardRoute("spec")) via PipelineRunConfig.',
+    );
+  }
+
+  const modelId  = specRoute.modelId;
+  const apiKey   = specRoute.apiKey;
+  const endpoint = specRoute.endpoint;
 
   const body = JSON.stringify({
     model: modelId,
@@ -3122,8 +3170,11 @@ async function maybeApplyVisualPolish(input: {
       input.config.apiKey,
       undefined,
       input.config.signal,
+      undefined,
+      input.config.buildRoute,
     );
   } catch (error) {
+    if (isRoutingViolationError(error)) throw error;
     input.config.onLog(`[SimpleGeneration] visual polish: LLM request failed — ${String(error)}`);
     input.baseResult.visualPolishSummary = {
       mode,
@@ -3236,6 +3287,8 @@ async function maybeApplyVisualPolish(input: {
         input.config.apiKey,
         undefined,
         sig,
+        undefined,
+        input.config.fixRoute,
       ),
       recheckAdmission: (nextCandidatePaths) =>
         runAdmissionCheck(polishRevisionId, 'visual-polish-fix', input.config, nextCandidatePaths),
@@ -3339,6 +3392,7 @@ async function maybeApplyVisualPolish(input: {
 
     return polishedResult;
   } catch (error) {
+    if (isRoutingViolationError(error)) throw error;
     input.config.onLog(`[SimpleGeneration] visual polish: failed — ${String(error)}`);
     try {
       await revisionManager.rollback();
@@ -3407,6 +3461,8 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
         undefined,
         config.signal,
         ConfigService.getMaxTokens('agent_primary', 'clarifier'),
+        undefined,
+        { allowLegacyFallback: true },
       );
     } catch (err) {
       // Re-throw user aborts so the caller's abort handling works correctly.
@@ -3437,6 +3493,8 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
     intent:   string;
     userLang: string;
     apiKey:   string;
+    /** Canonical route for the primary-slot LLM call. Required — must be resolveStandardRoute('primary'). */
+    route:    AgentExecutionRoute;
     signal?:  AbortSignal;
   }): Promise<{
     appName: string;
@@ -3489,9 +3547,11 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         undefined,
         config.signal,
         1024,
+        config.route,
       );
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      if (isRoutingViolationError(err)) throw err;
       return fallback;
     }
 
@@ -3637,6 +3697,27 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
 
   static async run(config: PipelineRunConfig): Promise<GenerationResult> {
     const startMs = Date.now();
+
+    // ── Route guard — standard-path must carry resolved route objects ─────────
+    if (!config.primaryRoute || !config.buildRoute) {
+      throw new Error(
+        '[SimpleGeneration] ROUTING VIOLATION: standard generation started without resolved AgentExecutionRoute objects. ' +
+        'Callers must invoke resolveStandardRoute() and pass primaryRoute + buildRoute.',
+      );
+    }
+
+    // ── Strong route log — single source of truth for this generation ─────────
+    config.onLog(
+      `[Route] primary: slot=${config.primaryRoute.slot} provider=${config.primaryRoute.provider} ` +
+      `model=${config.primaryRoute.modelId} keySource=${config.primaryRoute.keySource}` +
+      (config.primaryRoute.fallbackReason ? ` [fallback: ${config.primaryRoute.fallbackReason}]` : ''),
+    );
+    config.onLog(
+      `[Route] build:   slot=${config.buildRoute.slot} provider=${config.buildRoute.provider} ` +
+      `model=${config.buildRoute.modelId} keySource=${config.buildRoute.keySource}` +
+      (config.buildRoute.fallbackReason ? ` [fallback: ${config.buildRoute.fallbackReason}]` : ''),
+    );
+
     config.onLog('[SimpleGeneration] starting');
     const recentHistoryContext = buildRecentHistoryContext(config.history);
 
@@ -3707,6 +3788,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         if (att.type === 'image' && att.data) {
           const analysis = await analyzeImageWithVision(
             att.data, att.mimeType, config.apiKey, config.onLog, config.signal,
+            config.specRoute,
           );
           if (analysis) {
             attachmentContext += `\n\nDESIGN REFERENCE (${att.name}):\n${analysis}`;
@@ -3863,6 +3945,8 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         config.apiKey,
         (chunk: string) => { editTracker.onChunk(chunk); trace.markFirstToken(); },
         config.signal,
+        undefined,
+        config.buildRoute,
       );
       editTracker.finalise();
       closeEditCoder({ data: { chars: editRaw.length } });
@@ -3990,7 +4074,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       const editCompiled = await compileWithRetry({
         revId, apiKey: config.apiKey, onLog: config.onLog, signal: config.signal,
         callFix: (prompt, sig) => callLLM(
-          'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig,
+          'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig, undefined, config.fixRoute,
         ),
         recheckAdmission: (nextCandidatePaths) =>
           runAdmissionCheck(revId, 'compile-fix', config, nextCandidatePaths),
@@ -4231,6 +4315,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         undefined,
         config.signal,
         architectTokens,
+        config.primaryRoute,
       );
       closeArchitect({ data: { chars: planRaw.length } });
 
@@ -4288,6 +4373,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         undefined,
         config.signal,
         ConfigService.getMaxTokens('agent_primary', 'tech_lead'),
+        config.primaryRoute,
       );
 
       const tbCleaned = techLeadRaw
@@ -4300,6 +4386,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
 
       config.onLog('[SimpleGeneration] Technical blueprint ready');
     } catch (error) {
+      if (isRoutingViolationError(error)) throw error;
       const msg = error instanceof Error ? error.message : String(error);
       config.onLog(`[SimpleGeneration] Tech Lead parse failed — ${msg}`);
       console.warn('[SimpleGeneration] Tech Lead parse failed', error);
@@ -4460,6 +4547,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       (chunk: string) => { tracker.onChunk(chunk); trace.markFirstToken(); },
       config.signal,
       coderTokens,
+      config.buildRoute,
     );
     tracker.finalise();
     closeNewCoder({ data: { chars: raw.length } });
@@ -4498,6 +4586,7 @@ Generate the complete application for: ${config.intent}`;
         undefined,
         config.signal,
         coderTokens,
+        config.buildRoute,
       );
       config.onLog(`[SimpleGeneration] Retry response: ${retryRaw.length} chars`);
 
@@ -4546,12 +4635,19 @@ Generate the complete application for: ${config.intent}`;
     }
 
     const artifact: ArtifactContract = finalParseResult.artifact;
+    if (!config.qaRoute) {
+      throw new Error(
+        '[SimpleGeneration] ROUTING VIOLATION: standard generation reached ArtifactReviewerService ' +
+        'without canonical qaRoute. Pass resolveStandardRoute("qa") via PipelineRunConfig.',
+      );
+    }
     const cleanArtifact = await ArtifactReviewerService.reviewWithAI({
       intent:      config.intent,
       planContext: typeof plan === 'object' && plan !== null
         ? JSON.stringify(plan).slice(0, 800)
         : undefined,
       artifact,
+      qaRoute: config.qaRoute,
       onLog:   config.onLog,
       signal:  config.signal,
     });
@@ -4716,7 +4812,7 @@ Generate the complete application for: ${config.intent}`;
     const compiled = await compileWithRetry({
       revId, apiKey: config.apiKey, onLog: config.onLog, signal: config.signal,
       callFix: (prompt, sig) => callLLM(
-        'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig,
+        'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig, undefined, config.fixRoute,
       ),
       recheckAdmission: (nextCandidatePaths) =>
         runAdmissionCheck(revId, 'compile-fix', config, nextCandidatePaths),
@@ -4944,7 +5040,17 @@ Output the file as a JSON artifact:
 Output ONLY the JSON. No explanation.`;
 
         log(`[AutoFix] Generating missing file: ${missingPath}...`);
-        const fixed = await callLLM(fixPrompt, '', 'fix', config.apiKey, undefined, config.signal);
+        const fixed = await callLLM(
+          fixPrompt,
+          '',
+          'fix',
+          config.apiKey,
+          undefined,
+          config.signal,
+          undefined,
+          undefined,
+          { allowLegacyFallback: true },
+        );
         const fixParsed = parseArtifact(fixed);
         const fixedFiles: Record<string, string> = {};
         if (fixParsed.success && fixParsed.artifact) {
@@ -5016,7 +5122,17 @@ Fix ONLY the error. Keep all existing functionality and imports.
 Do not add comments explaining the fix. Output ONLY the JSON.`;
 
       log(`[AutoFix] Calling fix agent for ${file}...`);
-      const fixed = await callLLM(fixPrompt, '', 'fix', config.apiKey, undefined, config.signal);
+      const fixed = await callLLM(
+        fixPrompt,
+        '',
+        'fix',
+        config.apiKey,
+        undefined,
+        config.signal,
+        undefined,
+        undefined,
+        { allowLegacyFallback: true },
+      );
       const fixParsed = parseArtifact(fixed);
       const fixedFiles: Record<string, string> = {};
       if (fixParsed.success && fixParsed.artifact) {
