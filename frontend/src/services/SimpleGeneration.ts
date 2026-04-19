@@ -1776,6 +1776,28 @@ function buildArtifactFailureResult(input: {
   };
 }
 
+function markExecutionFailure(
+  changePackage: ChangePackage,
+  message: string,
+): { warnings: string[]; repairHints: Array<{ code: string; strategy: 'block' | 'auto-fix' | 'retry' }> } {
+  const nextWarnings = [...(changePackage.warnings ?? []), message];
+  const nextRepairHints = [
+    ...(changePackage.repairHints ?? []),
+    { code: 'fast-gate-failed', strategy: 'retry' as const },
+  ];
+
+  changePackage.guardResults.runtime = {
+    passed: false,
+    failingFiles: [],
+    reasons: [{ code: 'FAST_GATE_FAILED', filePath: '', message }],
+    durationMs: 0,
+  };
+  changePackage.warnings = nextWarnings;
+  changePackage.repairHints = nextRepairHints;
+
+  return { warnings: nextWarnings, repairHints: nextRepairHints };
+}
+
 /** Build a ChangePackage with route validation drift hints. */
 function buildRouteAwareChangePackage(
   graph: ProjectGraph,
@@ -4526,6 +4548,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       const confirmed = typeof approval === 'boolean' ? approval : approval.confirmed;
       if (!confirmed) {
         config.onLog('[SimpleGeneration] User cancelled — generation stopped');
+        revisionManager.rejectCandidate(revId, 'generation_cancelled_before_materialization');
         config.onPhase({ phase: 'idle', progress: 0 });
         const cancelNow = new Date().toISOString();
         const emptyGraph: ProjectGraph = {
@@ -4731,6 +4754,7 @@ Generate the complete application for: ${config.intent}`;
     if (finalAttempt.semanticIssue) {
       const issueText = formatArtifactSemanticIssue(finalAttempt.semanticIssue);
       config.onLog(`[SimpleGeneration] ❌ Artifact ingress failed after retry (${issueText})`);
+      revisionManager.rejectCandidate(revId, 'artifact_ingress_failed', issueText);
       config.onPhase({ phase: 'idle', progress: 100 });
       return buildArtifactFailureResult({
         intent: config.intent,
@@ -4745,6 +4769,11 @@ Generate the complete application for: ${config.intent}`;
 
     if (!finalAttempt.parseResult.success || !finalAttempt.parseResult.artifact) {
       config.onLog('[SimpleGeneration] ❌ Complete parse failure — no files extracted after retry');
+      revisionManager.rejectCandidate(
+        revId,
+        'artifact_parse_failed',
+        finalAttempt.parseResult.error ?? 'Parse failure',
+      );
       config.onPhase({ phase: 'idle', progress: 100 });
       return buildArtifactFailureResult({
         intent: config.intent,
@@ -4758,54 +4787,23 @@ Generate the complete application for: ${config.intent}`;
     }
 
     const artifact: ArtifactContract = finalAttempt.parseResult.artifact;
-    if (!config.qaRoute) {
-      throw new Error(
-        '[SimpleGeneration] ROUTING VIOLATION: standard generation reached ArtifactReviewerService ' +
-        'without canonical qaRoute. Pass resolveStandardRoute("qa") via PipelineRunConfig.',
-      );
-    }
-    // Safety net: if a semantically broken artifact slipped past the pre-check
-    // (e.g. retry also poisoned), convert REVIEWER_FAIL into a retryable
-    // generation failure rather than letting it propagate as an uncaught throw.
-    let cleanArtifact: ArtifactContract;
-    try {
-      cleanArtifact = await ArtifactReviewerService.reviewWithAI({
-        intent:      config.intent,
-        planContext: typeof plan === 'object' && plan !== null
-          ? JSON.stringify(plan).slice(0, 800)
-          : undefined,
-        artifact,
-        qaRoute: config.qaRoute,
-        onLog:   config.onLog,
-        signal:  config.signal,
-      });
-    } catch (reviewErr) {
-      const reviewMsg = String((reviewErr as Error)?.message ?? reviewErr);
-      if (
-        reviewMsg.startsWith('ARTIFACT_SEMANTIC_PARSE_FAIL:') ||
-        reviewMsg.startsWith('REVIEWER_FAIL:')
-      ) {
-        config.onLog(`[SimpleGeneration] ❌ Reviewer semantic fail (retryable generation failure) — ${reviewMsg}`);
-        config.onPhase({ phase: 'idle', progress: 100 });
-        return buildArtifactFailureResult({
-          intent: config.intent,
-          modelId: config.modelId,
-          startMs,
-          message: reviewMsg,
-          warningCode: 'ARTIFACT_SEMANTIC_PARSE_FAIL',
-          fallbackUsed: false,
-          parseSuccess: false,
-        });
-      }
-      throw reviewErr;
-    }
-    const artifactDependencies = cleanArtifact.dependencies ?? [];
+    previewLog('artifact_accepted_for_execution', {
+      buildId: revId,
+      source: 'SimpleGeneration.run',
+      entry: artifact.entry || 'src/App.tsx',
+      fileCount: artifact.files.length,
+    });
+    config.onLog(
+      `[SimpleGeneration] Artifact accepted for execution (${artifact.files.length} files, entry=${artifact.entry || 'src/App.tsx'})`,
+    );
+
+    const artifactDependencies = artifact.dependencies ?? [];
     const artifactDependencySpecs = toDependencySpecs(artifactDependencies);
-    const entryFile = cleanArtifact.entry || 'src/App.tsx';
+    const entryFile = artifact.entry || 'src/App.tsx';
 
     // Build legacy llmFiles map (keyed with leading /) for downstream compatibility
     const llmFiles: Record<string, string> = {};
-    for (const f of cleanArtifact.files) {
+    for (const f of artifact.files) {
       const key = f.path.startsWith('/') ? f.path : '/' + f.path.replace(/^src\//, '');
       if (looksLikeArtifactEnvelope(f.content)) {
         config.onLog(`[SimpleGeneration] ⚠ Skipped suspicious file payload for ${key}: content looks like full artifact JSON`);
@@ -4816,10 +4814,24 @@ Generate the complete application for: ${config.intent}`;
 
     if (Object.keys(llmFiles).length === 0) {
       config.onLog('[SimpleGeneration] ❌ All parsed files were invalid (artifact envelope injected as file content)');
-      throw new Error('Artifact content was injected into file body; retry generation.');
+      revisionManager.rejectCandidate(
+        revId,
+        'artifact_execution_input_empty',
+        'Artifact content was injected into file body; retry generation.',
+      );
+      config.onPhase({ phase: 'idle', progress: 100 });
+      return buildArtifactFailureResult({
+        intent: config.intent,
+        modelId: config.modelId,
+        startMs,
+        message: 'Artifact content was injected into file body; retry generation.',
+        warningCode: 'ARTIFACT_EXECUTION_INPUT_EMPTY',
+        fallbackUsed: finalAttempt.parseResult.fallbackUsed ?? false,
+        parseSuccess: finalAttempt.parseResult.success,
+      });
     }
 
-    config.onLog(`[SimpleGeneration] Entry: ${entryFile}, Files: ${cleanArtifact.files.length}`);
+    config.onLog(`[SimpleGeneration] Entry: ${entryFile}, Files: ${artifact.files.length}`);
     config.onLog(`[SimpleGeneration] Parsed files: ${Object.keys(llmFiles).join(', ')}`);
     config.onLog(`[SimpleGeneration] File sizes: ${Object.entries(llmFiles).map(([p, c]) => `${p}:${c.length}`).join(', ')}`);
 
@@ -4883,7 +4895,7 @@ Generate the complete application for: ${config.intent}`;
     // 8. Buffer files into candidate revision
     config.onPhase({ phase: 'verify', progress: 85 });
 
-    let writtenCount = 0;
+    const candidateFilesToMaterialize: Record<string, string> = {};
     for (const [path, content] of Object.entries(llmFiles)) {
       const normalised = path.startsWith('/') ? path.slice(1) : path;
       const withoutSrc = normalised.startsWith('src/') ? normalised.slice(4) : normalised;
@@ -4891,18 +4903,45 @@ Generate the complete application for: ${config.intent}`;
         config.onLog(`[SimpleGeneration] Skipped LLM index.css (theme will overwrite)`);
         continue;
       }
-      await revisionManager.writeCandidateFile(revId, path, content);
-      config.onLog(`[Revision] buffered: ${withoutSrc} (${content.length} chars)`);
-      writtenCount++;
+      candidateFilesToMaterialize[path] = content;
     }
 
     // Theme last — guaranteed to win over any LLM-generated index.css
     if (themedIndexCss) {
-      await revisionManager.writeCandidateFile(revId, '/index.css', themedIndexCss);
-      config.onLog(`[Revision] theme buffered: ${selectedTheme}`);
+      candidateFilesToMaterialize['/index.css'] = themedIndexCss;
     }
 
-    config.onLog(`[SimpleGeneration] buffered ${writtenCount} files + theme into candidate`);
+    let writtenCount = 0;
+    config.onLog(`[SimpleGeneration] Candidate materialization start (${Object.keys(candidateFilesToMaterialize).length} files)`);
+    try {
+      const materialized = await revisionManager.materializeCandidateFiles(
+        revId,
+        candidateFilesToMaterialize,
+        {
+          source: 'SimpleGeneration.run',
+          projectId: config.projectId ?? null,
+        },
+      );
+      writtenCount = materialized.writtenCount;
+      if (themedIndexCss) {
+        config.onLog(`[Revision] theme buffered: ${selectedTheme}`);
+      }
+      config.onLog(`[SimpleGeneration] Candidate materialization success (${writtenCount} files)`);
+    } catch (err) {
+      const materializeMsg = err instanceof Error ? err.message : String(err);
+      config.onLog(`[SimpleGeneration] ❌ Candidate materialization failed — ${materializeMsg}`);
+      revisionManager.rejectCandidate(revId, 'candidate_materialization_failed', materializeMsg);
+      config.onPhase({ phase: 'idle', progress: 100 });
+      return buildArtifactFailureResult({
+        intent: config.intent,
+        modelId: config.modelId,
+        startMs,
+        message: materializeMsg,
+        warningCode: 'CANDIDATE_MATERIALIZATION_FAILED',
+        fallbackUsed: finalAttempt.parseResult.fallbackUsed ?? false,
+        parseSuccess: finalAttempt.parseResult.success,
+      });
+    }
 
     await SimpleGeneration.installPreviewDeps(artifactDependencies, config.projectId);
     config.onLog(`[SimpleGeneration] NEW deps prepared: ${artifactDependencies.join(', ') || 'none'}`);
@@ -4957,21 +4996,80 @@ Generate the complete application for: ${config.intent}`;
 
     // Compile candidate — flush to disk + check Vite (with self-correction loop)
     const closeCompile = trace.span('compile', { files: writtenCount });
-    const compiled = await compileWithRetry({
-      revId, apiKey: config.apiKey, onLog: config.onLog, signal: config.signal,
-      callFix: (prompt, sig) => callLLM(
-        'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig, undefined, config.fixRoute,
-      ),
-      recheckAdmission: (nextCandidatePaths) =>
-        runAdmissionCheck(revId, 'compile-fix', config, nextCandidatePaths),
+    previewLog('fast_gate_start', {
+      buildId: revId,
+      source: 'SimpleGeneration.run',
+      fileCount: writtenCount,
     });
+    config.onLog('[SimpleGeneration] Fast gate start: compile + boot candidate');
+
+    const fastGate = await revisionManager.compileCandidate(revId);
+    previewLog('fast_gate_result', {
+      buildId: revId,
+      source: 'SimpleGeneration.run',
+      result: fastGate.success ? 'passed' : 'failed',
+      errors: fastGate.errors ?? [],
+    });
+    config.onLog(
+      fastGate.success
+        ? '[SimpleGeneration] Fast gate passed'
+        : `[SimpleGeneration] Fast gate failed: ${(fastGate.errors ?? ['Unknown compile error'])[0]}`,
+    );
+
+    let compiled = {
+      success: fastGate.success,
+      attempts: 1,
+      errors: fastGate.errors,
+    };
+
+    if (fastGate.success) {
+      previewLog('repair_decision', {
+        buildId: revId,
+        source: 'SimpleGeneration.run',
+        decision: 'not_needed',
+        reason: 'fast_gate_passed',
+      });
+      config.onLog('[SimpleGeneration] Repair decision: not needed');
+    } else {
+      previewLog('repair_decision', {
+        buildId: revId,
+        source: 'SimpleGeneration.run',
+        decision: 'needed',
+        reason: 'fast_gate_failed',
+      });
+      config.onLog('[SimpleGeneration] Repair decision: fast gate failed, invoking compile repair');
+      compiled = await compileWithRetry({
+        revId,
+        apiKey: config.apiKey,
+        onLog: config.onLog,
+        signal: config.signal,
+        initialFailureErrors: fastGate.errors,
+        callFix: (prompt, sig) => callLLM(
+          'You fix React/TypeScript compilation errors.', prompt, 'fix', config.apiKey, undefined, sig, undefined, config.fixRoute,
+        ),
+        recheckAdmission: (nextCandidatePaths) =>
+          runAdmissionCheck(revId, 'compile-fix', config, nextCandidatePaths),
+      });
+    }
+
     closeCompile({ status: compiled.success ? 'ok' : 'error', data: { attempts: compiled.attempts } });
     if (compiled.success) {
       await revisionManager.promote(revId);
       config.onLog(`[Revision] candidate promoted (${compiled.attempts} attempt(s))`);
     } else {
-      // compileWithRetry already dispatched PREVIEW_FAILED
+      previewLog('promotion_blocked_fast_gate_failed', {
+        buildId: revId,
+        source: 'SimpleGeneration.run',
+        attempts: compiled.attempts,
+        errors: compiled.errors ?? [],
+      });
+      revisionManager.rejectCandidate(
+        revId,
+        'fast_gate_failed',
+        compiled.errors?.join('\n') ?? 'Compile failed',
+      );
       config.onLog(`[Revision] compile failed after ${compiled.attempts} attempt(s)`);
+      config.onLog('[SimpleGeneration] Promotion blocked because fast gate failed');
     }
 
     // Notify editor (code tab) — files always shown regardless of compile result
@@ -5011,10 +5109,12 @@ Generate the complete application for: ${config.intent}`;
     // 10. Return result — preview is handled by preview-manager lifecycle
     let result: GenerationResult = {
       id: crypto.randomUUID(),
-      status: 'complete',
+      status: compiled.success ? 'complete' : 'failed',
       graph,
       operations: ops,
-      message: cleanCoderMessage(raw),
+      message: compiled.success
+        ? cleanCoderMessage(raw)
+        : (compiled.errors?.join('\n') ?? 'Candidate execution failed before promotion'),
       phase: 'idle' as AgentPhase,
       usedModel: config.modelId || '',
       selfCorrected: compiled.attempts > 1,
@@ -5027,24 +5127,40 @@ Generate the complete application for: ${config.intent}`;
       previewMeta: { entryFile, framework: 'react', isMultiPage },
       warnings: [],
       repairHints: [],
+      error: compiled.success
+        ? undefined
+        : (compiled.errors?.join('\n') ?? 'Candidate execution failed before promotion'),
     };
-    result.qualitySummary = GenerationQualityService.evaluate(result);
-    result.visualQualitySummary = VisualQualityService.evaluate(result);
-    config.onLog(`[SimpleGeneration] quality: ${result.qualitySummary.severity} — ${result.qualitySummary.summary}`);
-    result = await maybeApplyVisualPolish({
-      baseResult: result,
-      currentFiles: finalFiles,
-      config,
-      startMs,
-      branchGuidancePrompt,
-      artistLayer: result.graph.manifest.artistLayer,
-      memoryContext,
-      envPrompt,
-      summary: result.visualQualitySummary,
-      dependencies: artifactDependencySpecs,
-      resultMessage: cleanCoderMessage(raw),
-      routeAware: true,
-    });
+    if (!compiled.success) {
+      const failureMessage = compiled.errors?.join('\n') ?? 'Candidate execution failed before promotion';
+      const failureMeta = markExecutionFailure(changePackage, failureMessage);
+      result.warnings = [{
+        severity: 'error' as const,
+        source: 'runtime' as const,
+        code: 'FAST_GATE_FAILED',
+        filePath: '',
+        message: failureMessage,
+      }];
+      result.repairHints = failureMeta.repairHints;
+    } else {
+      result.qualitySummary = GenerationQualityService.evaluate(result);
+      result.visualQualitySummary = VisualQualityService.evaluate(result);
+      config.onLog(`[SimpleGeneration] quality: ${result.qualitySummary.severity} — ${result.qualitySummary.summary}`);
+      result = await maybeApplyVisualPolish({
+        baseResult: result,
+        currentFiles: finalFiles,
+        config,
+        startMs,
+        branchGuidancePrompt,
+        artistLayer: result.graph.manifest.artistLayer,
+        memoryContext,
+        envPrompt,
+        summary: result.visualQualitySummary,
+        dependencies: artifactDependencySpecs,
+        resultMessage: cleanCoderMessage(raw),
+        routeAware: true,
+      });
+    }
     result.designTelemetry = buildDesignTelemetryFromResult({
       result,
       generationMode: 'new',

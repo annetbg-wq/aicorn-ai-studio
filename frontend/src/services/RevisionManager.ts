@@ -110,6 +110,13 @@ export interface PersistedMaterializeOptions {
   projectId?: string | null;
 }
 
+export interface CandidateMaterializeOptions {
+  /** Caller identity for timeline logs. */
+  source: string;
+  /** Optional project id for log context. */
+  projectId?: string | null;
+}
+
 export class RevisionManager {
   private activeRevisionId: string | null = null;
   private candidateRevisionId: string | null = null;
@@ -231,6 +238,52 @@ export class RevisionManager {
       }
       const msg = err instanceof Error ? err.message : String(err);
       previewLog('persisted_materialize_failed', {
+        buildId: revisionId,
+        source: opts.source,
+        projectId: opts.projectId ?? null,
+        error: msg,
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Materialize the candidate workspace in-memory from a flat file map.
+   *
+   * This is the execute-first truth boundary for generation: once artifact
+   * ingress is accepted, the next authoritative state is whether the candidate
+   * workspace can actually be materialized and executed.
+   */
+  async materializeCandidateFiles(
+    revisionId: string,
+    files: Record<string, string>,
+    opts: CandidateMaterializeOptions,
+  ): Promise<{ writtenCount: number }> {
+    const entries = Object.entries(files ?? {});
+    previewLog('candidate_materialization_start', {
+      buildId: revisionId,
+      source: opts.source,
+      projectId: opts.projectId ?? null,
+      fileCount: entries.length,
+    });
+
+    try {
+      let writtenCount = 0;
+      for (const [path, content] of entries) {
+        await this.writeCandidateFile(revisionId, path, content);
+        writtenCount++;
+      }
+
+      previewLog('candidate_materialization_success', {
+        buildId: revisionId,
+        source: opts.source,
+        projectId: opts.projectId ?? null,
+        fileCount: writtenCount,
+      });
+      return { writtenCount };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      previewLog('candidate_materialization_failed', {
         buildId: revisionId,
         source: opts.source,
         projectId: opts.projectId ?? null,
@@ -741,6 +794,22 @@ export class RevisionManager {
       console.warn('[RevisionManager] Clear failed (non-fatal):', err);
       // Gateway already logged the error — just swallow here
     }
+  }
+
+  /**
+   * Reject a candidate without mutating the currently shown preview.
+   *
+   * Used for pre-execution failures (materialization rejected), terminal
+   * fast-gate failures, or user cancellation before promotion.
+   */
+  rejectCandidate(revisionId: string, reason: string, error?: string): void {
+    previewLog('candidate_rejected', {
+      buildId: revisionId,
+      reason,
+      error: error ?? null,
+      activeRevisionId: this.activeRevisionId,
+    });
+    this.discardCandidate(revisionId);
   }
 
   /** Remove a failed candidate without mutating last-good preview pixels/state. */
