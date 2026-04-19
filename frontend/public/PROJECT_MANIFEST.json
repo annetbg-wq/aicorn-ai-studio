@@ -209,6 +209,8 @@
     "services/__tests__/designDirection.test.ts",
     "services/__tests__/diffReviewFlow.test.ts",
     "services/__tests__/editAdmission.test.ts",
+    "services/__tests__/GenerationTracer.designTelemetry.test.ts",
+    "services/__tests__/MetricsService.designTelemetry.test.ts",
     "services/__tests__/orchestratorArtistLayer.test.ts",
     "services/__tests__/previewBridge.test.ts",
     "services/__tests__/previewGuard.test.ts",
@@ -218,6 +220,7 @@
     "services/__tests__/PreviewWriteGateway.test.ts",
     "services/__tests__/projectCorruptionScan.test.ts",
     "services/__tests__/ProjectManager.kickoff.test.ts",
+    "services/__tests__/ProjectMemoryService.designTelemetry.test.ts",
     "services/__tests__/ProjectRepository.architectureMemory.test.ts",
     "services/__tests__/revisionSemantics.test.ts",
     "services/__tests__/routeGraph.test.ts",
@@ -274,5 +277,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-19T10:31:15.124Z"
+  "last_scan_timestamp": "2026-04-19T10:50:47.013Z"
 }

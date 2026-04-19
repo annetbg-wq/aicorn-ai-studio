@@ -36,6 +36,7 @@ import type {
   ProjectBranchArchitecture,
 } from '../shared/projectModel';
 import type {
+  DesignRecipeTelemetry,
   GenerationResult,
   ProjectGraph,
   ChangePackage,
@@ -2975,6 +2976,79 @@ function didVisualPolishImprove(previousSummary: VisualQualitySummary, nextSumma
   return nextSummary.score >= previousSummary.score + 3;
 }
 
+function buildDesignTelemetryFromResult(input: {
+  result: GenerationResult;
+  generationMode: 'new' | 'edit';
+  projectId?: string;
+}): DesignRecipeTelemetry | null {
+  const artistLayer = input.result.graph.manifest.artistLayer;
+  const visualQuality = input.result.visualQualitySummary;
+  if (!artistLayer || !visualQuality) return null;
+
+  const visualPolish = input.result.visualPolishSummary;
+  const triggerScore = visualPolish?.triggerScore;
+  const finalScore = visualPolish?.finalScore ?? visualQuality.score;
+  const polishDeltaScore = typeof triggerScore === 'number'
+    ? finalScore - triggerScore
+    : undefined;
+  const qualityImprovedAfterPolish = visualPolish?.outcome === 'applied'
+    && (
+      (typeof polishDeltaScore === 'number' && polishDeltaScore > 0)
+      || (
+        visualPolish.triggerVerdict
+        ? visualVerdictRank(visualQuality.verdict) > visualVerdictRank(visualPolish.triggerVerdict)
+        : false
+      )
+    );
+
+  return {
+    generationId: input.result.id,
+    timestamp: input.result.createdAt,
+    projectId: input.projectId ?? input.result.graph.projectId ?? undefined,
+    generationMode: input.generationMode,
+    recipe: {
+      category: artistLayer.classification.category,
+      style: artistLayer.classification.style,
+      visualArchetype: artistLayer.designDirection.visualArchetype,
+      density: artistLayer.designDirection.density,
+      breathingRoom: artistLayer.designDirection.breathingRoom,
+      shellStyle: artistLayer.designDirection.shellStyle,
+      hierarchyEmphasis: artistLayer.designDirection.hierarchyEmphasis,
+      ctaStrategy: artistLayer.designDirection.ctaStrategy,
+      mobileComposition: artistLayer.designDirection.mobileComposition,
+    },
+    redesign: {
+      mode: artistLayer.redesignIntent.mode,
+      structureLock: artistLayer.redesignIntent.structureLock,
+      changeEnvelope: artistLayer.redesignIntent.changeEnvelope,
+      visualSystemReset: artistLayer.redesignIntent.visualSystemReset,
+      structureChangeAllowed: artistLayer.redesignIntent.structureChangeAllowed,
+      screensInScopeCount: artistLayer.redesignIntent.screensInScope.length,
+      brandAnchorsCount: artistLayer.redesignIntent.brandAnchorsToPreserve.length,
+    },
+    assets: {
+      componentRemotePolicy: artistLayer.assetPolicy.components.remoteComponentPolicy,
+      preferredComponentSources: artistLayer.assetPolicy.components.preferredSources,
+      iconPreferredSource: artistLayer.assetPolicy.icons.preferredSource,
+      mediaRemotePolicy: artistLayer.assetPolicy.media.remoteAssetPolicy,
+      fontLoadingStrategy: artistLayer.assetPolicy.fonts.loadingStrategy,
+      advancedRemotePolicy: artistLayer.assetPolicy.advancedResources.remoteAssetPolicy,
+      previewSafeFallbackRequired: artistLayer.assetPolicy.previewSafeFallback.required,
+    },
+    outcome: {
+      visualVerdict: visualQuality.verdict,
+      visualBand: visualQuality.band,
+      visualScore: visualQuality.score,
+      reasons: visualQuality.reasons.slice(0, 5),
+      polishOutcome: visualPolish?.outcome ?? 'not-needed',
+      polishApplied: visualPolish?.outcome === 'applied',
+      qualityImprovedAfterPolish,
+      polishDeltaScore,
+      polishTriggerReasons: visualPolish?.triggerReasons ?? [],
+    },
+  };
+}
+
 async function maybeApplyVisualPolish(input: {
   baseResult: GenerationResult;
   currentFiles: Record<string, string>;
@@ -4033,6 +4107,11 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         resultMessage: cleanCoderMessage(editRaw, 'Updated files and refreshing preview.'),
         routeAware: false,
       });
+      editResult.designTelemetry = buildDesignTelemetryFromResult({
+        result: editResult,
+        generationMode: 'edit',
+        projectId: config.projectId,
+      }) ?? undefined;
       const editOutputFiles = projectGraphToFileMap(editResult.graph);
 
       metricsService.logGeneration({
@@ -4047,6 +4126,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         autofix_needed:  editCompiled.attempts > 1,
         autofix_success: editCompiled.attempts > 1 && editCompiled.success,
         error_message:   editCompiled.success ? null : (editCompiled.errors?.join('; ') ?? 'Compile failed'),
+        designTelemetry: editResult.designTelemetry,
       });
 
       // ── Project memory: record edit generation ───────────────────────────
@@ -4058,6 +4138,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           outcome:      editCompiled.success ? 'success' : 'failed',
           errors:       editCompiled.errors,
           stubbed:      editCompiled.errors ? editCompiled.errors.find(e => e.includes('replaced with error stub'))?.match(/(\S+\.tsx)/)?.[1] : undefined,
+          designTelemetry: editResult.designTelemetry,
         });
         // Sync detected env vars to EnvSecretsService
         const { detectEnvVars } = await import('./ProjectMemoryService');
@@ -4083,6 +4164,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         {
           fileCount:    editOps.length,
           errorSummary: editCompiled.success ? undefined : editCompiled.errors?.[0]?.slice(0, 200),
+          designTelemetry: editResult.designTelemetry,
         },
       );
 
@@ -4719,6 +4801,11 @@ Generate the complete application for: ${config.intent}`;
       resultMessage: cleanCoderMessage(raw),
       routeAware: true,
     });
+    result.designTelemetry = buildDesignTelemetryFromResult({
+      result,
+      generationMode: 'new',
+      projectId: config.projectId,
+    }) ?? undefined;
     const outputFiles = projectGraphToFileMap(result.graph);
 
     metricsService.logGeneration({
@@ -4733,6 +4820,7 @@ Generate the complete application for: ${config.intent}`;
       autofix_needed:  compiled.attempts > 1,
       autofix_success: compiled.attempts > 1 && compiled.success,
       error_message:   compiled.success ? null : (compiled.errors?.join('; ') ?? 'Compile failed'),
+      designTelemetry: result.designTelemetry,
     });
 
     // ── Project memory: record NEW generation ─────────────────────────────
@@ -4756,6 +4844,7 @@ Generate the complete application for: ${config.intent}`;
           ? compiled.errors.find(e => e.includes('replaced with error stub'))?.match(/(\S+\.tsx)/)?.[1]
           : undefined,
         routes: routeMemory,
+        designTelemetry: result.designTelemetry,
       });
       // Sync detected env vars
       const { detectEnvVars } = await import('./ProjectMemoryService');
@@ -4781,6 +4870,7 @@ Generate the complete application for: ${config.intent}`;
       {
         fileCount:    ops.length,
         errorSummary: compiled.success ? undefined : compiled.errors?.[0]?.slice(0, 200),
+        designTelemetry: result.designTelemetry,
       },
     );
 

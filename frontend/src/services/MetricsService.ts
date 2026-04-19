@@ -3,6 +3,7 @@
 // Generation runs are also logged to Supabase (generation_metrics table) fire-and-forget.
 
 import { supabase } from '../lib/supabase';
+import type { DesignRecipeTelemetry } from '../shared/projectModel';
 
 const STORAGE_KEY = 'STUDIO_METRICS';
 const MAX_ENTRIES = 500;
@@ -63,6 +64,7 @@ export interface GenerationMetrics {
   autofix_needed:  boolean;
   autofix_success: boolean;
   error_message:   string | null;
+  designTelemetry?: DesignRecipeTelemetry;
 }
 
 function uid(): string {
@@ -151,6 +153,12 @@ class MetricsServiceClass {
     window.dispatchEvent(new CustomEvent('studio-metrics', { detail: null }));
   }
 
+  getDesignTelemetry(): DesignRecipeTelemetry[] {
+    return this.entries
+      .map((entry) => entry.extra?.designTelemetry as DesignRecipeTelemetry | undefined)
+      .filter((entry): entry is DesignRecipeTelemetry => Boolean(entry));
+  }
+
   /**
    * Log a generation run to Supabase (fire-and-forget, never throws).
    * Also records the event locally via record() so it shows in MetricsSummary.
@@ -170,10 +178,13 @@ class MetricsServiceClass {
         compile_success: data.compile_success,
         autofix_needed:  data.autofix_needed,
         autofix_success: data.autofix_success,
+        designTelemetry: data.designTelemetry,
       },
     });
 
-    // Remote — fire-and-forget
+    // Remote — fire-and-forget.
+    // Keep the persisted remote payload operational-only for backward compatibility;
+    // design-learning telemetry stays local until a dedicated schema exists.
     supabase
       .from('generation_metrics')
       .insert([{

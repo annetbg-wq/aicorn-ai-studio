@@ -930,6 +930,88 @@ export interface VisualPolishSummary {
   note?:          string;
 }
 
+export interface DesignRecipeSnapshot {
+  category:          string;
+  style:             string;
+  visualArchetype:   string;
+  density:           VisualDensity;
+  breathingRoom:     DesignDirection['breathingRoom'];
+  shellStyle:        string;
+  hierarchyEmphasis: string;
+  ctaStrategy:       string;
+  mobileComposition: string;
+}
+
+export interface DesignRedesignTelemetry {
+  mode:                   RedesignMode;
+  structureLock:          StructureLock;
+  changeEnvelope:         RedesignChangeEnvelope;
+  visualSystemReset:      boolean;
+  structureChangeAllowed: boolean;
+  screensInScopeCount:    number;
+  brandAnchorsCount:      number;
+}
+
+export interface DesignAssetPolicyTelemetry {
+  componentRemotePolicy:      AssetSourcePolicy['components']['remoteComponentPolicy'];
+  preferredComponentSources:  string[];
+  iconPreferredSource:        string;
+  mediaRemotePolicy:          AssetSourcePolicy['media']['remoteAssetPolicy'];
+  fontLoadingStrategy:        AssetSourcePolicy['fonts']['loadingStrategy'];
+  advancedRemotePolicy:       AssetSourcePolicy['advancedResources']['remoteAssetPolicy'];
+  previewSafeFallbackRequired: boolean;
+}
+
+export interface DesignOutcomeTelemetry {
+  visualVerdict:             VisualQualityVerdict;
+  visualBand:                VisualQualityBand;
+  visualScore:               number;
+  reasons:                   string[];
+  polishOutcome:             VisualPolishOutcome;
+  polishApplied:             boolean;
+  qualityImprovedAfterPolish: boolean;
+  polishDeltaScore?:         number;
+  polishTriggerReasons:      string[];
+}
+
+export interface DesignRecipeTelemetry {
+  generationId:    string;
+  timestamp:       string;
+  projectId?:      string;
+  generationMode:  'new' | 'edit';
+  recipe:          DesignRecipeSnapshot;
+  redesign:        DesignRedesignTelemetry;
+  assets:          DesignAssetPolicyTelemetry;
+  outcome:         DesignOutcomeTelemetry;
+}
+
+export interface DesignLearningBucketSummary {
+  key:                string;
+  sampleCount:        number;
+  avgVisualScore:     number;
+  strongRate:         number;
+  weakRate:           number;
+  polishAppliedRate:  number;
+  polishImprovedRate: number;
+}
+
+export interface DesignCorrectionPatternSummary {
+  pattern:        string;
+  sampleCount:    number;
+  avgDeltaScore:  number;
+  improveRate:    number;
+}
+
+export interface DesignLearningSummary {
+  totalSamples:             number;
+  bestRecipes:              DesignLearningBucketSummary[];
+  styleSummary:             DesignLearningBucketSummary[];
+  redesignModeSummary:      DesignLearningBucketSummary[];
+  assetPolicySummary:       DesignLearningBucketSummary[];
+  correctionPatternSummary: DesignCorrectionPatternSummary[];
+  notes?:                   string[];
+}
+
 /**
  * Compact user-facing generation report shown in chat after a completed run.
  *
@@ -1102,6 +1184,14 @@ export interface GenerationResult {
    * Distinct from technical self-correction and compile retry semantics.
    */
   visualPolishSummary?: VisualPolishSummary;
+
+  /**
+   * Optional structured design-learning telemetry describing which artist-layer
+   * recipe and correction path produced the final visual outcome.
+   *
+   * Stored locally for future prompt evolution and recipe analysis.
+   */
+  designTelemetry?: DesignRecipeTelemetry;
 }
 
 // ─── Preview Lifecycle (readiness gate) ───────────────────────────────────────
