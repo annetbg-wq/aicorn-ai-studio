@@ -147,6 +147,7 @@ export interface EngineWorkspaceProps {
   clearComposerContextItems?: () => void;
 
   // ── Blueprint confirmation ────────────────────────────────────
+  kickoffPhase?:     import('../../hooks/useStudio').KickoffPhase;
   pendingPlan?:      object | null;
   confirmPlan?:      () => void;
   cancelPlan?:       () => void;
@@ -182,6 +183,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
   onRetry,
   attachments = [], addAttachment = () => {}, removeAttachment = () => {},
   composerContextItems = [], removeComposerContextItem = () => {}, clearComposerContextItems = () => {},
+  kickoffPhase = 'idle' as import('../../hooks/useStudio').KickoffPhase,
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
   onConfirmPlan = () => confirmPlan(), selectKickoffScope = () => {}, onClarifyPlan = () => {}, onSubmitClarification = () => {},
   studioPhase,
@@ -348,6 +350,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             composerContextItems={composerContextItems}
             removeComposerContextItem={removeComposerContextItem}
             clearComposerContextItems={clearComposerContextItems}
+            kickoffPhase={kickoffPhase}
             pendingPlan={pendingPlan}
             confirmPlan={confirmPlan}
             cancelPlan={cancelPlan}
