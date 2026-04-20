@@ -19,10 +19,16 @@
 
 // @vitest-environment jsdom
 
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { RevisionManager } from '../RevisionManager';
-import { PreviewController } from '../PreviewController';
-import { evaluateMetrics, type DOMMetrics } from '../WhiteScreenDetector';
+import { PreviewController, clearTimelineContext, previewController } from '../PreviewController';
+import {
+  POST_PROMOTION_WATCHDOG_WINDOW_MS,
+  cancelPendingCheck,
+  cancelPostPromotionWatch,
+  evaluateMetrics,
+  type DOMMetrics,
+} from '../WhiteScreenDetector';
 import { ProjectStorage, type StoredProject } from '../ProjectStorage';
 import { ArtifactReviewerService } from '../ArtifactReviewerService';
 import type { ArtifactContract } from '../../types/artifact';
@@ -47,6 +53,27 @@ function mountPreviewIframe(buildId: string, bodyText = 'Last good preview'): HT
   return iframe;
 }
 
+function blankPreviewIframe(iframe: HTMLIFrameElement, buildId: string): void {
+  iframe.setAttribute('data-build-id', buildId);
+  const doc = iframe.contentDocument;
+  if (doc?.body) {
+    doc.body.innerHTML = '<div id="root"></div>';
+  }
+}
+
+function captureTimelineEvents() {
+  const events: Array<{ event: string; payload: Record<string, unknown> }> = [];
+  vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].startsWith('[preview-timeline] ')) {
+      events.push({
+        event: args[0].slice('[preview-timeline] '.length),
+        payload: (args[1] as Record<string, unknown>) ?? {},
+      });
+    }
+  });
+  return events;
+}
+
 function isBlank(metrics: DOMMetrics): boolean {
   return !evaluateMetrics(metrics, 'smoke-build').healthy;
 }
@@ -65,7 +92,20 @@ function assertNoWhiteScreenAfterReady(controller: PreviewController, metrics: D
 beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = '';
+  clearTimelineContext();
+  previewController.reset();
+  cancelPendingCheck();
+  cancelPostPromotionWatch();
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })));
+});
+
+afterEach(() => {
+  cancelPendingCheck();
+  cancelPostPromotionWatch();
+  clearTimelineContext();
+  previewController.reset();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 // ── Scenario 1: fresh generation ──────────────────────────────────────────────
@@ -171,8 +211,9 @@ test('3. failed candidate preserves last-good', async () => {
     files: [{ path: 'src/App.tsx', content: '{"files":[{"path":"src/App.tsx","content":"bad"}]}' }],
   };
 
-  // Reviewer stage MUST reject the poisoned artifact before it reaches the pipeline
-  expect(() => ArtifactReviewerService.review(poisonedArtifact)).toThrow('REVIEWER_FAIL: 0 files after cleaning');
+  // Artifact ingress must classify the poisoned artifact before it becomes a raw reviewer hard-fail
+  expect(() => ArtifactReviewerService.review(poisonedArtifact))
+    .toThrow('ARTIFACT_SEMANTIC_PARSE_FAIL: 0 files after heuristic repair');
 
   // ── LAST_GOOD_PRESERVED assertion ──────────────────────────────────────────
   // The active revision must be unchanged after a failed/rejected candidate.
@@ -219,4 +260,88 @@ test('4. white-screen after ready is detected', () => {
 
   // Sanity: placeholder content triggers the same guard
   expect(PLACEHOLDER_APP_TSX).toContain('Waiting for generation');
+});
+
+test('5. promoted revision later blanks within watchdog window and rolls back to previous active', async () => {
+  vi.useFakeTimers();
+  const events = captureTimelineEvents();
+  const rm = new RevisionManager(window.location.origin);
+
+  const previousRevId = await rm.createCandidate();
+  await rm.writeCandidateFile(previousRevId, 'src/App.tsx', CLEAN_APP_TSX);
+  const iframe = mountPreviewIframe(previousRevId);
+  previewController.notifyCompiling(previousRevId);
+  previewController.notifyReady(previousRevId, 'test-mounted');
+  (rm as unknown as { compiledRevisionId: string | null }).compiledRevisionId = previousRevId;
+  await rm.promote(previousRevId);
+
+  const promotedRevId = await rm.createCandidate();
+  await rm.writeCandidateFile(promotedRevId, 'src/App.tsx', 'export default function App() { return <main>Fresh promotion</main>; }');
+  iframe.setAttribute('data-build-id', promotedRevId);
+  const doc = iframe.contentDocument;
+  if (doc?.body) {
+    doc.body.innerHTML = '<div id="root">Fresh promotion</div>';
+  }
+  previewController.notifyCompiling(promotedRevId);
+  previewController.notifyReady(promotedRevId, 'test-mounted');
+  (rm as unknown as { compiledRevisionId: string | null }).compiledRevisionId = promotedRevId;
+
+  const waitSpy = vi.spyOn(rm, 'waitForReady').mockResolvedValue({ success: true });
+  await rm.promote(promotedRevId);
+  expect(rm.getActiveRevisionId()).toBe(promotedRevId);
+
+  // Blank the iframe so both the initial check and its confirmation see a white screen.
+  blankPreviewIframe(iframe, promotedRevId);
+
+  // Revocation now requires two-signal confirmation:
+  //   t=+2500ms — first check fires, detects blank_iframe → schedules confirmation
+  //   t=+4500ms — confirmation fires, still blank → revocation triggered
+  await vi.advanceTimersByTimeAsync(4_600);
+
+  expect(waitSpy).toHaveBeenCalledWith(previousRevId, 15_000);
+  expect(rm.getActiveRevisionId()).toBe(previousRevId);
+  expect(previewController.getState().activeRevisionId).toBe(previousRevId);
+  expect(events.some(e => e.event === 'post_promotion_watch_started' && e.payload.buildId === promotedRevId)).toBe(true);
+  // Two-signal confirmation: pending then confirmed
+  expect(events.some(e => e.event === 'watchdog_unhealthy_pending' && e.payload.buildId === promotedRevId)).toBe(true);
+  expect(events.some(e => e.event === 'watchdog_unhealthy_confirmed' && e.payload.buildId === promotedRevId)).toBe(true);
+  expect(events.some(e => e.event === 'post_promotion_watch_result' && e.payload.outcome === 'promotion_revoked')).toBe(true);
+  expect(events.some(e => e.event === 'promotion_revoked' && e.payload.outcome === 'revoked')).toBe(true);
+  expect(events.some(e => e.event === 'rollback_completed' && e.payload.status === 'restored')).toBe(true);
+});
+
+test('6. stable promoted revision remains active after the watchdog window', async () => {
+  vi.useFakeTimers();
+  const events = captureTimelineEvents();
+  const rm = new RevisionManager(window.location.origin);
+
+  const previousRevId = await rm.createCandidate();
+  await rm.writeCandidateFile(previousRevId, 'src/App.tsx', CLEAN_APP_TSX);
+  const iframe = mountPreviewIframe(previousRevId);
+  previewController.notifyCompiling(previousRevId);
+  previewController.notifyReady(previousRevId, 'test-mounted');
+  (rm as unknown as { compiledRevisionId: string | null }).compiledRevisionId = previousRevId;
+  await rm.promote(previousRevId);
+
+  const stableRevId = await rm.createCandidate();
+  await rm.writeCandidateFile(stableRevId, 'src/App.tsx', 'export default function App() { return <main>Still healthy</main>; }');
+  iframe.setAttribute('data-build-id', stableRevId);
+  const doc = iframe.contentDocument;
+  if (doc?.body) {
+    doc.body.innerHTML = '<div id="root"><main>Still healthy</main></div>';
+  }
+  previewController.notifyCompiling(stableRevId);
+  previewController.notifyReady(stableRevId, 'test-mounted');
+  (rm as unknown as { compiledRevisionId: string | null }).compiledRevisionId = stableRevId;
+
+  const waitSpy = vi.spyOn(rm, 'waitForReady').mockResolvedValue({ success: true });
+  await rm.promote(stableRevId);
+
+  await vi.advanceTimersByTimeAsync(POST_PROMOTION_WATCHDOG_WINDOW_MS + 5_000);
+
+  expect(waitSpy).not.toHaveBeenCalled();
+  expect(rm.getActiveRevisionId()).toBe(stableRevId);
+  expect(previewController.getState().activeRevisionId).toBe(stableRevId);
+  expect(events.some(e => e.event === 'post_promotion_watch_result' && e.payload.outcome === 'stable_window_elapsed')).toBe(true);
+  expect(events.some(e => e.event === 'promotion_revoked')).toBe(false);
 });
