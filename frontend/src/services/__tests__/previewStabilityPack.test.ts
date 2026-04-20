@@ -41,7 +41,7 @@ const CLEAN_INDEX_CSS = 'body { margin: 0; }';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function mountPreviewIframe(buildId: string, bodyText = 'Last good preview'): HTMLIFrameElement {
+function mountPreviewIframe(buildId: string, bodyText = '<main>Last good preview</main>'): HTMLIFrameElement {
   const iframe = document.createElement('iframe');
   iframe.setAttribute('data-testid', 'preview-iframe');
   iframe.setAttribute('data-build-id', buildId);
@@ -151,6 +151,9 @@ test('1. fresh generation shows preview', async () => {
     bodyInnerTextLength: 24,
     hasLoadingIndicator: false,
     rootTextHead: 'Last good preview',
+    semanticElementCount: 1,
+    interactiveElementCount: 0,
+    visualElementCount: 0,
   })).toBe(false);
 });
 
@@ -247,6 +250,9 @@ test('4. white-screen after ready is detected', () => {
     bodyInnerTextLength: 0,
     hasLoadingIndicator: false,
     rootTextHead: '',
+    semanticElementCount: 0,
+    interactiveElementCount: 0,
+    visualElementCount: 0,
   };
 
   // evaluateMetrics must classify a blank render as unhealthy (not decorative)
@@ -262,7 +268,59 @@ test('4. white-screen after ready is detected', () => {
   expect(PLACEHOLDER_APP_TSX).toContain('Waiting for generation');
 });
 
-test('5. promoted revision later blanks within watchdog window and rolls back to previous active', async () => {
+test('5. createEmptyCandidate provisions a meaningful bootstrap surface for first-run initialization', async () => {
+  const rm = new RevisionManager(window.location.origin);
+  const compileSpy = vi.spyOn(rm, 'compileCandidate').mockImplementation(async (revisionId: string) => {
+    const files = rm.getRevisionFiles(revisionId) ?? {};
+    expect(files['App.tsx']).toContain('Start your next project');
+    expect(files['App.tsx']).toContain('data-preview-bootstrap="true"');
+    expect(files['App.tsx']).not.toContain('Waiting for generation');
+
+    mountPreviewIframe(
+      revisionId,
+      '<main data-preview-bootstrap="true"><section><h1>Start your next project</h1><button>Describe your idea</button></section></main>',
+    );
+    previewController.notifyCompiling(revisionId);
+    previewController.notifyReady(revisionId, 'test-mounted');
+    (rm as unknown as { compiledRevisionId: string | null }).compiledRevisionId = revisionId;
+    return { success: true, _compiled: true };
+  });
+
+  const revId = await rm.createEmptyCandidate();
+
+  expect(compileSpy).toHaveBeenCalledOnce();
+  expect(rm.getActiveRevisionId()).toBe(revId);
+});
+
+test('6. promote blocks placeholder-only iframe before the active revision flips', async () => {
+  const events = captureTimelineEvents();
+  const rm = new RevisionManager(window.location.origin);
+
+  const lastGoodRevId = await rm.createCandidate();
+  await rm.writeCandidateFile(lastGoodRevId, 'src/App.tsx', CLEAN_APP_TSX);
+  const iframe = mountPreviewIframe(lastGoodRevId);
+  previewController.notifyCompiling(lastGoodRevId);
+  previewController.notifyReady(lastGoodRevId, 'test-mounted');
+  (rm as unknown as { compiledRevisionId: string | null }).compiledRevisionId = lastGoodRevId;
+  await rm.promote(lastGoodRevId);
+
+  const placeholderRevId = await rm.createCandidate();
+  await rm.writeCandidateFile(placeholderRevId, 'src/App.tsx', PLACEHOLDER_APP_TSX);
+  iframe.setAttribute('data-build-id', placeholderRevId);
+  const doc = iframe.contentDocument;
+  if (doc?.body) {
+    doc.body.innerHTML = '<div id="root"><div>Waiting for generation...</div></div>';
+  }
+  previewController.notifyCompiling(placeholderRevId);
+  previewController.notifyReady(placeholderRevId, 'test-mounted');
+  (rm as unknown as { compiledRevisionId: string | null }).compiledRevisionId = placeholderRevId;
+
+  await expect(rm.promote(placeholderRevId)).rejects.toThrow('PROMOTE_BLOCKED');
+  expect(rm.getActiveRevisionId()).toBe(lastGoodRevId);
+  expect(events.some(e => e.event === 'promotion_blocked_not_rendered' && e.payload.buildId === placeholderRevId)).toBe(true);
+});
+
+test('7. promoted revision later blanks within watchdog window and rolls back to previous active', async () => {
   vi.useFakeTimers();
   const events = captureTimelineEvents();
   const rm = new RevisionManager(window.location.origin);
@@ -280,7 +338,7 @@ test('5. promoted revision later blanks within watchdog window and rolls back to
   iframe.setAttribute('data-build-id', promotedRevId);
   const doc = iframe.contentDocument;
   if (doc?.body) {
-    doc.body.innerHTML = '<div id="root">Fresh promotion</div>';
+    doc.body.innerHTML = '<div id="root"><main>Fresh promotion</main></div>';
   }
   previewController.notifyCompiling(promotedRevId);
   previewController.notifyReady(promotedRevId, 'test-mounted');
@@ -305,12 +363,13 @@ test('5. promoted revision later blanks within watchdog window and rolls back to
   // Two-signal confirmation: pending then confirmed
   expect(events.some(e => e.event === 'watchdog_unhealthy_pending' && e.payload.buildId === promotedRevId)).toBe(true);
   expect(events.some(e => e.event === 'watchdog_unhealthy_confirmed' && e.payload.buildId === promotedRevId)).toBe(true);
+  expect(events.some(e => e.event === 'watchdog_late_regression_confirmed' && e.payload.buildId === promotedRevId)).toBe(true);
   expect(events.some(e => e.event === 'post_promotion_watch_result' && e.payload.outcome === 'promotion_revoked')).toBe(true);
   expect(events.some(e => e.event === 'promotion_revoked' && e.payload.outcome === 'revoked')).toBe(true);
   expect(events.some(e => e.event === 'rollback_completed' && e.payload.status === 'restored')).toBe(true);
 });
 
-test('6. stable promoted revision remains active after the watchdog window', async () => {
+test('8. stable promoted revision remains active after the watchdog window', async () => {
   vi.useFakeTimers();
   const events = captureTimelineEvents();
   const rm = new RevisionManager(window.location.origin);
