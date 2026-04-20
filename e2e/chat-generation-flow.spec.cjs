@@ -1,10 +1,17 @@
 // @ts-check
+const fs = require('fs');
+const path = require('path');
 const { test, expect } = require('@playwright/test');
 
 const BASE_URL     = process.env.STUDIO_URL ?? 'http://localhost:5183';
 const FLOW_TIMEOUT = 60_000;
-const LIVE_FLOW_TIMEOUT = 120_000;
 const LIVE_CANARY_PROMPT = 'single screen counter app with one increment button';
+const WATCHDOG_WINDOW_MS = readWatchdogWindowMs();
+const WATCHDOG_STABLE_TIMEOUT_MS = Math.max(
+  WATCHDOG_WINDOW_MS * 3,
+  WATCHDOG_WINDOW_MS + (process.env.CI ? 45_000 : 20_000),
+);
+const LIVE_FLOW_TIMEOUT = Math.max(120_000, WATCHDOG_STABLE_TIMEOUT_MS + 90_000);
 
 const PREVIEW_FILES = {
   'src/App.tsx': [
@@ -204,6 +211,31 @@ const LIVE_CANARY_ARCHITECT_ANALYSIS_RESPONSE = JSON.stringify({
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+function parseMsLiteral(raw) {
+  const n = Number(String(raw).replace(/_/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function readWatchdogWindowMs() {
+  const sourcePath = path.resolve(__dirname, '..', 'frontend', 'src', 'services', 'WhiteScreenDetector.ts');
+  try {
+    const source = fs.readFileSync(sourcePath, 'utf8');
+    const match = source.match(/POST_PROMOTION_WATCHDOG_WINDOW_MS\s*=\s*([0-9_]+)/);
+    return parseMsLiteral(match?.[1]) ?? 5_000;
+  } catch {
+    return 5_000;
+  }
+}
+
+async function expectProductionArtifactStudio(page) {
+  const response = await page.request.get(`${BASE_URL}/studio`);
+  expect(response.ok()).toBe(true);
+  const html = await response.text();
+  expect(html).not.toContain('/@vite/client');
+  expect(html).not.toContain('/src/main.tsx');
+  expect(html).toMatch(/\/assets\/[^"']+\.js/);
+}
+
 async function bypassAuth(page) {
   await page.evaluate(() => {
     localStorage.setItem('AIC_DEV_AUTH_BYPASS', '1');
@@ -356,6 +388,10 @@ async function collectLiveCanaryDiagnostics(page, logs, error) {
     lastTimelineEvents: timeline.slice(-80),
     iframeState,
     e2eDiagnostics,
+    watchdog: {
+      sourceWindowMs: WATCHDOG_WINDOW_MS,
+      assertTimeoutMs: WATCHDOG_STABLE_TIMEOUT_MS,
+    },
   };
 }
 
@@ -402,6 +438,7 @@ test.describe('Chat → generation → blueprint → preview', () => {
         localStorage.setItem('OPENROUTER_API_KEY', 'e2e-live-preview-key');
       });
 
+      await expectProductionArtifactStudio(page);
       await openEngine(page);
       await page.getByRole('button', { name: 'PAGE' }).click();
 
@@ -463,7 +500,10 @@ test.describe('Chat → generation → blueprint → preview', () => {
           line.includes('post_promotion_watch_result') &&
           line.includes('stable_window_elapsed')
         )).toBe(true);
-      }).toPass({ timeout: 12_000, intervals: [1_000, 2_000] });
+      }).toPass({
+        timeout: WATCHDOG_STABLE_TIMEOUT_MS,
+        intervals: [1_000, 2_000, 5_000],
+      });
 
       const timeline = timelineLines(logs);
       expect(timeline.some(line => line.includes('promotion_blocked_not_rendered'))).toBe(false);
