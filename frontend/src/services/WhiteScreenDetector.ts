@@ -1,17 +1,13 @@
 /**
- * WhiteScreenDetector — hard gate для RevisionManager.promote() + диагностический слой.
+ * WhiteScreenDetector — immediate promotion gate plus delayed post-ready diagnostics.
  *
- * Два режима работы:
- *   1. Hard gate (promote): isBlank() вызывается сразу после waitForReady().
- *      Если iframe пуст — промоушен блокируется, last-good восстанавливается.
- *   2. Diagnostic (SandpackPreview): isBlank() вызывается через +1000 мс после
- *      preview-mounted — ловит краши, которые происходят уже после промоушена.
+ * Two distinct layers:
+ *   1. Hard gate in RevisionManager.promote(): immediate blank iframe blocks promotion.
+ *   2. Post-promotion watchdog/diagnostic: a delayed cheap probe can still revoke the
+ *      just-promoted revision for a short bounded window, then falls back to telemetry only.
  *
- * Это не дублирование: promote() блокирует пустой билд сразу,
- * SandpackPreview ловит краш через секунду после успешного промоушена.
- *
- * Для глубокой диагностики через postMessage-пробу (метрики #root, offsetHeight и т.д.)
- * используется schedulePostReadyCheck / probeIframe ниже.
+ * For the deeper same-origin iframe probe (#root metrics, offsetHeight, loading shell, etc.)
+ * use schedulePostReadyCheck / probeIframe below.
  */
 
 import { previewController, previewLog } from './PreviewController';
@@ -23,14 +19,61 @@ export class WhiteScreenDetector {
   // не было true → visual-only приложения (canvas, SVG, изображения без текста)
   // ложно считались пустыми.
   static isBlank(iframe: HTMLIFrameElement | null): boolean {
-    if (!iframe) return true;
-    const doc = iframe.contentDocument;
-    if (!doc || !doc.body) return true;
-    const root = doc.getElementById('root') ?? doc.body;
-    const text = (root.innerText ?? root.textContent ?? '').trim();
-    const hasChildren = root.children.length > 0;
-    return text.length < 10 && !hasChildren;
+    return !inspectIframeRenderSurface(iframe).healthy;
   }
+}
+
+export type FinalLivePreviewCheckStatus = 'passed' | 'failed' | 'skipped';
+export type FinalLivePreviewCheckFailureReason =
+  | 'candidate_not_viable'
+  | 'controller_failed'
+  | 'controller_not_ready'
+  | 'revision_mismatch'
+  | 'blank_root'
+  | 'placeholder_only'
+  | 'blank_iframe'
+  | 'probe_failed';
+
+export interface FinalLivePreviewCheckResult {
+  buildId: string;
+  status: FinalLivePreviewCheckStatus;
+  reason: FinalLivePreviewCheckFailureReason | null;
+  message: string;
+  controllerStatus: ReturnType<typeof previewController.getState>['status'];
+  controllerRevisionId: string | null;
+  immediateBlank: boolean;
+  probeOutcome: 'healthy' | 'unhealthy' | 'inconclusive';
+  probeReason: WhiteScreenReason | null;
+}
+
+export type PostReadyDiagnosticStatus = 'healthy' | 'unhealthy' | 'inconclusive';
+export type PostReadyDiagnosticReason =
+  | FinalLivePreviewCheckFailureReason
+  | 'probe_timeout';
+
+export interface PostReadyDiagnosticResult {
+  buildId: string;
+  status: PostReadyDiagnosticStatus;
+  reason: PostReadyDiagnosticReason | null;
+  message: string;
+  controllerStatus: ReturnType<typeof previewController.getState>['status'];
+  controllerRevisionId: string | null;
+  immediateBlank: boolean;
+  probeOutcome: 'healthy' | 'unhealthy' | 'inconclusive';
+  probeReason: WhiteScreenReason | null;
+  metrics: DOMMetrics | null;
+}
+
+export interface PostPromotionWatchOptions {
+  previousActiveRevisionId: string | null;
+  promotionMode?: 'normal' | 'degraded';
+  onUnhealthy: (result: PostReadyDiagnosticResult) => Promise<void> | void;
+}
+
+interface PostPromotionWatchContext extends PostPromotionWatchOptions {
+  buildId: string;
+  startedAt: number;
+  expiresAt: number;
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -63,6 +106,346 @@ export interface DOMMetrics {
   hasLoadingIndicator: boolean;
   /** First 200 chars of root's innerText for diagnostics. */
   rootTextHead: string;
+  /** Count of meaningful layout/semantic elements visible in the root subtree. */
+  semanticElementCount: number;
+  /** Count of interactive controls in the root subtree. */
+  interactiveElementCount: number;
+  /** Count of media/visual elements in the root subtree. */
+  visualElementCount: number;
+}
+
+export interface ImmediateRenderSurfaceResult {
+  healthy: boolean;
+  failureReason: Extract<FinalLivePreviewCheckFailureReason, 'blank_root' | 'placeholder_only'> | null;
+  probeReason: WhiteScreenReason | null;
+  message: string;
+  metrics: DOMMetrics | null;
+}
+
+interface RenderFailureDescriptor {
+  failureReason: Extract<FinalLivePreviewCheckFailureReason, 'blank_root' | 'placeholder_only'>;
+  logEvent: 'final_check_blank_root' | 'final_check_placeholder_only';
+  message: string;
+}
+
+function findPreviewIframe(buildId: string): HTMLIFrameElement | null {
+  return document.querySelector<HTMLIFrameElement>(
+    `iframe[data-build-id="${buildId}"], iframe[data-testid="preview-iframe"], iframe[src*="/__preview"]`,
+  );
+}
+
+function getNodeText(node: Element | HTMLBodyElement): string {
+  return (node.textContent ?? '').trim();
+}
+
+function matchesLoadingShellText(text: string): boolean {
+  return LOADING_PATTERNS.some(pattern => pattern.test(text.trim()));
+}
+
+const SEMANTIC_SURFACE_SELECTOR = [
+  'main',
+  'section',
+  'article',
+  'nav',
+  'header',
+  'footer',
+  'aside',
+  'form',
+  '[role="main"]',
+  '[role="region"]',
+  '[role="dialog"]',
+  '[data-testid]',
+].join(',');
+
+const INTERACTIVE_SURFACE_SELECTOR = [
+  'button',
+  'a[href]',
+  'input',
+  'select',
+  'textarea',
+  '[role="button"]',
+  '[role="link"]',
+  '[role="tab"]',
+  '[role="menuitem"]',
+].join(',');
+
+const VISUAL_SURFACE_SELECTOR = 'svg,canvas,img,picture,video';
+
+function countMatchingNodes(root: Element, selector: string): number {
+  let count = root.matches(selector) ? 1 : 0;
+  count += root.querySelectorAll(selector).length;
+  return count;
+}
+
+function collectSurfaceSignals(root: Element): Pick<DOMMetrics, 'semanticElementCount' | 'interactiveElementCount' | 'visualElementCount'> {
+  return {
+    semanticElementCount: countMatchingNodes(root, SEMANTIC_SURFACE_SELECTOR),
+    interactiveElementCount: countMatchingNodes(root, INTERACTIVE_SURFACE_SELECTOR),
+    visualElementCount: countMatchingNodes(root, VISUAL_SURFACE_SELECTOR),
+  };
+}
+
+function collectIframeMetrics(iframe: HTMLIFrameElement | null): DOMMetrics | null {
+  if (!iframe) return null;
+  const doc = iframe.contentDocument;
+  if (!doc?.body) return null;
+
+  const root = doc.getElementById('root') ?? doc.body;
+  const rootText = getNodeText(root);
+  const bodyText = getNodeText(doc.body);
+  const rootElement = root instanceof HTMLElement ? root : null;
+  const surfaceSignals = collectSurfaceSignals(root);
+
+  return {
+    rootChildCount: root.children.length,
+    rootInnerTextLength: rootText.length,
+    rootOffsetHeight: rootElement?.offsetHeight ?? 0,
+    bodyChildCount: doc.body.children.length,
+    bodyInnerTextLength: bodyText.length,
+    hasLoadingIndicator: matchesLoadingShellText(rootText),
+    rootTextHead: rootText.slice(0, 200),
+    ...surfaceSignals,
+  };
+}
+
+function describeRenderFailure(reason: WhiteScreenReason): RenderFailureDescriptor {
+  switch (reason) {
+    case 'loading-shell-only':
+    case 'minimal-content':
+      return {
+        failureReason: 'placeholder_only',
+        logEvent: 'final_check_placeholder_only',
+        message: 'Final live-preview check failed: preview is only showing placeholder content',
+      };
+    case 'empty-root':
+    case 'blank-body':
+    case 'zero-height-root':
+    default:
+      return {
+        failureReason: 'blank_root',
+        logEvent: 'final_check_blank_root',
+        message: 'Final live-preview check failed: preview root is blank after boot',
+      };
+  }
+}
+
+function isLikelyLoadingShell(metrics: DOMMetrics): boolean {
+  if (!metrics.hasLoadingIndicator) return false;
+
+  const lowStructure = metrics.rootChildCount <= MAX_LOADING_SHELL_ELEMENTS;
+  const noInteractive = metrics.interactiveElementCount === 0;
+  const noVisualSurface = metrics.visualElementCount === 0;
+
+  return lowStructure && noInteractive && noVisualSurface;
+}
+
+function isStructurallyPlaceholderLike(metrics: DOMMetrics): boolean {
+  const lowStructure = metrics.rootChildCount < MIN_MEANINGFUL_ELEMENTS;
+  const lowText = metrics.rootInnerTextLength < MIN_TEXT_LENGTH;
+  const noInteractive = metrics.interactiveElementCount === 0;
+  const noVisualSurface = metrics.visualElementCount === 0;
+  const collapsed = metrics.rootOffsetHeight < MIN_SPARSE_RENDER_HEIGHT;
+
+  return lowStructure && lowText && noInteractive && noVisualSurface && collapsed;
+}
+
+function inspectIframeRenderSurface(iframe: HTMLIFrameElement | null): ImmediateRenderSurfaceResult {
+  const metrics = collectIframeMetrics(iframe);
+  if (!metrics) {
+    return {
+      healthy: false,
+      failureReason: 'blank_root',
+      probeReason: 'blank-body',
+      message: 'Final live-preview check failed: preview iframe is missing or empty',
+      metrics: null,
+    };
+  }
+
+  if (metrics.bodyChildCount === 0) {
+    const failure = describeRenderFailure('blank-body');
+    return {
+      healthy: false,
+      failureReason: failure.failureReason,
+      probeReason: 'blank-body',
+      message: failure.message,
+      metrics,
+    };
+  }
+
+  if (metrics.rootChildCount === 0) {
+    const failure = describeRenderFailure('empty-root');
+    return {
+      healthy: false,
+      failureReason: failure.failureReason,
+      probeReason: 'empty-root',
+      message: failure.message,
+      metrics,
+    };
+  }
+
+  if (isLikelyLoadingShell(metrics)) {
+    const failure = describeRenderFailure('loading-shell-only');
+    return {
+      healthy: false,
+      failureReason: failure.failureReason,
+      probeReason: 'loading-shell-only',
+      message: failure.message,
+      metrics,
+    };
+  }
+
+  if (isStructurallyPlaceholderLike(metrics)) {
+    const failure = describeRenderFailure('minimal-content');
+    return {
+      healthy: false,
+      failureReason: failure.failureReason,
+      probeReason: 'minimal-content',
+      message: failure.message,
+      metrics,
+    };
+  }
+
+  return {
+    healthy: true,
+    failureReason: null,
+    probeReason: null,
+    message: 'Preview render surface looks meaningful',
+    metrics,
+  };
+}
+
+export function inspectPreviewRenderSurface(buildId: string): ImmediateRenderSurfaceResult {
+  return inspectIframeRenderSurface(findPreviewIframe(buildId));
+}
+
+function logFinalRenderFailure(buildId: string, failureReason: WhiteScreenReason | null, metrics: DOMMetrics | null): void {
+  const descriptor = describeRenderFailure(failureReason ?? 'empty-root');
+  previewLog(descriptor.logEvent, {
+    buildId,
+    reason: failureReason,
+    rootChildCount: metrics?.rootChildCount ?? null,
+    rootTextLength: metrics?.rootInnerTextLength ?? null,
+    rootHeight: metrics?.rootOffsetHeight ?? null,
+    rootTextHead: metrics?.rootTextHead ?? '',
+  });
+}
+
+export function buildSkippedFinalLivePreviewCheck(
+  buildId: string,
+  reason: Extract<FinalLivePreviewCheckFailureReason, 'candidate_not_viable'>,
+  message = 'Skipped final live-preview check because the candidate is not viable',
+): FinalLivePreviewCheckResult {
+  const state = previewController.getState();
+  return {
+    buildId,
+    status: 'skipped',
+    reason,
+    message,
+    controllerStatus: state.status,
+    controllerRevisionId: state.activeRevisionId ?? null,
+    immediateBlank: false,
+    probeOutcome: 'inconclusive',
+    probeReason: null,
+  };
+}
+
+export async function runFinalLivePreviewCheck(
+  buildId: string,
+): Promise<FinalLivePreviewCheckResult> {
+  const state = previewController.getState();
+  const controllerRevisionId = state.activeRevisionId ?? null;
+
+  if (state.status === 'failed') {
+    return {
+      buildId,
+      status: 'failed',
+      reason: 'controller_failed',
+      message: `Final live-preview check failed: preview controller is already failed${
+        state.error ? ` (${state.error})` : ''
+      }`,
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank: false,
+      probeOutcome: 'inconclusive',
+      probeReason: null,
+    };
+  }
+
+  if (state.status !== 'ready') {
+    return {
+      buildId,
+      status: 'failed',
+      reason: 'controller_not_ready',
+      message: `Final live-preview check failed: preview controller is ${state.status}, not ready`,
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank: false,
+      probeOutcome: 'inconclusive',
+      probeReason: null,
+    };
+  }
+
+  if (controllerRevisionId && controllerRevisionId !== buildId) {
+    return {
+      buildId,
+      status: 'failed',
+      reason: 'revision_mismatch',
+      message: `Final live-preview check failed: controller is showing ${controllerRevisionId}, expected ${buildId}`,
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank: false,
+      probeOutcome: 'inconclusive',
+      probeReason: null,
+    };
+  }
+
+  const immediateSurface = inspectPreviewRenderSurface(buildId);
+  const immediateBlank = !immediateSurface.healthy;
+  if (!immediateSurface.healthy) {
+    logFinalRenderFailure(buildId, immediateSurface.probeReason, immediateSurface.metrics);
+    return {
+      buildId,
+      status: 'failed',
+      reason: immediateSurface.failureReason,
+      message: immediateSurface.message,
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank,
+      probeOutcome: 'unhealthy',
+      probeReason: immediateSurface.probeReason,
+    };
+  }
+
+  const probe = await probeIframe(buildId);
+  if (probe && !probe.healthy) {
+    logFinalRenderFailure(buildId, probe.reason ?? null, probe.metrics);
+    const descriptor = describeRenderFailure(probe.reason ?? 'empty-root');
+    return {
+      buildId,
+      status: 'failed',
+      reason: descriptor.failureReason,
+      message: descriptor.message,
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank,
+      probeOutcome: 'unhealthy',
+      probeReason: probe.reason ?? null,
+    };
+  }
+
+  return {
+    buildId,
+    status: 'passed',
+    reason: null,
+    message: probe
+      ? 'Final live-preview checks passed'
+      : 'Final live-preview checks passed (probe inconclusive, fallback signals healthy)',
+    controllerStatus: state.status,
+    controllerRevisionId,
+    immediateBlank,
+    probeOutcome: probe ? 'healthy' : 'inconclusive',
+    probeReason: null,
+  };
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -77,14 +460,31 @@ const STUDIO_ORIGIN =
 /** Delay after ready_set before running the probe. Allows async renders. */
 const POST_READY_DELAY_MS = 2_500;
 
+/** Short probation window after promotion where delayed diagnostics can still revoke it. */
+export const POST_PROMOTION_WATCHDOG_WINDOW_MS = 5_000;
+
+/**
+ * After the first genuine blank-screen signal, wait this long before running
+ * a confirmation check. Two consecutive unhealthy signals within the window
+ * are required before revocation — prevents hair-trigger rollbacks on a single
+ * weak or transient diagnostic.
+ */
+const WATCHDOG_CONFIRMATION_DELAY_MS = 2_000;
+
 /** Timeout waiting for the iframe to respond to the probe. */
 const PROBE_TIMEOUT_MS = 5_000;
 
-/** Minimum number of elements in #root to be considered meaningful. */
+/** Minimum number of root children before the surface is clearly non-trivial. */
 const MIN_MEANINGFUL_ELEMENTS = 2;
 
-/** Minimum text length in #root to be considered meaningful. */
+/** Maximum child count still considered a likely loading shell. */
+const MAX_LOADING_SHELL_ELEMENTS = 2;
+
+/** Minimum text length before sparse text is considered obviously meaningful. */
 const MIN_TEXT_LENGTH = 10;
+
+/** Sparse single-node renders below this height still look like placeholders. */
+const MIN_SPARSE_RENDER_HEIGHT = 24;
 
 /**
  * Text patterns that indicate a loading/waiting placeholder, not real content.
@@ -134,6 +534,9 @@ export function probeIframe(
         bodyInnerTextLength: 0,
         hasLoadingIndicator: false,
         rootTextHead: '',
+        semanticElementCount: 0,
+        interactiveElementCount: 0,
+        visualElementCount: 0,
       };
 
       const result = evaluateMetrics(metrics, buildId);
@@ -148,7 +551,7 @@ export function probeIframe(
     window.addEventListener('message', onMessage);
 
     // Send the probe request to the iframe
-    const iframe = document.querySelector<HTMLIFrameElement>('[data-testid="preview-iframe"], iframe[src*="/__preview"]');
+    const iframe = findPreviewIframe(buildId);
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
         { type: 'white-screen-check', buildId },
@@ -171,8 +574,8 @@ export function probeIframe(
  *   1. zero-height-root  — #root has 0px height (collapsed/hidden)
  *   2. empty-root        — #root has 0 child elements
  *   3. blank-body        — body has 0 child elements (no root at all)
- *   4. loading-shell-only— root text matches known loading patterns
- *   5. minimal-content   — root has < MIN elements AND < MIN text chars
+ *   4. loading-shell-only— loading text with no real interactive/visual surface
+ *   5. minimal-content   — sparse, low-text, collapsed content that still looks like a placeholder
  *   6. healthy           — passed all checks
  */
 export function evaluateMetrics(
@@ -195,19 +598,12 @@ export function evaluateMetrics(
   }
 
   // 4. Only a loading placeholder rendered
-  if (metrics.hasLoadingIndicator) {
-    const textTrimmed = metrics.rootTextHead.trim();
-    const isLoadingOnly = LOADING_PATTERNS.some(p => p.test(textTrimmed));
-    if (isLoadingOnly) {
-      return { healthy: false, reason: 'loading-shell-only', buildId, metrics };
-    }
+  if (isLikelyLoadingShell(metrics)) {
+    return { healthy: false, reason: 'loading-shell-only', buildId, metrics };
   }
 
-  // 5. Minimal content — few elements AND very little text
-  if (
-    metrics.rootChildCount < MIN_MEANINGFUL_ELEMENTS &&
-    metrics.rootInnerTextLength < MIN_TEXT_LENGTH
-  ) {
+  // 5. Minimal content — sparse, tiny, collapsed content with no real surface
+  if (isStructurallyPlaceholderLike(metrics)) {
     return { healthy: false, reason: 'minimal-content', buildId, metrics };
   }
 
@@ -219,6 +615,307 @@ export function evaluateMetrics(
 
 /** Active timer handle — at most one check runs at a time. */
 let _pendingTimer: ReturnType<typeof setTimeout> | null = null;
+let _watchdogExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+let _postPromotionWatch: PostPromotionWatchContext | null = null;
+
+/**
+ * Tracks the buildId of the first unhealthy signal within the current watchdog
+ * window. Revocation requires a second confirmation check to also be unhealthy.
+ * Cleared when the watchdog is cancelled or a healthy/inconclusive confirmation fires.
+ */
+let _firstUnhealthyBuildId: string | null = null;
+
+function clearWatchdogTimer(): void {
+  if (_watchdogExpiryTimer !== null) {
+    clearTimeout(_watchdogExpiryTimer);
+    _watchdogExpiryTimer = null;
+  }
+}
+
+function buildDiagnosticMessage(result: PostReadyDiagnosticResult): string {
+  if (result.reason === 'probe_failed') {
+    return `Post-ready diagnostic failed: ${result.probeReason ?? 'probe_failed'}`;
+  }
+  if (result.reason === 'probe_timeout') {
+    return 'Post-ready diagnostic was inconclusive: preview did not respond';
+  }
+  return result.message;
+}
+
+async function handleWatchdogDiagnostic(result: PostReadyDiagnosticResult): Promise<void> {
+  const watch = _postPromotionWatch;
+  if (!watch) return;
+
+  if (watch.buildId !== result.buildId) {
+    previewLog('post_promotion_watch_result', {
+      buildId: result.buildId,
+      currentWatchBuildId: watch.buildId,
+      outcome: 'ignored_stale_diagnostic',
+      actionable: false,
+      diagnosticStatus: result.status,
+      diagnosticReason: result.reason,
+      probeReason: result.probeReason,
+    });
+    return;
+  }
+
+  if (Date.now() > watch.expiresAt) {
+    previewLog('post_promotion_watch_result', {
+      buildId: result.buildId,
+      previousActiveRevisionId: watch.previousActiveRevisionId,
+      promotionMode: watch.promotionMode ?? 'normal',
+      outcome: 'telemetry_only_after_window',
+      actionable: false,
+      diagnosticStatus: result.status,
+      diagnosticReason: result.reason,
+      probeReason: result.probeReason,
+    });
+    return;
+  }
+
+  if (result.status !== 'unhealthy') {
+    // Inconclusive signals (controller state anomalies, probe timeouts) are logged
+    // but never cause revocation — they may be stale preload artifacts.
+    previewLog('watchdog_inconclusive', {
+      buildId: result.buildId,
+      reason: result.reason,
+      controllerStatus: result.controllerStatus,
+    });
+    return;
+  }
+
+  // ── Two-signal confirmation gate ─────────────────────────────────────────────
+  // A single unhealthy signal (blank_iframe / probe_failed) schedules a confirmation
+  // check. Revocation only fires when TWO consecutive unhealthy signals are seen.
+  // This prevents hair-trigger rollbacks from transient renders or stale diagnostics.
+  if (_firstUnhealthyBuildId !== result.buildId) {
+    _firstUnhealthyBuildId = result.buildId;
+    previewLog('watchdog_unhealthy_pending', {
+      buildId: result.buildId,
+      reason: result.reason,
+      probeReason: result.probeReason,
+      confirmationDelayMs: WATCHDOG_CONFIRMATION_DELAY_MS,
+    });
+    // Schedule confirmation check. If it runs after the window expires,
+    // handleWatchdogDiagnostic will see Date.now() > expiresAt → telemetry only.
+    _pendingTimer = setTimeout(async () => {
+      _pendingTimer = null;
+      const confirmation = await runPostReadyDiagnostic(result.buildId);
+      previewLog('watchdog_confirmation_result', {
+        buildId: result.buildId,
+        status: confirmation.status,
+        reason: confirmation.reason,
+        probeOutcome: confirmation.probeOutcome,
+      });
+      if (confirmation.status === 'unhealthy') {
+        previewLog('watchdog_unhealthy_confirmed', {
+          buildId: result.buildId,
+          firstReason: result.reason,
+          confirmationReason: confirmation.reason,
+        });
+          previewLog('watchdog_late_regression_confirmed', {
+            buildId: result.buildId,
+            firstReason: result.reason,
+            confirmationReason: confirmation.reason,
+            probeReason: confirmation.probeReason,
+          });
+        await handleWatchdogDiagnostic(confirmation);
+      } else {
+        previewLog('revoke_blocked_insufficient_evidence', {
+          buildId: result.buildId,
+          firstReason: result.reason,
+          confirmationStatus: confirmation.status,
+          confirmationReason: confirmation.reason,
+        });
+        _firstUnhealthyBuildId = null;
+      }
+    }, WATCHDOG_CONFIRMATION_DELAY_MS);
+    return;
+  }
+
+  // ── Second consecutive unhealthy signal confirmed — proceed with revocation ──
+  _firstUnhealthyBuildId = null;
+  clearWatchdogTimer();
+  _postPromotionWatch = null;
+  previewLog('post_promotion_watch_result', {
+    buildId: result.buildId,
+    previousActiveRevisionId: watch.previousActiveRevisionId,
+    promotionMode: watch.promotionMode ?? 'normal',
+    outcome: 'promotion_revoked',
+    actionable: true,
+    diagnosticStatus: result.status,
+    diagnosticReason: result.reason,
+    probeReason: result.probeReason,
+  });
+  await watch.onUnhealthy(result);
+}
+
+export function startPostPromotionWatch(
+  buildId: string,
+  options: PostPromotionWatchOptions,
+): void {
+  cancelPendingCheck();
+  cancelPostPromotionWatch();
+
+  const startedAt = Date.now();
+  _postPromotionWatch = {
+    buildId,
+    startedAt,
+    expiresAt: startedAt + POST_PROMOTION_WATCHDOG_WINDOW_MS,
+    ...options,
+  };
+
+  previewLog('post_promotion_watch_started', {
+    buildId,
+    previousActiveRevisionId: options.previousActiveRevisionId,
+    promotionMode: options.promotionMode ?? 'normal',
+    windowMs: POST_PROMOTION_WATCHDOG_WINDOW_MS,
+    diagnosticDelayMs: POST_READY_DELAY_MS,
+  });
+
+  _watchdogExpiryTimer = setTimeout(() => {
+    const watch = _postPromotionWatch;
+    if (!watch || watch.buildId !== buildId) return;
+    previewLog('post_promotion_watch_result', {
+      buildId,
+      previousActiveRevisionId: watch.previousActiveRevisionId,
+      promotionMode: watch.promotionMode ?? 'normal',
+      outcome: 'stable_window_elapsed',
+      actionable: false,
+      windowMs: POST_PROMOTION_WATCHDOG_WINDOW_MS,
+    });
+    _postPromotionWatch = null;
+    clearWatchdogTimer();
+  }, POST_PROMOTION_WATCHDOG_WINDOW_MS);
+
+  schedulePostReadyCheck(buildId);
+}
+
+export function cancelPostPromotionWatch(): void {
+  _postPromotionWatch = null;
+  _firstUnhealthyBuildId = null;
+  clearWatchdogTimer();
+}
+
+export async function runPostReadyDiagnostic(
+  buildId: string,
+): Promise<PostReadyDiagnosticResult> {
+  const state = previewController.getState();
+  const controllerRevisionId = state.activeRevisionId ?? null;
+
+  if (controllerRevisionId && controllerRevisionId !== buildId) {
+    return {
+      buildId,
+      status: 'inconclusive',
+      reason: 'revision_mismatch',
+      message: `Post-ready diagnostic ignored: controller is showing ${controllerRevisionId}, expected ${buildId}`,
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank: false,
+      probeOutcome: 'inconclusive',
+      probeReason: null,
+      metrics: null,
+    };
+  }
+
+  if (state.status === 'failed') {
+    // Controller-failed is inconclusive, not unhealthy: the failure may be from a
+    // stale preload timeout that fired after generation was already promoted. A
+    // controller state anomaly alone is not evidence of a white screen.
+    return {
+      buildId,
+      status: 'inconclusive',
+      reason: 'controller_failed',
+      message: `Post-ready diagnostic inconclusive: preview controller is failed (may be stale preload)${
+        state.error ? ` (${state.error})` : ''
+      }`,
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank: false,
+      probeOutcome: 'inconclusive',
+      probeReason: null,
+      metrics: null,
+    };
+  }
+
+  if (state.status !== 'ready') {
+    // Transient non-ready state (compiling, generating) — not white-screen evidence.
+    return {
+      buildId,
+      status: 'inconclusive',
+      reason: 'controller_not_ready',
+      message: `Post-ready diagnostic inconclusive: preview controller is ${state.status} (transient state)`,
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank: false,
+      probeOutcome: 'inconclusive',
+      probeReason: null,
+      metrics: null,
+    };
+  }
+
+  const immediateSurface = inspectPreviewRenderSurface(buildId);
+  const immediateBlank = !immediateSurface.healthy;
+  if (!immediateSurface.healthy) {
+    return {
+      buildId,
+      status: 'unhealthy',
+      reason: immediateSurface.failureReason,
+      message: immediateSurface.message.replace('Final live-preview check', 'Post-ready diagnostic'),
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank,
+      probeOutcome: 'unhealthy',
+      probeReason: immediateSurface.probeReason,
+      metrics: immediateSurface.metrics,
+    };
+  }
+
+  const probe = await probeIframe(buildId);
+  if (!probe) {
+    return {
+      buildId,
+      status: 'inconclusive',
+      reason: 'probe_timeout',
+      message: 'Post-ready diagnostic was inconclusive: preview did not respond',
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank,
+      probeOutcome: 'inconclusive',
+      probeReason: null,
+      metrics: null,
+    };
+  }
+
+  if (!probe.healthy) {
+    const descriptor = describeRenderFailure(probe.reason ?? 'empty-root');
+    return {
+      buildId,
+      status: 'unhealthy',
+      reason: descriptor.failureReason,
+      message: descriptor.message.replace('Final live-preview check', 'Post-ready diagnostic'),
+      controllerStatus: state.status,
+      controllerRevisionId,
+      immediateBlank,
+      probeOutcome: 'unhealthy',
+      probeReason: probe.reason ?? null,
+      metrics: probe.metrics,
+    };
+  }
+
+  return {
+    buildId,
+    status: 'healthy',
+    reason: null,
+    message: 'Post-ready diagnostic passed',
+    controllerStatus: state.status,
+    controllerRevisionId,
+    immediateBlank,
+    probeOutcome: 'healthy',
+    probeReason: null,
+    metrics: probe.metrics,
+  };
+}
 
 /**
  * Schedule a white-screen check to run POST_READY_DELAY_MS after ready_set.
@@ -232,83 +929,72 @@ export function schedulePostReadyCheck(buildId: string): void {
   previewLog('white_screen_check_scheduled', {
     buildId,
     delayMs: POST_READY_DELAY_MS,
+    watchdogBuildId: _postPromotionWatch?.buildId ?? null,
   });
 
   _pendingTimer = setTimeout(async () => {
     _pendingTimer = null;
-
-    // Verify we're still in ready state for this build
-    const state = previewController.getState();
-    if (state.status !== 'ready') {
-      previewLog('white_screen_check_skipped', {
-        buildId,
-        reason: 'status_changed',
-        currentStatus: state.status,
-      });
-      return;
-    }
-    if (state.activeRevisionId && state.activeRevisionId !== buildId) {
-      previewLog('white_screen_check_skipped', {
-        buildId,
-        reason: 'revision_changed',
-        currentRevision: state.activeRevisionId,
-      });
-      return;
-    }
-
     previewLog('white_screen_check_start', { buildId });
 
-    const result = await probeIframe(buildId);
+    const result = await runPostReadyDiagnostic(buildId);
 
-    if (!result) {
-      previewLog('white_screen_check_inconclusive', {
-        buildId,
-        reason: 'no_response',
-      });
-      return;
-    }
-
-    if (result.healthy) {
-      previewLog('white_screen_check_passed', {
-        buildId,
-        rootChildCount: result.metrics.rootChildCount,
-        rootTextLength: result.metrics.rootInnerTextLength,
-        rootHeight: result.metrics.rootOffsetHeight,
-      });
-      return;
-    }
-
-    // ── White screen detected ────────────────────────────────
-    previewLog('white_screen_detected', {
+    previewLog('post_ready_diagnostic_result', {
       buildId,
+      status: result.status,
       reason: result.reason,
-      rootChildCount: result.metrics.rootChildCount,
-      rootTextLength: result.metrics.rootInnerTextLength,
-      rootHeight: result.metrics.rootOffsetHeight,
-      rootTextHead: result.metrics.rootTextHead,
+      controllerStatus: result.controllerStatus,
+      controllerRevisionId: result.controllerRevisionId,
+      immediateBlank: result.immediateBlank,
+      probeOutcome: result.probeOutcome,
+      probeReason: result.probeReason,
     });
 
-    // Set diagnostic stage — does NOT change status to 'failed'.
-    // The preview stays in 'ready' because the handshake was legitimate.
-    // This creates a detectable diagnostic trail for the UI to act on.
+    if (result.status === 'healthy') {
+      previewLog('white_screen_check_passed', {
+        buildId,
+        rootChildCount: result.metrics?.rootChildCount ?? null,
+        rootTextLength: result.metrics?.rootInnerTextLength ?? null,
+        rootHeight: result.metrics?.rootOffsetHeight ?? null,
+      });
+      return;
+    }
+
+    if (result.status === 'inconclusive') {
+      previewLog('white_screen_check_inconclusive', {
+        buildId,
+        reason: result.reason,
+      });
+      await handleWatchdogDiagnostic(result);
+      return;
+    }
+
+    previewLog('white_screen_detected', {
+      buildId,
+      reason: result.probeReason ?? result.reason,
+      diagnosticReason: result.reason,
+      rootChildCount: result.metrics?.rootChildCount ?? null,
+      rootTextLength: result.metrics?.rootInnerTextLength ?? null,
+      rootHeight: result.metrics?.rootOffsetHeight ?? null,
+      rootTextHead: result.metrics?.rootTextHead ?? '',
+    });
     previewController.setDiagnosticError(
       'white-screen-detected',
-      `White screen after ready: ${result.reason}` +
-        ` (rootChildren=${result.metrics.rootChildCount},` +
-        ` textLen=${result.metrics.rootInnerTextLength},` +
-        ` height=${result.metrics.rootOffsetHeight})`,
+      buildDiagnosticMessage(result),
       buildId,
     );
+    await handleWatchdogDiagnostic(result);
   }, POST_READY_DELAY_MS);
 }
 
 /**
- * Cancel any pending white-screen check. Called when a new compile starts
- * (the previous ready state is no longer relevant).
+ * Cancel any pending white-screen check (initial or confirmation). Called
+ * when a new compile starts (the previous ready state is no longer relevant).
  */
 export function cancelPendingCheck(): void {
   if (_pendingTimer !== null) {
     clearTimeout(_pendingTimer);
     _pendingTimer = null;
   }
+  // Also clear the first-signal tracker — if we cancel mid-confirmation, start fresh
+  _firstUnhealthyBuildId = null;
 }

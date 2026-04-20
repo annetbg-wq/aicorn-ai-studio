@@ -63,7 +63,7 @@ import { projectGraphToFileMap, syncRoutes, validateAllRouteLayers } from '../sh
 import { GenerationQualityService } from './benchmark/GenerationQualityService';
 import { VisualQualityService } from './benchmark/VisualQualityService';
 import { metricsService } from './MetricsService';
-import { revisionManager } from './RevisionManager';
+import { revisionManager, PREVIEW_BOOTSTRAP_MARKER } from './RevisionManager';
 import { previewController, previewLog, setTimelineContext } from './PreviewController';
 import { commandBus } from './studioCommandBus';
 import { getLocalDevAgentProvider, syncLocalDevAgentMode } from './devAgentMode';
@@ -4033,8 +4033,11 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       if (resp.ok) {
         const data = await resp.json() as { files?: Record<string, string> };
         existingFiles = data.files ?? {};
-        // Exclude placeholder App.tsx — not real user content
-        if (existingFiles['App.tsx']?.includes('Waiting for generation')) {
+        // Exclude the studio bootstrap preview shell — it is starter chrome, not user content.
+        if (
+          existingFiles['App.tsx']?.includes(PREVIEW_BOOTSTRAP_MARKER) ||
+          existingFiles['App.tsx']?.includes('Waiting for generation')
+        ) {
           delete existingFiles['App.tsx'];
         }
         // Exclude index.css — it is the theme file, not user code
@@ -5877,6 +5880,12 @@ Generate the complete application for: ${config.intent}`;
       `[SimpleGeneration] Final live-preview check ${finalCheck.status}: ${finalCheck.message}`,
     );
 
+    const finalCheckBlockedNotRendered =
+      finalCheck.reason === 'blank_root' ||
+      finalCheck.reason === 'placeholder_only' ||
+      finalCheck.reason === 'blank_iframe' ||
+      (finalCheck.reason === 'probe_failed' && finalCheck.probeReason !== null);
+
     let shipOutcome = resolveShipOutcome(compiled, finalCheck);
     if (shipOutcome === 'SHIP_OK' || shipOutcome === 'SHIP_PARTIAL') {
       const promotionMode = shipOutcome === 'SHIP_PARTIAL' ? 'degraded' : 'normal';
@@ -5948,6 +5957,16 @@ Generate the complete application for: ${config.intent}`;
         };
       }
     } else if (candidateViable) {
+      if (finalCheckBlockedNotRendered) {
+        previewLog('promotion_blocked_not_rendered', {
+          buildId: revId,
+          source: 'SimpleGeneration.run',
+          finalCheckReason: finalCheck.reason,
+          finalCheckMessage: finalCheck.message,
+          probeReason: finalCheck.probeReason,
+          probeOutcome: finalCheck.probeOutcome,
+        });
+      }
       previewLog('promotion_decision', {
         buildId: revId,
         source: 'SimpleGeneration.run',

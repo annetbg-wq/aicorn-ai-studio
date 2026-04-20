@@ -61,9 +61,9 @@ import {
 import {
   cancelPendingCheck,
   cancelPostPromotionWatch,
+  inspectPreviewRenderSurface,
   startPostPromotionWatch,
   type PostReadyDiagnosticResult,
-  WhiteScreenDetector,
 } from './WhiteScreenDetector';
 
 const MAX_REVISIONS = 20;
@@ -75,6 +75,7 @@ const MAX_REVISIONS = 20;
  * isolation-skip from a genuine failure.
  */
 export const PRELOAD_SKIP_OWNED_MSG = 'generation currently owns the preview path';
+export const PREVIEW_BOOTSTRAP_MARKER = 'data-preview-bootstrap="true"';
 
 /**
  * Adaptive compile timeout: scales with file count.
@@ -199,7 +200,57 @@ export class RevisionManager {
 
   async createEmptyCandidate(): Promise<string> {
     const id = await this.createCandidate();
-    const placeholder = 'export default function App() { return <div>Waiting for generation...</div>; }\n';
+    const placeholder = `export default function App() {
+  return (
+    <main
+      data-preview-bootstrap="true"
+      style={{
+        minHeight: '100vh',
+        display: 'grid',
+        placeItems: 'center',
+        padding: '24px',
+        background: 'linear-gradient(135deg, #0f172a 0%, #111827 100%)',
+        color: '#e5eefb',
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}
+    >
+      <section
+        style={{
+          width: 'min(560px, 100%)',
+          borderRadius: '18px',
+          border: '1px solid rgba(148, 163, 184, 0.28)',
+          background: 'rgba(15, 23, 42, 0.92)',
+          boxShadow: '0 18px 48px rgba(15, 23, 42, 0.28)',
+          padding: '24px',
+        }}
+      >
+        <p style={{ margin: '0 0 8px', fontSize: '12px', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#93c5fd' }}>
+          Studio ready
+        </p>
+        <h1 style={{ margin: '0 0 12px', fontSize: '28px', lineHeight: 1.2 }}>
+          Start your next project
+        </h1>
+        <p style={{ margin: '0 0 18px', lineHeight: 1.6, color: '#cbd5e1' }}>
+          Describe the app, page, or workflow you want to build. The generated preview will appear here.
+        </p>
+        <button
+          type="button"
+          style={{
+            padding: '12px 16px',
+            borderRadius: '12px',
+            border: 'none',
+            background: '#38bdf8',
+            color: '#082f49',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Describe your idea
+        </button>
+      </section>
+    </main>
+  );
+}\n`;
     await this.writeCandidateFile(id, 'App.tsx', placeholder);
     const result = await this.compileCandidate(id);
     if (!result.success) {
@@ -544,8 +595,8 @@ export class RevisionManager {
    *
    * Two-gate promotion model:
    *   Gate 1 — compileCandidate(): waits for `preview-mounted` from the iframe.
-   *   Gate 2 — WhiteScreenDetector.isBlank(): verifies the iframe is not blank
-   *             immediately after mount. If Gate 2 fails → last-good is restored,
+  *   Gate 2 — immediate render-surface check: verifies the iframe is not blank
+  *             or placeholder-only immediately after mount. If Gate 2 fails → last-good is restored,
    *             notifyFailed is called, state is cleaned up, PROMOTE_BLOCKED thrown.
    *
    * After Gate 2 passes, a separate bounded post-promotion watchdog may still
@@ -572,19 +623,28 @@ export class RevisionManager {
     }
 
     const previousActiveRevisionId = this.activeRevisionId;
-    const iframe = document.querySelector<HTMLIFrameElement>(
-      `iframe[data-build-id="${revisionId}"], iframe[data-testid="preview-iframe"], iframe[src*="/__preview"]`,
-    );
-    const blank = await WhiteScreenDetector.isBlank(iframe);
-    if (blank) {
+    const immediateSurface = inspectPreviewRenderSurface(revisionId);
+    if (!immediateSurface.healthy) {
       previewLog('promote_blocked_white_screen', {
         buildId: revisionId,
         previousActiveRevisionId,
         promotionMode,
+        renderFailureReason: immediateSurface.failureReason,
+        probeReason: immediateSurface.probeReason,
+      });
+      previewLog('promotion_blocked_not_rendered', {
+        buildId: revisionId,
+        previousActiveRevisionId,
+        promotionMode,
+        renderFailureReason: immediateSurface.failureReason,
+        probeReason: immediateSurface.probeReason,
+        rootChildCount: immediateSurface.metrics?.rootChildCount ?? null,
+        rootTextLength: immediateSurface.metrics?.rootInnerTextLength ?? null,
+        rootTextHead: immediateSurface.metrics?.rootTextHead ?? '',
       });
       previewController.setDiagnosticError(
         'white-screen-detected',
-        'Preview is blank',
+        immediateSurface.message.replace('Final live-preview check failed: ', ''),
         revisionId,
       );
 
@@ -632,7 +692,10 @@ export class RevisionManager {
         }
       } else {
         // No previous active revision — nothing to restore.
-        previewController.notifyFailed('Preview is blank', revisionId);
+        previewController.notifyFailed(
+          immediateSurface.message.replace('Final live-preview check failed: ', ''),
+          revisionId,
+        );
       }
 
       // Reset state before throw so candidateRevisionId/compiledRevisionId are
