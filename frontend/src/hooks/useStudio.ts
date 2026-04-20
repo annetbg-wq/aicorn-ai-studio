@@ -1491,6 +1491,7 @@ export const useStudio = () => {
     clearAttachments();
     clearComposerContextItems();
     setPreviewLifecycle('idle');
+    setPreviewBlockedReason(null);
     setPreviewUrl('');
     setPreviewReady(false);
     localStorage.removeItem('CHAT_HISTORY');
@@ -1521,13 +1522,21 @@ export const useStudio = () => {
       const full = await ProjectRepository.getProject(project.id);
       if (!full) {
         addLog('[Project] Not found in Supabase or localStorage');
+        setPreviewBlockedReason(`Project not found: ${project.id}`);
         return;
       }
 
       // 1. Compile project files — await so backend compile + preview-mounted(buildId) complete before React state update
+      const persistedFileCount = Object.keys(full.files ?? {}).length;
       try {
         await ProjectRepository.loadToPreview(full);
-        addLog('[Project] ✅ Loaded to preview');
+        if (persistedFileCount === 0) {
+          setPreviewBlockedReason('Repository preload failed: empty persisted file map');
+          addLog('[Project] No persisted files found for preview preload');
+        } else {
+          setPreviewBlockedReason(null);
+          addLog('[Project] ✅ Loaded to preview');
+        }
 
         // Integrity check: warn about imports that reference missing files
         const appCode = full.files['App.tsx'] ?? full.files['src/App.tsx'] ?? '';
@@ -1548,6 +1557,7 @@ export const useStudio = () => {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         addLog(`[Project] ❌ Preview load failed: ${msg}`);
+        setPreviewBlockedReason(`Repository preload failed: ${msg}`);
         chatAppend({
           role: 'assistant',
           content: `⚠️ Preview failed to load: ${msg}\n\nTry clicking Retry in the preview panel.`,
@@ -1827,6 +1837,9 @@ export const useStudio = () => {
     setCurrentPhase('think');
     setPreviewLifecycle('generating');
     setPreviewBlockedReason(null);
+    const runWorkspaceContext = resolveStudioKickoffContext(currentProjectId, currentProject);
+    const runProjectId = runWorkspaceContext.projectId ?? currentProjectId ?? crypto.randomUUID();
+    const runBranchId = runWorkspaceContext.branchId ?? DEFAULT_PROJECT_BRANCH_ID;
     commandBus.dispatch({ type: 'START_GENERATION', intent: effectiveInput, plan: {} });
     addLog('─'.repeat(40));
 
@@ -1925,8 +1938,8 @@ export const useStudio = () => {
     let userLang = /[а-яА-Я]/.test(userPrompt) ? 'ru' : 'en';
     if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') userLang = 'ru';
     const trustLanguage = appLanguage || userLang;
-    const storedProjectForTrust = currentProjectId ? ProjectStorage.getProject(currentProjectId) : null;
-    const activeBranchIdForTrust = storedProjectForTrust?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
+    const storedProjectForTrust = runProjectId ? ProjectStorage.getProject(runProjectId) : null;
+    const activeBranchIdForTrust = storedProjectForTrust?.activeBranchId ?? runBranchId;
     const branchArchitectureForTrust = storedProjectForTrust?.branches?.[activeBranchIdForTrust]?.architecture ?? null;
     const generationTrust = buildBranchTrustUiSummary(
       buildBranchGenerationGuidance(
@@ -2091,7 +2104,10 @@ export const useStudio = () => {
         addLog('[Kickoff] kickoff_prompt_received');
         try {
           setKickoffPhase('analyzing');
-          const kickoffContext = resolveStudioKickoffContext(currentProjectId, currentProject);
+          const kickoffContext = {
+            projectId: runProjectId,
+            branchId: runBranchId,
+          };
           if (!kickoffContext.projectId) {
             throw new Error('Cannot run Architect kickoff without a resolved project id');
           }
@@ -2139,6 +2155,8 @@ export const useStudio = () => {
         intent:       intentArg,
         history,
         files:        contextWithTheme,
+        projectId:    runProjectId,
+        branchId:     runBranchId,
         primaryRoute,
         buildRoute:   buildRouteOverride ?? buildRoute,
         fixRoute,
@@ -2490,7 +2508,7 @@ export const useStudio = () => {
         setPreviewBlockedReason(null);
       }
 
-      const projectId = currentProjectId ?? crypto.randomUUID();
+      const projectId = runProjectId;
 
       console.log('[Project] Name debug:', {
         capturedAppName,

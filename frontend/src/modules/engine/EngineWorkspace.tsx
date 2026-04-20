@@ -194,8 +194,11 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
 }) {
   const isDark = theme !== 'light';
 
-  const projectName =
-    projects.find((p: { id: string; title?: string }) => p.id === currentProjectId)?.title ?? '';
+  const currentProjectMeta =
+    projects.find((p: { id: string; title?: string; name?: string; activeBranchId?: string }) => p.id === currentProjectId);
+  const projectName = currentProjectMeta?.title ?? currentProjectMeta?.name ?? '';
+  const activeBranchId = currentProjectMeta?.activeBranchId ?? 'main';
+  const persistedProjectExists = currentProjectId ? projects.some(p => p.id === currentProjectId) : undefined;
 
   // ── Snapshot layer (undo/redo) — see useStudio glossary ─────────
   // These are snapshot counters, NOT RevisionManager build-revision UUIDs.
@@ -293,7 +296,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
           cloudAvailable={cloudAvailable}
           isDark={isDark}
           onBackup={onBackup}
-          activeBranch="main"
+          activeBranch={activeBranchId}
           snapshotNum={currentSnapshotNum}
           lastStableSnapshotNum={lastStableSnapshotNum}
           devIdentity={devIdentity}
@@ -375,7 +378,8 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             markSnapshotStable={markSnapshotStable}
             currentProjectId={currentProjectId}
             projectName={projectName}
-            activeBranch="main"
+            activeBranch={activeBranchId}
+            persistedProjectExists={persistedProjectExists}
             onShare={onShare}
             onDownloadProject={handleDownloadProject}
             onExportReactNative={Object.keys(files).length > 0 ? handleExportReactNative : undefined}
