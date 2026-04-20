@@ -8,6 +8,9 @@ import {
 } from 'lucide-react';
 import { visualEditBridge, type VisualEditMode, type SelectedElement } from '../services/VisualEditBridge';
 import type { FileMap } from '../hooks/useStudio';
+import type { VisibleReasoningTrace, VisibleReasoningStep } from '../shared/projectModel';
+import { generationTracer } from '../services/GenerationTracer';
+import type { GenerationTrace, TraceSpan } from '../services/GenerationTracer';
 
 import { CloudPanel }   from './CloudPanel';
 
@@ -495,19 +498,350 @@ const PixelFrame: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </div>
 );
 
+/* ---- Workspace binding contract ---- */
+
+export type WorkspaceProjectStateKind =
+  | 'none'
+  | 'persisted'
+  | 'stale_missing'
+  | 'preload_failed'
+  | 'live_run';
+
+export interface WorkspaceProjectState {
+  kind: WorkspaceProjectStateKind;
+  projectId: string | null;
+  branchId: string;
+  message?: string;
+}
+
+export type WorkspaceDiagnosticCode =
+  | 'artifact_ingress_failed'
+  | 'candidate_compile_failed'
+  | 'final_check_failed'
+  | 'watchdog_revoke'
+  | 'repository_preload_failed'
+  | 'project_not_found';
+
+export interface WorkspaceRunDiagnostic {
+  code: WorkspaceDiagnosticCode;
+  title: string;
+  detail: string;
+  runId?: string | null;
+}
+
+export type WorkspaceTraceScope =
+  | 'current-run'
+  | 'recent-project-branch'
+  | 'historical-archive'
+  | 'empty';
+
+export interface WorkspaceBinding {
+  projectId: string;
+  branchId: string;
+  runId: string | null;
+  scope: WorkspaceTraceScope;
+  trace: GenerationTrace | null;
+  projectState: WorkspaceProjectState;
+  diagnostic: WorkspaceRunDiagnostic | null;
+}
+
+export interface AnalyticsTraceRow {
+  key: string;
+  scope: Exclude<WorkspaceTraceScope, 'empty'>;
+  scopeLabel: string;
+  trace: GenerationTrace;
+}
+
+const DEFAULT_BRANCH_ID = 'main';
+
+function normalizeBranchId(branchId: string | null | undefined): string {
+  return branchId?.trim() || DEFAULT_BRANCH_ID;
+}
+
+function traceMatchesWorkspace(trace: GenerationTrace, projectId: string, branchId: string): boolean {
+  if (!projectId || trace.projectId !== projectId) return false;
+  return !trace.branchId || trace.branchId === branchId;
+}
+
+function latestFirst(traces: GenerationTrace[]): GenerationTrace[] {
+  return traces.slice().sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
+}
+
+function getTraceStopReason(trace: GenerationTrace): string {
+  const debug = trace.fullDebugTrace;
+  const eventReason = debug?.events?.slice().reverse().find(event => event.stopReason)?.stopReason;
+  return String(debug?.stopReason ?? eventReason ?? '').toLowerCase();
+}
+
+function getTraceErrorText(trace: GenerationTrace): string {
+  const eventErrors = trace.fullDebugTrace?.events
+    ?.flatMap(event => [event.errorSummary, ...(event.compileRuntimeLogs ?? [])])
+    .filter(Boolean)
+    .join('\n') ?? '';
+  return [
+    trace.errorSummary,
+    trace.fullDebugTrace?.stopReason,
+    eventErrors,
+  ].filter(Boolean).join('\n');
+}
+
+export function classifyWorkspaceFailureFromTrace(trace: GenerationTrace): WorkspaceRunDiagnostic | null {
+  if (trace.outcome === 'ok' && trace.visibleReasoningTrace?.finalOutcome !== 'ship_fail') {
+    return null;
+  }
+
+  const stopReason = getTraceStopReason(trace);
+  const errorText = getTraceErrorText(trace);
+  const search = `${stopReason}\n${errorText}`.toLowerCase();
+  const runId = trace.visibleReasoningTrace?.runId ?? trace.id;
+
+  if (search.includes('artifact_ingress_failed') || search.includes('artifact ingress failed')) {
+    return {
+      code: 'artifact_ingress_failed',
+      title: 'Current run stopped at artifact ingress',
+      detail: errorText || 'The model response could not be accepted as usable project files.',
+      runId,
+    };
+  }
+
+  if (search.includes('final_check_failed') || search.includes('final check failed') || search.includes('live-preview check')) {
+    return {
+      code: 'final_check_failed',
+      title: 'Current run failed the final check',
+      detail: errorText || 'The candidate compiled, but the final live-preview check blocked promotion.',
+      runId,
+    };
+  }
+
+  if (search.includes('promotion_revoked') || search.includes('watchdog') || search.includes('revoked')) {
+    return {
+      code: 'watchdog_revoke',
+      title: 'Current run was revoked by the preview watchdog',
+      detail: errorText || 'The promoted preview became unhealthy and was revoked.',
+      runId,
+    };
+  }
+
+  if (
+    search.includes('fast_gate_failed') ||
+    search.includes('candidate_not_viable') ||
+    search.includes('compile failed') ||
+    search.includes('candidate_materialization_failed') ||
+    search.includes('repair_budget')
+  ) {
+    return {
+      code: 'candidate_compile_failed',
+      title: 'Current run failed candidate compile',
+      detail: errorText || 'The generated candidate did not become a viable compiled revision.',
+      runId,
+    };
+  }
+
+  if (trace.outcome === 'error' || trace.visibleReasoningTrace?.finalOutcome === 'ship_fail') {
+    return {
+      code: 'candidate_compile_failed',
+      title: 'Current run failed before usable output',
+      detail: errorText || 'The run ended before a usable candidate could be promoted.',
+      runId,
+    };
+  }
+
+  return null;
+}
+
+function classifyWorkspaceProjectFailure(
+  projectState: WorkspaceProjectState,
+  previewBlockedReason?: string | null,
+): WorkspaceRunDiagnostic | null {
+  const reason = previewBlockedReason ?? projectState.message ?? '';
+  const lower = reason.toLowerCase();
+
+  if (projectState.kind === 'preload_failed' || lower.includes('repository preload failed') || lower.includes('preview load failed')) {
+    return {
+      code: 'repository_preload_failed',
+      title: 'Persisted project preload failed',
+      detail: reason || 'The saved project could not be materialized into the preview workspace.',
+      runId: null,
+    };
+  }
+
+  if (projectState.kind === 'stale_missing' || lower.includes('not found')) {
+    return {
+      code: 'project_not_found',
+      title: 'Persisted project state is missing',
+      detail: reason || 'The saved project row was not found. Live run state, if present, remains authoritative.',
+      runId: null,
+    };
+  }
+
+  return null;
+}
+
+export function resolveWorkspaceBinding(input: {
+  projectId?: string | null;
+  branchId?: string | null;
+  isGenerating?: boolean;
+  activeTrace?: GenerationTrace | null;
+  recentTraces?: GenerationTrace[];
+  persistedProjectExists?: boolean;
+  previewLifecycle?: string;
+  previewBlockedReason?: string | null;
+}): WorkspaceBinding {
+  const projectId = input.projectId ?? '';
+  const branchId = normalizeBranchId(input.branchId);
+  const recentTraces = latestFirst(input.recentTraces ?? []);
+  const activeTrace = input.activeTrace && traceMatchesWorkspace(input.activeTrace, projectId, branchId)
+    ? input.activeTrace
+    : null;
+  const scopedRecent = recentTraces.find(trace => traceMatchesWorkspace(trace, projectId, branchId)) ?? null;
+  const trace = activeTrace ?? scopedRecent;
+  const lifecycleKeepsCurrentRun =
+    input.previewLifecycle === 'generating' ||
+    input.previewLifecycle === 'validating' ||
+    input.previewLifecycle === 'committing' ||
+    input.previewLifecycle === 'materializing' ||
+    input.previewLifecycle === 'preview-ready' ||
+    input.previewLifecycle === 'degraded' ||
+    input.previewLifecycle === 'failed' ||
+    input.previewLifecycle === 'blocked';
+  const scope: WorkspaceTraceScope =
+    activeTrace || ((input.isGenerating || lifecycleKeepsCurrentRun) && trace)
+      ? 'current-run'
+      : trace
+        ? 'recent-project-branch'
+        : 'empty';
+
+  const projectState: WorkspaceProjectState =
+    input.isGenerating
+      ? { kind: 'live_run', projectId: projectId || null, branchId, message: 'Current generation run owns this workspace.' }
+      : !projectId
+        ? { kind: 'none', projectId: null, branchId, message: 'No project is currently selected.' }
+        : input.persistedProjectExists === false
+          ? { kind: 'stale_missing', projectId, branchId, message: 'Persisted project row is missing or stale.' }
+          : { kind: 'persisted', projectId, branchId };
+
+  const diagnostic =
+    (trace ? classifyWorkspaceFailureFromTrace(trace) : null)
+    ?? classifyWorkspaceProjectFailure(projectState, input.previewBlockedReason);
+
+  return {
+    projectId,
+    branchId,
+    runId: trace?.visibleReasoningTrace?.runId ?? trace?.id ?? null,
+    scope,
+    trace,
+    projectState,
+    diagnostic,
+  };
+}
+
+export function buildScopedTraceRows(input: {
+  binding: WorkspaceBinding;
+  recentTraces: GenerationTrace[];
+}): AnalyticsTraceRow[] {
+  const rows: AnalyticsTraceRow[] = [];
+  const seen = new Set<string>();
+  const add = (trace: GenerationTrace, scope: AnalyticsTraceRow['scope']) => {
+    const identity = `${trace.id}:${trace.startedAt}`;
+    if (seen.has(identity)) return;
+    seen.add(identity);
+    rows.push({
+      key: `${scope}:${trace.projectId ?? 'no-project'}:${trace.branchId ?? DEFAULT_BRANCH_ID}:${identity}`,
+      scope,
+      scopeLabel:
+        scope === 'current-run'
+          ? 'Current run'
+          : scope === 'recent-project-branch'
+            ? 'Recent runs for current project / branch'
+            : 'Historical archive',
+      trace,
+    });
+  };
+
+  if (input.binding.trace) {
+    add(
+      input.binding.trace,
+      input.binding.scope === 'recent-project-branch' ? 'recent-project-branch' : 'current-run',
+    );
+  }
+
+  for (const trace of latestFirst(input.recentTraces)) {
+    if (traceMatchesWorkspace(trace, input.binding.projectId, input.binding.branchId)) {
+      add(trace, 'recent-project-branch');
+    } else if (!input.binding.projectId) {
+      add(trace, 'historical-archive');
+    }
+  }
+
+  return rows;
+}
+
+const WorkspaceDiagnosticPanel: React.FC<{
+  diagnostic: WorkspaceRunDiagnostic;
+  testId: string;
+  compact?: boolean;
+}> = ({ diagnostic, testId, compact = false }) => (
+  <div
+    data-testid={testId}
+    data-diagnostic-code={diagnostic.code}
+    style={{
+      margin: compact ? 0 : '80px auto 0',
+      maxWidth: 560,
+      borderRadius: 12,
+      border: '1px solid rgba(255,69,58,0.28)',
+      background: 'rgba(255,69,58,0.07)',
+      padding: compact ? '9px 12px' : '16px 18px',
+      color: 'rgba(255,255,255,0.78)',
+      fontSize: compact ? 11 : 13,
+      lineHeight: 1.55,
+    }}
+  >
+    <div style={{ fontWeight: 700, color: '#ff9f0a', marginBottom: 4 }}>
+      {diagnostic.title}
+    </div>
+    <div style={{ color: 'rgba(255,255,255,0.55)', whiteSpace: 'pre-wrap' }}>
+      {diagnostic.detail}
+    </div>
+    {diagnostic.runId && (
+      <div style={{ marginTop: 8, fontSize: 10, color: 'rgba(255,255,255,0.34)', fontFamily: 'monospace' }}>
+        run {diagnostic.runId}
+      </div>
+    )}
+  </div>
+);
+
 /* ---- Code Panel ---- */
 
 const CodePanel: React.FC<{
   files: FileMap; setFiles: (f:FileMap)=>void;
   activeFile: string; setActiveFile: (n:string)=>void;
-}> = ({ files, setFiles, activeFile, setActiveFile }) => {
+  binding: WorkspaceBinding;
+}> = ({ files, setFiles, activeFile, setActiveFile, binding }) => {
   const [copied, setCopied] = useState(false);
   const names = Object.keys(files);
-  const code  = files[activeFile] ?? '';
+  const displayFile = files[activeFile] !== undefined ? activeFile : (names[0] ?? activeFile);
+  const code  = files[displayFile] ?? '';
 
   const copy = () => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(()=>setCopied(false),2000); };
   const add  = () => { const n=prompt('File name'); if(n?.trim()){setFiles({...files,[n.trim()]:''});setActiveFile(n.trim());} };
   const del  = (n:string) => { if(names.length<=1)return; const u={...files}; delete u[n]; setFiles(u); if(activeFile===n)setActiveFile(Object.keys(u)[0]); };
+
+  if (names.length === 0) {
+    return (
+      <div style={{ width:'100%', height:'100%', background:'#0a0a0a', overflow:'auto', padding:20, boxSizing:'border-box' }}>
+        {binding.diagnostic ? (
+          <WorkspaceDiagnosticPanel diagnostic={binding.diagnostic} testId="code-diagnostic" />
+        ) : (
+          <div
+            data-testid="code-empty"
+            style={{ textAlign:'center', marginTop:80, color:'rgba(255,255,255,0.32)', fontSize:13 }}
+          >
+            No code files are available for the current workspace scope.
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ width:'100%', height:'100%', display:'flex', background:'#0a0a0a' }}>
@@ -532,8 +866,11 @@ const CodePanel: React.FC<{
       </div>
       {/* Editor */}
       <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
+        {binding.diagnostic && (
+          <WorkspaceDiagnosticPanel diagnostic={binding.diagnostic} testId="code-diagnostic-banner" compact />
+        )}
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0 }}>
-          <span style={{ fontSize:11, color:'rgba(255,255,255,0.28)', fontFamily:'monospace' }}>{activeFile}</span>
+          <span style={{ fontSize:11, color:'rgba(255,255,255,0.28)', fontFamily:'monospace' }}>{displayFile}</span>
           <button onClick={copy} style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 12px', borderRadius:7, background:'none', border:'none', cursor:'pointer', fontSize:11, color:copied?'#30d158':'rgba(255,255,255,0.3)' }}>
             {copied?<Check size={12}/>:<Copy size={12}/>} {copied?'Copied':'Copy'}
           </button>
@@ -541,7 +878,7 @@ const CodePanel: React.FC<{
         <textarea
           data-testid="code-editor-textarea"
           style={{ flex:1, background:'transparent', border:'none', outline:'none', resize:'none', padding:'16px 20px', fontSize:12, lineHeight:1.7, fontFamily:'monospace', color:'rgba(255,255,255,0.72)', whiteSpace:'pre', overflowWrap:'normal' }}
-          value={code} onChange={e=>setFiles({...files,[activeFile]:e.target.value})} spellCheck={false}
+          value={code} onChange={e=>setFiles({...files,[displayFile]:e.target.value})} spellCheck={false}
         />
       </div>
     </div>
@@ -551,9 +888,6 @@ const CodePanel: React.FC<{
 /* ---- Mini panels ---- */
 
 // ── ObservabilityPanel — real generation traces ─────────────────────────────
-
-import { generationTracer } from '../services/GenerationTracer';
-import type { GenerationTrace, TraceSpan } from '../services/GenerationTracer';
 
 const SpanRow: React.FC<{ span: TraceSpan; depth: number }> = ({ span, depth }) => {
   const [open, setOpen] = useState(false);
@@ -576,12 +910,15 @@ const SpanRow: React.FC<{ span: TraceSpan; depth: number }> = ({ span, depth }) 
           <span style={{ fontSize:9, color:'rgba(255,255,255,0.3)' }}>{open ? '▾' : '▸'}</span>
         )}
       </div>
-      {open && span.children.map((ch, i) => <SpanRow key={i} span={ch} depth={depth + 1} />)}
+      {open && span.children.map((ch, i) => (
+        <SpanRow key={`${ch.name}:${ch.startMs}:${i}`} span={ch} depth={depth + 1} />
+      ))}
     </>
   );
 };
 
-const TraceCard: React.FC<{ trace: GenerationTrace }> = ({ trace }) => {
+const TraceCard: React.FC<{ row: AnalyticsTraceRow }> = ({ row }) => {
+  const { trace } = row;
   const [open, setOpen] = useState(false);
   const outcome = trace.outcome;
   const oc = outcome === 'ok' ? '#30d158' : outcome === 'warn' ? '#ffd60a' : '#ff453a';
@@ -599,7 +936,7 @@ const TraceCard: React.FC<{ trace: GenerationTrace }> = ({ trace }) => {
             {trace.intent.slice(0, 60)}
           </div>
           <div style={{ fontSize:9, color:'rgba(255,255,255,0.25)', marginTop:2 }}>
-            {date} · {trace.mode.toUpperCase()} · {trace.model.split('/').pop()?.slice(0, 20)}
+            {row.scopeLabel} · {date} · {trace.mode.toUpperCase()} · {trace.model.split('/').pop()?.slice(0, 20)}
           </div>
         </div>
         <div style={{ display:'flex', gap:10, fontSize:10, color:'rgba(255,255,255,0.35)', flexShrink:0 }}>
@@ -616,14 +953,16 @@ const TraceCard: React.FC<{ trace: GenerationTrace }> = ({ trace }) => {
               ✗ {trace.errorSummary}
             </div>
           )}
-          {trace.spans.map((span, i) => <SpanRow key={i} span={span} depth={0} />)}
+          {trace.spans.map((span, i) => (
+            <SpanRow key={`${trace.id}:${span.name}:${span.startMs}:${i}`} span={span} depth={0} />
+          ))}
         </div>
       )}
     </div>
   );
 };
 
-const AnalyticsPanel = () => {
+const AnalyticsPanel: React.FC<{ binding: WorkspaceBinding }> = ({ binding }) => {
   const [traces, setTraces] = useState<GenerationTrace[]>(() =>
     generationTracer.getRecent(20).reverse(),
   );
@@ -634,22 +973,38 @@ const AnalyticsPanel = () => {
     return () => window.removeEventListener('studio-trace', handler);
   }, []);
 
-  const ok      = traces.filter(t => t.outcome === 'ok').length;
-  const errored = traces.filter(t => t.outcome === 'error').length;
-  const avgE2e  = traces.filter(t => t.e2eMs !== undefined).reduce((a, t) => a + (t.e2eMs ?? 0), 0) / (traces.length || 1);
-  const avgTtft = traces.filter(t => t.ttftMs !== undefined).reduce((a, t) => a + (t.ttftMs ?? 0), 0) / (traces.filter(t => t.ttftMs !== undefined).length || 1);
+  const rows = buildScopedTraceRows({ binding, recentTraces: traces });
+  const rowTraces = rows.map(row => row.trace);
+  const ok      = rowTraces.filter(t => t.outcome === 'ok').length;
+  const errored = rowTraces.filter(t => t.outcome === 'error').length;
+  const avgE2e  = rowTraces.filter(t => t.e2eMs !== undefined).reduce((a, t) => a + (t.e2eMs ?? 0), 0) / (rowTraces.length || 1);
+  const avgTtft = rowTraces.filter(t => t.ttftMs !== undefined).reduce((a, t) => a + (t.ttftMs ?? 0), 0) / (rowTraces.filter(t => t.ttftMs !== undefined).length || 1);
+  const scopeLabel =
+    binding.scope === 'current-run'
+      ? 'Current run'
+      : binding.scope === 'recent-project-branch'
+        ? 'Recent runs for current project / branch'
+        : binding.projectId
+          ? 'No current run for this project / branch'
+          : 'Historical archive';
 
   return (
     <div style={{ width:'100%', height:'100%', overflowY:'auto', padding:20, background:'#060606', boxSizing:'border-box' }}>
-      <h2 style={{ fontSize:13, fontWeight:600, marginBottom:16, color:'rgba(255,255,255,0.7)' }}>Generation Traces</h2>
+      <h2 style={{ fontSize:13, fontWeight:600, marginBottom:6, color:'rgba(255,255,255,0.7)' }}>Workspace Analytics</h2>
+      <div
+        data-testid="analytics-scope-label"
+        style={{ fontSize:10, color:'rgba(255,255,255,0.36)', marginBottom:14, fontFamily:'monospace' }}
+      >
+        {scopeLabel} · project {binding.projectId || 'none'} · branch {binding.branchId} · run {binding.runId ?? 'none'}
+      </div>
 
       {/* Summary stats */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:16 }}>
         {[
-          { l:'Total', v: traces.length },
+          { l:'Scoped', v: rows.length },
           { l:'Success', v: ok, clr:'#30d158' },
           { l:'Failed', v: errored, clr: errored > 0 ? '#ff453a' : undefined },
-          { l:'Avg E2E', v: traces.length ? `${(avgE2e/1000).toFixed(1)}s` : '—' },
+          { l:'Avg E2E', v: rows.length ? `${(avgE2e/1000).toFixed(1)}s` : '—' },
         ].map(s => (
           <div key={s.l} style={{ borderRadius:12, padding:'10px 12px', background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
             <div style={{ fontSize:9, color:'rgba(255,255,255,0.25)', marginBottom:4 }}>{s.l}</div>
@@ -659,22 +1014,22 @@ const AnalyticsPanel = () => {
       </div>
 
       {/* TTFT */}
-      {traces.length > 0 && avgTtft > 0 && (
+      {rows.length > 0 && avgTtft > 0 && (
         <div style={{ marginBottom:12, padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)', fontSize:10, color:'rgba(255,255,255,0.4)' }}>
           Avg time-to-first-token: <strong style={{ color:'rgba(255,255,255,0.7)' }}>{Math.round(avgTtft)}ms</strong>
         </div>
       )}
 
       {/* Trace list */}
-      {traces.length === 0 ? (
+      {rows.length === 0 ? (
         <div style={{ textAlign:'center', padding:40, color:'rgba(255,255,255,0.2)', fontSize:12 }}>
-          No traces yet — run a generation to see the pipeline breakdown
+          No traces for the current project / branch scope.
         </div>
       ) : (
-        traces.map(t => <TraceCard key={t.id} trace={t} />)
+        rows.map(row => <TraceCard key={row.key} row={row} />)
       )}
 
-      {traces.length > 0 && (
+      {rows.length > 0 && (
         <button
           onClick={() => { generationTracer.clear(); setTraces([]); }}
           style={{ marginTop:8, width:'100%', padding:'8px 0', borderRadius:10, border:'1px solid rgba(255,69,58,0.3)', background:'rgba(255,69,58,0.06)', color:'rgba(255,69,58,0.7)', fontSize:11, cursor:'pointer' }}
@@ -837,7 +1192,83 @@ const SecurityPanel: React.FC<{ files: FileMap }> = ({ files }) => {
 
 /* ---- Types ---- */
 
-type TabId = 'preview'|'code'|'design'|'analytics'|'security'|'cloud';
+type TabId = 'preview'|'reasoning'|'code'|'design'|'analytics'|'security'|'cloud';
+
+const REASONING_STEP_LABEL: Record<string, string> = {
+  intent_understanding: 'Understand the request',
+  architect_plan: 'Plan the solution',
+  design_direction: 'Set design direction',
+  coder_generation: 'Generate code',
+  artifact_retry: 'Retry artifact parsing',
+  candidate_materialize: 'Materialize candidate',
+  fast_gate: 'Run quick checks',
+  repair_attempt: 'Repair attempt',
+  reviewer_result: 'Review result',
+  ship_decision: 'Finalize outcome',
+};
+
+const REASONING_STATUS_LABEL: Record<string, string> = {
+  pending: 'Pending',
+  in_progress: 'In progress',
+  completed: 'Done',
+  warning: 'Warning',
+  failed: 'Failed',
+  skipped: 'Skipped',
+};
+
+const REASONING_STATUS_COLOR: Record<string, string> = {
+  pending: '#6b7280',
+  in_progress: '#f97316',
+  completed: '#22c55e',
+  warning: '#f59e0b',
+  failed: '#ef4444',
+  skipped: '#94a3b8',
+};
+
+const REASONING_OUTCOME_LABEL: Record<string, string> = {
+  ship_ok: 'Completed successfully',
+  ship_partial: 'Completed with partial quality',
+  ship_fail: 'Run failed before promotion',
+  cancelled: 'Run cancelled',
+  superseded: 'Run replaced by a newer one',
+};
+
+function getReasoningStepLabel(step: VisibleReasoningStep): string {
+  return REASONING_STEP_LABEL[step.kind] ?? step.kind;
+}
+
+function getReasoningStatus(step: VisibleReasoningStep): { label: string; color: string } {
+  return {
+    label: REASONING_STATUS_LABEL[step.status] ?? step.status,
+    color: REASONING_STATUS_COLOR[step.status] ?? '#94a3b8',
+  };
+}
+
+function getReasoningOutcomeSummary(trace: VisibleReasoningTrace): string | null {
+  if (!trace.finalOutcome) return null;
+  return REASONING_OUTCOME_LABEL[trace.finalOutcome] ?? trace.finalOutcome;
+}
+
+function formatVisibleReasoningForCopy(trace: VisibleReasoningTrace): string {
+  const lines: string[] = [
+    'Visible reasoning trace',
+    `Run: ${trace.runId}`,
+    `Started: ${trace.startedAt}`,
+  ];
+  const outcome = getReasoningOutcomeSummary(trace);
+  if (outcome) lines.push(`Outcome: ${outcome}`);
+  lines.push('');
+  trace.steps.forEach((step, index) => {
+    const status = REASONING_STATUS_LABEL[step.status] ?? step.status;
+    const attempt = step.attemptNumber ? ` (attempt ${step.attemptNumber})` : '';
+    lines.push(`${index + 1}. ${getReasoningStepLabel(step)} — ${status}${attempt}`);
+    lines.push(`   ${step.summary}`);
+    if (step.errorSummary) {
+      lines.push(`   Error: ${step.errorSummary}`);
+    }
+  });
+  return lines.join('\n').trim();
+}
 
 interface PreviewCanvasProps {
   device: string;
@@ -860,6 +1291,7 @@ interface PreviewCanvasProps {
   // Architectural context (passed from EngineWorkspace)
   projectName?:   string;
   activeBranch?:  string;
+  persistedProjectExists?: boolean;
   // Stable-revision tracking
   currentSnapshotId?:   string | null;
   markSnapshotStable?:  (snapshotId: string) => void;
@@ -887,6 +1319,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   currentTheme, onShare, onDownloadProject, onExportReactNative, rnExporting = false, rnExportChars = 0,
   currentVersion, totalVersions,
   addLog, projectName, activeBranch = 'main',
+  persistedProjectExists,
   currentSnapshotId, markSnapshotStable, currentProjectId,
   isAutoFixing = false,
   isGenerating = false,
@@ -900,10 +1333,66 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
 }) => {
   const iframeUrl = previewUrl || (projectId ? `/preview/${projectId}` : '');
   const [tab, setTab] = useState<TabId>('preview');
+  const resolveBinding = useCallback(() => resolveWorkspaceBinding({
+    projectId,
+    branchId: activeBranch,
+    isGenerating,
+    activeTrace: generationTracer.current()?.snapshot() ?? null,
+    recentTraces: generationTracer.getRecent(20),
+    persistedProjectExists,
+    previewLifecycle,
+    previewBlockedReason,
+  }), [projectId, activeBranch, isGenerating, persistedProjectExists, previewLifecycle, previewBlockedReason]);
+  const [workspaceBinding, setWorkspaceBinding] = useState<WorkspaceBinding>(() => resolveBinding());
+  const [reasoningCopied, setReasoningCopied] = useState(false);
 
   // ── Visual-edit bridge — local state ─────────────────────────────────────
   const [visualEditMode,     setVisualEditModeState] = useState<VisualEditMode>('off');
   const [visualEditSelected, setVisualEditSelectedState] = useState<SelectedElement | null>(null);
+
+  useEffect(() => {
+    setWorkspaceBinding(resolveBinding());
+  }, [resolveBinding]);
+
+  useEffect(() => {
+    const refresh = () => setWorkspaceBinding(resolveBinding());
+    refresh();
+    window.addEventListener('studio-trace', refresh);
+    const timer = window.setInterval(() => {
+      if (isGenerating || generationTracer.current()) refresh();
+    }, 350);
+    return () => {
+      window.removeEventListener('studio-trace', refresh);
+      window.clearInterval(timer);
+    };
+  }, [resolveBinding, isGenerating]);
+
+  const visibleReasoningTrace = workspaceBinding.trace?.visibleReasoningTrace ?? null;
+
+  const copyVisibleReasoningTrace = useCallback(async () => {
+    if (!visibleReasoningTrace) return;
+    const text = formatVisibleReasoningForCopy(visibleReasoningTrace);
+    if (!text) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.setAttribute('readonly', '');
+        el.style.position = 'absolute';
+        el.style.left = '-9999px';
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      }
+      setReasoningCopied(true);
+      window.setTimeout(() => setReasoningCopied(false), 1500);
+    } catch {
+      setReasoningCopied(false);
+    }
+  }, [visibleReasoningTrace]);
 
   // Subscribe to bridge state — fires selection callback when element is picked
   useEffect(() => {
@@ -937,7 +1426,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   };
 
   const TABS: {id:TabId;label:string}[] = [
-    {id:'preview',label:'Preview'},{id:'code',label:'Code'},{id:'design',label:'Design'},
+    {id:'preview',label:'Preview'},{id:'reasoning',label:'Reasoning'},{id:'code',label:'Code'},{id:'design',label:'Design'},
     {id:'analytics',label:'Analytics'},{id:'security',label:'Security'},{id:'cloud',label:'Cloud'},
   ];
 
@@ -1043,6 +1532,15 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   const countdownText = String(isPreviewReady ? 0 : Math.max(1, Math.ceil(countdownSec))).padStart(2, '0');
   const ctxText  = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
   const ctxStrong = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)';
+  const reasoningSteps = visibleReasoningTrace?.steps ?? [];
+  const hasReasoningTrace = reasoningSteps.length > 0;
+  const activeReasoningStep =
+    (visibleReasoningTrace?.activeStepId
+      ? reasoningSteps.find(step => step.id === visibleReasoningTrace.activeStepId)
+      : undefined)
+    ?? reasoningSteps.find(step => step.isActive)
+    ?? (reasoningSteps.length > 0 ? reasoningSteps[reasoningSteps.length - 1] : null);
+  const reasoningOutcomeSummary = visibleReasoningTrace ? getReasoningOutcomeSummary(visibleReasoningTrace) : null;
   const previewFrame = shouldRenderIframe ? (
     <ZoomableCanvas
       draggable={false}
@@ -1128,6 +1626,17 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                 </button>
               ))}
             </div>
+          )}
+          {tab === 'reasoning' && (
+            <button
+              data-testid="copy-visible-reasoning-btn"
+              onClick={copyVisibleReasoningTrace}
+              title="Copy visible reasoning trace"
+              disabled={!hasReasoningTrace}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:8, border:`1px solid ${th.border}`, background:'none', cursor: hasReasoningTrace ? 'pointer' : 'not-allowed', fontSize:11, color: reasoningCopied ? '#22c55e' : th.tabDim, opacity: hasReasoningTrace ? 1 : 0.5 }}
+            >
+              <Copy size={12}/> {reasoningCopied ? 'Copied' : 'Copy trace'}
+            </button>
           )}
           {onDownloadProject && (
             <button onClick={onDownloadProject} title="Export project as ZIP (npm install && npm run dev)"
@@ -1254,9 +1763,9 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                 {phaseLabel}
               </div>
 
-              <div style={{
-                width: 280,
-                borderRadius: 12,
+                <div style={{
+                  width: 280,
+                  borderRadius: 12,
                 border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
                 background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.65)',
                 backdropFilter: 'blur(6px)',
@@ -1299,8 +1808,41 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                     animation: '_pc_sheen 1.6s linear infinite',
                     pointerEvents: 'none',
                   }} />
+                  </div>
                 </div>
-              </div>
+                {hasReasoningTrace && activeReasoningStep && (
+                  <div
+                    data-testid="preview-reasoning-summary"
+                    style={{
+                      width: 320,
+                      marginTop: 10,
+                      borderRadius: 12,
+                      border: isDark ? '1px solid rgba(251,146,60,0.35)' : '1px solid rgba(234,88,12,0.28)',
+                      background: isDark ? 'rgba(17,24,39,0.55)' : 'rgba(255,255,255,0.82)',
+                      backdropFilter: 'blur(6px)',
+                      padding: '10px 12px',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: isDark ? 'rgba(255,255,255,0.8)' : '#1f2937' }}>
+                        Live reasoning
+                      </span>
+                      <button
+                        onClick={() => setTab('reasoning')}
+                        style={{ border:'none', background:'none', cursor:'pointer', padding:0, fontSize:11, color:'#f97316' }}
+                      >
+                        Open
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.66)' : '#334155', marginBottom: 4 }}>
+                      {getReasoningStepLabel(activeReasoningStep)} · {getReasoningStatus(activeReasoningStep).label}
+                    </div>
+                    <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.58)' : '#475569', lineHeight: 1.45 }}>
+                      {activeReasoningStep.summary}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ) : showBlockedSplash ? (
@@ -1384,14 +1926,113 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
           )}
         </div>
 
+        <div style={{ position:'absolute', inset:0, display: tab === 'reasoning' ? 'flex' : 'none', flexDirection:'column' }}>
+          <div
+            data-testid="reasoning-panel"
+            style={{ width:'100%', height:'100%', overflowY:'auto', padding:20, background: isDark ? '#060606' : '#f8fafc', boxSizing:'border-box' }}
+          >
+            {!hasReasoningTrace ? (
+              workspaceBinding.diagnostic ? (
+                <WorkspaceDiagnosticPanel diagnostic={workspaceBinding.diagnostic} testId="reasoning-diagnostic" />
+              ) : (
+                <div
+                  data-testid="reasoning-empty"
+                  style={{ textAlign:'center', marginTop:80, color: isDark ? 'rgba(255,255,255,0.35)' : 'rgba(15,23,42,0.5)', fontSize:13 }}
+                >
+                  Run a generation to see structured reasoning steps.
+                </div>
+              )
+            ) : (
+              <>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, gap:12, flexWrap:'wrap' }}>
+                  <div>
+                    <div style={{ fontSize:15, fontWeight:600, color: isDark ? 'rgba(255,255,255,0.86)' : '#0f172a' }}>
+                      Reasoning timeline
+                    </div>
+                    <div style={{ fontSize:11, color: isDark ? 'rgba(255,255,255,0.38)' : 'rgba(15,23,42,0.5)', marginTop:4 }}>
+                      {reasoningSteps.length} steps · started {new Date(visibleReasoningTrace!.startedAt).toLocaleTimeString()}
+                    </div>
+                  </div>
+                  {reasoningOutcomeSummary && (
+                    <div
+                      data-testid="reasoning-final-outcome"
+                      style={{ fontSize:11, color:'#22c55e', padding:'6px 10px', borderRadius:999, border:'1px solid rgba(34,197,94,0.35)', background:'rgba(34,197,94,0.1)' }}
+                    >
+                      {reasoningOutcomeSummary}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {reasoningSteps.map((step, index) => {
+                    const status = getReasoningStatus(step);
+                    const isStepActive = step.id === visibleReasoningTrace!.activeStepId || step.isActive;
+                    return (
+                      <div
+                        key={step.id}
+                        data-testid="reasoning-step-item"
+                        style={{
+                          borderRadius: 12,
+                          border: isStepActive ? '1px solid rgba(249,115,22,0.5)' : (isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(15,23,42,0.12)'),
+                          background: isStepActive ? (isDark ? 'rgba(249,115,22,0.08)' : 'rgba(249,115,22,0.08)') : (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.75)'),
+                          padding: '10px 12px',
+                        }}
+                      >
+                        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                          <span style={{ minWidth:22, height:22, borderRadius:999, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:600, color: isDark ? '#f8fafc' : '#0f172a', background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.1)' }}>
+                            {index + 1}
+                          </span>
+                          <span style={{ fontSize:12, fontWeight:600, color: isDark ? 'rgba(255,255,255,0.84)' : '#0f172a', flex:1 }}>
+                            {getReasoningStepLabel(step)}
+                          </span>
+                          <span style={{ fontSize:10, color:status.color, fontWeight:600 }}>
+                            {status.label}
+                          </span>
+                          {isStepActive && (
+                            <span
+                              data-testid="reasoning-active-step"
+                              style={{ fontSize:10, color:'#f97316', fontWeight:700 }}
+                            >
+                              Current
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize:12, color: isDark ? 'rgba(255,255,255,0.62)' : '#334155', lineHeight:1.45 }}>
+                          {step.summary}
+                        </div>
+                        {step.attemptNumber ? (
+                          <div style={{ marginTop:6, fontSize:11, color: isDark ? 'rgba(251,146,60,0.86)' : '#c2410c' }}>
+                            Attempt {step.attemptNumber}
+                          </div>
+                        ) : null}
+                        {step.errorSummary ? (
+                          <div style={{ marginTop:6, fontSize:11, color:'#ef4444' }}>
+                            {step.errorSummary}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* Code — ALWAYS mounted to preserve editor state across tab switches */}
         <div style={{ position:'absolute', inset:0, display: tab === 'code' ? 'block' : 'none' }}>
-          <CodePanel files={files} setFiles={setFiles} activeFile={activeFile} setActiveFile={setActiveFile} />
+          <CodePanel
+            files={files}
+            setFiles={setFiles}
+            activeFile={activeFile}
+            setActiveFile={setActiveFile}
+            binding={workspaceBinding}
+          />
         </div>
 
         {/* Other tabs — conditional (no iframes, cheap to remount) */}
         {tab === 'design'   && <DesignPanel currentTheme={currentTheme} />}
-        {tab === 'analytics' && <AnalyticsPanel />}
+        {tab === 'analytics' && <AnalyticsPanel binding={workspaceBinding} />}
         {tab === 'security' && <SecurityPanel files={files} />}
         {tab === 'cloud' && (
           <CloudPanel

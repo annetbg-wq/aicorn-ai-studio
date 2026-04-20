@@ -55,6 +55,7 @@ export interface GenerationTrace {
   /** Unique trace ID — correlates with MetricsService generation_id */
   id:         string;
   projectId?:  string;
+  branchId?:   string;
   intent:      string;
   model:       string;
   mode:        'new' | 'edit';
@@ -710,6 +711,7 @@ class GenerationTracerClass {
     model:     string;
     mode:      'new' | 'edit';
     projectId?: string;
+    branchId?:  string;
   }): TraceHandle {
     if (this._active) {
       // Previous trace wasn't finished — close it
@@ -725,6 +727,7 @@ class GenerationTracerClass {
     const trace: GenerationTrace = {
       id,
       projectId: params.projectId,
+      branchId:  params.branchId,
       intent:    sanitizeText(params.intent, MAX_TEXT_EXCERPT),
       model:     sanitizeText(params.model, 120),
       mode:      params.mode,

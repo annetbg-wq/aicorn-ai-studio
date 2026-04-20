@@ -6,6 +6,7 @@
 
 import { scanBeforePreviewLoad } from './projectCorruptionScan';
 import { revisionManager, PRELOAD_SKIP_OWNED_MSG } from './RevisionManager';
+import { previewLog } from './PreviewController';
 import {
   DEFAULT_PROJECT_BRANCH_ID,
   createProjectBranchArchitecture,
@@ -36,6 +37,7 @@ export interface StoredProject {
   theme: string;
   createdAt: string;
   updatedAt: string;
+  version?: number;
   files: Record<string, string>;  // path → content
   chatHistory: Array<{ role: string; content: string; type?: string }>;
   deployUrl?: string;
@@ -302,6 +304,17 @@ export class ProjectStorage {
    * same as generation.
    */
   static async loadToPreview(project: StoredProject, _buildId?: string): Promise<void> {
+    const fileEntries = Object.keys(project.files ?? {});
+    if (fileEntries.length === 0) {
+      previewLog('preload_not_found_soft_failed', {
+        buildId: null,
+        projectId: project.id,
+        source: 'ProjectStorage.loadToPreview',
+        reason: 'empty_file_map',
+      });
+      return;
+    }
+
     // ── Pre-load corruption scan ─────────────────────────────────
     // Detects artifact-envelope JSON and other corruption BEFORE any
     // preview writes. If critical corruption found, abort the load
