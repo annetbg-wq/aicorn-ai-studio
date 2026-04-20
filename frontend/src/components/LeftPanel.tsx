@@ -15,7 +15,7 @@ import {
   X, Clock, RotateCcw, GitBranch,
   Undo2, Redo2, Square, Copy,
 } from 'lucide-react';
-import type { Snapshot, Attachment, ComposerContextItem } from '../hooks/useStudio';
+import type { Snapshot, Attachment, ComposerContextItem, KickoffPhase } from '../hooks/useStudio';
 // ProjectsList removed â€” see ProjectsScreen
 
 // â”€â”€ Ð˜Ð½Ñ‚ÐµÑ€Ñ„ÐµÐ¹Ñ Ð¿Ñ€Ð¾Ð¿ÑÐ¾Ð² â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -108,6 +108,8 @@ interface LeftPanelProps {
   composerContextItems?: ComposerContextItem[];
   removeComposerContextItem?: (id: string) => void;
   clearComposerContextItems?: () => void;
+  // kickoff lifecycle — explicit phase for genesis builds
+  kickoffPhase?:           KickoffPhase;
   // blueprint confirmation
   pendingPlan?:            {
     architectKickoff?: {
@@ -948,6 +950,7 @@ interface BlueprintCardProps {
   m: any;
   pendingPlan: LeftPanelProps['pendingPlan'];
   isPending: boolean;
+  kickoffPhase: KickoffPhase;
   isDark: boolean;
   textColor: string;
   subText: string;
@@ -959,7 +962,7 @@ interface BlueprintCardProps {
 }
 
 const BlueprintCard: React.FC<BlueprintCardProps> = ({
-  m, pendingPlan, isPending, isDark, textColor, subText, borderColor, onConfirmPlan, selectKickoffScope, onClarifyPlan, cancelPlan,
+  m, pendingPlan, isPending, kickoffPhase, isDark, textColor, subText, borderColor, onConfirmPlan, selectKickoffScope, onClarifyPlan, cancelPlan,
 }) => {
   // Visibility guard — keeps fiber in the tree but renders nothing.
   // This prevents the insertBefore crash that occurs when a node is removed
@@ -971,6 +974,8 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
     ?.filter((option): option is { id: KickoffBuildScopeId; label: string; description: string } => option.id !== 'revise')
     ?? [];
   const selectedKickoffScope = pendingPlan?.architectKickoff?.selectedOptionId ?? 'core';
+  const isAwaitingKickoffConfirmation = isPending && kickoffPhase === 'awaiting_confirmation';
+  const isKickoffBuildStarting = isPending && kickoffPhase === 'build_starting';
 
   return (
     <div style={{
@@ -989,12 +994,14 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
             {bpPages.length} screens · {m.theme} theme
           </div>
         </div>
-        {isPending && (
+        {(isAwaitingKickoffConfirmation || isKickoffBuildStarting) && (
           <div style={{
             fontSize: 10, padding: '3px 8px', borderRadius: 10,
-            background: 'rgba(251,191,36,0.15)', color: '#f59e0b', fontWeight: 600,
+            background: isAwaitingKickoffConfirmation ? 'rgba(251,191,36,0.15)' : 'rgba(99,102,241,0.15)',
+            color: isAwaitingKickoffConfirmation ? '#f59e0b' : '#818cf8',
+            fontWeight: 600,
           }}>
-            Awaiting confirmation
+            {isAwaitingKickoffConfirmation ? 'Awaiting confirmation' : 'Build starting'}
           </div>
         )}
       </div>
@@ -1035,7 +1042,7 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
         </details>
       )}
 
-      {isPending && kickoffOptions.length > 0 && (
+      {isAwaitingKickoffConfirmation && kickoffOptions.length > 0 && (
         <div style={{
           margin: '0 16px 12px',
           display: 'flex',
@@ -1044,6 +1051,9 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: subText, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
             First build scope
+          </div>
+          <div style={{ fontSize: 11, color: subText, lineHeight: 1.5 }}>
+            Default scope will start automatically in a moment. Choose another scope or start now.
           </div>
           <div style={{ display: 'grid', gap: 8 }}>
             {kickoffOptions.map(option => {
@@ -1074,7 +1084,7 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
         </div>
       )}
 
-      {isPending && (
+      {isAwaitingKickoffConfirmation && (
         <div
           data-testid="generation-plan-card"
           style={{ padding: '12px 16px', borderTop: `1px solid ${borderColor}`, display: 'flex', gap: 8 }}
@@ -1139,6 +1149,23 @@ const renderDescription = (desc: unknown): string => {
     return JSON.stringify(desc);
   }
   return String(desc ?? '');
+};
+
+const getKickoffStatus = (phase: KickoffPhase): { label: string; testId: string } | null => {
+  switch (phase) {
+    case 'prompt_received':
+      return { label: 'Prompt received', testId: 'kickoff-prompt-received' };
+    case 'analyzing':
+      return { label: 'Planning first build', testId: 'kickoff-planning' };
+    case 'awaiting_confirmation':
+      return { label: 'Awaiting confirmation', testId: 'kickoff-awaiting-confirmation' };
+    case 'build_starting':
+      return { label: 'Build starting', testId: 'kickoff-build-starting' };
+    case 'building':
+      return { label: 'Build in progress', testId: 'kickoff-build-in-progress' };
+    default:
+      return null;
+  }
 };
 
 const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
@@ -1448,6 +1475,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   appLanguage = 'en',
   attachments = [], addAttachment = () => {}, removeAttachment = () => {},
   composerContextItems = [], removeComposerContextItem = () => {}, clearComposerContextItems = () => {},
+  kickoffPhase = 'idle' as KickoffPhase,
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
   onConfirmPlan = () => confirmPlan(), selectKickoffScope = () => {}, onClarifyPlan = () => {}, onSubmitClarification = () => {},
 }) => {
@@ -1588,6 +1616,16 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
     currentPhase === 'code'   ? 'Кодирование' :
     currentPhase === 'verify' ? 'Проверка' : '';
 
+  // Derived label — shows kickoff-specific states when the pipeline is not yet
+  // in a code phase (kickoff phases take priority over the raw currentPhase).
+  const effectivePhaseLabel =
+    kickoffPhase === 'prompt_received' ? 'Prompt received' :
+    kickoffPhase === 'analyzing'    ? 'Architect...' :
+    kickoffPhase === 'build_starting' ? 'Starting...' :
+    kickoffPhase === 'building' ? 'Build in progress' :
+    phaseLabel;
+  const kickoffStatus = getKickoffStatus(kickoffPhase);
+
   // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
@@ -1681,6 +1719,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       m={m}
                       pendingPlan={pendingPlan}
                       isPending={pendingPlan !== null}
+                      kickoffPhase={kickoffPhase}
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}
@@ -1897,27 +1936,70 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
         {/* progress bar â€” visible only while generating */}
         {isGenerating && (
           <div style={{ marginBottom: 8 }}>
-            <div style={{
-              height: 3, borderRadius: 2, overflow: 'hidden',
-              background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-            }}>
-              <div style={{
-                height: '100%', borderRadius: 2,
-                width: `${progress}%`,
-                background: phaseColor,
-                transition: 'width 0.5s ease, background 0.3s ease',
-                boxShadow: `0 0 6px ${phaseColor}80`,
-              }} />
-            </div>
-            {phaseLabel && (
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                marginTop: 4, fontSize: 10, fontWeight: 600,
-                color: phaseColor, letterSpacing: '0.05em', textTransform: 'uppercase',
-              }}>
-                <span>{phaseLabel}</span>
-                <span>{progress}%</span>
+            {kickoffPhase === 'awaiting_confirmation' ? (
+              /* Ghost-overlap prevention: system is blocked waiting for user.
+                 Show explicit banner instead of a misleading "building" spinner. */
+              <div
+                data-testid="kickoff-awaiting-banner"
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  background: 'rgba(251,191,36,0.08)',
+                  border: '1px solid rgba(251,191,36,0.2)',
+                  fontSize: 10, fontWeight: 600,
+                  color: '#f59e0b', letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                }}>
+                Awaiting confirmation
+                <div style={{ marginTop: 3, fontSize: 10, fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
+                  Pick a scope or let the default start shortly.
+                </div>
               </div>
+            ) : (
+              <>
+                {kickoffStatus && (
+                  <div
+                    data-testid="kickoff-status"
+                    data-kickoff-phase={kickoffPhase}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 5,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: phaseColor,
+                      letterSpacing: '0.05em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    <span data-testid={kickoffStatus.testId}>{kickoffStatus.label}</span>
+                    <span>{progress}%</span>
+                  </div>
+                )}
+                <div style={{
+                  height: 3, borderRadius: 2, overflow: 'hidden',
+                  background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+                }}>
+                  <div style={{
+                    height: '100%', borderRadius: 2,
+                    width: `${progress}%`,
+                    background: phaseColor,
+                    transition: 'width 0.5s ease, background 0.3s ease',
+                    boxShadow: `0 0 6px ${phaseColor}80`,
+                  }} />
+                </div>
+                {effectivePhaseLabel && (
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    marginTop: 4, fontSize: 10, fontWeight: 600,
+                    color: phaseColor, letterSpacing: '0.05em', textTransform: 'uppercase',
+                  }}>
+                    <span>{kickoffStatus ? 'Live generation' : effectivePhaseLabel}</span>
+                    <span>{progress}%</span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

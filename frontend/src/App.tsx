@@ -518,6 +518,7 @@ export default function App() {
               composerContextItems={studio.composerContextItems}
               removeComposerContextItem={studio.removeComposerContextItem}
               clearComposerContextItems={studio.clearComposerContextItems}
+              kickoffPhase={studio.kickoffPhase}
               pendingPlan={studio.pendingPlan}
               confirmPlan={studio.confirmPlan}
               cancelPlan={studio.cancelPlan}

@@ -99,6 +99,24 @@ export type FileMap     = Record<string, string>;
  */
 export type SnapshotStatus = 'candidate' | 'stable';
 
+/**
+ * Explicit kickoff lifecycle for genesis (first-build) flows.
+ *
+ * idle               — no kickoff in progress (default, all non-genesis runs)
+ * prompt_received    — genesis prompt submitted; existingCodeCount === 0 confirmed
+ * analyzing          — ArchitectPlannerService.analyze() running
+ * awaiting_confirmation — pendingPlan set; system is blocked waiting for user
+ * build_starting     — confirmPlan() fired; preparing build plan
+ * building           — GenerationPipeline past confirmation; code phase active
+ */
+export type KickoffPhase =
+  | 'idle'
+  | 'prompt_received'
+  | 'analyzing'
+  | 'awaiting_confirmation'
+  | 'build_starting'
+  | 'building';
+
 /** Returns true if a snapshot is considered stable (explicit or legacy). */
 export function isSnapshotStable(s: Snapshot): boolean {
   return !s.status || s.status === 'stable';
@@ -142,7 +160,9 @@ type PlanApprovalDecision = {
   requiredKickoffScopeId?: KickoffBuildScopeId;
 };
 
-interface PendingArchitectKickoffSelection {
+export const KICKOFF_FAST_START_GRACE_MS = 3_500;
+
+export interface PendingArchitectKickoffSelection {
   projectId: string;
   plan: ArchitectKickoffPlan;
   branchId: string;
@@ -150,7 +170,7 @@ interface PendingArchitectKickoffSelection {
   proposedSnapshotId?: string | null;
 }
 
-interface PendingBlueprintPlan {
+export interface PendingBlueprintPlan {
   id: string;
   plan: ProjectPlan;
   blueprintText: string;
@@ -159,6 +179,57 @@ interface PendingBlueprintPlan {
   theme: string;
   pages: string[];
   architectKickoff?: PendingArchitectKickoffSelection | null;
+}
+
+export function scheduleKickoffFastStart(input: {
+  pendingPlan: PendingBlueprintPlan | null;
+  confirmPlan: () => void;
+  addLog: (msg: string) => void;
+  delayMs?: number;
+}): (() => void) | null {
+  const {
+    pendingPlan,
+    confirmPlan,
+    addLog,
+    delayMs = KICKOFF_FAST_START_GRACE_MS,
+  } = input;
+
+  if (!pendingPlan?.architectKickoff) return null;
+
+  let cancelled = false;
+  const selectedOptionId = pendingPlan.architectKickoff.selectedOptionId ?? 'core';
+  const timer = window.setTimeout(() => {
+    if (cancelled) return;
+    addLog(`[Kickoff] kickoff_scope_defaulted: ${selectedOptionId} (fast-start auto-confirm)`);
+    confirmPlan();
+  }, delayMs);
+
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timer);
+  };
+}
+
+export function useKickoffFastStart(input: {
+  pendingPlan: PendingBlueprintPlan | null;
+  confirmPlan: () => void;
+  addLog: (msg: string) => void;
+  delayMs?: number;
+}): void {
+  const { pendingPlan, confirmPlan, addLog, delayMs } = input;
+
+  useEffect(() => {
+    const cleanup = scheduleKickoffFastStart({
+      pendingPlan,
+      confirmPlan,
+      addLog,
+      delayMs,
+    });
+
+    return () => {
+      cleanup?.();
+    };
+  }, [pendingPlan, confirmPlan, addLog, delayMs]);
 }
 
 export function resolveStudioKickoffContext(
@@ -864,6 +935,8 @@ export const useStudio = () => {
   const [progress,        setProgress]        = useState(0);
   const [currentPhase,    setCurrentPhase]    = useState<string>('');
   const [machineState,    setMachineState]    = useState<MachineState>(INITIAL_STATE);
+  /** Explicit kickoff lifecycle — only meaningful for genesis (existingCodeCount === 0) runs. */
+  const [kickoffPhase,    setKickoffPhase]    = useState<KickoffPhase>('idle');
   const [generationMode,  setGenerationMode]  = useState<'landing' | 'app' | 'superapp'>('app');
   const [generationSource, setGenerationSource] = useState<'chat' | 'weekly-feed' | 'niche'>('chat');
   const [designClassification, setDesignClassification] = useState<ClassificationResult | null>(null);
@@ -2011,8 +2084,13 @@ export const useStudio = () => {
       // The plan is shown as an assistant message before the build starts, and written
       // to branch-scoped architecture memory after a successful generation.
       pendingArchitectKickoffRef.current = null;
-      if (existingCodeCount === 0 && !controller.signal.aborted) {
+      // Track whether this specific run is a genesis build for kickoff phase logging.
+      const isGenesisRun = existingCodeCount === 0;
+      if (isGenesisRun && !controller.signal.aborted) {
+        setKickoffPhase('prompt_received');
+        addLog('[Kickoff] kickoff_prompt_received');
         try {
+          setKickoffPhase('analyzing');
           const kickoffContext = resolveStudioKickoffContext(currentProjectId, currentProject);
           if (!kickoffContext.projectId) {
             throw new Error('Cannot run Architect kickoff without a resolved project id');
@@ -2042,6 +2120,7 @@ export const useStudio = () => {
             proposedSnapshotId: proposedSnapshot.id,
           };
           addLog(`[Architect] Proposed kickoff draft saved (${proposedSnapshot.id})`);
+          addLog(`[Kickoff] kickoff_scope_defaulted: ${architectPlan.defaultOptionId}`);
 
           if (!controller.signal.aborted) {
             chatAppend({
@@ -2109,7 +2188,13 @@ export const useStudio = () => {
           startTransition(() => {
             setProgress(event.progress);
             setCurrentPhase(event.phase);
-            if (event.phase === 'think')  { updateStep('think', 'done'); updateStep('architect', 'active'); updatePlan({ progress: 20 }); }
+            if (event.phase === 'think')  {
+              updateStep('think', 'done'); updateStep('architect', 'active'); updatePlan({ progress: 20 });
+              if (isGenesisRun) {
+                setKickoffPhase('building');
+                addLog('[Kickoff] kickoff_build_in_progress');
+              }
+            }
             if (event.phase === 'code')   { updateStep('architect', 'done'); updateStep('code', 'active'); updatePlan({ progress: 40 }); }
             if (event.phase === 'verify') { updateStep('code', 'done'); updateStep('theme', 'active'); updatePlan({ progress: 80 }); }
             if (event.phase === 'idle')   { updateStep('theme', 'done'); updateStep('save', 'done'); updatePlan({ progress: 100, buildStatus: 'building' }); }
@@ -2158,6 +2243,8 @@ export const useStudio = () => {
           planResolverRef.current = resolve;
           const architectKickoff = pendingArchitectKickoffRef.current;
           pendingArchitectKickoffRef.current = null;
+          setKickoffPhase('awaiting_confirmation');
+          addLog('[Kickoff] kickoff_waiting_for_confirmation');
           setPendingPlan({
             id:            `plan_${Date.now()}`,
             plan:          _plan as ProjectPlan,
@@ -2503,6 +2590,7 @@ export const useStudio = () => {
     } finally {
       abortControllerRef.current = null;
       setIsGenerating(false);
+      setKickoffPhase('idle');
       setTimeout(() => setProgress(0), 1200);
     }
   };
@@ -2540,11 +2628,14 @@ export const useStudio = () => {
         },
       };
     });
-  }, []);
+    addLog(`[Kickoff] kickoff_scope_selected: ${optionId}`);
+  }, [addLog]);
 
   const confirmPlan = useCallback(async (_plan?: object) => {
     if (confirmingRef.current) return;
     confirmingRef.current = true;
+    setKickoffPhase('build_starting');
+    addLog('[Kickoff] kickoff_build_started');
     try {
       const approval = pendingPlan
         ? await prepareKickoffBuildApproval({
@@ -2603,7 +2694,7 @@ export const useStudio = () => {
 
     // Reset guard after a tick so the same instance can be reused if generation is re-triggered.
     setTimeout(() => { confirmingRef.current = false; }, 500);
-  }, [pendingPlan, currentProjectId, addLog, chatAppend]);
+  }, [pendingPlan, currentProjectId, appLanguage, addLog, chatAppend]);
 
   const cancelPlan = useCallback(() => {
     commandBus.dispatch({ type: 'REJECT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
@@ -2813,6 +2904,20 @@ export const useStudio = () => {
     };
   }, [files, setFiles]);
 
+  // ── Fast-start: auto-confirm genesis kickoff with default scope ─────────────
+  // When pendingPlan is set for a genesis build (architectKickoff !== null),
+  // wait a short grace window, then call confirmPlan() so the first build starts
+  // without requiring an extra "Start build" click. The grace window keeps the
+  // manual scope controls genuinely usable before the default starts.
+  //
+  // For non-genesis builds (architectKickoff === null, re-runs, edits) the user
+  // must still click "Start build" explicitly — this default is genesis-only.
+  useKickoffFastStart({
+    pendingPlan,
+    confirmPlan,
+    addLog,
+  });
+
   // Resolve the waitForConfirmation promise AFTER React has committed the
   // pendingPlan cleanup.  pendingPlan === null is the commit signal.
   useEffect(() => {
@@ -2997,6 +3102,8 @@ export const useStudio = () => {
     previewBlockedReason,
     previewUrl,
     previewReady,
+    // kickoff lifecycle — explicit phase for genesis builds
+    kickoffPhase,
     // blueprint confirmation
     pendingPlan, confirmPlan, cancelPlan, onConfirmPlan, onClarifyPlan, onSubmitClarification, selectKickoffScope,
     // diff review
@@ -3010,7 +3117,7 @@ export const useStudio = () => {
     // state — re-memoize only when actual data changes
     // messages/input intentionally excluded — returned directly below
     files, activeFile, theme, apiKey, selectedModel,
-    isGenerating, device, progress, currentPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, previewUrl, previewReady, machineState,
+    isGenerating, device, progress, currentPhase, kickoffPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, previewUrl, previewReady, machineState,
     designClassification,
     projectGraph,
     snapshots, historyIndex, currentProjectId, currentProject, currentSnapshotId, stableSnapshotId,

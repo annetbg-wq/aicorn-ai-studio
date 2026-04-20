@@ -17,7 +17,8 @@ import '@testing-library/jest-dom/vitest';
 
 import { chatReducer, normalizeMessage } from '../../types/chat';
 import type { ChatMessage } from '../../types/chat';
-import { useStudio } from '../../hooks/useStudio';
+import { KICKOFF_FAST_START_GRACE_MS, useKickoffFastStart, useStudio } from '../../hooks/useStudio';
+import type { KickoffPhase } from '../../hooks/useStudio';
 import { LeftPanel } from '../LeftPanel';
 import { ChatErrorBoundary } from '../boundaries/ChatErrorBoundary';
 
@@ -26,11 +27,15 @@ const studioMock = vi.hoisted(() => ({
   onConfirmPlan: vi.fn(),
 }));
 
-vi.mock('../../hooks/useStudio', () => ({
-  useStudio: () => ({
-    onConfirmPlan: studioMock.onConfirmPlan,
-  }),
-}));
+vi.mock('../../hooks/useStudio', async () => {
+  const actual = await vi.importActual<typeof import('../../hooks/useStudio')>('../../hooks/useStudio');
+  return {
+    ...actual,
+    useStudio: () => ({
+      onConfirmPlan: studioMock.onConfirmPlan,
+    }),
+  };
+});
 
 // react-markdown is ESM-only and breaks jsdom; stub it out.
 vi.mock('react-markdown', () => ({
@@ -72,12 +77,25 @@ function makeScrollRef() {
 function Harness({
   initialMessages = [],
   onDispatch,
+  kickoffPhase = 'awaiting_confirmation',
+  isGenerating = false,
+  progress = 0,
+  currentPhase = 'idle',
+  autoStartDelayMs,
 }: {
   initialMessages?: ChatMessage[];
   onDispatch?: (action: any) => void;
+  kickoffPhase?: KickoffPhase;
+  isGenerating?: boolean;
+  progress?: number;
+  currentPhase?: string;
+  autoStartDelayMs?: number;
 }) {
   const [messages, rawDispatch] = useReducer(chatReducer, initialMessages);
   const [pendingPlan, setPendingPlan] = useState<any | null>(null);
+  const [localKickoffPhase, setLocalKickoffPhase] = useState<KickoffPhase>(kickoffPhase);
+  const [localIsGenerating, setLocalIsGenerating] = useState(isGenerating);
+  const [localProgress, setLocalProgress] = useState(progress);
   const scrollRef = makeScrollRef();
   const { onConfirmPlan } = useStudio() as unknown as { onConfirmPlan: (plan: object) => void };
 
@@ -88,6 +106,9 @@ function Harness({
 
   // "Show Blueprint" — simulates a generation-plan message in chat.
   const showBlueprint = () => {
+    setLocalKickoffPhase(prev => prev === 'idle' ? 'awaiting_confirmation' : prev);
+    setLocalIsGenerating(true);
+    setLocalProgress(prev => prev > 0 ? prev : 15);
     const planMsgId = 'plan-msg-1';
     dispatch({
       type: 'APPEND',
@@ -124,6 +145,9 @@ function Harness({
   };
 
   const confirmPlan = () => {
+    setLocalKickoffPhase('build_starting');
+    setLocalIsGenerating(true);
+    setLocalProgress(20);
     dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'blueprint' });
     dispatch({ type: 'APPEND', payload: normalizeMessage({
       role: 'assistant', type: 'text', content: '⚙️ Building…', timestamp: Date.now(),
@@ -154,7 +178,16 @@ function Harness({
   const cancelPlan = () => {
     dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'blueprint' });
     setPendingPlan(null);
+    setLocalIsGenerating(false);
+    setLocalKickoffPhase('idle');
   };
+
+  useKickoffFastStart({
+    pendingPlan,
+    confirmPlan: buildIt,
+    addLog: () => {},
+    delayMs: autoStartDelayMs,
+  });
 
   return (
     <>
@@ -170,9 +203,9 @@ function Harness({
           setInput={() => {}}
           onSend={() => {}}
           onStop={() => {}}
-          isGenerating={false}
-          progress={0}
-          currentPhase="idle"
+          isGenerating={localIsGenerating}
+          progress={localProgress}
+          currentPhase={currentPhase}
           scrollRef={scrollRef as any}
           projects={[]}
           currentProjectId={null}
@@ -198,6 +231,7 @@ function Harness({
           projectCost={0}
           selectedModel="gpt-4o"
           pendingPlan={pendingPlan}
+          kickoffPhase={localKickoffPhase}
           confirmPlan={confirmPlan}
           cancelPlan={cancelPlan}
           onConfirmPlan={buildIt}
@@ -222,6 +256,7 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
   afterEach(() => {
     errorSpy.mockRestore();
     cleanup();
+    vi.useRealTimers();
   });
 
   it('S1: GenerationPlanCard appears after Show Blueprint', async () => {
@@ -287,15 +322,112 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
     );
   });
 
-  it('S5: Fast double-click on Build it dispatches REMOVE_BY_TYPE exactly once', async () => {
-    render(<Harness />);
+  it('S4d: awaiting_confirmation banner is visibly rendered without building overlap', async () => {
+    render(<Harness kickoffPhase="awaiting_confirmation" isGenerating progress={15} />);
 
     await user.click(screen.getByTestId('trigger-blueprint'));
 
+    expect(screen.getByTestId('kickoff-awaiting-banner')).toHaveTextContent('Awaiting confirmation');
+    expect(screen.getByTestId('kickoff-awaiting-banner')).toHaveTextContent('Pick a scope');
+    expect(screen.getByTestId('confirm-plan-btn')).toBeInTheDocument();
+    expect(screen.queryByTestId('kickoff-build-in-progress')).not.toBeInTheDocument();
+    expect(screen.queryByText('Build in progress')).not.toBeInTheDocument();
+  });
+
+  it('S4e: build_starting is explicit and no longer renders waiting controls', async () => {
+    render(<Harness kickoffPhase="build_starting" isGenerating progress={20} />);
+
+    await user.click(screen.getByTestId('trigger-blueprint'));
+
+    expect(screen.getByTestId('kickoff-build-starting')).toHaveTextContent('Build starting');
+    expect(screen.queryByTestId('kickoff-awaiting-banner')).not.toBeInTheDocument();
+    expect(screen.queryByText('Awaiting confirmation')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('confirm-plan-btn')).not.toBeInTheDocument();
+  });
+
+  it('S4f: build_in_progress has a distinct visible state with no awaiting banner', () => {
+    render(<Harness kickoffPhase="building" isGenerating progress={40} currentPhase="code" />);
+
+    expect(screen.getByTestId('kickoff-build-in-progress')).toHaveTextContent('Build in progress');
+    expect(screen.queryByTestId('kickoff-awaiting-banner')).not.toBeInTheDocument();
+    expect(screen.queryByText('Awaiting confirmation')).not.toBeInTheDocument();
+  });
+
+  it('S4g: prompt_received is explicitly visible while kickoff starts', () => {
+    render(<Harness kickoffPhase="prompt_received" isGenerating progress={5} />);
+
+    expect(screen.getByTestId('kickoff-prompt-received')).toHaveTextContent('Prompt received');
+  });
+
+  it('S4h: the same kickoff never shows waiting and build-starting UI together after confirmation', async () => {
+    render(<Harness />);
+
+    await user.click(screen.getByTestId('trigger-blueprint'));
+    expect(screen.getByTestId('kickoff-awaiting-banner')).toBeInTheDocument();
+    expect(screen.queryByTestId('kickoff-build-starting')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('confirm-plan-btn'));
+
+    expect(screen.queryByTestId('kickoff-awaiting-banner')).not.toBeInTheDocument();
+    expect(screen.getByTestId('kickoff-build-starting')).toHaveTextContent('Build starting');
+    expect(screen.queryByText('Awaiting confirmation')).not.toBeInTheDocument();
+  });
+
+  it('S4i: manual override near auto-start re-arms and starts the newly selected scope in rendered flow', async () => {
+    vi.useFakeTimers();
+
+    render(<Harness autoStartDelayMs={KICKOFF_FAST_START_GRACE_MS} />);
+
+    act(() => {
+      screen.getByTestId('trigger-blueprint').click();
+    });
+    expect(screen.getByTestId('kickoff-awaiting-banner')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(KICKOFF_FAST_START_GRACE_MS - 25);
+    });
+
+    act(() => {
+      screen.getByTestId('kickoff-option-core_backend_ai').click();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(30);
+    });
+
+    expect(studioMock.onConfirmPlan).not.toHaveBeenCalled();
+    expect(screen.getByTestId('confirm-plan-btn')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(KICKOFF_FAST_START_GRACE_MS - 31);
+    });
+
+    expect(studioMock.onConfirmPlan).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(studioMock.onConfirmPlan).toHaveBeenCalledTimes(1);
+    expect(studioMock.onConfirmPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ selectedOptionId: 'core_backend_ai' }),
+    );
+    expect(screen.queryByTestId('kickoff-awaiting-banner')).not.toBeInTheDocument();
+    expect(screen.getByTestId('kickoff-build-starting')).toHaveTextContent('Build starting');
+  });
+
+  it('S5: Fast double-click on Build it dispatches REMOVE_BY_TYPE exactly once', () => {
+    render(<Harness />);
+
+    act(() => {
+      screen.getByTestId('trigger-blueprint').click();
+    });
+
     // Double-click confirm as fast as possible
     const buildBtn = screen.getByTestId('confirm-plan-btn');
-    await act(async () => {
-      await user.dblClick(buildBtn);
+    act(() => {
+      buildBtn.click();
+      buildBtn.click();
     });
 
     // After first click the card is removed from state — button must be gone.
