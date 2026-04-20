@@ -4002,14 +4002,15 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       ? buildEnvPromptInstructions(config.projectId)
       : '';
 
-    // ── Health check — bridge must be available ───────────────────────────
-    try {
-      const health = await fetch('/__health_preview');
-      if (!health.ok) throw new Error('Preview bridge returned non-OK status');
-    } catch (e) {
-      config.onLog(`[SimpleGeneration] ❌ Preview bridge unavailable: ${e}`);
-      throw new Error('Preview app is not running. Start it with npm run dev:all');
-    }
+    // ── Canonical generation path — backend compile only ─────────────────
+    // Legacy /__health_preview bridge check removed. The backend compile
+    // endpoint (/api/preview/:buildId/compile) will fail with a clear error
+    // if the backend is not running. No Vite dev-server middleware needed.
+    previewLog('canonical_generation_path_selected', {
+      source: 'SimpleGeneration.run',
+      bridgePath: 'backend_compile_only',
+    });
+    config.onLog('[SimpleGeneration] Canonical generation path selected (backend compile only)');
 
     // ── Claim preview ownership before creating the candidate ────────────
     // Prevents concurrent persisted-project loads (ProjectRepository /
@@ -4027,25 +4028,24 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     config.onLog(`[SimpleGeneration] revision candidate: ${revId}`);
 
     // ── Detect mode: NEW (no project) or EDIT (project exists) ───────────
-    let existingFiles: Record<string, string> = {};
-    try {
-      const resp = await fetch('/__read_all_preview');
-      if (resp.ok) {
-        const data = await resp.json() as { files?: Record<string, string> };
-        existingFiles = data.files ?? {};
-        // Exclude the studio bootstrap preview shell — it is starter chrome, not user content.
-        if (
-          existingFiles['App.tsx']?.includes(PREVIEW_BOOTSTRAP_MARKER) ||
-          existingFiles['App.tsx']?.includes('Waiting for generation')
-        ) {
-          delete existingFiles['App.tsx'];
-        }
-        // Exclude index.css — it is the theme file, not user code
-        delete existingFiles['index.css'];
-      }
-    } catch (e) {
-      config.onLog(`[SimpleGeneration] Could not read existing files: ${e}`);
+    // Legacy /__read_all_preview bridge call removed. config.files is the
+    // canonical source of the project's current file state (studio in-memory),
+    // identical to what the active RevisionManager revision holds.
+    previewLog('legacy_preview_bridge_bypassed', {
+      endpoint: '__read_all_preview',
+      source: 'SimpleGeneration.run',
+      replacement: 'config.files',
+    });
+    let existingFiles: Record<string, string> = { ...(config.files ?? {}) };
+    // Exclude the studio bootstrap preview shell — it is starter chrome, not user content.
+    if (
+      existingFiles['App.tsx']?.includes(PREVIEW_BOOTSTRAP_MARKER) ||
+      existingFiles['App.tsx']?.includes('Waiting for generation')
+    ) {
+      delete existingFiles['App.tsx'];
     }
+    // Exclude index.css — it is the theme file, not user code
+    delete existingFiles['index.css'];
 
     // EDIT mode requires BOTH: files on disk AND files in useStudio state.
     // If useStudio has no files (singlePageSafeMode=true), user started a new project
@@ -4797,8 +4797,16 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     }
 
     // ── NEW MODE ──────────────────────────────────────────────────────────
-    await revisionManager.fullClearPreview(revId);
-    config.onLog('[SimpleGeneration] NEW mode preflight: preview fully cleared');
+    // Legacy fullClearPreview (/__clear_preview bridge) removed from live
+    // generation path. preview-manager.ts compileBuild() now clears the shared
+    // workspace before writing new build files — the frontend no longer triggers
+    // a separate clear step via the Vite dev-server middleware.
+    previewLog('generation_path_unified', {
+      source: 'SimpleGeneration.run',
+      mode: 'new',
+      detail: 'backend_compile_owns_workspace_cleanup',
+    });
+    config.onLog('[SimpleGeneration] NEW mode: canonical path (backend compile owns workspace cleanup)');
 
     const mode: GenerationMode = config.generationMode ?? 'app';
     config.onLog(`[SimpleGeneration] Generation mode: ${mode}`);
@@ -5099,41 +5107,18 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     const validThemes = ['dark-slate', 'trust', 'warm', 'neon', 'bloom'];
     const selectedTheme = validThemes.includes(themeName) ? themeName : 'dark-slate';
 
-    // Build themed index.css now — will be buffered into candidate after LLM files
-    // so it always wins over any index.css the LLM may have generated.
+    // Legacy /__read_preview theme bridge call removed. Theme CSS files are not
+    // bundled in preview-workspace/src/themes/ in the current build, so this
+    // fetch always returned 400 and themedIndexCss was always null. Removing the
+    // bridge read eliminates the dead network call and the spurious failure log.
+    // Theme injection via the canonical path is a future enhancement.
     let themedIndexCss: string | null = null;
-    try {
-      const themeResp = await fetch(`/__read_preview?path=themes/${selectedTheme}.css`);
-      if (themeResp.ok) {
-        const themeData = await themeResp.json();
-        if (themeData.content) {
-          themedIndexCss = [
-            '@tailwind base;',
-            '@tailwind components;',
-            '@tailwind utilities;',
-            '',
-            '@layer base {',
-            themeData.content,
-            '}',
-            '',
-            '@layer base {',
-            '  * { @apply border-border; }',
-            '  body { @apply bg-background text-foreground; }',
-            '}',
-            '',
-            'body {',
-            "  font-family: 'Inter', system-ui, -apple-system, sans-serif;",
-            '  -webkit-font-smoothing: antialiased;',
-            '}',
-          ].join('\n');
-          config.onLog(`[SimpleGeneration] Theme ready: ${selectedTheme}`);
-        }
-      } else {
-        config.onLog(`[SimpleGeneration] Theme fetch failed (${themeResp.status}), keeping default`);
-      }
-    } catch (e) {
-      config.onLog(`[SimpleGeneration] Theme fetch error: ${String(e)}`);
-    }
+    previewLog('legacy_theme_bridge_bypassed', {
+      endpoint: '__read_preview',
+      source: 'SimpleGeneration.run',
+      theme: selectedTheme,
+    });
+    config.onLog(`[SimpleGeneration] Theme: ${selectedTheme} (canonical path — bridge bypassed)`);
 
     // ── Step 2: Coder (build slot) — generate code ────────────────────────
     config.onPhase({ phase: 'code', progress: 40 });
@@ -6295,11 +6280,12 @@ Generate the complete application for: ${config.intent}`;
       log(`[AutoFix] Missing file detected: ${missingPath} (imported from ${sourceFile})`);
 
       try {
-        // Read the source file for context
+        // Read source file for context from RevisionManager in-memory active revision.
+        // Legacy /__read_preview bridge call removed from autoFix path.
         const cleanSource = sourceFile.replace(/^src\//, '');
-        const sourceResp = await fetch(`/__read_preview?path=${encodeURIComponent(cleanSource)}`);
-        const sourceData = await sourceResp.json() as { content?: string; ok?: boolean };
-        const sourceCode = sourceData.content ?? '';
+        const activeRevId = revisionManager.getActiveRevisionId();
+        const activeRevFiles = activeRevId ? (revisionManager.getRevisionFiles(activeRevId) ?? {}) : {};
+        const sourceCode = activeRevFiles[cleanSource] ?? activeRevFiles[`/${cleanSource}`] ?? activeRevFiles[`src/${cleanSource}`] ?? '';
 
         const fixPrompt = `A React/TypeScript file is missing: ${missingPath}
 
@@ -6372,25 +6358,25 @@ Output ONLY the JSON. No explanation.`;
       return logFix(false, 'Could not extract file from error');
     }
 
-    try {
-      const resp = await fetch(`/__read_preview?path=${encodeURIComponent(file)}`);
-      if (!resp.ok) {
-        log(`[AutoFix] Could not read ${file}: ${resp.status}`);
-        return logFix(false, `Could not read ${file}: ${resp.status}`);
-      }
-      const data = await resp.json() as { content?: string; ok?: boolean };
-      if (!data.ok || !data.content) {
-        log(`[AutoFix] No content for ${file}`);
-        return logFix(false, `No content for ${file}`);
-      }
+    // Read broken file from RevisionManager in-memory active revision.
+    // Legacy /__read_preview bridge call removed from autoFix path.
+    const contextRevId = revisionManager.getActiveRevisionId();
+    const contextRevFiles = contextRevId ? (revisionManager.getRevisionFiles(contextRevId) ?? {}) : {};
+    const fixFileContent = contextRevFiles[file] ?? contextRevFiles[`/${file}`] ?? contextRevFiles[`src/${file}`] ?? null;
 
+    if (!fixFileContent) {
+      log(`[AutoFix] No content for ${file}`);
+      return logFix(false, `No content for ${file}`);
+    }
+
+    try {
       const fixPrompt = `You are fixing a React/TypeScript compilation error.
 
 ERROR:
 ${config.errorMsg.slice(0, 800)}
 
 FILE: ${file}
-${data.content}
+${fixFileContent}
 
 Output the COMPLETE fixed file as a JSON artifact:
 \`\`\`json

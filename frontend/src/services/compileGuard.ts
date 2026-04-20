@@ -14,6 +14,14 @@ import { parseArtifact, parseFileMarkers } from './artifactParser';
 import { previewLog } from './PreviewController';
 import { canonicalizeProjectPath } from '../shared/safePaths';
 
+// ── In-memory file lookup (replaces legacy /__read_preview bridge call) ───────
+// Reads a file from the RevisionManager's in-memory candidate store.
+// The candidate has all user-generated files buffered before compileWithRetry runs.
+function readCandidateFile(filePath: string, revId: string): string | null {
+  const files = revisionManager.getRevisionFiles(revId) ?? {};
+  return files[filePath] ?? files[`/${filePath}`] ?? files[`src/${filePath}`] ?? null;
+}
+
 const MAX_REPAIR_ATTEMPTS = 2;
 
 interface CompileLoopConfig {
@@ -80,16 +88,6 @@ function extractFileFromError(msg: string): string | null {
   return match ? match[1] : null;
 }
 
-async function readPreviewFile(filePath: string): Promise<string | null> {
-  try {
-    const resp = await fetch(`/__read_preview?path=${encodeURIComponent(filePath)}`);
-    if (!resp.ok) return null;
-    const data = await resp.json() as { ok?: boolean; content?: string };
-    return data.ok ? (data.content ?? null) : null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Build a fix prompt from compile errors and attempt to fix via LLM.
@@ -118,7 +116,7 @@ async function attemptFix(
     config.onLog(`[CompileGuard] Missing file: ${missingPath}${ext} (from ${sourceFile})`);
 
     const cleanSource = sourceFile.replace(/^src\//, '');
-    const sourceCode = (await readPreviewFile(cleanSource))?.slice(0, 2000) ?? '';
+    const sourceCode = readCandidateFile(cleanSource, config.revId)?.slice(0, 2000) ?? '';
 
     prompt = `A React/TypeScript file is missing: ${missingPath}${ext}
 It is imported in ${sourceFile}:
@@ -137,7 +135,7 @@ Return ONLY a JSON artifact:
       return 0;
     }
 
-    const content = await readPreviewFile(file);
+    const content = readCandidateFile(file, config.revId);
     if (!content) {
       config.onLog(`[CompileGuard] Cannot read ${file}`);
       return 0;

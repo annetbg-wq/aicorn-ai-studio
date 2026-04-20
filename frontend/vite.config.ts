@@ -241,6 +241,94 @@ export default defineConfig({
         });
       },
     },
+    {
+      name: 'preview-bridge-production',
+      configurePreviewServer(server) {
+        const previewSrc = path.join(process.cwd(), '..', 'preview-workspace', 'src');
+
+        const PLACEHOLDER_APP = `export default function App() {
+  return (
+    <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <p className="text-gray-400 text-lg">Waiting for generation...</p>
+    </div>
+  );
+}\n`;
+
+        server.middlewares.use('/__clear_preview', (req, res) => {
+          if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+          const keep = new Set(['main.tsx', 'index.css', '__build_id.ts']);
+          const keepDirs = new Set(['components', 'lib', 'themes', 'hooks']);
+          try {
+            const items = fs.readdirSync(previewSrc);
+            for (const item of items) {
+              if (keep.has(item) || keepDirs.has(item)) continue;
+              const full = path.join(previewSrc, item);
+              fs.rmSync(full, { recursive: true, force: true });
+            }
+            fs.writeFileSync(path.join(previewSrc, 'App.tsx'), PLACEHOLDER_APP, 'utf-8');
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: String(e) }));
+          }
+        });
+
+        server.middlewares.use('/__read_preview', (req, res) => {
+          const url = new URL(req.url!, 'http://localhost');
+          const filePath = url.searchParams.get('path') || '';
+          try {
+            const { fullPath } = resolvePreviewBridgePath(previewSrc, filePath);
+            const content = fs.readFileSync(fullPath, 'utf-8');
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true, content }));
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, error: String(e) }));
+          }
+        });
+
+        server.middlewares.use('/__read_all_preview', (_req, res) => {
+          try {
+            const files: Record<string, string> = {};
+            const skipDirs = new Set(['components', 'lib', 'themes', 'node_modules']);
+            const skipFiles = new Set(['main.tsx']);
+
+            function readDir(dir: string, prefix: string) {
+              const items = fs.readdirSync(dir, { withFileTypes: true });
+              for (const item of items) {
+                if (item.isDirectory()) {
+                  if (skipDirs.has(item.name)) continue;
+                  readDir(path.join(dir, item.name), prefix ? `${prefix}/${item.name}` : item.name);
+                } else if (item.name.match(/\.(tsx?|css|json)$/) && !skipFiles.has(item.name)) {
+                  const filePath = prefix ? `${prefix}/${item.name}` : item.name;
+                  const content = fs.readFileSync(path.join(dir, item.name), 'utf-8');
+                  files[filePath] = content;
+                }
+              }
+            }
+
+            readDir(previewSrc, '');
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true, files }));
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e) }));
+          }
+        });
+
+        server.middlewares.use('/__health_preview', (_req, res) => {
+          try {
+            fs.accessSync(previewSrc, fs.constants.R_OK | fs.constants.W_OK);
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+          } catch (e) {
+            res.statusCode = 503;
+            res.end(JSON.stringify({ ok: false, error: String(e) }));
+          }
+        });
+      },
+    },
   ],
   server: {
     port: devPort,
@@ -255,6 +343,21 @@ export default defineConfig({
         target: 'http://127.0.0.1:3000',
         changeOrigin: true,
         // Same-origin compiled preview: no separate Vite dev server, no WS to proxy.
+        secure: false,
+      },
+    },
+  },
+  preview: {
+    port: devPort,
+    strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+      },
+      '/preview': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
         secure: false,
       },
     },
