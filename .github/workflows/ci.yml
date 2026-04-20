@@ -73,6 +73,38 @@ jobs:
           VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
+  # ── Live preview release canary ───────────────────────────────────────────
+  preview-live-canary:
+    name: Live Preview Canary
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run live preview canary
+        run: npm run test:e2e:preview-live
+        env:
+          VITE_OPENROUTER_API_KEY: e2e-live-preview-key
+
   # ── BenchmarkGate quality gate ─────────────────────────────────────────────
   # Runs only when OPENROUTER_API_KEY is available (set as a repository secret).
   # Skipped automatically on forks and branches without the secret.
