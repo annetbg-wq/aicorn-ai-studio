@@ -13,7 +13,7 @@
 import { supabase } from '../lib/supabase';
 import { ProjectStorage } from './ProjectStorage';
 import { previewLog, setTimelineContext } from './PreviewController';
-import { revisionManager } from './RevisionManager';
+import { revisionManager, PRELOAD_SKIP_OWNED_MSG } from './RevisionManager';
 import { showToast } from './toastBus';
 import { safeSetItem } from '../lib/safeStorage';
 import { scanBeforePreviewLoad } from './projectCorruptionScan';
@@ -488,6 +488,23 @@ export const ProjectRepository = {
 
   async loadToPreview(project: ProjectRecord): Promise<void> {
     setTimelineContext({ projectId: project.id });
+
+    // ── Soft-fail: empty file map ─────────────────────────────────────────────
+    // If the persisted project has no files (e.g. Supabase returned 406 and
+    // the localStorage fallback is empty/stale), creating a candidate that
+    // immediately fails would leave the controller in 'failed' state and poison
+    // the next generation's watchdog. Fail soft here instead.
+    const fileEntries = Object.keys(project.files ?? {});
+    if (fileEntries.length === 0) {
+      previewLog('preload_not_found_soft_failed', {
+        buildId: null,
+        projectId: project.id,
+        source: 'ProjectRepository.loadToPreview',
+        reason: 'empty_file_map',
+      });
+      return; // do NOT throw — let the caller (loadProject) continue silently
+    }
+
     const scan = scanBeforePreviewLoad(
       project.id,
       project.files ?? {},
@@ -513,6 +530,11 @@ export const ProjectRepository = {
       previewLog('repository_load_to_preview_done', { buildId, projectId: project.id });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // Generation-isolation skip: RevisionManager already logged
+      // preload_skipped_stale_project — just return silently here.
+      if (msg.includes(PRELOAD_SKIP_OWNED_MSG)) {
+        return;
+      }
       previewLog('repository_load_to_preview_failed', {
         buildId: null,
         projectId: project.id,

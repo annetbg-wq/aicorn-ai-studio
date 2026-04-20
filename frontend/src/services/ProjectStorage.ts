@@ -5,7 +5,7 @@
  */
 
 import { scanBeforePreviewLoad } from './projectCorruptionScan';
-import { revisionManager } from './RevisionManager';
+import { revisionManager, PRELOAD_SKIP_OWNED_MSG } from './RevisionManager';
 import {
   DEFAULT_PROJECT_BRANCH_ID,
   createProjectBranchArchitecture,
@@ -313,9 +313,16 @@ export class ProjectStorage {
       throw new Error(msg);
     }
 
-    await revisionManager.materializePersistedFiles(project.files ?? {}, {
-      source: 'ProjectStorage.loadToPreview',
-      projectId: project.id,
-    });
+    try {
+      await revisionManager.materializePersistedFiles(project.files ?? {}, {
+        source: 'ProjectStorage.loadToPreview',
+        projectId: project.id,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Generation-isolation skip: RevisionManager already logged the event.
+      if (msg.includes(PRELOAD_SKIP_OWNED_MSG)) return;
+      throw err;
+    }
   }
 }

@@ -59,12 +59,22 @@ import {
   normalizePath,
 } from './PreviewWriteGateway';
 import {
-  schedulePostReadyCheck,
   cancelPendingCheck,
+  cancelPostPromotionWatch,
+  startPostPromotionWatch,
+  type PostReadyDiagnosticResult,
   WhiteScreenDetector,
 } from './WhiteScreenDetector';
 
 const MAX_REVISIONS = 20;
+
+/**
+ * Sentinel included in the error thrown when materializePersistedFiles is
+ * rejected because a generation run owns the preview path. Callers (e.g.
+ * ProjectRepository, ProjectStorage) test for this string to distinguish an
+ * isolation-skip from a genuine failure.
+ */
+export const PRELOAD_SKIP_OWNED_MSG = 'generation currently owns the preview path';
 
 /**
  * Adaptive compile timeout: scales with file count.
@@ -117,6 +127,8 @@ export interface CandidateMaterializeOptions {
   projectId?: string | null;
 }
 
+export type PromotionMode = 'normal' | 'degraded';
+
 export class RevisionManager {
   private activeRevisionId: string | null = null;
   private candidateRevisionId: string | null = null;
@@ -127,6 +139,14 @@ export class RevisionManager {
    * compilation failed. Reset to null on createCandidate / rollback.
    */
   private compiledRevisionId: string | null = null;
+
+  /**
+   * When true, the preview path is owned by an in-progress generation run.
+   * Calls to materializePersistedFiles (preload / project-switch) will be
+   * rejected early to prevent stale hydration from re-entering the preview
+   * cycle while a generation is active.
+   */
+  private _generationOwned = false;
 
   /** revisionId → { normalizedPath → content } */
   private store = new Map<string, Record<string, string>>();
@@ -205,6 +225,23 @@ export class RevisionManager {
     files: Record<string, string>,
     opts: PersistedMaterializeOptions,
   ): Promise<string> {
+    // Generation-owned isolation guard: refuse preloads while a generation run
+    // owns the preview path. This prevents stale project hydration from creating
+    // a candidate that would orphan or interfere with the generation's candidate.
+    if (this._generationOwned) {
+      previewLog('preload_skipped_stale_project', {
+        source: opts.source,
+        projectId: opts.projectId ?? null,
+        reason: 'generation_owns_preview',
+        activeRevisionId: this.activeRevisionId,
+        candidateRevisionId: this.candidateRevisionId,
+      });
+      throw new Error(
+        `[RevisionManager] Preload skipped: ${PRELOAD_SKIP_OWNED_MSG} ` +
+        `(source=${opts.source})`,
+      );
+    }
+
     const revisionId = await this.createCandidate();
     setTimelineContext({ projectId: opts.projectId ?? null });
     previewLog('persisted_materialize_start', {
@@ -367,8 +404,9 @@ export class RevisionManager {
     previewController.setDiagnosticStage('source-ready', revisionId, entryPath);
 
     // 1. Signal compiling state
-    // Cancel any pending white-screen check from a previous build
+    // Cancel any pending delayed diagnostic/watch from a previous promotion.
     cancelPendingCheck();
+    cancelPostPromotionWatch();
 
     const fileCount = Object.keys(files).length;
     previewLog('compile_start', { buildId: revisionId, fileCount });
@@ -390,8 +428,20 @@ export class RevisionManager {
     } catch (e: any) {
       const msg: string = e?.message ?? 'Backend compile failed';
       previewLog('write_batch_done', { buildId: revisionId, fileCount, error: msg });
-      previewController.setDiagnosticError('iframe-mounted', msg, revisionId);
-      previewController.notifyFailed(msg, revisionId);
+      // Staleness guard: only poison the controller if this revision is still
+      // authoritative. A preload whose triggerCompile failed after a generation
+      // took over must not set the controller to failed.
+      if (this._isRevisionAuthoritative(revisionId)) {
+        previewController.setDiagnosticError('iframe-mounted', msg, revisionId);
+        previewController.notifyFailed(msg, revisionId);
+      } else {
+        previewLog('stale_compile_result_ignored', {
+          buildId: revisionId,
+          stage: 'trigger_compile',
+          currentCandidateRevisionId: this.candidateRevisionId,
+          currentActiveRevisionId: this.activeRevisionId,
+        });
+      }
       return { success: false, errors: [msg], _compiled: false };
     }
     previewLog('write_batch_done', { buildId: revisionId, fileCount });
@@ -444,27 +494,40 @@ export class RevisionManager {
 
       previewController.notifyReady(revisionId, 'static_build_complete');
 
-      // Schedule post-ready white-screen check (runs after delay, non-blocking)
-      schedulePostReadyCheck(revisionId);
-
       return { success: true, _compiled: true };
     } else {
-      previewController.setDiagnosticError(
-        'iframe-mounted',
-        result.errors?.join('\n') ?? 'Compilation failed',
-        revisionId,
-      );
-      previewController.notifyFailed(
-        result.errors?.join('\n') ?? 'Compilation failed',
-        revisionId,
-      );
+      // Staleness guard: a preload's waitForReady timeout can fire long after a
+      // generation has taken over. If this revision is no longer the current
+      // candidate/compiled/active, suppress notifyFailed to avoid poisoning the
+      // controller state for the fresh generation that has already promoted.
+      if (this._isRevisionAuthoritative(revisionId)) {
+        previewController.setDiagnosticError(
+          'iframe-mounted',
+          result.errors?.join('\n') ?? 'Compilation failed',
+          revisionId,
+        );
+        previewController.notifyFailed(
+          result.errors?.join('\n') ?? 'Compilation failed',
+          revisionId,
+        );
+      } else {
+        previewLog('stale_compile_result_ignored', {
+          buildId: revisionId,
+          stage: 'wait_for_ready_timeout',
+          currentCandidateRevisionId: this.candidateRevisionId,
+          currentActiveRevisionId: this.activeRevisionId,
+        });
+      }
       return { success: false, errors: result.errors, _compiled: false };
     }
   }
 
   /** Public wrapper so other call sites (e.g. ProjectRepository.loadToPreview) can wait. */
-  async waitForReady(buildId: string): Promise<{ success: boolean; errors?: string[] }> {
-    return waitForReady(buildId);
+  async waitForReady(
+    buildId: string,
+    timeoutMs?: number,
+  ): Promise<{ success: boolean; errors?: string[] }> {
+    return waitForReady(buildId, timeoutMs);
   }
 
   /**
@@ -485,11 +548,16 @@ export class RevisionManager {
    *             immediately after mount. If Gate 2 fails → last-good is restored,
    *             notifyFailed is called, state is cleaned up, PROMOTE_BLOCKED thrown.
    *
-   * Note: SandpackPreview runs its own isBlank() check at +1000 ms after
-   * `preview-mounted`. This is NOT a duplicate of Gate 2 — it catches crashes
-   * that occur after a successful promotion (e.g. a component throws post-mount).
+   * After Gate 2 passes, a separate bounded post-promotion watchdog may still
+   * revoke the just-promoted revision for a few seconds if delayed diagnostics
+   * confirm it became unhealthy. That watchdog is a safety net, not a second
+   * promote decision path.
    */
-  async promote(revisionId: string): Promise<void> {
+  async promote(
+    revisionId: string,
+    opts: { mode?: PromotionMode } = {},
+  ): Promise<void> {
+    const promotionMode = opts.mode ?? 'normal';
     if (revisionId !== this.candidateRevisionId) {
       throw new Error('Can only promote the current candidate');
     }
@@ -512,6 +580,7 @@ export class RevisionManager {
       previewLog('promote_blocked_white_screen', {
         buildId: revisionId,
         previousActiveRevisionId,
+        promotionMode,
       });
       previewController.setDiagnosticError(
         'white-screen-detected',
@@ -586,7 +655,17 @@ export class RevisionManager {
     this.compiledRevisionId = null; // Consumed — next candidate must compile fresh
     this.syncTimelineContext();
 
-    previewLog('candidate_promoted', { buildId: revisionId });
+    previewLog('candidate_promoted', {
+      buildId: revisionId,
+      promotionMode,
+      degraded: promotionMode === 'degraded',
+    });
+    startPostPromotionWatch(revisionId, {
+      previousActiveRevisionId,
+      promotionMode,
+      onUnhealthy: (result) =>
+        this.revokePromotedRevision(revisionId, previousActiveRevisionId, result, promotionMode),
+    });
     // NOTE: notifyReady is NOT called here — compileCandidate already did it
     // when the iframe handshake succeeded. Calling it twice would be harmless
     // (same buildId) but semantically wrong: readiness is a compile outcome,
@@ -687,6 +766,34 @@ export class RevisionManager {
   }
 
   /**
+   * Claim preview ownership on behalf of a generation run.
+   *
+   * After this call, materializePersistedFiles() (the preload/project-switch
+   * path) will be rejected until releasePreviewOwnership() is called. This
+   * prevents stale project hydration from re-entering the preview cycle while
+   * a generation is actively compiling and promoting a candidate.
+   *
+   * Call before creating the generation candidate; call releasePreviewOwnership()
+   * in the generation's finally block (or on cancellation).
+   */
+  claimPreviewOwnership(source?: string): void {
+    this._generationOwned = true;
+    previewLog('current_run_preview_isolated', {
+      source: source ?? 'unknown',
+      activeRevisionId: this.activeRevisionId,
+      candidateRevisionId: this.candidateRevisionId,
+    });
+  }
+
+  /** Release generation ownership so preloads may resume (e.g. after generation completes). */
+  releasePreviewOwnership(): void {
+    this._generationOwned = false;
+    previewLog('generation_preview_ownership_released', {
+      activeRevisionId: this.activeRevisionId,
+    });
+  }
+
+  /**
    * Restore a previously promoted revision (undo/redo).
    *
    * Fast path  — builds/:revisionId/ is still on disk (common; LRU keeps
@@ -762,6 +869,21 @@ export class RevisionManager {
 
   // ── Context sync ───────────────────────────────────────────────
 
+  /**
+   * Returns true if `revisionId` is still authoritative — i.e. it is the
+   * current candidate, the last successfully compiled revision, or the active
+   * revision. Used as a staleness guard: a revision that is no longer
+   * authoritative must not mutate shared controller state (notifyFailed, etc.)
+   * because a newer generation may have taken over.
+   */
+  private _isRevisionAuthoritative(revisionId: string): boolean {
+    return (
+      revisionId === this.candidateRevisionId ||
+      revisionId === this.compiledRevisionId ||
+      revisionId === this.activeRevisionId
+    );
+  }
+
   /** Push current revision IDs into the ambient previewLog context. */
   private syncTimelineContext(): void {
     setTimelineContext({
@@ -794,6 +916,90 @@ export class RevisionManager {
       console.warn('[RevisionManager] Clear failed (non-fatal):', err);
       // Gateway already logged the error — just swallow here
     }
+  }
+
+  private async revokePromotedRevision(
+    revisionId: string,
+    previousActiveRevisionId: string | null,
+    diagnostic: PostReadyDiagnosticResult,
+    promotionMode: PromotionMode,
+  ): Promise<void> {
+    if (this.activeRevisionId !== revisionId) {
+      previewLog('promotion_revoked', {
+        buildId: revisionId,
+        previousActiveRevisionId,
+        promotionMode,
+        outcome: 'ignored_stale_revision',
+        currentActiveRevisionId: this.activeRevisionId,
+        diagnosticReason: diagnostic.reason,
+        probeReason: diagnostic.probeReason,
+      });
+      return;
+    }
+
+    previewLog('promotion_revoked', {
+      buildId: revisionId,
+      previousActiveRevisionId,
+      promotionMode,
+      outcome: 'revoked',
+      diagnosticReason: diagnostic.reason,
+      probeReason: diagnostic.probeReason,
+      controllerStatus: diagnostic.controllerStatus,
+      controllerRevisionId: diagnostic.controllerRevisionId,
+    });
+
+    if (!previousActiveRevisionId) {
+      previewController.notifyFailed(
+        `Promoted revision ${revisionId} became unhealthy after promotion`,
+        revisionId,
+      );
+      previewLog('rollback_completed', {
+        revokedBuildId: revisionId,
+        restoredBuildId: null,
+        promotionMode,
+        status: 'skipped_no_previous_active',
+        diagnosticReason: diagnostic.reason,
+        probeReason: diagnostic.probeReason,
+      });
+      return;
+    }
+
+    this.activeRevisionId = previousActiveRevisionId;
+    this.syncTimelineContext();
+    previewController.notifyCompiling(previousActiveRevisionId);
+
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      'iframe[data-testid="preview-iframe"]',
+    );
+    if (iframe) iframe.src = `/preview/${previousActiveRevisionId}`;
+
+    const result = await this.waitForReady(previousActiveRevisionId, 15_000);
+    if (result.success) {
+      previewController.notifyReady(previousActiveRevisionId, 'post_promotion_rollback_mounted');
+      previewLog('rollback_completed', {
+        revokedBuildId: revisionId,
+        restoredBuildId: previousActiveRevisionId,
+        promotionMode,
+        status: 'restored',
+        diagnosticReason: diagnostic.reason,
+        probeReason: diagnostic.probeReason,
+      });
+      return;
+    }
+
+    previewController.notifyFailed(
+      result.errors?.join('\n') ?? 'Rollback preview did not mount',
+      previousActiveRevisionId,
+    );
+    previewLog('rollback_completed', {
+      revokedBuildId: revisionId,
+      restoredBuildId: previousActiveRevisionId,
+      promotionMode,
+      status: 'failed',
+      diagnosticReason: diagnostic.reason,
+      probeReason: diagnostic.probeReason,
+      errors: result.errors ?? [],
+    });
   }
 
   /**

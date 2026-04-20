@@ -3953,6 +3953,12 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       if (outcome === 'cancelled') return 'Generation stopped before promotion.';
       return `Candidate was not promoted${stopReason ? ` (${stopReason})` : ''}.`;
     };
+    let previewOwnershipClaimed = false;
+    const releasePreviewOwnershipIfClaimed = (): void => {
+      if (!previewOwnershipClaimed) return;
+      previewOwnershipClaimed = false;
+      revisionManager.releasePreviewOwnership();
+    };
     const finalizeTraceResult = (
       result: GenerationResult,
       meta: {
@@ -3963,6 +3969,9 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         fileCount?: number;
       },
     ): GenerationResult => {
+      // Release preview ownership on every explicit terminal path. A top-level
+      // finally below also uses the same helper to clean up unexpected throws.
+      releasePreviewOwnershipIfClaimed();
       trace.finish(meta.outcome, {
         fileCount: meta.fileCount ?? result.operations.length,
         errorSummary: meta.errorSummary ?? result.error,
@@ -4001,6 +4010,16 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       config.onLog(`[SimpleGeneration] ❌ Preview bridge unavailable: ${e}`);
       throw new Error('Preview app is not running. Start it with npm run dev:all');
     }
+
+    // ── Claim preview ownership before creating the candidate ────────────
+    // Prevents concurrent persisted-project loads (ProjectRepository /
+    // ProjectStorage) from creating a competing candidate while this run
+    // is active. Released on explicit terminal paths and by the top-level
+    // cleanup below if an unexpected throw escapes the run.
+    revisionManager.claimPreviewOwnership('SimpleGeneration.run');
+    previewOwnershipClaimed = true;
+
+    try {
 
     // ── Create revision candidate ─────────────────────────────────────────
     const revId = await revisionManager.createCandidate();
@@ -6208,6 +6227,9 @@ Generate the complete application for: ${config.intent}`;
       errorSummary: shipSucceeded ? undefined : compiled.errors?.[0]?.slice(0, 200),
       fileCount: ops.length,
     });
+    } finally {
+      releasePreviewOwnershipIfClaimed();
+    }
   }
 
   // ── Level 2: Auto-fixer — called on iframe-error ─────────────────────────
