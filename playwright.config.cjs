@@ -1,6 +1,10 @@
 // @ts-check
 const { defineConfig, devices } = require('@playwright/test');
 
+const isLivePreviewCanary =
+  process.env.PLAYWRIGHT_PRODUCTION_ARTIFACT === '1' ||
+  process.argv.some(arg => arg.includes('@preview-live-canary'));
+
 module.exports = defineConfig({
   testDir:  './e2e',
   timeout:  60_000,
@@ -22,10 +26,10 @@ module.exports = defineConfig({
   ],
 
   webServer: {
-    command: 'npm run dev:all',
+    command: isLivePreviewCanary ? 'npm run prod:canary:all' : 'npm run dev:all',
     url: 'http://localhost:5183',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: isLivePreviewCanary ? 240_000 : 120_000,
     env: {
       VITE_PLAYWRIGHT_TEST: '1',
       VITE_SUPABASE_URL: 'https://zdzuaodphrlpvorutpyc.supabase.co',

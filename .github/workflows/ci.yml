@@ -103,6 +103,7 @@ jobs:
       - name: Run live preview canary
         run: npm run test:e2e:preview-live
         env:
+          PLAYWRIGHT_PRODUCTION_ARTIFACT: '1'
           VITE_OPENROUTER_API_KEY: e2e-live-preview-key
 
   # ── BenchmarkGate quality gate ─────────────────────────────────────────────
