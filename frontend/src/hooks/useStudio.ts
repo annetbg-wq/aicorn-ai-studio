@@ -1671,7 +1671,11 @@ export const useStudio = () => {
     const effectiveInput = overridePrompt ?? input;
     if ((effectiveInput.trim().length === 0 && composerContextItems.length === 0 && attachments.length === 0) || isGenerating) return;
 
-    if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') {
+    const liveGenerationCanary =
+      typeof window !== 'undefined' &&
+      window.localStorage.getItem('AIC_E2E_LIVE_GENERATION_CANARY') === '1';
+
+    if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1' && !liveGenerationCanary) {
       console.log(' Test mode: hardcoded plan');
       // Remove previous pending plans in chat to prevent duplicate plan cards.
       dispatch({ type: 'CLEAR_PENDING_PLANS' });
@@ -2667,6 +2671,10 @@ export const useStudio = () => {
   useEffect(() => {
     if (import.meta.env.VITE_PLAYWRIGHT_TEST !== '1') return;
     (window as any).__E2E_PREVIEW_TEST = {
+      getDiagnostics: () => ({
+        revision: revisionManager.getRevisionSummary(),
+        controller: previewController.getState(),
+      }),
       mountPreview: async (previewFiles: FileMap) => {
         setFiles(previewFiles);
         setPreviewBlockedReason(null);
