@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -91,6 +91,50 @@ describe('PreviewCanvas workspace truth', () => {
     expect(screen.queryByTestId('reasoning-empty')).not.toBeInTheDocument();
   });
 
+  it('does not fall back to old history while a new current run is starting', () => {
+    finishTrace({
+      projectId: 'project-a',
+      summary: 'Old history step',
+    });
+
+    render(<PreviewCanvas {...baseProps} isGenerating previewLifecycle="generating" />);
+    fireEvent.click(screen.getByTestId('preview-tab-reasoning'));
+
+    expect(screen.queryByText('Old history step')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/current generation is starting/i).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('reasoning-scope-label')).toHaveTextContent(/current run/i);
+  });
+
+  it('keeps successful current-run reasoning visible after preview success', () => {
+    finishTrace({
+      projectId: 'project-a',
+      summary: 'Successful current-run reasoning',
+    });
+
+    render(<PreviewCanvas {...baseProps} previewLifecycle="preview-ready" />);
+    fireEvent.click(screen.getByTestId('preview-tab-reasoning'));
+
+    expect(screen.getByText('Successful current-run reasoning')).toBeInTheDocument();
+    expect(screen.getByTestId('reasoning-final-outcome')).toHaveTextContent('Completed successfully');
+    expect(screen.queryByTestId('reasoning-empty')).not.toBeInTheDocument();
+  });
+
+  it('keeps failed current-run reasoning visible after failure', () => {
+    finishTrace({
+      projectId: 'project-a',
+      summary: 'Tried to materialize candidate files',
+      stopReason: 'fast_gate_failed',
+      errorSummary: 'Compile failed before promotion',
+    });
+
+    render(<PreviewCanvas {...baseProps} previewLifecycle="failed" />);
+    fireEvent.click(screen.getByTestId('preview-tab-reasoning'));
+
+    expect(screen.getByText('Tried to materialize candidate files')).toBeInTheDocument();
+    expect(screen.getByTestId('reasoning-final-outcome')).toHaveTextContent('Run failed before promotion');
+    expect(screen.getByTestId('reasoning-diagnostic-banner')).toHaveAttribute('data-diagnostic-code', 'candidate_compile_failed');
+  });
+
   it('shows current-run failure diagnostics in Code and Reasoning instead of blank states', () => {
     finishTrace({
       projectId: 'project-a',
@@ -116,6 +160,49 @@ describe('PreviewCanvas workspace truth', () => {
 
     fireEvent.click(screen.getByTestId('preview-tab-reasoning'));
     expect(screen.getByTestId('reasoning-diagnostic')).toHaveAttribute('data-diagnostic-code', 'artifact_ingress_failed');
+    expect(screen.getAllByText('Current run stopped at artifact ingress').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('reasoning-empty')).not.toBeInTheDocument();
+    expect(screen.getByTestId('copy-visible-reasoning-btn')).toBeEnabled();
+  });
+
+  it('copies only safe visible reasoning text and never raw debug trace content', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const trace = generationTracer.start({
+      intent: 'copy safety',
+      model: 'test-model',
+      mode: 'new',
+      projectId: 'project-a',
+      branchId: 'main',
+    });
+    trace.appendStep({
+      kind: 'coder_generation',
+      summary: 'Safe visible summary',
+    });
+    trace.recordDebugEvent({
+      kind: 'coder_generation',
+      summary: 'debug-only event',
+      outputExcerpt: 'RAW HIDDEN CHAIN-OF-THOUGHT SHOULD NOT RENDER',
+    });
+    trace.finish('ok', { finalOutcome: 'ship_ok' });
+
+    render(<PreviewCanvas {...baseProps} />);
+    fireEvent.click(screen.getByTestId('preview-tab-reasoning'));
+
+    expect(screen.getByText('Safe visible summary')).toBeInTheDocument();
+    expect(screen.queryByText(/RAW HIDDEN CHAIN-OF-THOUGHT/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('copy-visible-reasoning-btn'));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const copied = String(writeText.mock.calls[0][0]);
+    expect(copied).toContain('Safe visible summary');
+    expect(copied).not.toContain('RAW HIDDEN CHAIN-OF-THOUGHT');
+    expect(copied).not.toContain('debug-only event');
   });
 
   it('builds stable scoped analytics row identities without duplicate current/archive rows', () => {

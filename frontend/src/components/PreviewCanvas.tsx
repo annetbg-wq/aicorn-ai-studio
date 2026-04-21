@@ -563,6 +563,24 @@ function traceMatchesWorkspace(trace: GenerationTrace, projectId: string, branch
   return !trace.branchId || trace.branchId === branchId;
 }
 
+function isLiveRunLifecycle(lifecycle?: string): boolean {
+  return (
+    lifecycle === 'generating' ||
+    lifecycle === 'validating' ||
+    lifecycle === 'committing' ||
+    lifecycle === 'materializing'
+  );
+}
+
+function isTerminalCurrentRunLifecycle(lifecycle?: string): boolean {
+  return (
+    lifecycle === 'preview-ready' ||
+    lifecycle === 'degraded' ||
+    lifecycle === 'failed' ||
+    lifecycle === 'blocked'
+  );
+}
+
 function latestFirst(traces: GenerationTrace[]): GenerationTrace[] {
   return traces.slice().sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
 }
@@ -694,18 +712,11 @@ export function resolveWorkspaceBinding(input: {
     ? input.activeTrace
     : null;
   const scopedRecent = recentTraces.find(trace => traceMatchesWorkspace(trace, projectId, branchId)) ?? null;
-  const trace = activeTrace ?? scopedRecent;
-  const lifecycleKeepsCurrentRun =
-    input.previewLifecycle === 'generating' ||
-    input.previewLifecycle === 'validating' ||
-    input.previewLifecycle === 'committing' ||
-    input.previewLifecycle === 'materializing' ||
-    input.previewLifecycle === 'preview-ready' ||
-    input.previewLifecycle === 'degraded' ||
-    input.previewLifecycle === 'failed' ||
-    input.previewLifecycle === 'blocked';
+  const liveRunInProgress = !!input.isGenerating || isLiveRunLifecycle(input.previewLifecycle);
+  const terminalCurrentRun = isTerminalCurrentRunLifecycle(input.previewLifecycle);
+  const trace = activeTrace ?? (liveRunInProgress ? null : scopedRecent);
   const scope: WorkspaceTraceScope =
-    activeTrace || ((input.isGenerating || lifecycleKeepsCurrentRun) && trace)
+    activeTrace || liveRunInProgress || (terminalCurrentRun && trace)
       ? 'current-run'
       : trace
         ? 'recent-project-branch'
@@ -1249,6 +1260,82 @@ function getReasoningOutcomeSummary(trace: VisibleReasoningTrace): string | null
   return REASONING_OUTCOME_LABEL[trace.finalOutcome] ?? trace.finalOutcome;
 }
 
+function getWorkspaceScopeLabel(binding: WorkspaceBinding): string {
+  if (binding.scope === 'current-run') return 'Current run';
+  if (binding.scope === 'recent-project-branch') return 'Recent run for this project / branch';
+  if (binding.scope === 'historical-archive') return 'Historical archive';
+  return binding.projectState.kind === 'live_run' ? 'Current run' : 'No run selected';
+}
+
+function isRunDiagnostic(diagnostic: WorkspaceRunDiagnostic | null): diagnostic is WorkspaceRunDiagnostic {
+  if (!diagnostic) return false;
+  return (
+    diagnostic.runId !== null && diagnostic.runId !== undefined
+  ) || (
+    diagnostic.code === 'artifact_ingress_failed' ||
+    diagnostic.code === 'candidate_compile_failed' ||
+    diagnostic.code === 'final_check_failed' ||
+    diagnostic.code === 'watchdog_revoke'
+  );
+}
+
+function buildDiagnosticVisibleReasoningTrace(binding: WorkspaceBinding): VisibleReasoningTrace | null {
+  if (!isRunDiagnostic(binding.diagnostic)) return null;
+
+  const startedAt = binding.trace?.visibleReasoningTrace?.startedAt
+    ?? binding.trace?.startedAt
+    ?? new Date().toISOString();
+  const finishedAt = binding.trace?.visibleReasoningTrace?.finishedAt
+    ?? binding.trace?.fullDebugTrace?.finishedAt
+    ?? startedAt;
+  const runId = binding.diagnostic.runId
+    ?? binding.runId
+    ?? binding.trace?.visibleReasoningTrace?.runId
+    ?? binding.trace?.id
+    ?? 'current-run';
+
+  return {
+    runId,
+    startedAt,
+    finishedAt,
+    activeStepId: null,
+    finalOutcome: binding.trace?.visibleReasoningTrace?.finalOutcome ?? 'ship_fail',
+    steps: [{
+      id: `${runId}:failure-explanation`,
+      kind: 'reviewer_result',
+      status: 'failed',
+      summary: binding.diagnostic.title,
+      isActive: false,
+      errorSummary: binding.diagnostic.detail,
+      timing: { startedAt, endedAt: finishedAt },
+    }],
+  };
+}
+
+function buildPendingCurrentRunTrace(binding: WorkspaceBinding): VisibleReasoningTrace | null {
+  if (binding.projectState.kind !== 'live_run' && binding.scope !== 'current-run') return null;
+  const startedAt = binding.trace?.visibleReasoningTrace?.startedAt
+    ?? binding.trace?.startedAt
+    ?? new Date().toISOString();
+  const runId = binding.runId
+    ?? binding.trace?.visibleReasoningTrace?.runId
+    ?? binding.trace?.id
+    ?? 'current-run';
+  return {
+    runId,
+    startedAt,
+    activeStepId: `${runId}:starting`,
+    steps: [{
+      id: `${runId}:starting`,
+      kind: 'intent_understanding',
+      status: 'in_progress',
+      summary: 'Current generation is starting. Structured reasoning steps will appear here as soon as the run reports them.',
+      isActive: true,
+      timing: { startedAt },
+    }],
+  };
+}
+
 function formatVisibleReasoningForCopy(trace: VisibleReasoningTrace): string {
   const lines: string[] = [
     'Visible reasoning trace',
@@ -1367,7 +1454,19 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
     };
   }, [resolveBinding, isGenerating]);
 
-  const visibleReasoningTrace = workspaceBinding.trace?.visibleReasoningTrace ?? null;
+  const currentTraceVisibleReasoning = workspaceBinding.trace?.visibleReasoningTrace ?? null;
+  const hasCurrentTraceSteps = (currentTraceVisibleReasoning?.steps?.length ?? 0) > 0;
+  const diagnosticReasoningTrace = hasCurrentTraceSteps
+    ? null
+    : buildDiagnosticVisibleReasoningTrace(workspaceBinding);
+  const pendingCurrentRunTrace = hasCurrentTraceSteps || diagnosticReasoningTrace
+    ? null
+    : buildPendingCurrentRunTrace(workspaceBinding);
+  const visibleReasoningTrace =
+    hasCurrentTraceSteps
+      ? currentTraceVisibleReasoning
+      : diagnosticReasoningTrace ?? pendingCurrentRunTrace;
+  const reasoningScopeLabel = getWorkspaceScopeLabel(workspaceBinding);
 
   const copyVisibleReasoningTrace = useCallback(async () => {
     if (!visibleReasoningTrace) return;
@@ -1631,11 +1730,11 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             <button
               data-testid="copy-visible-reasoning-btn"
               onClick={copyVisibleReasoningTrace}
-              title="Copy visible reasoning trace"
+              title="Copy visible reasoning"
               disabled={!hasReasoningTrace}
               style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:8, border:`1px solid ${th.border}`, background:'none', cursor: hasReasoningTrace ? 'pointer' : 'not-allowed', fontSize:11, color: reasoningCopied ? '#22c55e' : th.tabDim, opacity: hasReasoningTrace ? 1 : 0.5 }}
             >
-              <Copy size={12}/> {reasoningCopied ? 'Copied' : 'Copy trace'}
+              <Copy size={12}/> {reasoningCopied ? 'Copied' : 'Copy visible reasoning'}
             </button>
           )}
           {onDownloadProject && (
@@ -1949,7 +2048,13 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                     <div style={{ fontSize:15, fontWeight:600, color: isDark ? 'rgba(255,255,255,0.86)' : '#0f172a' }}>
                       Reasoning timeline
                     </div>
-                    <div style={{ fontSize:11, color: isDark ? 'rgba(255,255,255,0.38)' : 'rgba(15,23,42,0.5)', marginTop:4 }}>
+                    <div
+                      data-testid="reasoning-scope-label"
+                      style={{ fontSize:11, color: isDark ? 'rgba(255,255,255,0.38)' : 'rgba(15,23,42,0.5)', marginTop:4 }}
+                    >
+                      {reasoningScopeLabel} · project {workspaceBinding.projectId || 'none'} · branch {workspaceBinding.branchId} · run {visibleReasoningTrace!.runId}
+                    </div>
+                    <div style={{ fontSize:11, color: isDark ? 'rgba(255,255,255,0.34)' : 'rgba(15,23,42,0.44)', marginTop:3 }}>
                       {reasoningSteps.length} steps · started {new Date(visibleReasoningTrace!.startedAt).toLocaleTimeString()}
                     </div>
                   </div>
@@ -1962,6 +2067,16 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                     </div>
                   )}
                 </div>
+
+                {workspaceBinding.diagnostic && (
+                  <div style={{ marginBottom: 12 }}>
+                    <WorkspaceDiagnosticPanel
+                      diagnostic={workspaceBinding.diagnostic}
+                      testId={hasCurrentTraceSteps ? 'reasoning-diagnostic-banner' : 'reasoning-diagnostic'}
+                      compact
+                    />
+                  </div>
+                )}
 
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                   {reasoningSteps.map((step, index) => {
