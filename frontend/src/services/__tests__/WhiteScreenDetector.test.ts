@@ -13,6 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  FINAL_CHECK_SETTLE_WINDOW_MS,
   POST_PROMOTION_WATCHDOG_WINDOW_MS,
   cancelPendingCheck,
   cancelPostPromotionWatch,
@@ -351,16 +352,163 @@ describe('White-screen check does not weaken ready_set', () => {
     }
   });
 
+  it('waits for a meaningful render to settle before passing final promotion', async () => {
+    vi.useFakeTimers();
+    const buildId = 'settle-success-build';
+    previewControllerState.value = { status: 'ready', activeRevisionId: buildId, error: undefined };
+    const iframe = mountPreviewIframe(buildId, '<div>Waiting for generation...</div>');
+
+    const resultPromise = runFinalLivePreviewCheck(buildId);
+
+    window.setTimeout(() => {
+      const doc = iframe.contentDocument;
+      if (doc?.body) {
+        doc.body.innerHTML = [
+          '<div id="root">',
+          '  <main>',
+          '    <section data-testid="live-canary-surface">',
+          '      <h1>Live preview canary</h1>',
+          '      <button>Open</button>',
+          '    </section>',
+          '  </main>',
+          '</div>',
+        ].join('');
+      }
+    }, 500);
+
+    window.setTimeout(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        origin: window.location.origin,
+        data: {
+          type: 'white-screen-result',
+          buildId,
+          metrics: makeMetrics({
+            rootChildCount: 2,
+            rootInnerTextLength: 32,
+            rootOffsetHeight: 120,
+            bodyInnerTextLength: 32,
+            hasLoadingIndicator: false,
+            rootTextHead: 'Live preview canary Open',
+            semanticElementCount: 2,
+            interactiveElementCount: 1,
+            visualElementCount: 0,
+          }),
+        },
+      }));
+    }, 800);
+
+    await vi.advanceTimersByTimeAsync(900);
+    const result = await resultPromise;
+
+    expect(result.status).toBe('passed');
+    expect(result.reason).toBeNull();
+    expect(findLoggedEvent(
+      'final_check_settle_started',
+      payload => payload.buildId === buildId,
+    )).toBeTruthy();
+    expect(findLoggedEvent(
+      'final_check_settle_progress',
+      payload => payload.buildId === buildId && payload.failureReason === 'placeholder_only',
+    )).toBeTruthy();
+    expect(findLoggedEvent(
+      'final_check_settle_satisfied',
+      payload => payload.buildId === buildId,
+    )).toBeTruthy();
+    expect(findLoggedEvent(
+      'final_check_settle_timeout',
+      payload => payload.buildId === buildId,
+    )).toBeFalsy();
+  });
+
+  it('waits for a transitional controller_not_ready state to become ready before deciding', async () => {
+    vi.useFakeTimers();
+    const buildId = 'controller-settle-success-build';
+    previewControllerState.value = { status: 'compiling', activeRevisionId: buildId, error: undefined };
+    const iframe = mountPreviewIframe(buildId, '<main>Initial surface already rendered</main>');
+
+    const resultPromise = runFinalLivePreviewCheck(buildId);
+
+    window.setTimeout(() => {
+      previewControllerState.value = { status: 'ready', activeRevisionId: buildId, error: undefined };
+      const doc = iframe.contentDocument;
+      if (doc?.body) {
+        doc.body.innerHTML = '<div id="root"><main><section>Controller settled preview</section></main></div>';
+      }
+    }, 500);
+
+    window.setTimeout(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        origin: window.location.origin,
+        data: {
+          type: 'white-screen-result',
+          buildId,
+          metrics: makeMetrics({
+            rootChildCount: 2,
+            rootInnerTextLength: 26,
+            rootOffsetHeight: 120,
+            bodyInnerTextLength: 26,
+            rootTextHead: 'Controller settled preview',
+            semanticElementCount: 2,
+          }),
+        },
+      }));
+    }, 800);
+
+    await vi.advanceTimersByTimeAsync(900);
+    const result = await resultPromise;
+
+    expect(result.status).toBe('passed');
+    expect(result.reason).toBeNull();
+    expect(findLoggedEvent(
+      'final_check_settle_progress',
+      payload => payload.buildId === buildId && payload.controllerReady === false,
+    )).toBeTruthy();
+    expect(findLoggedEvent(
+      'final_check_settle_satisfied',
+      payload => payload.buildId === buildId && payload.controllerStatus === 'ready',
+    )).toBeTruthy();
+  });
+
+  it('fails controller_not_ready only after the bounded settle window when render is otherwise healthy', async () => {
+    vi.useFakeTimers();
+    const buildId = 'controller-settle-timeout-build';
+    previewControllerState.value = { status: 'compiling', activeRevisionId: buildId, error: undefined };
+    mountPreviewIframe(buildId, '<main>Healthy pixels but controller not ready</main>');
+
+    const resultPromise = runFinalLivePreviewCheck(buildId);
+    await vi.advanceTimersByTimeAsync(FINAL_CHECK_SETTLE_WINDOW_MS + 50);
+    const result = await resultPromise;
+
+    expect(result.status).toBe('failed');
+    expect(result.reason).toBe('controller_not_ready');
+    expect(result.probeOutcome).toBe('inconclusive');
+    expect(findLoggedEvent(
+      'final_check_settle_timeout',
+      payload => payload.buildId === buildId && payload.controllerReady === false,
+    )).toBeTruthy();
+    expect(findLoggedEvent(
+      'final_check_blank_root',
+      payload => payload.buildId === buildId,
+    )).toBeFalsy();
+  });
+
   it('blocks final promotion when the mounted root is blank', async () => {
+    vi.useFakeTimers();
     const buildId = 'blank-root-build';
     previewControllerState.value = { status: 'ready', activeRevisionId: buildId, error: undefined };
     mountPreviewIframe(buildId, '');
 
-    const result = await runFinalLivePreviewCheck(buildId);
+    const resultPromise = runFinalLivePreviewCheck(buildId);
+    await vi.advanceTimersByTimeAsync(FINAL_CHECK_SETTLE_WINDOW_MS + 50);
+    const result = await resultPromise;
 
     expect(result.status).toBe('failed');
     expect(result.reason).toBe('blank_root');
     expect(result.probeReason).toBe('empty-root');
+    expect(findLoggedEvent(
+      'final_check_settle_timeout',
+      payload => payload.buildId === buildId && payload.failureReason === 'blank_root',
+    )).toBeTruthy();
     expect(findLoggedEvent(
       'final_check_blank_root',
       payload => payload.buildId === buildId && payload.reason === 'empty-root',
@@ -368,15 +516,26 @@ describe('White-screen check does not weaken ready_set', () => {
   });
 
   it('blocks final promotion when only a loading placeholder is rendered', async () => {
+    vi.useFakeTimers();
     const buildId = 'placeholder-only-build';
     previewControllerState.value = { status: 'ready', activeRevisionId: buildId, error: undefined };
     mountPreviewIframe(buildId, '<div>Waiting for generation...</div>');
 
-    const result = await runFinalLivePreviewCheck(buildId);
+    const resultPromise = runFinalLivePreviewCheck(buildId);
+    await vi.advanceTimersByTimeAsync(FINAL_CHECK_SETTLE_WINDOW_MS + 50);
+    const result = await resultPromise;
 
     expect(result.status).toBe('failed');
     expect(result.reason).toBe('placeholder_only');
     expect(result.probeReason).toBe('loading-shell-only');
+    expect(findLoggedEvent(
+      'final_check_settle_timeout',
+      payload => payload.buildId === buildId && payload.failureReason === 'placeholder_only',
+    )).toBeTruthy();
+    expect(findLoggedEvent(
+      'final_check_placeholder_confirmed',
+      payload => payload.buildId === buildId && payload.reason === 'loading-shell-only',
+    )).toBeTruthy();
     expect(findLoggedEvent(
       'final_check_placeholder_only',
       payload => payload.buildId === buildId && payload.reason === 'loading-shell-only',
@@ -385,6 +544,106 @@ describe('White-screen check does not weaken ready_set', () => {
 });
 
 describe('post-promotion watchdog', () => {
+  it('requires two consecutive unhealthy signals before invoking the watchdog failure callback', async () => {
+    vi.useFakeTimers();
+    const buildId = 'watchdog-two-signal-build';
+    const onUnhealthy = vi.fn();
+
+    previewControllerState.value = { status: 'ready', activeRevisionId: buildId, error: undefined };
+    mountPreviewIframe(buildId, '');
+
+    startPostPromotionWatch(buildId, {
+      previousActiveRevisionId: 'last-good',
+      onUnhealthy,
+    });
+
+    await vi.advanceTimersByTimeAsync(2_500);
+
+    expect(onUnhealthy).not.toHaveBeenCalled();
+    expect(findLoggedEvent(
+      'watchdog_unhealthy_pending',
+      payload => payload.buildId === buildId,
+    )).toBeTruthy();
+
+    await vi.advanceTimersByTimeAsync(2_100);
+
+    expect(onUnhealthy).toHaveBeenCalledTimes(1);
+    expect(findLoggedEvent(
+      'watchdog_unhealthy_confirmed',
+      payload => payload.buildId === buildId,
+    )).toBeTruthy();
+    expect(findLoggedEvent(
+      'watchdog_late_regression_confirmed',
+      payload => payload.buildId === buildId,
+    )).toBeTruthy();
+    expect(findLoggedEvent(
+      'post_promotion_watch_result',
+      payload => payload.buildId === buildId && payload.outcome === 'promotion_revoked',
+    )).toBeTruthy();
+  });
+
+  it('confirms an actual late regression after an initially healthy post-promotion surface', async () => {
+    vi.useFakeTimers();
+    const buildId = 'watchdog-late-regression-build';
+    const onUnhealthy = vi.fn();
+    const iframe = mountPreviewIframe(buildId, '<main>Promoted healthy surface</main>');
+
+    previewControllerState.value = { status: 'ready', activeRevisionId: buildId, error: undefined };
+    startPostPromotionWatch(buildId, {
+      previousActiveRevisionId: 'last-good',
+      onUnhealthy,
+    });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const doc = iframe.contentDocument;
+    if (doc?.body) {
+      doc.body.innerHTML = '<div id="root"></div>';
+    }
+
+    await vi.advanceTimersByTimeAsync(3_600);
+
+    expect(onUnhealthy).toHaveBeenCalledTimes(1);
+    expect(onUnhealthy.mock.calls[0][0]).toMatchObject({
+      buildId,
+      status: 'unhealthy',
+      reason: 'blank_root',
+    });
+    expect(findLoggedEvent(
+      'watchdog_late_regression_confirmed',
+      payload => payload.buildId === buildId,
+    )).toBeTruthy();
+  });
+
+  it('does not revoke on stale or inconclusive diagnostics', async () => {
+    vi.useFakeTimers();
+    const buildId = 'watchdog-inconclusive-build';
+    const onUnhealthy = vi.fn();
+
+    previewControllerState.value = { status: 'compiling', activeRevisionId: buildId, error: undefined };
+    mountPreviewIframe(buildId, '<main>Rendered, but controller is still settling</main>');
+
+    startPostPromotionWatch(buildId, {
+      previousActiveRevisionId: 'last-good',
+      onUnhealthy,
+    });
+
+    await vi.advanceTimersByTimeAsync(POST_PROMOTION_WATCHDOG_WINDOW_MS + 1_000);
+
+    expect(onUnhealthy).not.toHaveBeenCalled();
+    expect(findLoggedEvent(
+      'watchdog_inconclusive',
+      payload => payload.buildId === buildId && payload.reason === 'controller_not_ready',
+    )).toBeTruthy();
+    expect(findLoggedEvent(
+      'watchdog_unhealthy_confirmed',
+      payload => payload.buildId === buildId,
+    )).toBeFalsy();
+    expect(findLoggedEvent(
+      'post_promotion_watch_result',
+      payload => payload.buildId === buildId && payload.outcome === 'promotion_revoked',
+    )).toBeFalsy();
+  });
+
   it('ignores a stale diagnostic from an old build', async () => {
     vi.useFakeTimers();
     const onUnhealthy = vi.fn();

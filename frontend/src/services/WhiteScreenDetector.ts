@@ -122,6 +122,18 @@ export interface ImmediateRenderSurfaceResult {
   metrics: DOMMetrics | null;
 }
 
+interface FinalCheckSettleResult {
+  initialSurface: ImmediateRenderSurfaceResult;
+  finalSurface: ImmediateRenderSurfaceResult;
+  controllerStatus: ReturnType<typeof previewController.getState>['status'];
+  controllerRevisionId: string | null;
+  controllerReady: boolean;
+  revisionMismatch: boolean;
+  settled: boolean;
+  attempts: number;
+  elapsedMs: number;
+}
+
 interface RenderFailureDescriptor {
   failureReason: Extract<FinalLivePreviewCheckFailureReason, 'blank_root' | 'placeholder_only'>;
   logEvent: 'final_check_blank_root' | 'final_check_placeholder_only';
@@ -318,16 +330,130 @@ export function inspectPreviewRenderSurface(buildId: string): ImmediateRenderSur
   return inspectIframeRenderSurface(findPreviewIframe(buildId));
 }
 
-function logFinalRenderFailure(buildId: string, failureReason: WhiteScreenReason | null, metrics: DOMMetrics | null): void {
-  const descriptor = describeRenderFailure(failureReason ?? 'empty-root');
-  previewLog(descriptor.logEvent, {
-    buildId,
-    reason: failureReason,
+function buildMetricsPayload(metrics: DOMMetrics | null): Record<string, unknown> {
+  return {
     rootChildCount: metrics?.rootChildCount ?? null,
     rootTextLength: metrics?.rootInnerTextLength ?? null,
     rootHeight: metrics?.rootOffsetHeight ?? null,
     rootTextHead: metrics?.rootTextHead ?? '',
+    semanticElementCount: metrics?.semanticElementCount ?? null,
+    interactiveElementCount: metrics?.interactiveElementCount ?? null,
+    visualElementCount: metrics?.visualElementCount ?? null,
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+function logFinalRenderFailure(buildId: string, failureReason: WhiteScreenReason | null, metrics: DOMMetrics | null): void {
+  const descriptor = describeRenderFailure(failureReason ?? 'empty-root');
+  if (descriptor.failureReason === 'placeholder_only') {
+    previewLog('final_check_placeholder_confirmed', {
+      buildId,
+      reason: failureReason,
+      ...buildMetricsPayload(metrics),
+    });
+  }
+  previewLog(descriptor.logEvent, {
+    buildId,
+    reason: failureReason,
+    ...buildMetricsPayload(metrics),
   });
+}
+
+async function waitForFinalCheckSettle(buildId: string): Promise<FinalCheckSettleResult> {
+  const startedAt = Date.now();
+  let attempts = 0;
+  let initialSurface: ImmediateRenderSurfaceResult | null = null;
+
+  previewLog('final_check_settle_started', {
+    buildId,
+    settleWindowMs: FINAL_CHECK_SETTLE_WINDOW_MS,
+    pollIntervalMs: FINAL_CHECK_SETTLE_POLL_MS,
+  });
+
+  while (true) {
+    const state = previewController.getState();
+    const controllerRevisionId = state.activeRevisionId ?? null;
+    const revisionMismatch = Boolean(
+      state.status === 'ready' &&
+      controllerRevisionId &&
+      controllerRevisionId !== buildId,
+    );
+    const controllerReady = Boolean(
+      state.status === 'ready' &&
+      !revisionMismatch,
+    );
+    const surface = inspectPreviewRenderSurface(buildId);
+    initialSurface ??= surface;
+    attempts += 1;
+    const elapsedMs = Date.now() - startedAt;
+
+    previewLog('final_check_settle_progress', {
+      buildId,
+      attempt: attempts,
+      elapsedMs,
+      controllerStatus: state.status,
+      controllerRevisionId,
+      controllerReady,
+      revisionMismatch,
+      healthy: surface.healthy,
+      failureReason: surface.failureReason,
+      probeReason: surface.probeReason,
+      ...buildMetricsPayload(surface.metrics),
+    });
+
+    if (surface.healthy && controllerReady) {
+      previewLog('final_check_settle_satisfied', {
+        buildId,
+        attempt: attempts,
+        elapsedMs,
+        controllerStatus: state.status,
+        controllerRevisionId,
+        ...buildMetricsPayload(surface.metrics),
+      });
+      return {
+        initialSurface,
+        finalSurface: surface,
+        controllerStatus: state.status,
+        controllerRevisionId,
+        controllerReady,
+        revisionMismatch,
+        settled: true,
+        attempts,
+        elapsedMs,
+      };
+    }
+
+    if (elapsedMs >= FINAL_CHECK_SETTLE_WINDOW_MS) {
+      previewLog('final_check_settle_timeout', {
+        buildId,
+        attempt: attempts,
+        elapsedMs,
+        controllerStatus: state.status,
+        controllerRevisionId,
+        controllerReady,
+        revisionMismatch,
+        failureReason: surface.failureReason,
+        probeReason: surface.probeReason,
+        ...buildMetricsPayload(surface.metrics),
+      });
+      return {
+        initialSurface,
+        finalSurface: surface,
+        controllerStatus: state.status,
+        controllerRevisionId,
+        controllerReady,
+        revisionMismatch,
+        settled: false,
+        attempts,
+        elapsedMs,
+      };
+    }
+
+    await delay(Math.min(FINAL_CHECK_SETTLE_POLL_MS, FINAL_CHECK_SETTLE_WINDOW_MS - elapsedMs));
+  }
 }
 
 export function buildSkippedFinalLivePreviewCheck(
@@ -371,21 +497,7 @@ export async function runFinalLivePreviewCheck(
     };
   }
 
-  if (state.status !== 'ready') {
-    return {
-      buildId,
-      status: 'failed',
-      reason: 'controller_not_ready',
-      message: `Final live-preview check failed: preview controller is ${state.status}, not ready`,
-      controllerStatus: state.status,
-      controllerRevisionId,
-      immediateBlank: false,
-      probeOutcome: 'inconclusive',
-      probeReason: null,
-    };
-  }
-
-  if (controllerRevisionId && controllerRevisionId !== buildId) {
+  if (state.status === 'ready' && controllerRevisionId && controllerRevisionId !== buildId) {
     return {
       buildId,
       status: 'failed',
@@ -399,20 +511,49 @@ export async function runFinalLivePreviewCheck(
     };
   }
 
-  const immediateSurface = inspectPreviewRenderSurface(buildId);
-  const immediateBlank = !immediateSurface.healthy;
-  if (!immediateSurface.healthy) {
-    logFinalRenderFailure(buildId, immediateSurface.probeReason, immediateSurface.metrics);
+  const settle = await waitForFinalCheckSettle(buildId);
+  const immediateBlank = !settle.initialSurface.healthy;
+
+  if (settle.revisionMismatch) {
     return {
       buildId,
       status: 'failed',
-      reason: immediateSurface.failureReason,
-      message: immediateSurface.message,
-      controllerStatus: state.status,
-      controllerRevisionId,
+      reason: 'revision_mismatch',
+      message: `Final live-preview check failed: controller is showing ${settle.controllerRevisionId}, expected ${buildId}`,
+      controllerStatus: settle.controllerStatus,
+      controllerRevisionId: settle.controllerRevisionId,
+      immediateBlank,
+      probeOutcome: 'inconclusive',
+      probeReason: null,
+    };
+  }
+
+  if (!settle.finalSurface.healthy) {
+    logFinalRenderFailure(buildId, settle.finalSurface.probeReason, settle.finalSurface.metrics);
+    return {
+      buildId,
+      status: 'failed',
+      reason: settle.finalSurface.failureReason,
+      message: settle.finalSurface.message,
+      controllerStatus: settle.controllerStatus,
+      controllerRevisionId: settle.controllerRevisionId,
       immediateBlank,
       probeOutcome: 'unhealthy',
-      probeReason: immediateSurface.probeReason,
+      probeReason: settle.finalSurface.probeReason,
+    };
+  }
+
+  if (!settle.controllerReady) {
+    return {
+      buildId,
+      status: 'failed',
+      reason: 'controller_not_ready',
+      message: `Final live-preview check failed: preview controller is ${settle.controllerStatus}, not ready after render settle`,
+      controllerStatus: settle.controllerStatus,
+      controllerRevisionId: settle.controllerRevisionId,
+      immediateBlank,
+      probeOutcome: 'inconclusive',
+      probeReason: null,
     };
   }
 
@@ -425,8 +566,8 @@ export async function runFinalLivePreviewCheck(
       status: 'failed',
       reason: descriptor.failureReason,
       message: descriptor.message,
-      controllerStatus: state.status,
-      controllerRevisionId,
+      controllerStatus: settle.controllerStatus,
+      controllerRevisionId: settle.controllerRevisionId,
       immediateBlank,
       probeOutcome: 'unhealthy',
       probeReason: probe.reason ?? null,
@@ -440,8 +581,8 @@ export async function runFinalLivePreviewCheck(
     message: probe
       ? 'Final live-preview checks passed'
       : 'Final live-preview checks passed (probe inconclusive, fallback signals healthy)',
-    controllerStatus: state.status,
-    controllerRevisionId,
+    controllerStatus: settle.controllerStatus,
+    controllerRevisionId: settle.controllerRevisionId,
     immediateBlank,
     probeOutcome: probe ? 'healthy' : 'inconclusive',
     probeReason: null,
@@ -459,6 +600,12 @@ const STUDIO_ORIGIN =
 
 /** Delay after ready_set before running the probe. Allows async renders. */
 const POST_READY_DELAY_MS = 2_500;
+
+/** Final live-preview check waits up to this long for the first meaningful render to settle. */
+export const FINAL_CHECK_SETTLE_WINDOW_MS = POST_READY_DELAY_MS;
+
+/** Poll cadence for the bounded final-check settle window. */
+const FINAL_CHECK_SETTLE_POLL_MS = 250;
 
 /** Short probation window after promotion where delayed diagnostics can still revoke it. */
 export const POST_PROMOTION_WATCHDOG_WINDOW_MS = 5_000;
