@@ -204,6 +204,7 @@ export interface PipelineRunConfig {
   language?:      string;
   maxIterations?: number;
   projectId?:     string;
+  branchId?:      string;
   revisionId?:    string;
   singlePageSafeMode?: boolean;
   generationMode?: 'landing' | 'app' | 'superapp';
@@ -3908,6 +3909,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       model:     config.modelId,
       mode:      'new',        // updated below once we know isEditMode
       projectId: config.projectId,
+      branchId:  config.branchId,
     });
     const buildTraceLabels = (route?: AgentExecutionRoute): TraceSafeModelLabel | undefined => (
       route
