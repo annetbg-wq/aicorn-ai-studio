@@ -22,6 +22,7 @@ import {
 import { ProjectRepository } from '../../services/ProjectRepository';
 import { ProjectStorage } from '../../services/ProjectStorage';
 import { revisionManager } from '../../services/RevisionManager';
+import { previewController } from '../../services/PreviewController';
 
 const generationPipelineMock = vi.hoisted(() => ({
   autoFix: vi.fn(),
@@ -187,6 +188,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   generationRunGate.release = null;
+  previewController.reset();
   vi.restoreAllMocks();
   vi.clearAllMocks();
   vi.useRealTimers();
@@ -905,6 +907,80 @@ describe('Draft persistence guard', () => {
 
     expect(vi.mocked(ProjectStorage.saveProject)).not.toHaveBeenCalled();
     expect(vi.mocked(ProjectRepository.saveProject)).not.toHaveBeenCalled();
+  });
+
+  it('keeps draft-only state before preview-ready and persists exactly once after explicit save', async () => {
+    configureCompletedKickoffGeneration();
+
+    let latestStudio: StudioHook | null = null;
+
+    render(React.createElement(StudioLifecycleHarness, {
+      onRender: (studio) => {
+        latestStudio = studio;
+      },
+    }));
+
+    await waitFor(() => expect(latestStudio).not.toBeNull());
+
+    act(() => {
+      latestStudio!.setInput('build a simple todo app');
+    });
+
+    await waitFor(() => expect(latestStudio!.input).toBe('build a simple todo app'));
+
+    await act(async () => {
+      void latestStudio!.handleSend();
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.pendingPlan?.architectKickoff?.selectedOptionId).toBe('core');
+      expect(latestStudio!.kickoffPhase).toBe('awaiting_confirmation');
+    });
+
+    await act(async () => {
+      await latestStudio!.confirmPlan();
+    });
+
+    await waitFor(() => {
+      expect(generationRunGate.release).toBeTypeOf('function');
+    });
+
+    await act(async () => {
+      generationRunGate.release?.();
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.isGenerating).toBe(false);
+      expect(latestStudio!.pendingProjectSave?.previewReady).toBe(false);
+    });
+
+    await act(async () => {
+      expect(latestStudio!.savePendingProject()).toBe(false);
+    });
+    expect(vi.mocked(ProjectStorage.saveProject)).not.toHaveBeenCalled();
+    expect(vi.mocked(ProjectRepository.saveProject)).not.toHaveBeenCalled();
+
+    act(() => {
+      previewController.notifyReady('test-build', 'unit-test');
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.previewLifecycle).toBe('preview-ready');
+      expect(latestStudio!.pendingProjectSave?.previewReady).toBe(true);
+    });
+
+    await act(async () => {
+      expect(latestStudio!.savePendingProject()).toBe(true);
+    });
+
+    await act(async () => {
+      expect(latestStudio!.savePendingProject()).toBe(false);
+    });
+
+    expect(vi.mocked(ProjectRepository.saveProject)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ProjectStorage.saveProject)).toHaveBeenCalledTimes(1);
+    const saveArg = vi.mocked(ProjectStorage.saveProject).mock.calls[0]?.[0] as { name?: string } | undefined;
+    expect((saveArg?.name ?? '').trim().length).toBeGreaterThan(0);
   });
 });
 

@@ -1596,7 +1596,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   const previewSaveLabels = (appLanguage || 'en').toLowerCase().startsWith('ru')
     ? { ready: 'Превью готово', save: 'Сохранить проект', draft: 'Draft не попал в Projects' }
     : { ready: 'Preview ready', save: 'Save project', draft: 'Draft is not in Projects' };
-  const showSaveProjectCta = !!pendingProjectSave?.previewReady && isPreviewReady && !!onSavePendingProject;
+  const showSaveProjectCta = !!pendingProjectSave && isPreviewReady && !!onSavePendingProject;
   const [hasPreviewReady, setHasPreviewReady] = useState(false);
   useEffect(() => {
     setHasPreviewReady(false);
@@ -1861,19 +1861,21 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: 12,
-            padding: '10px 16px',
-            borderBottom: `1px solid ${isDark ? 'rgba(34,197,94,0.24)' : 'rgba(22,163,74,0.24)'}`,
-            background: isDark ? 'rgba(34,197,94,0.09)' : 'rgba(22,163,74,0.08)',
-            color: isDark ? 'rgba(220,252,231,0.92)' : '#14532d',
+            padding: '14px 18px',
+            borderBottom: `1px solid ${isDark ? 'rgba(34,197,94,0.3)' : 'rgba(22,163,74,0.3)'}`,
+            background: isDark
+              ? 'linear-gradient(90deg, rgba(22,163,74,0.2), rgba(34,197,94,0.12))'
+              : 'linear-gradient(90deg, rgba(22,163,74,0.16), rgba(34,197,94,0.11))',
+            color: isDark ? 'rgba(220,252,231,0.98)' : '#14532d',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-            <CheckCircle size={16} style={{ color: '#16a34a', flexShrink: 0 }} />
+            <CheckCircle size={18} style={{ color: '#16a34a', flexShrink: 0 }} />
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: 0.1 }}>
                 {previewSaveLabels.ready}
               </div>
-              <div style={{ fontSize: 10.5, opacity: 0.78, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 11, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {pendingProjectSave?.projectTitle || projectName || previewSaveLabels.draft}
               </div>
             </div>
@@ -1881,23 +1883,25 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
           <button
             onClick={onSavePendingProject}
             style={{
-              height: 36,
-              borderRadius: 8,
+              height: 48,
+              minWidth: 220,
+              borderRadius: 10,
               border: '1px solid rgba(22,163,74,0.45)',
               background: '#16a34a',
               color: '#ffffff',
-              fontSize: 12,
-              fontWeight: 850,
+              fontSize: 15,
+              fontWeight: 900,
               display: 'flex',
               alignItems: 'center',
               gap: 7,
-              padding: '0 14px',
+              justifyContent: 'center',
+              padding: '0 18px',
               cursor: 'pointer',
-              boxShadow: '0 6px 18px rgba(22,163,74,0.24)',
+              boxShadow: '0 10px 24px rgba(22,163,74,0.28)',
               flexShrink: 0,
             }}
           >
-            <Save size={14} />
+            <Save size={16} />
             {previewSaveLabels.save}
           </button>
         </div>
