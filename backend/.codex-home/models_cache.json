@@ -1,12 +1,12 @@
 {
-  "fetched_at": "2026-04-22T17:17:03.953125700Z",
-  "etag": "W/\"8d069968321cf2bdeec81f33b351454d\"",
+  "fetched_at": "2026-04-22T21:48:15.643607Z",
+  "etag": "W/\"6475a7df045ec6d24d1d21d11e44df3a\"",
   "client_version": "0.122.0",
   "models": [
     {
       "slug": "gpt-5.4",
       "display_name": "gpt-5.4",
-      "description": "Strong model for everyday coding.",
+      "description": "Latest frontier agentic coding model.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
         {
@@ -69,7 +69,7 @@
     {
       "slug": "gpt-5.4-mini",
       "display_name": "GPT-5.4-Mini",
-      "description": "Small, fast, and cost-efficient model for simpler coding tasks.",
+      "description": "Smaller frontier agentic coding model.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
         {
@@ -130,7 +130,7 @@
     {
       "slug": "gpt-5.3-codex",
       "display_name": "gpt-5.3-codex",
-      "description": "Coding-optimized model.",
+      "description": "Frontier Codex-optimized agentic coding model.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
         {
@@ -194,7 +194,7 @@
     {
       "slug": "gpt-5.2",
       "display_name": "gpt-5.2",
-      "description": "Optimized for professional work and long-running agents.",
+      "description": "Optimized for professional work and long-running agents",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
         {
