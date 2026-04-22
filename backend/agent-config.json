@@ -16,13 +16,11 @@
     "provider": "openrouter",
     "modelId": "openai/gpt-4o-mini",
     "fallback1Provider": "openrouter",
-    "fallback1ModelId": "xiaomi/mimo-v2-flash",
+    "fallback1ModelId": "z-ai/glm-5.1",
     "maxTokens": {
-      "clarifier": 6000,
-      "architect_landing": 8000,
-      "architect_app": 12000,
-      "architect_superapp": 16000,
-      "tech_lead": 10000
+      "coder_superapp": 45256,
+      "coder_app": 35256,
+      "coder_landing": 10256
     }
   },
   "agent_fix": {
