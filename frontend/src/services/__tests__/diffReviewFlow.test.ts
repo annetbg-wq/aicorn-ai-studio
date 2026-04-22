@@ -253,7 +253,7 @@ describe('visual-select → edit prompt → diff → partial apply (e2e chain)',
     // Simulate the postMessage from the iframe
     const evt = new MessageEvent('message', {
       data:   { type: 'visual-element-selected', payload: runtimePayload },
-      source: mockIframe.contentWindow as unknown as EventSource,
+      source: mockIframe.contentWindow,
     });
     window.dispatchEvent(evt);
 

@@ -102,7 +102,7 @@ const sampleElementNoId = (): SelectedElement => ({
 function dispatchSelection(payload: SelectedElement, source: Window | null = window): void {
   const evt = new MessageEvent('message', {
     data:   { type: 'visual-element-selected', payload },
-    source: source as EventSource,
+    source,
   });
   window.dispatchEvent(evt);
 }

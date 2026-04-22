@@ -1,0 +1,217 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [active] [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Projects" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Product Architect" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+        - button "Figma Platinum" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+        - button "Agent Lab" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+        - button "Analytics" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+        - button "Quality" [ref=e49] [cursor=pointer]:
+          - img [ref=e50]
+        - button "Code Studio" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Terminal" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+        - button "DB Console" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "Cloud & Backend — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Packaging & Ship — Coming Soon" [ref=e75]:
+          - img [ref=e76]
+        - button "Growth & Marketing — Coming Soon" [ref=e82]:
+          - img [ref=e83]
+      - button "Weekly Hot Ideas" [ref=e86] [cursor=pointer]:
+        - img [ref=e87]
+    - generic [ref=e311]:
+      - generic [ref=e312]:
+        - generic [ref=e313]:
+          - generic [ref=e314]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e315] [cursor=pointer]:
+            - img [ref=e316]
+            - text: New Project
+          - generic [ref=e318]: Untitled
+          - generic [ref=e319]: /
+          - img [ref=e320]
+          - generic [ref=e324]: main
+          - generic [ref=e325]: ·
+          - img [ref=e326]
+          - generic [ref=e328]: "snap #0"
+        - generic [ref=e330]: Not backed up
+        - generic [ref=e331]:
+          - generic [ref=e332]:
+            - 'button "Theme: dark" [ref=e333] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e334] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e335] [cursor=pointer]'
+          - button "Settings" [ref=e336] [cursor=pointer]:
+            - img [ref=e337]
+          - button "D dev.local@aic-studio.test" [ref=e340] [cursor=pointer]:
+            - generic [ref=e341]: D
+            - generic [ref=e342]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e343] [cursor=pointer]:
+            - img [ref=e344]
+            - text: Backup to Cloud
+      - generic [ref=e347]:
+        - generic [ref=e349]:
+          - generic [ref=e351]:
+            - img [ref=e352]
+            - generic [ref=e357]: AIC-RG Studio
+            - generic [ref=e358]: Опишите идею ниже или выберите в сайдбаре
+          - generic [ref=e359]:
+            - generic [ref=e360]:
+              - button "AUTO" [ref=e361]
+              - button "APP" [ref=e362]
+              - button "PAGE" [ref=e363]
+              - button "SUPER" [ref=e364]
+              - button "ALL" [ref=e365]
+              - button "История" [ref=e367]:
+                - img [ref=e368]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e373]:
+                - img [ref=e374]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e377]:
+                - img [ref=e378]
+            - generic [ref=e381]:
+              - button "Attach / tools" [ref=e383]:
+                - img [ref=e384]
+              - textbox "Что строим сегодня?" [ref=e385]
+              - button [disabled] [ref=e386]:
+                - img [ref=e387]
+          - generic [ref=e390]:
+            - generic [ref=e392]: Untitled
+            - generic [ref=e393]: current
+        - generic [ref=e394]:
+          - generic [ref=e395]:
+            - generic [ref=e396]:
+              - button "Preview" [ref=e397] [cursor=pointer]
+              - button "Reasoning" [ref=e398] [cursor=pointer]
+              - button "Code" [ref=e399] [cursor=pointer]
+              - button "Design" [ref=e400] [cursor=pointer]
+              - button "Analytics" [ref=e401] [cursor=pointer]
+              - button "Security" [ref=e402] [cursor=pointer]
+              - button "Cloud" [ref=e403] [cursor=pointer]
+            - generic [ref=e404]:
+              - button "Select" [ref=e405] [cursor=pointer]:
+                - img [ref=e406]
+                - text: Select
+              - generic [ref=e408]:
+                - button "Desktop Chrome" [ref=e409] [cursor=pointer]:
+                  - img [ref=e410]
+                - button "iPhone 16 Pro Max" [ref=e412] [cursor=pointer]:
+                  - img [ref=e413]
+                - button "Pixel 9 Pro" [ref=e415] [cursor=pointer]:
+                  - img [ref=e416]
+                - button "iPad Pro 13" [ref=e418] [cursor=pointer]:
+                  - img [ref=e419]
+              - button "Export" [ref=e421] [cursor=pointer]:
+                - img [ref=e422]
+                - text: Export
+              - button "Expo" [ref=e425] [cursor=pointer]:
+                - img [ref=e426]
+                - text: Expo
+              - button "Share" [ref=e428] [cursor=pointer]:
+                - img [ref=e429]
+                - text: Share
+          - generic [ref=e437]:
+            - generic [ref=e439]:
+              - generic [ref=e440]:
+                - button [ref=e441] [cursor=pointer]:
+                  - img [ref=e442]
+                - generic [ref=e445] [cursor=pointer]: 55%
+                - button [ref=e446] [cursor=pointer]:
+                  - img [ref=e447]
+                - button [ref=e451] [cursor=pointer]:
+                  - img [ref=e452]
+              - iframe [ref=e461]:
+                - generic [ref=f1e3]:
+                  - main [ref=f1e4]:
+                    - generic [ref=f1e5]:
+                      - generic [ref=f1e7]:
+                        - img [ref=f1e9]
+                        - heading "EcoHome" [level=1] [ref=f1e12]
+                      - paragraph [ref=f1e13]: Добро пожаловать! Вот ваша сводка по углеродному следу.
+                      - generic [ref=f1e16]:
+                        - generic [ref=f1e17]:
+                          - img [ref=f1e18]
+                          - generic [ref=f1e21]:
+                            - generic [ref=f1e22]: "0"
+                            - generic [ref=f1e23]: кг CO₂/год
+                        - generic [ref=f1e24]:
+                          - generic [ref=f1e25]: 🌟
+                          - generic [ref=f1e26]: Отлично
+                        - paragraph [ref=f1e27]: "Цель: менее 3000 кг CO₂/год"
+                      - generic [ref=f1e28]:
+                        - generic [ref=f1e30]:
+                          - generic [ref=f1e31]:
+                            - img [ref=f1e32]
+                            - generic [ref=f1e35]: Экономия
+                          - paragraph [ref=f1e36]: 340 кг
+                          - paragraph [ref=f1e37]: за последний месяц
+                        - generic [ref=f1e39]:
+                          - generic [ref=f1e40]:
+                            - img [ref=f1e41]
+                            - generic [ref=f1e44]: Прогресс
+                          - paragraph [ref=f1e45]: 72%
+                          - progressbar [ref=f1e46]
+                      - generic [ref=f1e48]:
+                        - heading "Советы по снижению" [level=2] [ref=f1e49]
+                        - generic [ref=f1e50]:
+                          - generic [ref=f1e53] [cursor=pointer]:
+                            - img [ref=f1e55]
+                            - generic [ref=f1e57]:
+                              - paragraph [ref=f1e58]: Перейдите на LED-лампы
+                              - paragraph [ref=f1e59]: Экономия до 80% электроэнергии на освещении
+                              - generic [ref=f1e60]: "-120 кг CO₂/год"
+                          - generic [ref=f1e63] [cursor=pointer]:
+                            - img [ref=f1e65]
+                            - generic [ref=f1e68]:
+                              - paragraph [ref=f1e69]: Уменьшите температуру на 1°C
+                              - paragraph [ref=f1e70]: Сократите расходы на отопление на 7%
+                              - generic [ref=f1e71]: "-200 кг CO₂/год"
+                          - generic [ref=f1e74] [cursor=pointer]:
+                            - img [ref=f1e76]
+                            - generic [ref=f1e80]:
+                              - paragraph [ref=f1e81]: Используйте энергосберегающие приборы
+                              - paragraph [ref=f1e82]: Класс A++ потребляет на 45% меньше энергии
+                              - generic [ref=f1e83]: "-350 кг CO₂/год"
+                      - generic [ref=f1e84]:
+                        - generic [ref=f1e86]:
+                          - img [ref=f1e87]
+                          - generic [ref=f1e90]: Premium аналитика
+                        - generic [ref=f1e91]:
+                          - paragraph [ref=f1e92]: Получите доступ к программам компенсации углерода и подробной аналитике.
+                          - button "Разблокировать Premium" [ref=f1e93] [cursor=pointer]:
+                            - img
+                            - text: Разблокировать Premium
+                  - navigation [ref=f1e94]:
+                    - generic [ref=f1e95]:
+                      - link "Главная" [ref=f1e96] [cursor=pointer]:
+                        - /url: "#/"
+                        - img [ref=f1e97]
+                        - generic [ref=f1e100]: Главная
+                      - link "Настройки" [ref=f1e101] [cursor=pointer]:
+                        - /url: "#/settings"
+                        - img [ref=f1e102]
+                        - generic [ref=f1e105]: Настройки
+            - generic [ref=e462]:
+              - img [ref=e464]
+              - generic [ref=e469]: AIC-RG Studio
+              - generic [ref=e470]: Подготавливаем окружение превью
+              - generic [ref=e472]:
+                - generic [ref=e473]: До появления preview
+                - generic [ref=e474]: 02с
+              - generic [ref=e477]:
+                - generic [ref=e478]:
+                  - generic [ref=e479]: Live reasoning
+                  - button "Open" [ref=e480] [cursor=pointer]
+                - generic [ref=e481]: Finalize outcome · Failed
+                - generic [ref=e482]: Candidate was not promoted (no_fix_output).

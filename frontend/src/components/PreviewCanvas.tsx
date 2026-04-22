@@ -1432,6 +1432,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   }), [projectId, activeBranch, isGenerating, persistedProjectExists, previewLifecycle, previewBlockedReason]);
   const [workspaceBinding, setWorkspaceBinding] = useState<WorkspaceBinding>(() => resolveBinding());
   const [reasoningCopied, setReasoningCopied] = useState(false);
+  const [debugTraceCopied, setDebugTraceCopied] = useState(false);
 
   // ── Visual-edit bridge — local state ─────────────────────────────────────
   const [visualEditMode,     setVisualEditModeState] = useState<VisualEditMode>('off');
@@ -1467,6 +1468,14 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
       ? currentTraceVisibleReasoning
       : diagnosticReasoningTrace ?? pendingCurrentRunTrace;
   const reasoningScopeLabel = getWorkspaceScopeLabel(workspaceBinding);
+  const hasFullDebugTrace = !!(
+    workspaceBinding.runId
+    && generationTracer.getFullDebugTrace({
+      runId: workspaceBinding.runId,
+      projectId: workspaceBinding.projectId,
+      branchId: workspaceBinding.branchId,
+    })
+  );
 
   const copyVisibleReasoningTrace = useCallback(async () => {
     if (!visibleReasoningTrace) return;
@@ -1492,6 +1501,35 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
       setReasoningCopied(false);
     }
   }, [visibleReasoningTrace]);
+
+  const copyFullDebugTrace = useCallback(async () => {
+    if (!workspaceBinding.runId) return;
+    const text = generationTracer.formatFullDebugTraceExport({
+      runId: workspaceBinding.runId,
+      projectId: workspaceBinding.projectId,
+      branchId: workspaceBinding.branchId,
+    });
+    if (!text) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.setAttribute('readonly', '');
+        el.style.position = 'absolute';
+        el.style.left = '-9999px';
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      }
+      setDebugTraceCopied(true);
+      window.setTimeout(() => setDebugTraceCopied(false), 1500);
+    } catch {
+      setDebugTraceCopied(false);
+    }
+  }, [workspaceBinding.branchId, workspaceBinding.projectId, workspaceBinding.runId]);
 
   // Subscribe to bridge state — fires selection callback when element is picked
   useEffect(() => {
@@ -1727,15 +1765,26 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             </div>
           )}
           {tab === 'reasoning' && (
-            <button
-              data-testid="copy-visible-reasoning-btn"
-              onClick={copyVisibleReasoningTrace}
-              title="Copy visible reasoning"
-              disabled={!hasReasoningTrace}
-              style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:8, border:`1px solid ${th.border}`, background:'none', cursor: hasReasoningTrace ? 'pointer' : 'not-allowed', fontSize:11, color: reasoningCopied ? '#22c55e' : th.tabDim, opacity: hasReasoningTrace ? 1 : 0.5 }}
-            >
-              <Copy size={12}/> {reasoningCopied ? 'Copied' : 'Copy visible reasoning'}
-            </button>
+            <>
+              <button
+                data-testid="copy-visible-reasoning-btn"
+                onClick={copyVisibleReasoningTrace}
+                title="Copy visible reasoning"
+                disabled={!hasReasoningTrace}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:8, border:`1px solid ${th.border}`, background:'none', cursor: hasReasoningTrace ? 'pointer' : 'not-allowed', fontSize:11, color: reasoningCopied ? '#22c55e' : th.tabDim, opacity: hasReasoningTrace ? 1 : 0.5 }}
+              >
+                <Copy size={12}/> {reasoningCopied ? 'Copied' : 'Copy visible reasoning'}
+              </button>
+              <button
+                data-testid="copy-full-debug-trace-btn"
+                onClick={copyFullDebugTrace}
+                title="Copy full debug trace JSON"
+                disabled={!hasFullDebugTrace}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:8, border:'1px solid rgba(245,158,11,0.28)', background:'rgba(245,158,11,0.06)', cursor: hasFullDebugTrace ? 'pointer' : 'not-allowed', fontSize:11, color: debugTraceCopied ? '#22c55e' : (isDark ? 'rgba(251,191,36,0.82)' : '#b45309'), opacity: hasFullDebugTrace ? 1 : 0.48 }}
+              >
+                <Shield size={12}/> {debugTraceCopied ? 'Copied debug JSON' : 'Copy debug trace JSON'}
+              </button>
+            </>
           )}
           {onDownloadProject && (
             <button onClick={onDownloadProject} title="Export project as ZIP (npm install && npm run dev)"

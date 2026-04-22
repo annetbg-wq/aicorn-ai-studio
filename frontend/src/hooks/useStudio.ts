@@ -46,9 +46,10 @@ import { ScannerService } from '../services/ScannerService';
 import type { ComponentRegistry } from '../services/ScannerService';
 import { ProjectStorage } from '../services/ProjectStorage';
 import type { ProjectMeta, StoredProject, ProjectRevision } from '../services/ProjectStorage';
+import { draftArtifactJournal } from '../services/DraftArtifactJournal';
 import { ProjectManager } from '../services/ProjectManager';
 import type { Project } from '../services/ProjectManager';
-import { ProjectRepository } from '../services/ProjectRepository';
+import { ProjectRepository, getCanonicalProjectName } from '../services/ProjectRepository';
 import { BenchmarkService } from '../services/benchmark/BenchmarkService';
 import { revisionManager } from '../services/RevisionManager';
 import { previewController } from '../services/PreviewController';
@@ -385,6 +386,20 @@ const loadBilling = (projectId: string) => {
   } catch { return { cost: 0, tokens: 0 }; }
 };
 
+const repositoryMetaToProjectMeta = (
+  meta: Awaited<ReturnType<typeof ProjectRepository.listProjects>>[number],
+): ProjectMeta => ({
+  id:          meta.id,
+  name:        getCanonicalProjectName(meta),
+  theme:       meta.theme,
+  description: '',
+  createdAt:   meta.updatedAt,
+  updatedAt:   meta.updatedAt,
+  activeBranchId: meta.activeBranchId,
+  branchIds:      meta.branchIds,
+  branchCount:    meta.branchCount,
+});
+
 // ── revision helper ─────────────────────────────────────────────────────────
 
 const MAX_REVISIONS = 5;
@@ -432,6 +447,8 @@ interface PendingProjectSave {
   planTheme: string;
   reqUsage: UsageData;
 }
+
+type ProjectPersistenceState = 'none' | 'unknown' | 'exists' | 'missing' | 'draft';
 
 // ── hook ─────────────────────────────────────────────────────────────────────
 
@@ -906,18 +923,16 @@ export const useStudio = () => {
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     return UUID_RE.test(saved) ? saved : null;
   });
+  const [projectPersistenceState, setProjectPersistenceState] = useState<ProjectPersistenceState>(() => {
+    const saved = localStorage.getItem('CURRENT_PROJECT_ID');
+    if (!saved) return 'none';
+    return ProjectStorage.projectDataExists(saved) ? 'exists' : 'unknown';
+  });
 
   // Refresh project list from Supabase on mount (async — sync init above is the initial state)
   useEffect(() => {
     ProjectRepository.listProjects().then(meta => {
-      setProjects(meta.map(m => ({
-        id:          m.id,
-        name:        m.name,
-        theme:       m.theme,
-        description: '',
-        createdAt:   m.updatedAt,
-        updatedAt:   m.updatedAt,
-      })));
+      setProjects(meta.map(repositoryMetaToProjectMeta));
     }).catch(() => { /* already have localStorage fallback from useState init */ });
   }, []);
 
@@ -1018,6 +1033,9 @@ export const useStudio = () => {
   const pendingProjectSaveRef = useRef<PendingProjectSave | null>(null);
   const pendingSavePromptShownRef = useRef(false);
   const processedArchitectureMessagesRef = useRef<Set<string>>(new Set());
+  // Tracks the active draft session ID for the current unsaved generation run.
+  // Null when a real persisted project is active (loaded or just saved).
+  const _draftSessionIdRef = useRef<string | null>(null);
 
   const commitPendingProjectSave = useCallback((reason: 'preview-ready' | 'manual-no-preview') => {
     const pending = pendingProjectSaveRef.current;
@@ -1181,6 +1199,7 @@ export const useStudio = () => {
     }
 
     setCurrentProjectId(pending.projectId);
+    setProjectPersistenceState('exists');
     setProjects(ProjectStorage.listProjects());
 
     const existingForCloud = ProjectStorage.getProject(pending.projectId);
@@ -1218,6 +1237,21 @@ export const useStudio = () => {
         ? `[Project] Saved after preview ready: ${pending.projectTitle}`
         : `[Project] Saved without preview (confirmed): ${pending.projectTitle}`,
     );
+
+    // Write journal record for the save event and clean up draft state.
+    const draftIdAtSave = _draftSessionIdRef.current;
+    if (draftIdAtSave) {
+      draftArtifactJournal.appendRecord(draftIdAtSave, {
+        stepType: 'project_saved',
+        projectId: pending.projectId,
+        status: 'ok',
+        acceptedFiles: Object.keys(pending.finalFiles),
+        metadata: { projectTitle: pending.projectTitle, reason },
+      });
+      _draftSessionIdRef.current = null;
+      localStorage.removeItem('AIC_DRAFT_SESSION_ID');
+    }
+
     return true;
   }, [addLog, appLanguage, authUser?.id, generationMode, projectCost, projectTokens]);
   commitPendingProjectSaveRef.current = commitPendingProjectSave;
@@ -1259,8 +1293,13 @@ export const useStudio = () => {
     // Persist the derived `files` value — includes graph-derived files when graph is set.
     safeSetItem('LAST_FILES',    JSON.stringify(files));
     safeSetItem('LAST_CODE',     getPrimaryCode(files));
-    if (currentProjectId) safeSetItem('CURRENT_PROJECT_ID', currentProjectId);
-    else localStorage.removeItem('CURRENT_PROJECT_ID');
+    // Only persist real project IDs — draft session IDs must NOT survive page reload
+    // as they would trigger a spurious "project not found" on cold start.
+    if (currentProjectId && ProjectStorage.projectDataExists(currentProjectId)) {
+      safeSetItem('CURRENT_PROJECT_ID', currentProjectId);
+    } else {
+      localStorage.removeItem('CURRENT_PROJECT_ID');
+    }
   }, [messages, files, currentProjectId]); // `files` is a useMemo — stable ref unless projectGraph or filesRaw changes
 
   useEffect(() => {
@@ -1483,6 +1522,7 @@ export const useStudio = () => {
     setCurrentPhase('');
     setFiles({});
     setCurrentProjectId(null);
+    setProjectPersistenceState('none');
     setProjectCost(0);
     setProjectTokens(0);
     setGenerationSource('chat');
@@ -1500,16 +1540,20 @@ export const useStudio = () => {
     localStorage.removeItem('CURRENT_PROJECT_ID');
     Orchestrator.resetSession();
     await revisionManager.createEmptyCandidate();
-    // Immediately provision a blank project so currentProjectId is never null
-    // and PreviewCanvas always has a valid projectId to render the device frame.
-    try {
-      const proj = ProjectManager.create({ name: 'New Project', theme: 'dark-slate', description: '' });
-      ProjectManager.setCurrent(proj.id);
-      setCurrentProjectId(proj.id);
-      setProjects(ProjectStorage.listProjects());
-    } catch {
-      // Storage full or limit reached — UI stays in "no project" state gracefully.
-    }
+    // Create a draft session for the next generation run.
+    // No persisted project is created here — a project is created only after
+    // explicit Save following a successful preview (commitPendingProjectSave).
+    const draftId = draftArtifactJournal.createSession({ source: 'new-project' });
+    _draftSessionIdRef.current = draftId;
+    localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
+    setCurrentProjectId(draftId);
+    setProjectPersistenceState('draft');
+    draftArtifactJournal.appendRecord(draftId, {
+      stepType: 'draft_session_started',
+      source: 'new-project',
+      projectId: null,
+      status: 'ok',
+    });
   }, [currentProjectId, clearSnapshots, clearLogs, clearAttachments, clearComposerContextItems, addLog]);
 
   const loadProject = useCallback(async (project: { id: string }) => {
@@ -1517,14 +1561,36 @@ export const useStudio = () => {
     pendingSavePromptShownRef.current = false;
     clearComposerContextItems();
     addLog(`[Project] Loading ${project.id.slice(0, 8)}…`);
+    setProjectPersistenceState('unknown');
+    // Clear any active draft session — we are transitioning to a real persisted project.
+    _draftSessionIdRef.current = null;
+    localStorage.removeItem('AIC_DRAFT_SESSION_ID');
     try {
       // Supabase first, localStorage fallback
       const full = await ProjectRepository.getProject(project.id);
       if (!full) {
         addLog('[Project] Not found in Supabase or localStorage');
+        ProjectRepository.removeLocalProjectMeta(project.id);
+        setProjects(prev => prev.filter(p => p.id !== project.id));
+        setCurrentProjectId(project.id);
+        setProjectPersistenceState('missing');
+        setFiles({});
+        chatLoadHistory([]);
+        clearSnapshots();
+        setProjectCost(0);
+        setProjectTokens(0);
+        setPreviewLifecycle('blocked');
         setPreviewBlockedReason(`Project not found: ${project.id}`);
+        setPreviewUrl('');
+        setPreviewReady(false);
+        chatAppend({
+          role: 'assistant',
+          content: `⚠️ Project not found: ${project.id}\n\nThis saved project entry is stale or missing, so it was not opened as a new blank project.`,
+          timestamp: Date.now(),
+        });
         return;
       }
+      setProjectPersistenceState('exists');
 
       // 1. Compile project files — await so backend compile + preview-mounted(buildId) complete before React state update
       const persistedFileCount = Object.keys(full.files ?? {}).length;
@@ -1573,6 +1639,7 @@ export const useStudio = () => {
         chatLoadHistory(full.chatHistory as any[]);
         setFiles(normalizeToFileMap(full.files));
         setCurrentProjectId(full.id);
+        setProjectPersistenceState('exists');
         setProjectCost(b.cost);
         setProjectTokens(b.tokens);
         clearSnapshots();
@@ -1586,20 +1653,13 @@ export const useStudio = () => {
         timestamp: Date.now(),
       });
     }
-  }, [clearSnapshots, addLog]);
+  }, [clearSnapshots, addLog, chatAppend, chatLoadHistory, clearComposerContextItems]);
 
   const deleteProject = useCallback(async (id: string) => {
     await ProjectRepository.deleteProject(id);
     // Refresh list from Supabase (falls back to localStorage on error)
     const meta = await ProjectRepository.listProjects();
-    setProjects(meta.map(m => ({
-      id:          m.id,
-      name:        m.name,
-      theme:       m.theme,
-      description: '',
-      createdAt:   m.updatedAt,
-      updatedAt:   m.updatedAt,
-    })));
+    setProjects(meta.map(repositoryMetaToProjectMeta));
     if (currentProjectId === id) createNewProject();
   }, [currentProjectId, createNewProject]);
 
@@ -1626,6 +1686,7 @@ export const useStudio = () => {
       });
       ProjectManager.setCurrent(proj.id);
       setCurrentProjectId(proj.id);
+      setProjectPersistenceState('exists');
       setProjects(ProjectStorage.listProjects());
       addLog(`[Project] Created: ${proj.name} (${proj.id.slice(0, 8)}…)`);
       return proj.id;
@@ -1636,7 +1697,9 @@ export const useStudio = () => {
   }, [addLog, clearComposerContextItems]);
 
   const refreshProjects = useCallback(() => {
-    setProjects(ProjectStorage.listProjects());
+    void ProjectRepository.listProjects()
+      .then(meta => setProjects(meta.map(repositoryMetaToProjectMeta)))
+      .catch(() => setProjects(ProjectStorage.listProjects()));
   }, []);
 
   /** Load an existing project into the active workspace (alias for loadProject with PM sync). */
@@ -1676,15 +1739,27 @@ export const useStudio = () => {
       }
 
       // No active project — try the most-recent saved one first.
-      const list = ProjectStorage.listProjects();
+      const list = ProjectStorage.listProjects()
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       if (list.length > 0) {
-        const recent = list[list.length - 1];
+        const recent = list[0];
         await loadProject({ id: recent.id });
         return;
       }
 
-      // Nothing saved — create a blank "New Project" silently.
-      createProject({ name: 'New Project' });
+      // Nothing saved — start with a fresh draft session.
+      // No persisted project is created until the user explicitly saves after a successful preview.
+      const draftId = draftArtifactJournal.createSession({ source: 'startup' });
+      _draftSessionIdRef.current = draftId;
+      localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
+      setCurrentProjectId(draftId);
+      setProjectPersistenceState('draft');
+      draftArtifactJournal.appendRecord(draftId, {
+        stepType: 'draft_session_started',
+        source: 'startup',
+        projectId: null,
+        status: 'ok',
+      });
     };
 
     init().catch(() => {/* ignore — addLog already records errors inside loadProject */});
@@ -1837,8 +1912,13 @@ export const useStudio = () => {
     setCurrentPhase('think');
     setPreviewLifecycle('generating');
     setPreviewBlockedReason(null);
-    const runWorkspaceContext = resolveStudioKickoffContext(currentProjectId, currentProject);
-    const runProjectId = runWorkspaceContext.projectId ?? currentProjectId ?? crypto.randomUUID();
+    // Read project ID from the canonical ProjectManager key at execution time to avoid
+    // stale closure when createNewProject() updates state but _sendImpl was captured
+    // before re-render. For draft sessions, AIC_DRAFT_SESSION_ID is the synchronous fallback
+    // (set in createNewProject/auto-init before React state updates).
+    const stableProjectId = ProjectManager.getCurrentId() ?? localStorage.getItem('CURRENT_PROJECT_ID') ?? localStorage.getItem('AIC_DRAFT_SESSION_ID') ?? currentProjectId;
+    const runWorkspaceContext = resolveStudioKickoffContext(stableProjectId, currentProject);
+    const runProjectId = runWorkspaceContext.projectId ?? stableProjectId ?? crypto.randomUUID();
     const runBranchId = runWorkspaceContext.branchId ?? DEFAULT_PROJECT_BRANCH_ID;
     commandBus.dispatch({ type: 'START_GENERATION', intent: effectiveInput, plan: {} });
     addLog('─'.repeat(40));
@@ -1981,6 +2061,7 @@ export const useStudio = () => {
         userLang,
         apiKey:   planRoute.apiKey,
         route:    planRoute,
+        projectId: runProjectId,
         signal:   controller.signal,
       });
     } catch (planErr) {
@@ -2062,6 +2143,26 @@ export const useStudio = () => {
       (buildRoute.fallbackReason ? ` [fallback: ${buildRoute.fallbackReason}]` : ''),
     );
     console.log('[useStudio] routes resolved — primary:', primaryRoute.modelId, 'build:', buildRoute.modelId);
+
+    // ── Draft journal: record generation start ────────────────────────────────
+    const _journalDraftSessionId = _draftSessionIdRef.current;
+    const _journalRunId = crypto.randomUUID();
+    if (_journalDraftSessionId) {
+      draftArtifactJournal.appendRecord(_journalDraftSessionId, {
+        stepType: 'generation_start',
+        runId: _journalRunId,
+        source: effectiveSource,
+        projectId: null,
+        request: {
+          userPrompt: userPrompt.slice(0, 400),
+          primaryModel: primaryRoute.modelId,
+          buildModel: buildRoute.modelId,
+          provider: primaryRoute.provider,
+          existingFileCount: Object.keys(files).length,
+        },
+        status: 'ok',
+      });
+    }
 
     try {
       let optimisticFiles: FileMap | null = null;
@@ -2372,6 +2473,17 @@ export const useStudio = () => {
         setProgress(100);
         setCurrentPhase('');
         setPreviewLifecycle('failed');
+        if (_journalDraftSessionId) {
+          draftArtifactJournal.appendRecord(_journalDraftSessionId, {
+            stepType: 'generation_failed',
+            runId: _journalRunId,
+            source: effectiveSource,
+            projectId: null,
+            error: failMsg,
+            status: 'failed',
+            metadata: { isParseFailure },
+          });
+        }
         return;
       }
 
@@ -2529,6 +2641,23 @@ export const useStudio = () => {
         || 'New Project';
 
       if (Object.keys(finalFiles).length > 0) {
+        // Draft journal: record successful generation before queuing save
+        if (_journalDraftSessionId) {
+          draftArtifactJournal.appendRecord(_journalDraftSessionId, {
+            stepType: 'generation_complete',
+            runId: _journalRunId,
+            source: effectiveSource,
+            projectId: null,
+            acceptedFiles: Object.keys(finalFiles),
+            status: 'ok',
+            metadata: {
+              projectTitle,
+              fileCount: Object.keys(finalFiles).length,
+              buildModel: buildRoute.modelId,
+              planTheme: result.planTheme,
+            },
+          });
+        }
         pendingProjectSaveRef.current = {
           projectId,
           projectTitle,
@@ -2595,6 +2724,17 @@ export const useStudio = () => {
 
       console.error('Studio Error:', err);
       addLog(`${isNetworkError ? 'Connection lost' : 'Error'} #${consecutiveErrors.current}: ${err?.message ?? 'Unknown error'}`, 'error');
+      if (_journalDraftSessionId) {
+        draftArtifactJournal.appendRecord(_journalDraftSessionId, {
+          stepType: 'generation_error',
+          runId: _journalRunId,
+          source: effectiveSource,
+          projectId: null,
+          error: err?.message ?? 'Unknown error',
+          status: 'failed',
+          metadata: { isNetworkError, errorCount: consecutiveErrors.current },
+        });
+      }
       chatPatchLast({
         role: 'assistant',
         type: 'text',
@@ -2626,11 +2766,19 @@ export const useStudio = () => {
   ) => {
     const mappedSource: 'weekly-feed' | 'niche' | 'dashboard' =
       source === 'niche' ? 'niche' : source === 'weekly-feed' ? 'weekly-feed' : 'dashboard';
+
+    // Ideas from the feed must always start in a fresh empty project so the
+    // coder sees existingCodeCount === 0 and generates the full app from
+    // scratch instead of producing an incremental patch against stale files.
+    if (source === 'weekly-feed' || source === 'niche') {
+      await createNewProject();
+    }
+
     addComposerContextFromPlan(plan, intent, mappedSource);
     addSystemMessage(
       `🧩 Context added: **${plan.appName || 'Imported idea'}**. Review and press Send to generate with this context pack.`,
     );
-  }, [addComposerContextFromPlan, addSystemMessage]);
+  }, [addComposerContextFromPlan, addSystemMessage, createNewProject]);
 
   const onSettings = useCallback(() => setShowSettings(true), []);
 
@@ -3040,6 +3188,11 @@ export const useStudio = () => {
     /** Authoritative ProjectGraph from the last completed generation. Null before first generation. */
     projectGraph,
     projects, currentProjectId, currentProject, snapshots,
+    persistedProjectExists: projectPersistenceState === 'exists'
+      ? true
+      : projectPersistenceState === 'missing'
+        ? false
+        : undefined,
     fullContextMode, setFullContextMode,
     selectedModel, setSelectedModel,
     // Canonical snapshot-layer names
@@ -3138,7 +3291,7 @@ export const useStudio = () => {
     isGenerating, device, progress, currentPhase, kickoffPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, previewUrl, previewReady, machineState,
     designClassification,
     projectGraph,
-    snapshots, historyIndex, currentProjectId, currentProject, currentSnapshotId, stableSnapshotId,
+    snapshots, historyIndex, currentProjectId, currentProject, currentSnapshotId, stableSnapshotId, projectPersistenceState,
     projects, showSettings, logs, attachments, composerContextItems,
     sessionCost, sessionTokens, projectCost, projectTokens,
     appLanguage,

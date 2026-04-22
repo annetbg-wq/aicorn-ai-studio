@@ -60,6 +60,88 @@ export interface ProjectMetaSummary {
 const LOCAL_META_KEY = 'aic_projects_meta'; // только метаданные, не файлы
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export function getCanonicalProjectName(project: unknown, fallback = 'New Project'): string {
+  if (!project || typeof project !== 'object') return fallback;
+  const record = project as Record<string, unknown>;
+  const name = typeof record.name === 'string' ? record.name.trim() : '';
+  if (name) return name;
+  const legacyTitle = typeof record.title === 'string' ? record.title.trim() : '';
+  return legacyTitle || fallback;
+}
+
+function normalizeMetaSummary(raw: unknown): ProjectMetaSummary | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as Record<string, unknown>;
+  const id = typeof record.id === 'string' ? record.id.trim() : '';
+  if (!id) return null;
+  const updatedAt =
+    typeof record.updatedAt === 'string' && record.updatedAt
+      ? record.updatedAt
+      : typeof record.last_sync_at === 'string' && record.last_sync_at
+        ? record.last_sync_at
+        : new Date(0).toISOString();
+
+  const snapshot = record.code_snapshot && typeof record.code_snapshot === 'object'
+    ? record.code_snapshot as Record<string, unknown>
+    : {};
+  const branches = snapshot.branches && typeof snapshot.branches === 'object'
+    ? snapshot.branches as Record<string, unknown>
+    : undefined;
+  const branchIds = Array.isArray(record.branchIds)
+    ? record.branchIds.filter((v): v is string => typeof v === 'string')
+    : branches
+      ? Object.keys(branches)
+      : undefined;
+
+  return {
+    id,
+    name: getCanonicalProjectName(record),
+    theme:
+      typeof record.theme === 'string' && record.theme
+        ? record.theme
+        : typeof snapshot.theme === 'string' && snapshot.theme
+          ? snapshot.theme
+          : 'dark-slate',
+    updatedAt,
+    version: typeof record.version === 'number' ? record.version : 1,
+    activeBranchId:
+      typeof record.activeBranchId === 'string'
+        ? record.activeBranchId
+        : typeof snapshot.activeBranchId === 'string'
+          ? snapshot.activeBranchId
+          : undefined,
+    branchIds,
+    branchCount:
+      typeof record.branchCount === 'number'
+        ? record.branchCount
+        : branchIds?.length,
+  };
+}
+
+function normalizeCachedMetaList(value: string | null): ProjectMetaSummary[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    return parsed.flatMap(raw => {
+      const meta = normalizeMetaSummary(raw);
+      if (!meta || seen.has(meta.id) || !ProjectStorage.projectDataExists(meta.id)) return [];
+      seen.add(meta.id);
+      return [meta];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function removeRepositoryMeta(id: string): void {
+  try {
+    const cached = normalizeCachedMetaList(localStorage.getItem(LOCAL_META_KEY));
+    safeSetItem(LOCAL_META_KEY, JSON.stringify(cached.filter(p => p.id !== id)));
+  } catch { /* non-fatal */ }
+}
+
 function createProjectBranchRecord(
   project: ProjectRecord,
   branchId: string,
@@ -181,20 +263,10 @@ export const ProjectRepository = {
         .limit(50);
 
       if (!error && data) {
-        const meta: ProjectMetaSummary[] = data.map(row => ({
-          id:             row.id,
-          name:           row.name,
-          theme:          (row.code_snapshot as any)?.theme ?? 'dark-slate',
-          updatedAt:      row.last_sync_at,
-          version:        row.version ?? 1,
-          activeBranchId: (row.code_snapshot as any)?.activeBranchId,
-          branchIds:      (row.code_snapshot as any)?.branches
-            ? Object.keys((row.code_snapshot as any).branches)
-            : undefined,
-          branchCount:    (row.code_snapshot as any)?.branches
-            ? Object.keys((row.code_snapshot as any).branches).length
-            : undefined,
-        }));
+        const meta: ProjectMetaSummary[] = data.flatMap(row => {
+          const normalized = normalizeMetaSummary(row);
+          return normalized ? [normalized] : [];
+        });
         safeSetItem(LOCAL_META_KEY, JSON.stringify(meta));
         return meta;
       }
@@ -203,13 +275,17 @@ export const ProjectRepository = {
     // Fallback: localStorage кэш
     try {
       const cached = localStorage.getItem(LOCAL_META_KEY);
-      if (cached) return JSON.parse(cached) as ProjectMetaSummary[];
+      if (cached) {
+        const normalized = normalizeCachedMetaList(cached);
+        safeSetItem(LOCAL_META_KEY, JSON.stringify(normalized));
+        if (normalized.length > 0) return normalized;
+      }
     } catch { /* fall through */ }
 
     // Last resort: legacy ProjectStorage meta
     return ProjectStorage.listProjects().map(m => ({
       id:             m.id,
-      name:           m.name,
+      name:           getCanonicalProjectName(m),
       theme:          m.theme ?? 'dark-slate',
       updatedAt:      m.updatedAt,
       version:        1,
@@ -235,7 +311,7 @@ export const ProjectRepository = {
           const snap = data.code_snapshot as any;
           const record: ProjectRecord = {
             id:          data.id,
-            name:        data.name,
+            name:        getCanonicalProjectName({ name: data.name, title: snap?.title }),
             description: snap?.description ?? '',
             theme:       snap?.theme ?? 'dark-slate',
             files:       snap?.files ?? snap ?? {},  // legacy: code_snapshot was FileMap directly
@@ -264,7 +340,7 @@ export const ProjectRepository = {
     if (legacy) {
       const record: ProjectRecord = {
         id:          legacy.id,
-        name:        legacy.name,
+        name:        getCanonicalProjectName(legacy),
         description: legacy.description ?? '',
         theme:       legacy.theme ?? 'dark-slate',
         files:       legacy.files ?? {},
@@ -291,43 +367,47 @@ export const ProjectRepository = {
   // ── Сохранить проект ──────────────────────────────────────────────────────
 
   async saveProject(project: ProjectRecord): Promise<void> {
-    const { activeBranchId, branches } = normalizeProjectBranches(project);
+    const normalizedProject = {
+      ...project,
+      name: getCanonicalProjectName(project),
+    };
+    const { activeBranchId, branches } = normalizeProjectBranches(normalizedProject);
     const activeBranch = branches[activeBranchId];
     const snapshot: Record<string, unknown> = {
-      files:          activeBranch?.files ?? project.files,
-      chatHistory:    activeBranch?.chatHistory ?? project.chatHistory,
-      theme:          project.theme,
-      description:    project.description,
-      createdAt:      project.createdAt,
+      files:          activeBranch?.files ?? normalizedProject.files,
+      chatHistory:    activeBranch?.chatHistory ?? normalizedProject.chatHistory,
+      theme:          normalizedProject.theme,
+      description:    normalizedProject.description,
+      createdAt:      normalizedProject.createdAt,
       activeBranchId,
       branches,
       // Extended metadata (v2)
-      ...((project as any).intent         !== undefined && { intent:         (project as any).intent }),
-      ...((project as any).source         !== undefined && { source:         (project as any).source }),
-      ...((project as any).plan           !== undefined && { plan:           (project as any).plan }),
-      ...((project as any).logs           !== undefined && { logs:           (project as any).logs }),
-      ...((project as any).errors         !== undefined && { errors:         (project as any).errors }),
-      ...((project as any).pagesCount     !== undefined && { pagesCount:     (project as any).pagesCount }),
-      ...((project as any).modelId        !== undefined && { modelId:        (project as any).modelId }),
-      ...((project as any).durationMs     !== undefined && { durationMs:     (project as any).durationMs }),
-      ...((project as any).generationMode !== undefined && { generationMode: (project as any).generationMode }),
-      ...((project as any).billingCost    !== undefined && { billingCost:    (project as any).billingCost }),
-      ...((project as any).billingTokens  !== undefined && { billingTokens:  (project as any).billingTokens }),
-      ...((project as any).revisions      !== undefined && { revisions:      (project as any).revisions }),
+      ...((normalizedProject as any).intent         !== undefined && { intent:         (normalizedProject as any).intent }),
+      ...((normalizedProject as any).source         !== undefined && { source:         (normalizedProject as any).source }),
+      ...((normalizedProject as any).plan           !== undefined && { plan:           (normalizedProject as any).plan }),
+      ...((normalizedProject as any).logs           !== undefined && { logs:           (normalizedProject as any).logs }),
+      ...((normalizedProject as any).errors         !== undefined && { errors:         (normalizedProject as any).errors }),
+      ...((normalizedProject as any).pagesCount     !== undefined && { pagesCount:     (normalizedProject as any).pagesCount }),
+      ...((normalizedProject as any).modelId        !== undefined && { modelId:        (normalizedProject as any).modelId }),
+      ...((normalizedProject as any).durationMs     !== undefined && { durationMs:     (normalizedProject as any).durationMs }),
+      ...((normalizedProject as any).generationMode !== undefined && { generationMode: (normalizedProject as any).generationMode }),
+      ...((normalizedProject as any).billingCost    !== undefined && { billingCost:    (normalizedProject as any).billingCost }),
+      ...((normalizedProject as any).billingTokens  !== undefined && { billingTokens:  (normalizedProject as any).billingTokens }),
+      ...((normalizedProject as any).revisions      !== undefined && { revisions:      (normalizedProject as any).revisions }),
     };
 
     // Supabase — основное хранилище (только для UUID)
-    if (UUID_RE.test(project.id)) {
+    if (UUID_RE.test(normalizedProject.id)) {
       try {
         const { error } = await supabase
           .from('user_projects')
           .upsert({
-            id:            project.id,
-            name:          project.name,
+            id:            normalizedProject.id,
+            name:          normalizedProject.name,
             code_snapshot: snapshot,
             last_sync_at:  new Date().toISOString(),
-            version:       (project.version ?? 0) + 1,
-            ...(project.userId && project.userId !== 'anonymous' && { user_id: project.userId }),
+            version:       (normalizedProject.version ?? 0) + 1,
+            ...(normalizedProject.userId && normalizedProject.userId !== 'anonymous' && { user_id: normalizedProject.userId }),
           }, { onConflict: 'id' });
 
         if (error) {
@@ -335,20 +415,20 @@ export const ProjectRepository = {
           throw error;
         }
 
-        console.log('[ProjectRepository] ✅ Saved to Supabase:', project.id.slice(0, 8));
+        console.log('[ProjectRepository] ✅ Saved to Supabase:', normalizedProject.id.slice(0, 8));
       } catch (err) {
         // Fallback: сохранить в localStorage через ProjectStorage
         console.warn('[ProjectRepository] Falling back to localStorage:', err);
         showToast('Working offline — changes saved locally', 'warn');
         ProjectStorage.saveProject({
-          id:          project.id,
-          name:        project.name,
-          description: project.description,
-          theme:       project.theme,
-          files:       activeBranch?.files ?? project.files,
-          chatHistory: (activeBranch?.chatHistory ?? project.chatHistory) as Array<{ role: string; content: string }>,
-          createdAt:   project.createdAt,
-          updatedAt:   project.updatedAt,
+          id:          normalizedProject.id,
+          name:        normalizedProject.name,
+          description: normalizedProject.description,
+          theme:       normalizedProject.theme,
+          files:       activeBranch?.files ?? normalizedProject.files,
+          chatHistory: (activeBranch?.chatHistory ?? normalizedProject.chatHistory) as Array<{ role: string; content: string }>,
+          createdAt:   normalizedProject.createdAt,
+          updatedAt:   normalizedProject.updatedAt,
           activeBranchId,
           branches,
         });
@@ -356,14 +436,14 @@ export const ProjectRepository = {
     } else {
       // Non-UUID (legacy) — localStorage only
       ProjectStorage.saveProject({
-        id:          project.id,
-        name:        project.name,
-        description: project.description,
-        theme:       project.theme,
-        files:       activeBranch?.files ?? project.files,
-        chatHistory: (activeBranch?.chatHistory ?? project.chatHistory) as Array<{ role: string; content: string }>,
-        createdAt:   project.createdAt,
-        updatedAt:   project.updatedAt,
+        id:          normalizedProject.id,
+        name:        normalizedProject.name,
+        description: normalizedProject.description,
+        theme:       normalizedProject.theme,
+        files:       activeBranch?.files ?? normalizedProject.files,
+        chatHistory: (activeBranch?.chatHistory ?? normalizedProject.chatHistory) as Array<{ role: string; content: string }>,
+        createdAt:   normalizedProject.createdAt,
+        updatedAt:   normalizedProject.updatedAt,
         activeBranchId,
         branches,
       });
@@ -371,16 +451,14 @@ export const ProjectRepository = {
 
     // Обновить метаданные в localStorage кэше
     try {
-      const cached: ProjectMetaSummary[] = JSON.parse(
-        localStorage.getItem(LOCAL_META_KEY) ?? '[]'
-      );
-      const idx = cached.findIndex(p => p.id === project.id);
+      const cached = normalizeCachedMetaList(localStorage.getItem(LOCAL_META_KEY));
+      const idx = cached.findIndex(p => p.id === normalizedProject.id);
       const meta: ProjectMetaSummary = {
-        id:             project.id,
-        name:           project.name,
-        theme:          project.theme,
+        id:             normalizedProject.id,
+        name:           normalizedProject.name,
+        theme:          normalizedProject.theme,
         updatedAt:      new Date().toISOString(),
-        version:        project.version,
+        version:        normalizedProject.version,
         activeBranchId,
         branchIds:      Object.keys(branches),
         branchCount:    Object.keys(branches).length,
@@ -404,14 +482,29 @@ export const ProjectRepository = {
     ProjectStorage.deleteProject(id);
 
     // Убрать из метаданных кэша
+    removeRepositoryMeta(id);
+  },
+
+  removeLocalProjectMeta(id: string): void {
+    ProjectStorage.removeProjectMeta(id);
+    removeRepositoryMeta(id);
+  },
+
+  async projectExists(id: string): Promise<boolean> {
+    if (!id) return false;
+    if (ProjectStorage.projectDataExists(id)) return true;
+    if (!UUID_RE.test(id)) return false;
+
     try {
-      const cached: ProjectMetaSummary[] = JSON.parse(
-        localStorage.getItem(LOCAL_META_KEY) ?? '[]'
-      );
-      safeSetItem(LOCAL_META_KEY,
-        JSON.stringify(cached.filter(p => p.id !== id))
-      );
-    } catch { /* non-fatal */ }
+      const { data, error } = await supabase
+        .from('user_projects')
+        .select('id')
+        .eq('id', id)
+        .single();
+      return !error && !!data;
+    } catch {
+      return false;
+    }
   },
 
   async getBranchArchitecture(

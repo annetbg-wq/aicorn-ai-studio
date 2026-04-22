@@ -1,0 +1,222 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Projects" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Product Architect" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+        - button "Figma Platinum" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+        - button "Agent Lab" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+        - button "Analytics" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+        - button "Quality" [ref=e49] [cursor=pointer]:
+          - img [ref=e50]
+        - button "Code Studio" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Terminal" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+        - button "DB Console" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "Cloud & Backend — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Packaging & Ship — Coming Soon" [ref=e75]:
+          - img [ref=e76]
+        - button "Growth & Marketing — Coming Soon" [ref=e82]:
+          - img [ref=e83]
+      - button "Weekly Hot Ideas" [active] [ref=e86] [cursor=pointer]:
+        - img [ref=e87]
+      - generic: Weekly Hot Ideas
+    - generic [ref=e311]:
+      - generic [ref=e312]:
+        - generic [ref=e313]:
+          - generic [ref=e314]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e315] [cursor=pointer]:
+            - img [ref=e316]
+            - text: New Project
+          - generic [ref=e318]: New Project
+          - generic [ref=e319]: /
+          - img [ref=e320]
+          - generic [ref=e324]: main
+          - generic [ref=e325]: ·
+          - img [ref=e326]
+          - generic [ref=e328]: "snap #0"
+        - generic [ref=e330]: Not backed up
+        - generic [ref=e331]:
+          - generic [ref=e332]:
+            - 'button "Theme: dark" [ref=e333] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e334] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e335] [cursor=pointer]'
+          - button "Settings" [ref=e336] [cursor=pointer]:
+            - img [ref=e337]
+          - button "D dev.local@aic-studio.test" [ref=e340] [cursor=pointer]:
+            - generic [ref=e341]: D
+            - generic [ref=e342]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e343] [cursor=pointer]:
+            - img [ref=e344]
+            - text: Backup to Cloud
+      - generic [ref=e347]:
+        - generic [ref=e349]:
+          - generic [ref=e351]:
+            - paragraph [ref=e549]: EcoHome. An app that helps homeowners track and reduce their carbon footprint through actionable insights and tips.
+            - generic [ref=e625]:
+              - generic [ref=e627]:
+                - paragraph [ref=e628]:
+                  - strong [ref=e629]: Анализ Architect — Приложение
+                - paragraph [ref=e630]: Приложение, которое помогает домовладельцам отслеживать и сокращать свой углеродный след с помощью практических советов и рекомендаций.
+                - paragraph [ref=e631]:
+                  - strong [ref=e632]: "Объём первого прохода:"
+                  - text: • Бэкенд / база данных — Нужно постоянное хранение данных • Аутентификация — Нужен пользовательский вход и управление сессией • Аналитика — Аналитика и отчёты входят в первый проход
+                - paragraph [ref=e633]:
+                  - strong [ref=e634]: "Отложено после сборки:"
+                  - text: • AI-чат / completion — Разговорный AI входит в первый проход • Уведомления — Уведомления отложены до первого рабочего билда • Админка — Админские инструменты отложены до первого рабочего билда
+                - paragraph [ref=e635]:
+                  - strong [ref=e636]: "Варианты сборки:"
+                  - strong [ref=e637]: Собрать core
+                  - text: — Собрать ключевые экраны и сценарии на локальных / mock-данных. Самый быстрый путь к рабочему прототипу. →
+                  - strong [ref=e638]: Собрать core + backend
+                  - text: — Core UI с реальной персистентностью данных, аутентификацией и backend-связкой.
+                  - strong [ref=e639]: Собрать core + backend + AI
+                  - text: "— Полный первый проход: backend, аутентификация и AI-интеграция."
+                - paragraph [ref=e640]:
+                  - emphasis [ref=e641]: Перед первым запуском сборки вы выберете один из этих объёмов.
+              - button "Copy response" [ref=e642]:
+                - img [ref=e643]
+            - generic [ref=e650]:
+              - paragraph [ref=e653]: ⚙️ Building…
+              - button "Copy response" [ref=e654]:
+                - img [ref=e655]
+            - generic [ref=e665]:
+              - generic [ref=e666]:
+                - generic [ref=e667]:
+                  - generic [ref=e668]: EcoHome
+                  - generic [ref=e669]: 5 screens · trust theme
+                - generic [ref=e670]: Awaiting confirmation
+              - generic [ref=e672]: "## EcoHome _An app that helps homeowners track and reduce their carbon footprint through actionable insights and tips._ **Target user:** Homeowners who want to reduce their carbon footprint and seek actionable insights. ### Product Strategy - **Core action:** Tracking and managing carbon footprint. - **Retention:** Ongoing tips, reminders, and progress tracking. ### Screens 1. **Dashboard** — Overview of user's carbon footprint and quick tips for reduction. _()_ 2. **CarbonFootprintTracker** — Allows users to input data to track their carbon footprint. _()_ 3. **TipsInsights** — Provides actionable insights and tips for reducing carbon footprint. _()_ 4. **ProgressReport** — Displays user's progress in reducing their carbon footprint. _()_ 5. **Settings** — Allows users to adjust app preferences. _()_ ### Design Direction - **Visual archetype:** focused utility shell - **Density / breathing room:** comfortable / balanced - **Shell style:** Lean product shell with direct task framing, limited navigation, and highly legible work surfaces. Preserve the recognizable page scaffolding while refreshing visual expression. - **Hierarchy emphasis:** Lead with the task and result, not with decorative scene-setting. - **Content rhythm:** Compact sections, clear labels, and repeated component logic that supports fast comprehension. - **CTA strategy:** Keep one obvious primary action and reduce secondary clutter. - **Imagery strategy:** Use imagery sparingly; prefer diagrams, icons, or self-contained visual accents. - **Motion strategy:** Use subtle fades, hover lifts, and state transitions that make the interface feel intentional without stealing attention. - **Mobile composition:** Use one dominant column, progressive disclosure for settings, and sticky submission or apply actions. - **Avoid:** Avoid unnecessary marketing chrome around core tasks. | Do not introduce multiple visual metaphors on one screen. | Avoid ornamental motion that slows repeat use. ### Redesign Intent - **Mode:** preserve - **Structure lock:** strict - **Change envelope:** greenfield_foundation - **Visual system reset:** false - **Screens in scope:** TipsInsights - **Brand anchors:** EcoHome naming and product promise | existing trust theme expectations | current navigation labels for TipsInsights | existing information architecture | recognizable brand accents and tone ### Asset Policy - **Components:** shadcn/ui primitives, studio block components, project-local composed components - **Icons:** lucide-react, local inline SVG for brand marks only - **Media:** avoid — Default to self-contained gradients, illustrations, or shaped placeholders so the preview remains stable and coherent. - **Fonts:** local_preferred — fallbacks Inter, system-ui, sans-serif - **Advanced resources:** CSS gradients, inline SVG patterns, data URI textures, Framer Motion, local illustration wrappers - **Preview-safe fallback:** Maintain self-contained gradients, patterns, or framed placeholders when remote media is avoided or unavailable."
+              - group [ref=e673]:
+                - generic "Technical Blueprint" [ref=e674] [cursor=pointer]
+              - generic [ref=e675]:
+                - button "Start build" [ref=e676] [cursor=pointer]
+                - button "Уточнить" [ref=e677] [cursor=pointer]
+                - button "Cancel" [ref=e678] [cursor=pointer]
+            - generic [ref=e768]:
+              - paragraph [ref=e771]:
+                - text: "🧩 Context added:"
+                - strong [ref=e772]: EcoHome
+                - text: . Review and press Send to generate with this context pack.
+              - button "Copy response" [ref=e773]:
+                - img [ref=e774]
+          - generic [ref=e359]:
+            - generic [ref=e360]:
+              - button "AUTO" [ref=e361]
+              - button "APP" [ref=e362]
+              - button "PAGE" [ref=e363]
+              - button "SUPER" [ref=e364]
+              - button "ALL" [ref=e365]
+              - button "История" [ref=e367]:
+                - img [ref=e368]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e373]:
+                - img [ref=e374]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e377]:
+                - img [ref=e378]
+            - generic [ref=e646]:
+              - text: Awaiting confirmation
+              - generic [ref=e679]: Pick a scope or let the default start shortly.
+            - generic [ref=e777]:
+              - generic [ref=e778]:
+                - generic [ref=e779]: NICHE
+                - generic [ref=e780]: EcoHome
+                - button "Remove context" [ref=e781]:
+                  - img [ref=e782]
+              - button "Clear" [ref=e785]
+            - generic [ref=e381]:
+              - button "Attach / tools" [ref=e383]:
+                - img [ref=e384]
+              - textbox "Что строим сегодня?" [ref=e385]: "EcoHome. An app that helps homeowners track and reduce their carbon footprint through actionable insights and tips.. Market context: Rising awareness of climate change and sustainability movements."
+              - button "Stop generation" [ref=e564]:
+                - img [ref=e565]
+          - generic [ref=e512]:
+            - generic [ref=e514]: New Project
+            - generic [ref=e515]: current
+          - generic [ref=e516]:
+            - generic [ref=e517]:
+              - generic [ref=e518]:
+                - img [ref=e519]
+                - generic [ref=e522]: История версий
+              - generic [ref=e523]:
+                - button "Undo" [disabled] [ref=e524]:
+                  - img [ref=e525]
+                - button "Redo" [disabled] [ref=e528]:
+                  - img [ref=e529]
+                - button [ref=e532]:
+                  - img [ref=e533]
+            - generic [ref=e538]:
+              - img [ref=e539]
+              - generic [ref=e542]: Версии появятся после первой генерации
+            - paragraph [ref=e544]: Наведи для превью • Нажми для отката
+        - generic [ref=e394]:
+          - generic [ref=e395]:
+            - generic [ref=e396]:
+              - button "Preview" [ref=e397] [cursor=pointer]
+              - button "Reasoning" [ref=e398] [cursor=pointer]
+              - button "Code" [ref=e399] [cursor=pointer]
+              - button "Design" [ref=e400] [cursor=pointer]
+              - button "Analytics" [ref=e401] [cursor=pointer]
+              - button "Security" [ref=e402] [cursor=pointer]
+              - button "Cloud" [ref=e403] [cursor=pointer]
+            - generic [ref=e404]:
+              - button "Select" [ref=e405] [cursor=pointer]:
+                - img [ref=e406]
+                - text: Select
+              - generic [ref=e408]:
+                - button "Desktop Chrome" [ref=e409] [cursor=pointer]:
+                  - img [ref=e410]
+                - button "iPhone 16 Pro Max" [ref=e412] [cursor=pointer]:
+                  - img [ref=e413]
+                - button "Pixel 9 Pro" [ref=e415] [cursor=pointer]:
+                  - img [ref=e416]
+                - button "iPad Pro 13" [ref=e418] [cursor=pointer]:
+                  - img [ref=e419]
+              - button "Export" [ref=e421] [cursor=pointer]:
+                - img [ref=e422]
+                - text: Export
+              - button "Share" [ref=e428] [cursor=pointer]:
+                - img [ref=e429]
+                - text: Share
+          - generic [ref=e567]:
+            - generic [ref=e569]:
+              - generic [ref=e570]:
+                - button [ref=e571] [cursor=pointer]:
+                  - img [ref=e572]
+                - generic [ref=e575] [cursor=pointer]: 41%
+                - button [ref=e576] [cursor=pointer]:
+                  - img [ref=e577]
+                - button [ref=e581] [cursor=pointer]:
+                  - img [ref=e582]
+              - iframe [ref=e591]:
+                - main [ref=f4e3]:
+                  - generic [ref=f4e4]:
+                    - paragraph [ref=f4e5]: Studio ready
+                    - heading "Start your next project" [level=1] [ref=f4e6]
+                    - paragraph [ref=f4e7]: Describe the app, page, or workflow you want to build. The generated preview will appear here.
+                    - button "Describe your idea" [ref=f4e8] [cursor=pointer]
+            - generic [ref=e592]:
+              - img [ref=e594]
+              - generic [ref=e599]: AIC-RG Studio
+              - generic [ref=e600]: Кодируем интерфейс
+              - generic [ref=e602]:
+                - generic [ref=e603]: До появления preview
+                - generic [ref=e604]: 01с
+              - generic [ref=e607]:
+                - generic [ref=e608]:
+                  - generic [ref=e609]: Live reasoning
+                  - button "Open" [ref=e610] [cursor=pointer]
+                - generic [ref=e611]: Set design direction · Done
+                - generic [ref=e612]: "Resolved the design direction: time-tracking/dark-pro direction with focused utility shell."

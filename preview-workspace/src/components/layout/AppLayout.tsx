@@ -1,13 +1,12 @@
-import { Outlet } from 'react-router-dom';
-import TabBar from './TabBar';
+import TopNav from './TopNav';
 
-export default function AppLayout() {
+export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
-      <main className="max-w-md mx-auto px-4 pb-24 pt-6">
-        <Outlet />
+      <TopNav />
+      <main className="mx-auto max-w-3xl px-4 py-6">
+        {children}
       </main>
-      <TabBar />
     </div>
   );
 }

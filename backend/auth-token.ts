@@ -558,7 +558,6 @@ export function runClaudePrompt(
 
     const claudeExe = resolveClaudeExecutable();
     const child = spawnFn(claudeExe, [
-      '-p',
       '--output-format', 'text',
       '--model', model,
     ], {

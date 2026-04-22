@@ -1,0 +1,279 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Projects" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Product Architect" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+        - button "Figma Platinum" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+        - button "Agent Lab" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+        - button "Analytics" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+        - button "Quality" [ref=e49] [cursor=pointer]:
+          - img [ref=e50]
+        - button "Code Studio" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Terminal" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+        - button "DB Console" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "Cloud & Backend — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Packaging & Ship — Coming Soon" [ref=e75]:
+          - img [ref=e76]
+        - button "Growth & Marketing — Coming Soon" [ref=e82]:
+          - img [ref=e83]
+      - button "Weekly Hot Ideas" [active] [ref=e86] [cursor=pointer]:
+        - img [ref=e87]
+      - generic: Weekly Hot Ideas
+    - generic [ref=e346]:
+      - generic [ref=e347]:
+        - generic [ref=e348]:
+          - generic [ref=e349]: Идеи
+          - generic [ref=e350]: Feed
+        - generic [ref=e351]:
+          - generic [ref=e352]: ⚡ 1400 free left
+          - button [ref=e353] [cursor=pointer]:
+            - img [ref=e354]
+      - generic [ref=e357]:
+        - button "Идеи дня" [ref=e358] [cursor=pointer]
+        - button "Ниши недели" [ref=e359] [cursor=pointer]
+        - button "Банк (0)" [ref=e360] [cursor=pointer]
+      - button "Обновить" [ref=e362] [cursor=pointer]:
+        - img [ref=e363]
+        - text: Обновить
+      - generic [ref=e368]:
+        - generic [ref=e369]:
+          - generic [ref=e370]:
+            - generic [ref=e371]:
+              - generic [ref=e372]: Community Connect
+              - generic [ref=e373]: A platform for local communities to share resources, events, and support.
+            - button "Сохранить в банк" [ref=e374] [cursor=pointer]:
+              - img [ref=e375]
+          - generic [ref=e377]: There's a rising trend in community-based initiatives as people seek local connections post-pandemic.
+          - generic [ref=e379]: Community leaders and event organizers seeking to increase engagement.
+          - generic [ref=e380]: Struggling to get residents involved due to lack of organization and visibility.
+          - generic [ref=e381]:
+            - generic [ref=e382]: 3 screens · mobile · top-nav
+            - generic [ref=e383]: onboarding
+            - generic [ref=e384]: paywall
+          - generic [ref=e385]:
+            - button "Add to Chat →" [ref=e386] [cursor=pointer]:
+              - img [ref=e387]
+              - text: Add to Chat →
+            - button "Code Studio" [ref=e389] [cursor=pointer]
+        - generic [ref=e390]:
+          - generic [ref=e391]:
+            - generic [ref=e392]:
+              - generic [ref=e393]: Food Lab
+              - generic [ref=e394]: A digital platform for home cooks to experiment with and share unique recipes.
+            - button "Сохранить в банк" [ref=e395] [cursor=pointer]:
+              - img [ref=e396]
+          - generic [ref=e398]: The rising trend in home cooking and recipe sharing has been fueled by social media engagement.
+          - generic [ref=e400]: Amateur cooks seeking to expand their knowledge and share experiences.
+          - generic [ref=e401]: Struggling to find inspiration and feedback for new recipes.
+          - generic [ref=e402]:
+            - generic [ref=e403]: 3 screens · mobile · bottom-tabs
+            - generic [ref=e404]: onboarding
+            - generic [ref=e405]: paywall
+          - generic [ref=e406]:
+            - button "Add to Chat →" [ref=e407] [cursor=pointer]:
+              - img [ref=e408]
+              - text: Add to Chat →
+            - button "Code Studio" [ref=e410] [cursor=pointer]
+        - generic [ref=e411]:
+          - generic [ref=e412]:
+            - generic [ref=e413]:
+              - generic [ref=e414]: Wellness Quest
+              - generic [ref=e415]: A personalized wellness journey platform integrating mindfulness and physical activities.
+            - button "Сохранить в банк" [ref=e416] [cursor=pointer]:
+              - img [ref=e417]
+          - generic [ref=e419]: Increasing consumer focus on mental health and wellness practices as stress levels rise globally.
+          - generic [ref=e421]: Individuals seeking to improve their overall well-being through structured routines.
+          - generic [ref=e422]: Difficulty maintaining consistency in wellness practices due to lack of guidance.
+          - generic [ref=e423]:
+            - generic [ref=e424]: 3 screens · mobile · top-nav
+            - generic [ref=e425]: onboarding
+            - generic [ref=e426]: paywall
+          - generic [ref=e427]:
+            - button "Add to Chat →" [ref=e428] [cursor=pointer]:
+              - img [ref=e429]
+              - text: Add to Chat →
+            - button "Code Studio" [ref=e431] [cursor=pointer]
+    - generic [ref=e91]:
+      - generic [ref=e92]:
+        - generic [ref=e95]: Cloud Sync
+        - generic [ref=e96]: AIC-RG Studio
+        - heading "Панель студии" [level=1] [ref=e97]
+        - paragraph [ref=e98]: Платформа полного цикла разработки продукта. Выберите модуль для начала работы.
+      - generic [ref=e99]:
+        - generic [ref=e101]: Сущности пользователя
+        - generic [ref=e103]:
+          - generic [ref=e104]:
+            - generic [ref=e105]:
+              - img [ref=e107]
+              - generic [ref=e110]:
+                - generic [ref=e111]: Проекты
+                - generic [ref=e112]: Ваше рабочее пространство. Все проекты, ревизии и ветки.
+            - generic [ref=e113]:
+              - button "Все проекты" [ref=e114] [cursor=pointer]
+              - button "+ Новый проект" [ref=e115] [cursor=pointer]:
+                - generic [ref=e116]: +
+                - text: Новый проект
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - generic [ref=e120]: Project
+              - generic [ref=e121]: Last Activity
+              - generic [ref=e122]: Branch
+              - generic [ref=e123]: Rev
+              - generic [ref=e124]: Last Good
+            - generic [ref=e125] [cursor=pointer]:
+              - generic [ref=e126]: New Project
+              - generic [ref=e127]: 9m ago
+              - generic [ref=e128]:
+                - img [ref=e129]
+                - text: main
+              - generic [ref=e132]: —
+              - generic [ref=e133]: —
+            - generic [ref=e309] [cursor=pointer]:
+              - generic [ref=e310]: New Project
+              - generic [ref=e311]: 10h ago
+              - generic [ref=e312]:
+                - img [ref=e313]
+                - text: main
+              - generic [ref=e316]: —
+              - generic [ref=e317]: —
+            - generic [ref=e318] [cursor=pointer]:
+              - generic [ref=e319]: Pregnant BFF
+              - generic [ref=e320]: 10h ago
+              - generic [ref=e321]:
+                - img [ref=e322]
+                - text: main
+              - generic [ref=e325]: —
+              - generic [ref=e326]: —
+            - generic [ref=e327] [cursor=pointer]:
+              - generic [ref=e328]: New Project
+              - generic [ref=e329]: 10h ago
+              - generic [ref=e330]:
+                - img [ref=e331]
+                - text: main
+              - generic [ref=e334]: —
+              - generic [ref=e335]: —
+            - generic [ref=e336] [cursor=pointer]:
+              - generic [ref=e337]: New Project
+              - generic [ref=e338]: 10h ago
+              - generic [ref=e339]:
+                - img [ref=e340]
+                - text: main
+              - generic [ref=e343]: —
+              - generic [ref=e344]: —
+      - generic [ref=e171]: Модули платформы
+      - generic [ref=e173]:
+        - generic [ref=e174] [cursor=pointer]:
+          - generic [ref=e175]:
+            - img [ref=e177]
+            - generic [ref=e182]: АКТИВЕН
+          - generic [ref=e183]:
+            - generic [ref=e184]: System Engine
+            - generic [ref=e185]: AI-powered code generation, multi-file orchestration, real-time preview, and agentic workflows.
+          - generic [ref=e186]:
+            - generic [ref=e188]:
+              - generic [ref=e189]: API Wallet
+              - generic [ref=e190]: $0.0000
+            - generic [ref=e193]:
+              - generic [ref=e194]: Context Health
+              - generic [ref=e195]: 0%
+        - generic [ref=e197]:
+          - generic [ref=e198]:
+            - img [ref=e200]
+            - generic [ref=e205]: СКОРО
+          - generic [ref=e206]:
+            - generic [ref=e207]: Product Architect
+            - generic [ref=e208]: Define requirements, map user journeys, and structure system architecture from idea to spec.
+        - generic [ref=e209] [cursor=pointer]:
+          - generic [ref=e210]:
+            - img [ref=e212]
+            - generic [ref=e218]: АКТИВЕН
+          - generic [ref=e219]:
+            - generic [ref=e220]: Figma Platinum
+            - generic [ref=e221]: Подключите дизайн-систему, синхронизируйте токены, активируйте Digital Twin — из Figma в живой интерактивный код одним кликом.
+          - generic [ref=e222]:
+            - generic [ref=e223]:
+              - generic [ref=e224]: 🪞
+              - generic [ref=e225]: Digital Twin
+            - generic [ref=e226]:
+              - generic [ref=e227]: 🎨
+              - generic [ref=e228]: Design DNA
+            - generic [ref=e229]:
+              - generic [ref=e230]: ⚡
+              - generic [ref=e231]: Deep Scan
+        - generic [ref=e232] [cursor=pointer]:
+          - generic [ref=e233]:
+            - img [ref=e235]
+            - generic [ref=e239]: АКТИВЕН
+          - generic [ref=e240]:
+            - generic [ref=e241]: Code Studio
+            - generic [ref=e242]: AI-powered IDE with integrated preview. Edit code, see changes live, let AI fix issues — all in one place.
+        - generic [ref=e243]:
+          - generic [ref=e244]:
+            - img [ref=e246]
+            - generic [ref=e248]: СКОРО
+          - generic [ref=e249]:
+            - generic [ref=e250]: Cloud & Backend
+            - generic [ref=e251]: Provision infrastructure, manage databases, deploy serverless functions and APIs at scale.
+          - generic [ref=e252]:
+            - generic [ref=e253]:
+              - generic [ref=e254]: DB Storage
+              - generic [ref=e255]: — MB
+            - generic [ref=e256]:
+              - generic [ref=e257]: Active Users
+              - generic [ref=e258]: —
+        - generic [ref=e259]:
+          - generic [ref=e260]:
+            - img [ref=e262]
+            - generic [ref=e267]: СКОРО
+          - generic [ref=e268]:
+            - generic [ref=e269]: Packaging & Ship
+            - generic [ref=e270]: Bundle, test, set up CI/CD pipelines, versioning, and one-click deploy to production.
+        - generic [ref=e271]:
+          - generic [ref=e272]:
+            - img [ref=e274]
+            - generic [ref=e277]: СКОРО
+          - generic [ref=e278]:
+            - generic [ref=e279]: Growth & Marketing
+            - generic [ref=e280]: Analytics, A/B testing, SEO optimisation, landing pages, and user acquisition funnels.
+      - generic [ref=e281]:
+        - generic [ref=e282]:
+          - generic [ref=e283]:
+            - generic [ref=e284]: Рыночная аналитика
+            - heading "Трендовые ниши" [level=2] [ref=e285]
+          - generic [ref=e288]: "Тренды обновлены: март 2026"
+        - generic [ref=e289]:
+          - generic [ref=e290]:
+            - generic [ref=e291]:
+              - generic [ref=e292]: 📈
+              - generic [ref=e293]: Weekly Trend
+            - generic [ref=e294]:
+              - generic [ref=e295]: EcoHabit
+              - generic [ref=e296]: Recently implemented government regulations demanding businesses to lower carbon emissions – fueling personal accountability movements.
+            - button "⚡ Добавить в контекст" [ref=e297] [cursor=pointer]:
+              - generic [ref=e298]: ⚡
+              - text: Добавить в контекст
+          - generic [ref=e299]:
+            - generic [ref=e300]:
+              - generic [ref=e301]: 🧠
+              - generic [ref=e302]: Weekly Trend
+            - generic [ref=e303]:
+              - generic [ref=e304]: SkillScape
+              - generic [ref=e305]: The recent surge in AI and tech sector job openings mandates reskilling efforts among tech professionals.
+            - button "⚡ Добавить в контекст" [ref=e306] [cursor=pointer]:
+              - generic [ref=e307]: ⚡
+              - text: Добавить в контекст
+      - generic [ref=e308]: AIC-RG Studio — Профессиональная платформа v3

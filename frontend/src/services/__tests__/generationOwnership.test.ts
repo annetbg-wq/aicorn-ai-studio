@@ -74,7 +74,7 @@ const MINIMAL_PLAN = {
 
 /** Dummy resolved route sufficient to pass the route guard. */
 const DUMMY_ROUTE: AgentExecutionRoute = {
-  slot: 'agent_primary',
+  slot: 'primary',
   provider: 'openrouter',
   modelId: 'test-model',
   endpoint: 'https://openrouter.ai/api/v1/chat/completions',
@@ -101,7 +101,7 @@ function makeConfig(overrides: Partial<PipelineRunConfig> = {}): PipelineRunConf
     history: [],
     files: {},
     primaryRoute: DUMMY_ROUTE,
-    buildRoute: { ...DUMMY_ROUTE, slot: 'agent_build' },
+    buildRoute: { ...DUMMY_ROUTE, slot: 'build' },
     apiKey: 'sk-test-key',
     modelId: 'test-model',
     onStream: () => {},
@@ -151,11 +151,10 @@ beforeEach(() => {
   cancelPendingCheck();
   cancelPostPromotionWatch();
 
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-    const u = String(url);
-    if (u.includes('__health_preview'))  return { ok: true, json: async () => ({}) };
-    if (u.includes('__read_all_preview')) return { ok: true, json: async () => ({ files: {} }) };
-    // All other fetch calls (compile endpoint, etc.) succeed trivially
+  // Legacy __health_preview and __read_all_preview bridge stubs removed:
+  // SimpleGeneration no longer calls those endpoints (Session 14.1 excision).
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    // Compile endpoint and any other fetch calls succeed trivially
     return { ok: true, status: 200, json: async () => ({ success: true }) };
   }));
 });

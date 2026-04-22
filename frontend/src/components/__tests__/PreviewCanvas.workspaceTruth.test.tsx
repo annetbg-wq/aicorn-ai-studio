@@ -205,6 +205,55 @@ describe('PreviewCanvas workspace truth', () => {
     expect(copied).not.toContain('debug-only event');
   });
 
+  it('copies full debug trace JSON through a separate investigative affordance', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const trace = generationTracer.start({
+      intent: 'debug export',
+      model: 'test-model',
+      mode: 'new',
+      projectId: 'project-a',
+      branchId: 'main',
+    });
+    trace.appendStep({
+      kind: 'coder_generation',
+      summary: 'Visible summary remains default',
+    });
+    trace.recordDebugEvent({
+      kind: 'coder_generation',
+      summary: 'debug-only event',
+      outputExcerpt: '<thinking>private reasoning</thinking>\nSafe output excerpt',
+      metadata: {
+        token: 'plain-token-value',
+        safeDiagnostic: 'compile warning',
+      },
+    });
+    trace.finish('ok', { finalOutcome: 'ship_ok' });
+
+    render(<PreviewCanvas {...baseProps} />);
+    fireEvent.click(screen.getByTestId('preview-tab-reasoning'));
+
+    expect(screen.getByTestId('copy-visible-reasoning-btn')).toBeInTheDocument();
+    expect(screen.getByTestId('copy-full-debug-trace-btn')).toBeInTheDocument();
+    expect(screen.getByText('Visible summary remains default')).toBeInTheDocument();
+    expect(screen.queryByText('debug-only event')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('copy-full-debug-trace-btn'));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const copied = String(writeText.mock.calls[0][0]);
+    expect(copied).toContain('"schema": "aic-rg-full-debug-trace-v1"');
+    expect(copied).toContain('debug-only event');
+    expect(copied).toContain('Safe output excerpt');
+    expect(copied).toContain('compile warning');
+    expect(copied).not.toContain('plain-token-value');
+    expect(copied).not.toContain('private reasoning');
+  });
+
   it('builds stable scoped analytics row identities without duplicate current/archive rows', () => {
     const trace = finishTrace({
       projectId: 'project-a',

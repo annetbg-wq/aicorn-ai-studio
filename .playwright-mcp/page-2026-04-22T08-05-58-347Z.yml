@@ -1,0 +1,187 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Projects" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Product Architect" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+        - button "Figma Platinum" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+        - button "Agent Lab" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+        - button "Analytics" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+        - button "Quality" [ref=e49] [cursor=pointer]:
+          - img [ref=e50]
+        - button "Code Studio" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Terminal" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+        - button "DB Console" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "Cloud & Backend — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Packaging & Ship — Coming Soon" [ref=e75]:
+          - img [ref=e76]
+        - button "Growth & Marketing — Coming Soon" [ref=e82]:
+          - img [ref=e83]
+      - button "Weekly Hot Ideas" [active] [ref=e86] [cursor=pointer]:
+        - img [ref=e87]
+      - generic: Weekly Hot Ideas
+    - generic [ref=e435]:
+      - generic [ref=e436]:
+        - generic [ref=e437]:
+          - generic [ref=e438]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e439] [cursor=pointer]:
+            - img [ref=e440]
+            - text: New Project
+          - generic [ref=e442]: New Project
+          - generic [ref=e443]: /
+          - img [ref=e444]
+          - generic [ref=e448]: main
+          - generic [ref=e449]: ·
+          - img [ref=e450]
+          - generic [ref=e452]: "snap #0"
+        - generic [ref=e454]: Not backed up
+        - generic [ref=e455]:
+          - generic [ref=e456]:
+            - 'button "Theme: dark" [ref=e457] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e458] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e459] [cursor=pointer]'
+          - button "Settings" [ref=e460] [cursor=pointer]:
+            - img [ref=e461]
+          - button "D dev.local@aic-studio.test" [ref=e464] [cursor=pointer]:
+            - generic [ref=e465]: D
+            - generic [ref=e466]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e467] [cursor=pointer]:
+            - img [ref=e468]
+            - text: Backup to Cloud
+      - generic [ref=e471]:
+        - generic [ref=e473]:
+          - generic [ref=e475]:
+            - paragraph [ref=e600]: "Community Connect. A platform for local communities to share resources, events, and support.. Market context: There's a rising trend in community-based initiatives as people seek local connections post-pandemic."
+            - generic [ref=e665]:
+              - generic [ref=e667]:
+                - paragraph [ref=e668]:
+                  - strong [ref=e669]: Анализ Architect — Приложение
+                - paragraph [ref=e670]: Платформа для местных сообществ для обмена ресурсами, событиями и поддержкой.
+                - paragraph [ref=e671]:
+                  - strong [ref=e672]: "Объём первого прохода:"
+                  - text: • Бэкенд / база данных — Нужно постоянное хранение данных • Аутентификация — Нужен пользовательский вход и управление сессией • Аналитика — Аналитика и отчёты входят в первый проход
+                - paragraph [ref=e673]:
+                  - strong [ref=e674]: "Отложено после сборки:"
+                  - text: • Уведомления — Уведомления отложены до первого рабочего билда • Админка — Админские инструменты отложены до первого рабочего билда
+                - paragraph [ref=e675]:
+                  - strong [ref=e676]: "Варианты сборки:"
+                  - strong [ref=e677]: Собрать core
+                  - text: — Собрать ключевые экраны и сценарии на локальных / mock-данных. Самый быстрый путь к рабочему прототипу. →
+                  - strong [ref=e678]: Собрать core + backend
+                  - text: — Core UI с реальной персистентностью данных, аутентификацией и backend-связкой.
+                  - strong [ref=e679]: Собрать core + backend + AI
+                  - text: "— Полный первый проход: backend, аутентификация и AI-интеграция."
+                - paragraph [ref=e680]:
+                  - emphasis [ref=e681]: Перед первым запуском сборки вы выберете один из этих объёмов.
+              - button "Copy response" [ref=e682]:
+                - img [ref=e683]
+            - generic [ref=e687]:
+              - paragraph [ref=e690]: ⚙️ Building…
+              - button "Copy response" [ref=e691]:
+                - img [ref=e692]
+          - generic [ref=e483]:
+            - generic [ref=e484]:
+              - button "AUTO" [ref=e485]
+              - button "APP" [ref=e486]
+              - button "PAGE" [ref=e487]
+              - button "SUPER" [ref=e488]
+              - button "ALL" [ref=e489]
+              - button "История" [ref=e491]:
+                - img [ref=e492]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e497]:
+                - img [ref=e498]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e501]:
+                - img [ref=e502]
+            - generic [ref=e609]:
+              - generic [ref=e695]:
+                - generic [ref=e696]: Build starting
+                - generic [ref=e697]: 40%
+              - generic [ref=e700]:
+                - generic [ref=e701]: Live generation
+                - generic [ref=e702]: 40%
+            - generic [ref=e587]:
+              - generic [ref=e588]:
+                - generic [ref=e589]: NICHE
+                - generic [ref=e590]: Community Connect
+                - button "Remove context" [ref=e591]:
+                  - img [ref=e592]
+              - button "Clear" [ref=e595]
+            - generic [ref=e505]:
+              - button "Attach / tools" [ref=e507]:
+                - img [ref=e508]
+              - textbox "Что строим сегодня?" [ref=e509]
+              - button "Stop generation" [ref=e615]:
+                - img [ref=e616]
+        - generic [ref=e514]:
+          - generic [ref=e515]:
+            - generic [ref=e516]:
+              - button "Preview" [ref=e517] [cursor=pointer]
+              - button "Reasoning" [ref=e518] [cursor=pointer]
+              - button "Code" [ref=e519] [cursor=pointer]
+              - button "Design" [ref=e520] [cursor=pointer]
+              - button "Analytics" [ref=e521] [cursor=pointer]
+              - button "Security" [ref=e522] [cursor=pointer]
+              - button "Cloud" [ref=e523] [cursor=pointer]
+            - generic [ref=e524]:
+              - button "Select" [ref=e525] [cursor=pointer]:
+                - img [ref=e526]
+                - text: Select
+              - generic [ref=e528]:
+                - button "Desktop Chrome" [ref=e529] [cursor=pointer]:
+                  - img [ref=e530]
+                - button "iPhone 16 Pro Max" [ref=e532] [cursor=pointer]:
+                  - img [ref=e533]
+                - button "Pixel 9 Pro" [ref=e535] [cursor=pointer]:
+                  - img [ref=e536]
+                - button "iPad Pro 13" [ref=e538] [cursor=pointer]:
+                  - img [ref=e539]
+              - button "Export" [ref=e541] [cursor=pointer]:
+                - img [ref=e542]
+                - text: Export
+              - button "Share" [ref=e545] [cursor=pointer]:
+                - img [ref=e546]
+                - text: Share
+          - generic [ref=e618]:
+            - generic [ref=e620]:
+              - generic [ref=e621]:
+                - button [ref=e622] [cursor=pointer]:
+                  - img [ref=e623]
+                - generic [ref=e626] [cursor=pointer]: 48%
+                - button [ref=e627] [cursor=pointer]:
+                  - img [ref=e628]
+                - button [ref=e632] [cursor=pointer]:
+                  - img [ref=e633]
+              - iframe [ref=e642]:
+                - main [ref=f3e3]:
+                  - generic [ref=f3e4]:
+                    - paragraph [ref=f3e5]: Studio ready
+                    - heading "Start your next project" [level=1] [ref=f3e6]
+                    - paragraph [ref=f3e7]: Describe the app, page, or workflow you want to build. The generated preview will appear here.
+                    - button "Describe your idea" [ref=f3e8] [cursor=pointer]
+            - generic [ref=e643]:
+              - img [ref=e645]
+              - generic [ref=e650]: AIC-RG Studio
+              - generic [ref=e651]: Кодируем интерфейс
+              - generic [ref=e653]:
+                - generic [ref=e654]: До появления preview
+                - generic [ref=e655]: 01с
+              - generic [ref=e658]:
+                - generic [ref=e659]:
+                  - generic [ref=e660]: Live reasoning
+                  - button "Open" [ref=e661] [cursor=pointer]
+                - generic [ref=e662]: Understand the request · In progress
+                - generic [ref=e663]: Current generation is starting. Structured reasoning steps will appear here as soon as the run reports them.

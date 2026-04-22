@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resolveStandardRoute } from '../buildAgentRouting';
 import type { AgentExecutionRoute } from '../buildAgentRouting';
 import { ConfigService } from '../ConfigService';
+import type { FinalLivePreviewCheckResult } from '../WhiteScreenDetector';
 
 const llmProxyMock = vi.hoisted(() => ({
   llmFetchStream: vi.fn(),
@@ -51,6 +52,23 @@ function makeChatCompletionResponse(content: string): Response {
   return new Response(JSON.stringify({
     choices: [{ message: { content } }],
   }));
+}
+
+function makePassedFinalCheckResult(
+  overrides: Partial<FinalLivePreviewCheckResult> = {},
+): FinalLivePreviewCheckResult {
+  return {
+    buildId: 'test-build',
+    status: 'passed',
+    reason: null,
+    message: 'Final live-preview checks passed',
+    controllerStatus: 'ready',
+    controllerRevisionId: 'test-build',
+    immediateBlank: false,
+    probeOutcome: 'healthy',
+    probeReason: null,
+    ...overrides,
+  };
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -423,11 +441,12 @@ describe('Dual-routing regression guard: PipelineRunConfig includes specRoute', 
   });
 });
 
-describe('Dual-routing regression guard: QA reviewer uses canonical qaRoute', () => {
-  it('standard run reaches reviewer without any qa ConfigService re-resolution', async () => {
+describe('Execute-first regression guard: accepted artifacts do not detour through QA reviewer', () => {
+  it('standard run stays on candidate execution path without any qa ConfigService re-resolution', async () => {
     const { SimpleGeneration } = await import('../SimpleGeneration');
     const { revisionManager } = await import('../RevisionManager');
     const { VisualQualityService } = await import('../benchmark/VisualQualityService');
+    const WhiteScreenDetectorModule = await import('../WhiteScreenDetector');
 
     const primaryRoute: AgentExecutionRoute = {
       slot: 'primary',
@@ -509,25 +528,16 @@ describe('Dual-routing regression guard: QA reviewer uses canonical qaRoute', ()
         ],
       },
     });
-    const reviewerArtifact = JSON.stringify({
-      artifact: {
-        entry: 'src/App.tsx',
-        files: [
-          {
-            path: 'src/App.tsx',
-            content: 'export default function App() { return <main>Reviewed</main>; }',
-          },
-        ],
-      },
-    });
 
     llmProxyMock.llmFetchStream
       .mockResolvedValueOnce(makeStreamingResponse('{"technicalBlueprint":{"stack":["react"]}}'))
       .mockResolvedValueOnce(makeStreamingResponse(coderArtifact));
-    llmProxyMock.llmFetch.mockResolvedValue(makeChatCompletionResponse(reviewerArtifact));
 
     vi.spyOn(revisionManager, 'fullClearPreview').mockResolvedValue(undefined);
     vi.spyOn(revisionManager, 'compileCandidate').mockResolvedValue({ success: true, attempts: 1 });
+    vi.spyOn(WhiteScreenDetectorModule, 'runFinalLivePreviewCheck').mockResolvedValue(
+      makePassedFinalCheckResult(),
+    );
     vi.spyOn(revisionManager, 'promote').mockResolvedValue(undefined);
     vi.spyOn(VisualQualityService, 'evaluate').mockReturnValue({
       verdict: 'acceptable',
@@ -584,13 +594,7 @@ describe('Dual-routing regression guard: QA reviewer uses canonical qaRoute', ()
       });
 
       expect(result.status).toBe('complete');
-      expect(llmProxyMock.llmFetch).toHaveBeenCalledWith(
-        qaRoute.endpoint,
-        expect.objectContaining({
-          Authorization: `Bearer ${qaRoute.apiKey}`,
-        }),
-        expect.stringContaining(`"model":"${qaRoute.modelId}"`),
-      );
+      expect(llmProxyMock.llmFetch).not.toHaveBeenCalled();
       expect(resolveModelSpy.mock.calls.filter(([slot]) => slot === 'qa')).toHaveLength(0);
       expect(getKeyForAgentSpy.mock.calls.filter(([slot]) => slot === 'qa')).toHaveLength(0);
       expect(getAgentConfigSpy.mock.calls.filter(([agentKey]) => agentKey === 'agent_qa')).toHaveLength(0);
@@ -603,6 +607,7 @@ describe('Dual-routing regression guard: QA reviewer uses canonical qaRoute', ()
     const { SimpleGeneration } = await import('../SimpleGeneration');
     const { revisionManager } = await import('../RevisionManager');
     const { VisualQualityService } = await import('../benchmark/VisualQualityService');
+    const WhiteScreenDetectorModule = await import('../WhiteScreenDetector');
 
     const primaryRoute: AgentExecutionRoute = {
       slot: 'primary',
@@ -700,6 +705,9 @@ describe('Dual-routing regression guard: QA reviewer uses canonical qaRoute', ()
 
     vi.spyOn(revisionManager, 'fullClearPreview').mockResolvedValue(undefined);
     vi.spyOn(revisionManager, 'compileCandidate').mockResolvedValue({ success: true, attempts: 1 });
+    vi.spyOn(WhiteScreenDetectorModule, 'runFinalLivePreviewCheck').mockResolvedValue(
+      makePassedFinalCheckResult(),
+    );
     vi.spyOn(revisionManager, 'promote').mockResolvedValue(undefined);
     vi.spyOn(VisualQualityService, 'evaluate').mockReturnValue({
       verdict: 'acceptable',

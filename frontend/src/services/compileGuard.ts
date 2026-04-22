@@ -24,6 +24,12 @@ function readCandidateFile(filePath: string, revId: string): string | null {
 
 const MAX_REPAIR_ATTEMPTS = 2;
 
+/** Dynamic attempt ceiling: 3 for apps with 5+ files, 2 otherwise. */
+function getMaxRepairAttempts(revId: string): number {
+  const files = revisionManager.getRevisionFiles(revId) ?? {};
+  return Object.keys(files).length >= 5 ? 3 : MAX_REPAIR_ATTEMPTS;
+}
+
 interface CompileLoopConfig {
   revId:    string;
   apiKey:   string;
@@ -141,15 +147,25 @@ Return ONLY a JSON artifact:
       return 0;
     }
 
-    prompt = `Fix this React/TypeScript compilation error (attempt ${attemptNum}/${MAX_REPAIR_ATTEMPTS}).
+    // ── "Cannot read properties" path: include App.tsx as context ──
+    const isRuntimePropError = /cannot read (?:properties of|'?\w+'? of) (?:undefined|null)/i.test(errorText);
+    const appContent = isRuntimePropError ? readCandidateFile('App.tsx', config.revId) : null;
+
+    const retryContext = attemptNum > 1
+      ? `\n\nPrevious repair attempt ${attemptNum - 1} did not fix the issue. The error persists. Consider deeper root causes:\n  1. Is state initialized before use?\n  2. Is a required prop missing from the call-site in App.tsx?\n  3. Is there a missing provider or router wrapper?\n  4. Does the component assume data that doesn't exist yet on first render?`
+      : '';
+
+    prompt = `Fix this React/TypeScript error (attempt ${attemptNum}/${MAX_REPAIR_ATTEMPTS}).${retryContext}
 
 ERROR:
 ${errorText}
 
-FILE: ${file}
-${content}
-
-Return the COMPLETE fixed file as a JSON artifact:
+FILE TO FIX: ${file}
+\`\`\`tsx
+${content.slice(0, 2500)}
+\`\`\`
+${appContent ? `\nAPP.TSX (call-site context — fix props here if required props are missing):\n\`\`\`tsx\n${appContent.slice(0, 2000)}\n\`\`\`\n` : ''}
+Return the COMPLETE fixed file(s) as a JSON artifact.${appContent ? ' If the fix requires changes to BOTH files, include both in the artifact.' : ''}
 \`\`\`json
 {"artifact":{"files":[{"path":"${file}","content":"...complete fixed file..."}]}}
 \`\`\`
@@ -394,6 +410,7 @@ export async function compileWithRetry(config: CompileLoopConfig): Promise<Compi
   let previousSignature: string | null = null;
   let nonFatalWithoutRepair = false;
   let stopReason = 'repair_not_started';
+  const maxAttempts = getMaxRepairAttempts(config.revId);
 
   if (config.initialFailureErrors && config.initialFailureErrors.length > 0) {
     lastErrors = config.initialFailureErrors;
@@ -431,15 +448,15 @@ export async function compileWithRetry(config: CompileLoopConfig): Promise<Compi
     logRepairDecision(config, 'no_repair_needed', lastClassification.reason);
   }
 
-  while (!nonFatalWithoutRepair && repairAttemptsUsed < MAX_REPAIR_ATTEMPTS) {
+  while (!nonFatalWithoutRepair && repairAttemptsUsed < maxAttempts) {
     repairAttemptsUsed++;
     previewLog('repair_attempt_started', {
       buildId: config.revId,
       attempt: repairAttemptsUsed,
-      maxAttempts: MAX_REPAIR_ATTEMPTS,
+      maxAttempts,
     });
     config.onLog(
-      `[CompileGuard] Repair attempt ${repairAttemptsUsed}/${MAX_REPAIR_ATTEMPTS} started`,
+      `[CompileGuard] Repair attempt ${repairAttemptsUsed}/${maxAttempts} started`,
     );
 
     if (!config.callFix) {
@@ -507,13 +524,13 @@ export async function compileWithRetry(config: CompileLoopConfig): Promise<Compi
       break;
     }
 
-    if (repairAttemptsUsed >= MAX_REPAIR_ATTEMPTS) {
+    if (repairAttemptsUsed >= maxAttempts) {
       budgetExhausted = true;
       stopReason = 'repair_budget_exhausted';
       previewLog('repair_budget_exhausted', {
         buildId: config.revId,
         attemptsUsed: repairAttemptsUsed,
-        maxAttempts: MAX_REPAIR_ATTEMPTS,
+        maxAttempts,
       });
       config.onLog('[CompileGuard] Repair budget exhausted');
       break;

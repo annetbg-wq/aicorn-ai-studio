@@ -1,0 +1,196 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Projects" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Product Architect" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+        - button "Figma Platinum" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+        - button "Agent Lab" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+        - button "Analytics" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+        - button "Quality" [ref=e49] [cursor=pointer]:
+          - img [ref=e50]
+        - button "Code Studio" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Terminal" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+        - button "DB Console" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "Cloud & Backend — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Packaging & Ship — Coming Soon" [ref=e75]:
+          - img [ref=e76]
+        - button "Growth & Marketing — Coming Soon" [ref=e82]:
+          - img [ref=e83]
+      - button "Weekly Hot Ideas" [active] [ref=e86] [cursor=pointer]:
+        - img [ref=e87]
+      - generic: Weekly Hot Ideas
+    - generic [ref=e461]:
+      - generic [ref=e462]:
+        - generic [ref=e463]:
+          - generic [ref=e464]: Идеи
+          - generic [ref=e465]: Feed
+        - generic [ref=e466]:
+          - generic [ref=e467]: ⚡ 1400 free left
+          - button [ref=e468] [cursor=pointer]:
+            - img [ref=e469]
+      - generic [ref=e472]:
+        - button "Идеи дня" [ref=e473] [cursor=pointer]
+        - button "Ниши недели" [ref=e474] [cursor=pointer]
+        - button "Банк (0)" [ref=e475] [cursor=pointer]
+      - button "Обновить" [ref=e477] [cursor=pointer]:
+        - img [ref=e478]
+        - text: Обновить
+      - generic [ref=e483]:
+        - generic [ref=e488]:
+          - generic [ref=e489]:
+            - generic [ref=e490]:
+              - generic [ref=e491]: EcoBuddy
+              - generic [ref=e492]: A gamified app that helps individuals track and reduce their carbon footprint through daily challenges.
+            - button "Сохранить в банк" [ref=e493] [cursor=pointer]:
+              - img [ref=e494]
+          - generic [ref=e496]: Heightened awareness around climate change and a recent rise in sustainability initiatives among young adults.
+          - generic [ref=e498]: Young adults in urban areas who are eager to make sustainable lifestyle changes.
+          - generic [ref=e499]: Many struggle to understand their impact and how to reduce it effectively.
+          - generic [ref=e500]:
+            - generic [ref=e501]: 3 screens · mobile · bottom-tabs
+            - generic [ref=e502]: onboarding
+            - generic [ref=e503]: paywall
+          - generic [ref=e504]:
+            - button "Add to Chat →" [ref=e505] [cursor=pointer]:
+              - img [ref=e506]
+              - text: Add to Chat →
+            - button "Code Studio" [ref=e508] [cursor=pointer]
+        - generic [ref=e509]:
+          - generic [ref=e510]:
+            - generic [ref=e511]:
+              - generic [ref=e512]: SkillSwap
+              - generic [ref=e513]: A platform for individuals to barter skills instead of using money to acquire services.
+            - button "Сохранить в банк" [ref=e514] [cursor=pointer]:
+              - img [ref=e515]
+          - generic [ref=e517]: Increasing interest in barter systems amidst economic strains and the rising gig economy.
+          - generic [ref=e519]: Freelancers and hobbyists looking for cost-effective ways to exchange services.
+          - generic [ref=e520]: Users often cannot afford services they need but have talents to trade.
+          - generic [ref=e521]:
+            - generic [ref=e522]: 3 screens · mobile · top-nav
+            - generic [ref=e523]: onboarding
+          - generic [ref=e524]:
+            - button "Add to Chat →" [ref=e525] [cursor=pointer]:
+              - img [ref=e526]
+              - text: Add to Chat →
+            - button "Code Studio" [ref=e528] [cursor=pointer]
+    - generic [ref=e311]:
+      - generic [ref=e312]:
+        - generic [ref=e313]:
+          - generic [ref=e314]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e315] [cursor=pointer]:
+            - img [ref=e316]
+            - text: New Project
+          - generic [ref=e318]: New Project
+          - generic [ref=e319]: /
+          - img [ref=e320]
+          - generic [ref=e324]: main
+          - generic [ref=e325]: ·
+          - img [ref=e326]
+          - generic [ref=e328]: "snap #0"
+        - generic [ref=e330]: Not backed up
+        - generic [ref=e331]:
+          - generic [ref=e332]:
+            - 'button "Theme: dark" [ref=e333] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e334] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e335] [cursor=pointer]'
+          - button "Settings" [ref=e336] [cursor=pointer]:
+            - img [ref=e337]
+          - button "D dev.local@aic-studio.test" [ref=e340] [cursor=pointer]:
+            - generic [ref=e341]: D
+            - generic [ref=e342]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e343] [cursor=pointer]:
+            - img [ref=e344]
+            - text: Backup to Cloud
+      - generic [ref=e347]:
+        - generic [ref=e349]:
+          - generic [ref=e351]:
+            - img [ref=e352]
+            - generic [ref=e357]: AIC-RG Studio
+            - generic [ref=e358]: Опишите идею ниже или выберите в сайдбаре
+          - generic [ref=e359]:
+            - generic [ref=e360]:
+              - button "AUTO" [ref=e361]
+              - button "APP" [ref=e362]
+              - button "PAGE" [ref=e363]
+              - button "SUPER" [ref=e364]
+              - button "ALL" [ref=e365]
+              - button "История" [ref=e367]:
+                - img [ref=e368]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e373]:
+                - img [ref=e374]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e377]:
+                - img [ref=e378]
+            - generic [ref=e381]:
+              - button "Attach / tools" [ref=e383]:
+                - img [ref=e384]
+              - textbox "Что строим сегодня?" [ref=e385]
+              - button [disabled] [ref=e386]:
+                - img [ref=e387]
+          - generic [ref=e390]:
+            - generic [ref=e392]: New Project
+            - generic [ref=e393]: current
+        - generic [ref=e394]:
+          - generic [ref=e395]:
+            - generic [ref=e396]:
+              - button "Preview" [ref=e397] [cursor=pointer]
+              - button "Reasoning" [ref=e398] [cursor=pointer]
+              - button "Code" [ref=e399] [cursor=pointer]
+              - button "Design" [ref=e400] [cursor=pointer]
+              - button "Analytics" [ref=e401] [cursor=pointer]
+              - button "Security" [ref=e402] [cursor=pointer]
+              - button "Cloud" [ref=e403] [cursor=pointer]
+            - generic [ref=e404]:
+              - button "Select" [ref=e405] [cursor=pointer]:
+                - img [ref=e406]
+                - text: Select
+              - generic [ref=e408]:
+                - button "Desktop Chrome" [ref=e409] [cursor=pointer]:
+                  - img [ref=e410]
+                - button "iPhone 16 Pro Max" [ref=e412] [cursor=pointer]:
+                  - img [ref=e413]
+                - button "Pixel 9 Pro" [ref=e415] [cursor=pointer]:
+                  - img [ref=e416]
+                - button "iPad Pro 13" [ref=e418] [cursor=pointer]:
+                  - img [ref=e419]
+              - button "Export" [ref=e421] [cursor=pointer]:
+                - img [ref=e422]
+                - text: Export
+              - button "Expo" [ref=e425] [cursor=pointer]:
+                - img [ref=e426]
+                - text: Expo
+              - button "Share" [ref=e428] [cursor=pointer]:
+                - img [ref=e429]
+                - text: Share
+          - generic [ref=e437]:
+            - generic [ref=e438]:
+              - button [ref=e439] [cursor=pointer]:
+                - img [ref=e440]
+              - generic [ref=e443] [cursor=pointer]: 55%
+              - button [ref=e444] [cursor=pointer]:
+                - img [ref=e445]
+              - button [ref=e449] [cursor=pointer]:
+                - img [ref=e450]
+            - iframe [ref=e459]:
+              - generic [ref=f13e4]:
+                - generic [ref=f13e5]: ⚠️
+                - heading "Home failed to load" [level=2] [ref=f13e6]
+                - paragraph [ref=f13e7]: Cannot read properties of undefined (reading 'reduce')
+                - generic [ref=f13e8]:
+                  - button "Retry" [ref=f13e9] [cursor=pointer]
+                  - link "Go Home" [ref=f13e10] [cursor=pointer]:
+                    - /url: "#/"

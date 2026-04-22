@@ -131,6 +131,16 @@ describe('evaluateMetrics', () => {
     expect(result.healthy).toBe(true);
   });
 
+  it('does NOT flag normal app content as runtime-error-screen', () => {
+    const result = evaluateMetrics(makeMetrics({
+      rootChildCount: 4,
+      rootInnerTextLength: 72,
+      rootTextHead: 'Dashboard loaded with usage charts, team activity, and recent project updates',
+    }), BUILD);
+    expect(result.healthy).toBe(true);
+    expect(result.reason).toBeUndefined();
+  });
+
   // ── empty-root ──────────────────────────────────────────────────
 
   it('detects empty-root: #root has no children', () => {
@@ -286,6 +296,46 @@ describe('evaluateMetrics', () => {
     expect(result.healthy).toBe(true);
   });
 
+  // ── runtime-error-screen ───────────────────────────────────────
+
+  it('detects runtime-error-screen: provider usage error fallback', () => {
+    const text = 'must be used within AppProvider';
+    const result = evaluateMetrics(makeMetrics({
+      rootChildCount: 3,
+      rootInnerTextLength: text.length,
+      rootOffsetHeight: 320,
+      rootTextHead: text,
+      interactiveElementCount: 1,
+    }), BUILD);
+    expect(result.healthy).toBe(false);
+    expect(result.reason).toBe('runtime-error-screen' satisfies WhiteScreenReason);
+  });
+
+  it('detects runtime-error-screen: failed load fallback', () => {
+    const text = 'Dashboard failed to load';
+    const result = evaluateMetrics(makeMetrics({
+      rootChildCount: 4,
+      rootInnerTextLength: text.length,
+      rootOffsetHeight: 360,
+      rootTextHead: text,
+      interactiveElementCount: 2,
+    }), BUILD);
+    expect(result.healthy).toBe(false);
+    expect(result.reason).toBe('runtime-error-screen');
+  });
+
+  it('keeps empty-root priority over runtime error text', () => {
+    const text = 'must be used within AppProvider';
+    const result = evaluateMetrics(makeMetrics({
+      rootChildCount: 0,
+      rootInnerTextLength: text.length,
+      rootOffsetHeight: 0,
+      rootTextHead: text,
+    }), BUILD);
+    expect(result.healthy).toBe(false);
+    expect(result.reason).toBe('empty-root');
+  });
+
   // ── Metrics are preserved in result ─────────────────────────────
 
   it('always includes metrics in the result', () => {
@@ -332,6 +382,7 @@ describe('White-screen check does not weaken ready_set', () => {
       { rootChildCount: 3, rootOffsetHeight: 0 },
       { rootChildCount: 1, rootInnerTextLength: 5, hasLoadingIndicator: true, rootTextHead: 'Loading' },
       { rootChildCount: 1, rootInnerTextLength: 3 },
+      { rootChildCount: 3, rootInnerTextLength: 30, rootOffsetHeight: 120, rootTextHead: 'must be used within AppProvider' },
     ];
 
     for (const c of unhealthyCases) {
@@ -346,6 +397,7 @@ describe('White-screen check does not weaken ready_set', () => {
       'minimal-content',
       'loading-shell-only',
       'zero-height-root',
+      'runtime-error-screen',
     ]);
     for (const r of allReasons) {
       expect(validReasons.has(r)).toBe(true);

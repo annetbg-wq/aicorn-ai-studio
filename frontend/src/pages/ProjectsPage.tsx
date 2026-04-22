@@ -18,7 +18,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { ProjectRepository, type ProjectRecord, type ProjectMetaSummary } from '../services/ProjectRepository';
+import {
+  ProjectRepository,
+  getCanonicalProjectName,
+  type ProjectRecord,
+  type ProjectMetaSummary,
+} from '../services/ProjectRepository';
 import { ProjectStorage, type ProjectRevision } from '../services/ProjectStorage';
 import { getScreenshot } from '../lib/screenshotCache';
 
@@ -136,7 +141,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = React.memo(({
     setLoading(true);
     try {
       const list = await ProjectRepository.listProjects();
-      setProjects(list);
+      setProjects(list.map(p => ({ ...p, name: getCanonicalProjectName(p) })));
       // Load cached screenshots from localStorage
       const shots: Record<string, string> = {};
       for (const p of list) {
@@ -198,6 +203,13 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = React.memo(({
     let cancelled = false;
     ProjectRepository.getProject(selectedId).then(p => {
       if (cancelled) return;
+      if (!p) {
+        ProjectRepository.removeLocalProjectMeta(selectedId);
+        setProjects(prev => prev.filter(project => project.id !== selectedId));
+        setFullProject(null);
+        setRevisions([]);
+        return;
+      }
       setFullProject(p);
       setRevisions((p as any)?.revisions ?? []);
     });
@@ -359,7 +371,12 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = React.memo(({
                   onClick={(e) => {
                     e.stopPropagation();
                     ProjectRepository.getProject(p.id).then(full => {
-                      if (full) onLoadProject?.(full);
+                      if (full) {
+                        onLoadProject?.(full);
+                        return;
+                      }
+                      ProjectRepository.removeLocalProjectMeta(p.id);
+                      setProjects(prev => prev.filter(project => project.id !== p.id));
                     });
                   }}
                 >

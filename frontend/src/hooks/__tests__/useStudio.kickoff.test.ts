@@ -19,6 +19,7 @@ import {
   inferCapabilitiesFromIntent,
   inferProductType,
 } from '../../services/ArchitectPlannerService';
+import { ProjectRepository } from '../../services/ProjectRepository';
 
 const generationPipelineMock = vi.hoisted(() => ({
   autoFix: vi.fn(),
@@ -135,6 +136,7 @@ vi.mock('../../services/ProjectManager', () => ({
       branchId: 'main',
     })),
     setCurrent: vi.fn(),
+    getCurrentId: vi.fn(() => TEST_PROJECT_ID),
   },
 }));
 
@@ -142,17 +144,21 @@ vi.mock('../../services/ProjectStorage', () => ({
   ProjectStorage: {
     getProject: vi.fn(() => null),
     listProjects: vi.fn(() => []),
+    projectDataExists: vi.fn(() => false),
     saveProject: vi.fn(() => true),
     deleteProject: vi.fn(() => true),
   },
 }));
 
 vi.mock('../../services/ProjectRepository', () => ({
+  getCanonicalProjectName: (project: { name?: string; title?: string }) =>
+    project?.name || project?.title || 'New Project',
   ProjectRepository: {
     deleteProject: vi.fn(() => Promise.resolve()),
     getBranchArchitecture: vi.fn(() => Promise.resolve(null)),
     getProject: vi.fn(() => Promise.resolve(null)),
     listProjects: vi.fn(() => Promise.resolve([])),
+    removeLocalProjectMeta: vi.fn(),
     saveBranchArchitecture: vi.fn(() => Promise.resolve()),
     saveProject: vi.fn(() => Promise.resolve()),
   },
@@ -772,6 +778,37 @@ describe('Kickoff state cleanup', () => {
       'idle',
     ]));
     expect(latestStudio!.previewLifecycle).toBe('failed');
+  });
+});
+
+describe('Project repository missing-state truth', () => {
+  it('does not convert a stale missing project load into a fresh blank project', async () => {
+    let latestStudio: StudioHook | null = null;
+
+    render(React.createElement(StudioLifecycleHarness, {
+      onRender: (studio) => {
+        latestStudio = studio;
+      },
+    }));
+
+    await waitFor(() => expect(latestStudio).not.toBeNull());
+
+    await act(async () => {
+      await latestStudio!.loadProject({ id: 'missing-project' });
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.currentProjectId).toBe('missing-project');
+      expect(latestStudio!.persistedProjectExists).toBe(false);
+    });
+
+    expect(latestStudio!.files).toEqual({});
+    expect(latestStudio!.previewLifecycle).toBe('blocked');
+    expect(latestStudio!.previewBlockedReason).toContain('Project not found: missing-project');
+    expect(vi.mocked(ProjectRepository.removeLocalProjectMeta)).toHaveBeenCalledWith('missing-project');
+    expect(latestStudio!.messages.some(message =>
+      String(message.content).includes('not opened as a new blank project'),
+    )).toBe(true);
   });
 });
 
