@@ -55,6 +55,7 @@ export interface ProjectSyncState {
 export function useProjectSync(
   files:             FileMap,
   currentProjectId:  string | null,
+  persistedProjectExists: boolean,
   projectName:       string,
   currentTheme:      string,
   onRestoreFiles:    (files: FileMap) => void,
@@ -65,7 +66,7 @@ export function useProjectSync(
     () => localStorage.getItem('emergency_snapshot_backup') !== null,
   );
   const [lastSyncAt,   setLastSyncAt]   = useState<string | null>(
-    currentProjectId ? storageService.getLastSyncAt(currentProjectId) : null,
+    currentProjectId && persistedProjectExists ? storageService.getLastSyncAt(currentProjectId) : null,
   );
   const [cloudNewer,   setCloudNewer]   = useState(false);
   const [cloudFiles,   setCloudFiles]   = useState<FileMap | null>(null);
@@ -76,16 +77,25 @@ export function useProjectSync(
 
   // ── 1. Auto-save: debounced cloud sync whenever files change ───────────────
   useEffect(() => {
-    if (!currentProjectId || Object.keys(files).length === 0) return;
+    if (!currentProjectId || !persistedProjectExists || Object.keys(files).length === 0) return;
     try {
       storageService.saveProject(currentProjectId, projectName, files);
     } catch (error) {
       console.error('[useProjectSync]', error);
     }
-  }, [files, currentProjectId, projectName]);
+  }, [files, currentProjectId, persistedProjectExists, projectName]);
 
   // ── 2. Hybrid recovery: check cloud on project switch ─────────────────────
   useEffect(() => {
+    if (!currentProjectId || !persistedProjectExists) {
+      prevProjectId.current = null;
+      setCloudNewer(false);
+      setCloudFiles(null);
+      setCloudVersion(0);
+      setCloudSyncAt(null);
+      setLastSyncAt(null);
+      return;
+    }
     if (!currentProjectId || currentProjectId === prevProjectId.current) return;
     prevProjectId.current = currentProjectId;
 
@@ -103,7 +113,7 @@ export function useProjectSync(
     }).catch(error => {
       console.error('[useProjectSync]', error);
     });
-  }, [currentProjectId]);
+  }, [currentProjectId, persistedProjectExists]);
 
   // ── 3. Download Snapshot — local JSON export, no cloud ────────────────────
   const handleDownloadSnapshot = useCallback(() => {

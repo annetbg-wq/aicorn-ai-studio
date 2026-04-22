@@ -108,6 +108,7 @@ export default function App() {
   const sync = useProjectSync(
     studio.files ?? {},
     studio.currentProjectId ?? null,
+    studio.persistedProjectExists === true,
     _projectName,
     studio.theme,
     _onRestoreFiles,
@@ -334,24 +335,9 @@ export default function App() {
     studio.launchWithPlan(plan, intent, source);
   }, [studio, handleOpenInCodeStudio]);
 
-  const handleSendTrendIdeaToChat = React.useCallback((idea: TrendNicheIdea, founderBrief: string) => {
-    const copy = getTrendIdeaText(idea, studio.appLanguage);
+  const handleSendTrendIdeaToChat = React.useCallback((_idea: TrendNicheIdea, founderBrief: string) => {
     setView('engine');
-    const discussionIntent = `${copy.title}\n\n${founderBrief}`;
-    void studio.createNewProject()
-      .then(() => {
-        studio.addComposerContextFromPlan(null, discussionIntent, 'trend-niche');
-        studio.addSystemMessage([
-          `🧭 Founder brief imported: **${copy.title}**`,
-          '',
-          founderBrief,
-          '',
-          'Continue in chat to discuss the idea with the architect before coding.',
-        ].join('\n'));
-      })
-      .catch((error: unknown) => {
-        studio.addSystemMessage(`⚠️ Failed to import trend brief: ${(error as Error)?.message ?? String(error)}`);
-      });
+    studio.setChatContext(founderBrief, 'trend-niche');
   }, [studio]);
 
   const handleBuildTrendIdea = React.useCallback((idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => {

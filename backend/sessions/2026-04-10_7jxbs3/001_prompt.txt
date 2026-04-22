@@ -1,5 +1,0 @@
-You are building a prototype pipeline. Return a single JSON object with keys:
-productVision, architecture, codingPlan, testPlan, previewPlan.
-Each key must be detailed and actionable.
-Idea: AI assistant for weekly niche scouting and rapid prototype launch.
-No markdown. JSON only.

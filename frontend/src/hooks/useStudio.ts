@@ -77,6 +77,8 @@ import { useFigmaState } from './useFigmaState';
 import { useSettingsState } from './useSettingsState';
 import {
   ArchitectPlannerService,
+  applyKickoffSelectionToBuildPlan,
+  assertKickoffScopeApplied,
   type ArchitectKickoffPlan,
   type KickoffBuildScopeId,
 } from '../services/ArchitectPlannerService';
@@ -261,6 +263,7 @@ export async function prepareKickoffBuildApproval(input: {
   pendingPlan: PendingBlueprintPlan;
   now?: string;
   language?: string;
+  persistKickoffSnapshot?: boolean;
 }): Promise<{ approvedPlan: ProjectPlan; kickoffSnapshotId: string | null }> {
   const { pendingPlan } = input;
   const now = input.now ?? new Date().toISOString();
@@ -268,6 +271,38 @@ export async function prepareKickoffBuildApproval(input: {
   if (!pendingPlan.architectKickoff) {
     return {
       approvedPlan: pendingPlan.plan,
+      kickoffSnapshotId: null,
+    };
+  }
+
+  if (input.persistKickoffSnapshot === false) {
+    const selectedOption = pendingPlan.architectKickoff.plan.scopeOptions.find(
+      option => option.id === pendingPlan.architectKickoff!.selectedOptionId,
+    );
+    let approvedPlan: ProjectPlan;
+    try {
+      approvedPlan = assertKickoffScopeApplied(
+        applyKickoffSelectionToBuildPlan(
+          pendingPlan.plan,
+          pendingPlan.architectKickoff.plan,
+          pendingPlan.architectKickoff.selectedOptionId,
+        ),
+        pendingPlan.architectKickoff.selectedOptionId,
+      );
+    } catch {
+      approvedPlan = {
+        ...(pendingPlan.plan as ProjectPlan),
+        kickoffScope: {
+          id: pendingPlan.architectKickoff.selectedOptionId,
+          label: selectedOption?.label ?? pendingPlan.architectKickoff.selectedOptionId,
+          description: selectedOption?.description ?? 'Session-only kickoff scope',
+          selectedCapabilityIds: selectedOption?.capabilityIds ?? [],
+          deferredCapabilityIds: [],
+        },
+      };
+    }
+    return {
+      approvedPlan,
       kickoffSnapshotId: null,
     };
   }
@@ -461,7 +496,7 @@ interface PendingProjectSave {
   reqUsage: UsageData;
 }
 
-type PendingProjectSaveReason = 'manual-after-preview' | 'manual-no-preview';
+type PendingProjectSaveReason = 'manual-after-preview';
 
 interface PendingProjectSaveMeta {
   projectId: string;
@@ -946,6 +981,17 @@ export const useStudio = () => {
     });
   }, []);
 
+  /**
+   * Direct transient chat-context import (no generation, no project creation).
+   * Used by "Trend Niches → В диалог" path.
+   */
+  const setChatContext = useCallback((
+    brief: string,
+    source: ComposerContextSource = 'manual',
+  ) => {
+    addComposerContextFromPlan(null, brief, source);
+  }, [addComposerContextFromPlan]);
+
   // ── projects ──────────────────────────────────────────────────────────────
   const [projects, setProjects] = useState<ProjectMeta[]>(() =>
     ProjectStorage.listProjects()
@@ -1235,6 +1281,7 @@ export const useStudio = () => {
     }
 
     setCurrentProjectId(pending.projectId);
+    ProjectManager.setCurrent(pending.projectId);
     setProjectPersistenceState('exists');
     setProjects(ProjectStorage.listProjects());
 
@@ -1268,11 +1315,7 @@ export const useStudio = () => {
       revisions:      existingForCloud?.revisions ?? [],
     } as any).catch((err: any) => addLog(`[Project] Cloud save error: ${err}`));
 
-    addLog(
-      reason === 'manual-after-preview'
-        ? `[Project] Saved after explicit preview save: ${pending.projectTitle}`
-        : `[Project] Saved without preview (confirmed): ${pending.projectTitle}`,
-    );
+    addLog(`[Project] Saved after explicit preview save: ${pending.projectTitle}`);
 
     // Write journal record for the save event and clean up draft state.
     const draftIdAtSave = _draftSessionIdRef.current;
@@ -1311,29 +1354,13 @@ export const useStudio = () => {
     if (pendingSavePromptShownRef.current) return;
 
     pendingSavePromptShownRef.current = true;
-    const pending = pendingProjectSaveRef.current;
-    const ok = window.confirm(
-      `Превью не загрузилось.\n\nСохранить проект "${pending?.projectTitle ?? 'Untitled'}" для дальнейшей работы?`,
-    );
-    if (ok) {
-      commitPendingProjectSave('manual-no-preview');
-      chatAppend({
-        role: 'assistant',
-        content: 'Проект сохранён без превью. Вы сможете продолжить работу позже.',
-        timestamp: Date.now(),
-      });
-    } else {
-      pendingProjectSaveRef.current = null;
-      pendingSavePromptShownRef.current = false;
-      setPendingProjectSaveMeta(null);
-      addLog('[Project] User skipped save because preview did not load');
-      chatAppend({
-        role: 'assistant',
-        content: 'Проект не сохранён, так как превью не загрузилось.',
-        timestamp: Date.now(),
-      });
-    }
-  }, [previewLifecycle, isGenerating, commitPendingProjectSave, addLog, chatAppend]);
+    addLog('[Project] Preview failed/blocked — keeping draft in-session only (no persisted save)', 'warn');
+    chatAppend({
+      role: 'assistant',
+      content: 'Превью не готово. Черновик сохранён только в текущей сессии и не добавлен в Projects.',
+      timestamp: Date.now(),
+    });
+  }, [previewLifecycle, isGenerating, addLog, chatAppend]);
 
   // ── persist (data only — config keys are written immediately by their setters) ──
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1588,6 +1615,7 @@ export const useStudio = () => {
     localStorage.removeItem('LAST_FILES');
     localStorage.removeItem('LAST_CODE');
     localStorage.removeItem('CURRENT_PROJECT_ID');
+    localStorage.removeItem('aic-current-project');
     Orchestrator.resetSession();
     await revisionManager.createEmptyCandidate();
     // Create a draft session for the next generation run.
@@ -1623,6 +1651,7 @@ export const useStudio = () => {
         addLog('[Project] Not found in Supabase or localStorage');
         ProjectRepository.removeLocalProjectMeta(project.id);
         setProjects(prev => prev.filter(p => p.id !== project.id));
+        localStorage.removeItem('aic-current-project');
         setCurrentProjectId(project.id);
         setProjectPersistenceState('missing');
         setFiles({});
@@ -1686,6 +1715,7 @@ export const useStudio = () => {
       // startTransition: these are non-critical UI updates; batching prevents
       // intermediate renders where iframe and React state are out of sync.
       const b = loadBilling(full.id);
+      ProjectManager.setCurrent(full.id);
       startTransition(() => {
         chatLoadHistory(full.chatHistory as any[]);
         setFiles(normalizeToFileMap(full.files));
@@ -1802,6 +1832,7 @@ export const useStudio = () => {
       // No persisted project is created until the user explicitly saves after a successful preview.
       const draftId = draftArtifactJournal.createSession({ source: 'startup' });
       _draftSessionIdRef.current = draftId;
+      localStorage.removeItem('aic-current-project');
       localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
       setCurrentProjectId(draftId);
       setProjectPersistenceState('draft');
@@ -1964,14 +1995,22 @@ export const useStudio = () => {
     setCurrentPhase('think');
     setPreviewLifecycle('generating');
     setPreviewBlockedReason(null);
-    // Read project ID from the canonical ProjectManager key at execution time to avoid
-    // stale closure when createNewProject() updates state but _sendImpl was captured
-    // before re-render. For draft sessions, AIC_DRAFT_SESSION_ID is the synchronous fallback
-    // (set in createNewProject/auto-init before React state updates).
-    const stableProjectId = ProjectManager.getCurrentId() ?? localStorage.getItem('CURRENT_PROJECT_ID') ?? localStorage.getItem('AIC_DRAFT_SESSION_ID') ?? currentProjectId;
+    // Resolve project ID at execution time to avoid stale closure issues when
+    // createNewProject() has set a draft session but React has not re-rendered yet.
+    // Draft session ID always wins to guarantee unsaved runs never bind to a stale
+    // persisted project ID.
+    const stableProjectId =
+      localStorage.getItem('AIC_DRAFT_SESSION_ID')
+      ?? currentProjectId
+      ?? localStorage.getItem('CURRENT_PROJECT_ID')
+      ?? ProjectManager.getCurrentId();
     const runWorkspaceContext = resolveStudioKickoffContext(stableProjectId, currentProject);
     const runProjectId = runWorkspaceContext.projectId ?? stableProjectId ?? crypto.randomUUID();
     const runBranchId = runWorkspaceContext.branchId ?? DEFAULT_PROJECT_BRANCH_ID;
+    const runTargetsPersistedProject =
+      projectPersistenceState === 'exists' &&
+      !!currentProjectId &&
+      runProjectId === currentProjectId;
     commandBus.dispatch({ type: 'START_GENERATION', intent: effectiveInput, plan: {} });
     addLog('─'.repeat(40));
 
@@ -2157,7 +2196,7 @@ export const useStudio = () => {
     // ── Inject project ID for memory persistence ─────────────────────────
     const contextWithProjectId = {
       ...contextFiles,
-      ...(currentProjectId ? { '_projectId': currentProjectId } : {}),
+      ...(runProjectId ? { '_projectId': runProjectId } : {}),
     };
 
     // ── Inject Figma design tokens + cultural audit as virtual context file ─
@@ -2281,21 +2320,27 @@ export const useStudio = () => {
             signal:     controller.signal,
             onLog:      addLog,
           });
-          const proposedSnapshot = await ArchitectPlannerService.writeProposedKickoffToMemory(
-            kickoffContext.projectId,
-            kickoffContext.branchId,
-            architectPlan,
-            new Date().toISOString(),
-            appLanguage,
-          );
+          let proposedSnapshotId: string | null = null;
+          if (runTargetsPersistedProject) {
+            const proposedSnapshot = await ArchitectPlannerService.writeProposedKickoffToMemory(
+              kickoffContext.projectId,
+              kickoffContext.branchId,
+              architectPlan,
+              new Date().toISOString(),
+              appLanguage,
+            );
+            proposedSnapshotId = proposedSnapshot.id;
+            addLog(`[Architect] Proposed kickoff draft saved (${proposedSnapshot.id})`);
+          } else {
+            addLog('[Architect] Kickoff draft kept in session only until explicit Save');
+          }
           pendingArchitectKickoffRef.current = {
             projectId: kickoffContext.projectId,
             plan: architectPlan,
             branchId: kickoffContext.branchId,
             selectedOptionId: architectPlan.defaultOptionId,
-            proposedSnapshotId: proposedSnapshot.id,
+            proposedSnapshotId,
           };
-          addLog(`[Architect] Proposed kickoff draft saved (${proposedSnapshot.id})`);
           addLog(`[Kickoff] kickoff_scope_defaulted: ${architectPlan.defaultOptionId}`);
 
           if (!controller.signal.aborted) {
@@ -2634,7 +2679,7 @@ export const useStudio = () => {
           const reportContent = report.mode === 'EDIT'
             ? `Updated ${touchedCount} file${touchedCount !== 1 ? 's' : ''}`
             : 'Built your app!';
-          const storedProjectForReality = currentProjectId ? ProjectStorage.getProject(currentProjectId) : null;
+          const storedProjectForReality = runProjectId ? ProjectStorage.getProject(runProjectId) : null;
           const activeBranchIdForReality = storedProjectForReality?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
           const branchArchitectureForReality =
             storedProjectForReality?.branches?.[activeBranchIdForReality]?.architecture ?? null;
@@ -2873,10 +2918,17 @@ export const useStudio = () => {
     setKickoffPhase('build_starting');
     addLog('[Kickoff] kickoff_build_started');
     try {
+      const shouldPersistKickoffSnapshot = !!(
+        pendingPlan?.architectKickoff &&
+        projectPersistenceState === 'exists' &&
+        currentProjectId &&
+        pendingPlan.architectKickoff.projectId === currentProjectId
+      );
       const approval = pendingPlan
         ? await prepareKickoffBuildApproval({
             pendingPlan,
             language: appLanguage,
+            persistKickoffSnapshot: shouldPersistKickoffSnapshot,
           })
         : { approvedPlan: undefined, kickoffSnapshotId: null };
 
@@ -2930,7 +2982,7 @@ export const useStudio = () => {
 
     // Reset guard after a tick so the same instance can be reused if generation is re-triggered.
     setTimeout(() => { confirmingRef.current = false; }, 500);
-  }, [pendingPlan, currentProjectId, appLanguage, addLog, chatAppend]);
+  }, [pendingPlan, currentProjectId, projectPersistenceState, appLanguage, addLog, chatAppend]);
 
   const cancelPlan = useCallback(() => {
     commandBus.dispatch({ type: 'REJECT_BLUEPRINT', planId: pendingPlan?.id ?? '' });
@@ -3272,7 +3324,7 @@ export const useStudio = () => {
     currentSnapshotId, historyIndex,
     logs, addLog, clearLogs, downloadLogs,
     attachments, addAttachment, removeAttachment, clearAttachments,
-    composerContextItems, activeProjectContext, addComposerContextFromPlan, removeComposerContextItem, clearComposerContextItems,
+    composerContextItems, activeProjectContext, addComposerContextFromPlan, setChatContext, removeComposerContextItem, clearComposerContextItems,
     handleSend,
     onSend: handleSend,
     launchWithPlan,
@@ -3381,7 +3433,7 @@ export const useStudio = () => {
     setActiveFile, addSnapshot, restoreSnapshot, undo, redo, clearSnapshots, markSnapshotStable, rollbackToStable,
     addLog, clearLogs, downloadLogs,
     addAttachment, removeAttachment, clearAttachments,
-    addComposerContextFromPlan, removeComposerContextItem, clearComposerContextItems,
+    addComposerContextFromPlan, setChatContext, removeComposerContextItem, clearComposerContextItems,
     createNewProject, createProject, switchProject, loadProject, deleteProject, refreshProjects, stopGeneration,
     handleSend, launchWithPlan, publishProject, classifyAndStore,
     savePendingProject,

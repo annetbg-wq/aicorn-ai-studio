@@ -1,0 +1,13 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]
+      - generic [ref=e14]
+      - button "Weekly Hot Ideas" [ref=e91] [cursor=pointer]
+    - generic [ref=e96]:
+      - generic [ref=e97]
+      - generic [ref=e104]
+      - generic [ref=e175]
+      - generic [ref=e192]: Модули платформы
+      - generic [ref=e194]
+      - generic [ref=e302]: AIC-RG Studio — Профессиональная платформа v3
