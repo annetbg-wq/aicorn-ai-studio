@@ -1,16 +1,11 @@
 /**
  * AppSidebar — narrow (56 px) vertical navigation bar.
- *
- * Bottom section: API Wallet + Context Health mini-bars + cloud-sync dot.
- * Above resource bars: ⚡ Weekly Feed toggle button → WeeklyFeedPanel slide-out.
  */
 
 import React, { useState } from 'react';
-import { LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, Zap, FlaskConical, BarChart2, FolderOpen, TestTube2, Code2, TerminalSquare, Database } from 'lucide-react';
+import { LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, FlaskConical, BarChart2, FolderOpen, TestTube2, Code2, TerminalSquare, Database } from 'lucide-react';
 import type { ModuleId, ViewId } from '../shared/types';
 import { isCreatorMode } from '../services/internalAccess';
-import { WeeklyFeedPanel } from './WeeklyFeedPanel';
-import type { IdeaPlan } from './WeeklyFeedPanel';
 
 interface NavItem {
   id:        ModuleId;
@@ -40,22 +35,14 @@ interface AppSidebarProps {
   activeModule:      ViewId;
   onNavigate:        (id: ModuleId) => void;
   onHome:            () => void;
-  onStartBlueprint:  (text: string) => void;
-  onLaunchWithPlan?: (
-    plan: IdeaPlan,
-    intent: string,
-    source?: 'chat' | 'weekly-feed' | 'niche' | 'weekly-feed-code-studio',
-  ) => void;
   appLanguage?:      string;
 }
 
 export const AppSidebar: React.FC<AppSidebarProps> = ({
   activeModule, onNavigate, onHome,
-  onStartBlueprint, onLaunchWithPlan,
   appLanguage = 'en',
 }) => {
   const [tooltip,  setTooltip]  = useState<string | null>(null);
-  const [feedOpen, setFeedOpen] = useState(false);
   const creatorMode = isCreatorMode();
   const visibleNavItems = creatorMode
     ? NAV_ITEMS
@@ -147,37 +134,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           })}
         </div>
 
-        {/* ── Weekly Feed toggle ── */}
-        <button
-          onClick={() => setFeedOpen(prev => !prev)}
-          title="Weekly Hot Ideas"
-          onMouseEnter={() => setTooltip('Weekly Hot Ideas')}
-          onMouseLeave={() => setTooltip(null)}
-          style={{
-            width: 36, height: 36, borderRadius: 10, marginBottom: 4, flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer',
-            background: feedOpen ? 'rgba(74,222,128,0.15)' : 'rgba(74,222,128,0.06)',
-            border: `1px solid ${feedOpen ? 'rgba(74,222,128,0.4)' : 'rgba(74,222,128,0.2)'}`,
-            color: feedOpen ? '#4ade80' : 'rgba(74,222,128,0.5)',
-            transition: 'all 0.2s',
-            position: 'relative',
-          }}
-        >
-          <Zap size={15} strokeWidth={2} />
-          {/* Pulse dot — indicates new content */}
-          {!feedOpen && (
-            <div style={{
-              position: 'absolute', top: 6, right: 6,
-              width: 5, height: 5, borderRadius: '50%',
-              background: '#4ade80', boxShadow: '0 0 5px #4ade8099',
-              animation: 'zapPulse 2s ease-in-out infinite',
-            }} />
-          )}
-        </button>
-
-
-
         {/* Tooltip */}
         {tooltip && (
           <div style={{
@@ -192,26 +148,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           </div>
         )}
       </div>
-
-      {/* ── Weekly Feed Panel ── */}
-      {feedOpen && (
-        <WeeklyFeedPanel
-          onClose={() => setFeedOpen(false)}
-          onStartBlueprint={(text) => {
-            setFeedOpen(false);
-            onStartBlueprint(text);
-          }}
-          onLaunchWithPlan={onLaunchWithPlan}
-          appLanguage={appLanguage}
-        />
-      )}
-
-      <style>{`
-        @keyframes zapPulse {
-          0%, 100% { opacity: 1; transform: scale(1);   }
-          50%       { opacity: 0.5; transform: scale(0.7); }
-        }
-      `}</style>
     </>
   );
 };

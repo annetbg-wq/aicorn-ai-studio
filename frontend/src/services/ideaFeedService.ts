@@ -466,14 +466,14 @@ export async function runIdeaModelPrompt(
   const devAgentActive = devAgentProvider !== 'off';
 
   let text = '';
+  let bridgeFailureReason: string | null = null;
 
   if (devAgentActive) {
     const bridgeCtrl = new AbortController();
     const bridgeTimeoutMs = 180_000;
     const bridgeTimer = window.setTimeout(() => bridgeCtrl.abort(), bridgeTimeoutMs);
-    let bridgeResp: Response;
     try {
-      bridgeResp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/chat`, {
+      const bridgeResp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: bridgeCtrl.signal,
@@ -482,34 +482,59 @@ export async function runIdeaModelPrompt(
           model: devAgentProvider === 'codex' ? 'gpt-5.1-codex' : 'claude-sonnet-4-6',
         }),
       });
+
+      if (!bridgeResp.ok) {
+        const err = await bridgeResp.text().catch(() => '');
+        bridgeFailureReason = `HTTP ${bridgeResp.status}${err ? `: ${err.slice(0, 200)}` : ''}`;
+      } else {
+        const bridgeData = await bridgeResp.json() as { content?: Array<{ text?: string }> };
+        text = bridgeData.content?.[0]?.text ?? '';
+        if (!text.trim()) {
+          bridgeFailureReason = 'empty response';
+        }
+      }
     } catch (err: unknown) {
       if ((err as { name?: string })?.name === 'AbortError') {
-        throw new Error(`Local ${devAgentProvider} bridge timed out after ${Math.round(bridgeTimeoutMs / 1000)}s.`);
+        bridgeFailureReason = `timed out after ${Math.round(bridgeTimeoutMs / 1000)}s`;
+      } else {
+        bridgeFailureReason = (err as Error)?.message ?? String(err);
       }
-      throw err;
     } finally {
       window.clearTimeout(bridgeTimer);
     }
-
-    if (!bridgeResp.ok) {
-      const err = await bridgeResp.text();
-      throw new Error(`Dev agent bridge ${bridgeResp.status}: ${err.slice(0, 200)}`);
-    }
-
-    const bridgeData = await bridgeResp.json() as { content?: Array<{ text?: string }> };
-    text = bridgeData.content?.[0]?.text ?? '';
-    if (!text.trim()) {
-      throw new Error('Dev agent bridge returned empty response');
+    if (bridgeFailureReason) {
+      console.warn(
+        `[IdeaModel] Local ${devAgentProvider} bridge unavailable (${bridgeFailureReason}). Falling back to standard model flow.`,
+      );
     }
   }
 
   if (!text.trim()) {
-    text = await GeminiService.generate({
-      prompt,
-      googleAccessToken,
-      maxTokens: 6000,
-      onLog: (msg) => console.log(msg),
-    });
+    try {
+      text = await GeminiService.generate({
+        prompt,
+        googleAccessToken,
+        maxTokens: 6000,
+        onLog: (msg) => console.log(msg),
+      });
+    } catch (fallbackErr) {
+      const fallbackMessage = (fallbackErr as Error)?.message ?? String(fallbackErr);
+      if (bridgeFailureReason) {
+        throw new Error(
+          `Dev-agent bridge unavailable (${bridgeFailureReason}). Standard idea-model fallback failed: ${fallbackMessage}`,
+        );
+      }
+      throw fallbackErr;
+    }
+  }
+
+  if (!text.trim()) {
+    if (bridgeFailureReason) {
+      throw new Error(
+        `Dev-agent bridge unavailable (${bridgeFailureReason}) and standard idea-model fallback returned empty output.`,
+      );
+    }
+    throw new Error('Idea model returned an empty response.');
   }
 
   return text.trim();

@@ -348,6 +348,62 @@ describe('Dual-routing regression guard: generatePlan requires canonical route',
       globalThis.fetch = originalFetch;
     }
   });
+
+  it('generatePlan falls back to canonical standard route when dev-agent bridge returns 500', async () => {
+    localStorage.setItem('superadmin_dev_agent_provider', 'codex');
+    const { SimpleGeneration } = await import('../SimpleGeneration');
+    const route: AgentExecutionRoute = {
+      slot: 'primary',
+      provider: 'openrouter',
+      modelId: 'canonical-plan-model',
+      endpoint: 'https://example.test/chat/completions',
+      apiKey: 'canonical-plan-key',
+      keySource: 'test.primary',
+      reason: 'unit-test canonical route',
+    };
+    const planJson = JSON.stringify({
+      appName: 'Bridge fallback planner',
+      summary: 'Fallback stayed inside standard flow.',
+      pages: ['Home'],
+      steps: [{ id: 'think', label: 'Analyze request' }],
+      assumptions: [],
+    });
+
+    llmProxyMock.llmFetchStream.mockResolvedValue(makeStreamingResponse(planJson));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ provider: 'codex' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response('bridge failure', { status: 500 }));
+    globalThis.fetch = fetchMock;
+
+    try {
+      const plan = await SimpleGeneration.generatePlan({
+        intent: 'build a planner',
+        userLang: 'en',
+        apiKey: route.apiKey,
+        route,
+      });
+
+      expect(plan.appName).toBe('Bridge fallback planner');
+      expect(plan.summary).toBe('Fallback stayed inside standard flow.');
+      expect(String(fetchMock.mock.calls[1]?.[0] ?? '')).toContain('/chat');
+      expect(llmProxyMock.llmFetchStream).toHaveBeenCalledWith(
+        route.endpoint,
+        expect.objectContaining({
+          Authorization: `Bearer ${route.apiKey}`,
+        }),
+        expect.stringContaining(`"model":"${route.modelId}"`),
+        expect.any(AbortSignal),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('bridge unavailable'));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe('Dual-routing regression guard: analyzeImageWithVision requires specRoute', () => {
