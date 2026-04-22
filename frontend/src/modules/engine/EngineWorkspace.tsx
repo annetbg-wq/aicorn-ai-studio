@@ -69,6 +69,7 @@ export interface EngineWorkspaceProps {
   projects:          Array<{ id: string; name: string; description: string; theme: string; createdAt: string; updatedAt: string; [key: string]: any }>;
   currentProjectId:  string | null;
   persistedProjectExists?: boolean;
+  pendingProjectSave?: { projectTitle: string; previewReady: boolean } | null;
   /** Total snapshots in undo/redo history. */
   totalVersions:     number;
   /** 1-indexed snapshot position in undo/redo history. */
@@ -91,6 +92,7 @@ export interface EngineWorkspaceProps {
   onNewProject:      () => void;
   onLoadProject:     (p: { id: string; name: string; [key: string]: any }) => void;
   onDeleteProject:   (id: string) => void;
+  onSavePendingProject?: () => void;
   onSettings:        () => void;
   setTheme:          (t: 'dark' | 'medium' | 'light') => void;
 
@@ -170,9 +172,9 @@ export interface EngineWorkspaceProps {
 
 export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineWorkspace({
   theme, themes, cloudAvailable, onShare, onDeploy, onCollab,
-  projects, currentProjectId, persistedProjectExists: persistedProjectExistsProp, totalVersions, currentVersion, lastStableVersion,
+  projects, currentProjectId, persistedProjectExists: persistedProjectExistsProp, pendingProjectSave, totalVersions, currentVersion, lastStableVersion,
   messages, input, setInput, onSend, onStop, isGenerating, progress, currentPhase, scrollRef,
-  onNewProject, onLoadProject, onDeleteProject, onSettings, setTheme,
+  onNewProject, onLoadProject, onDeleteProject, onSavePendingProject, onSettings, setTheme,
   snapshots, currentSnapshotId, onRestoreSnapshot, markSnapshotStable,
   canUndo, canRedo, onUndo, onRedo,
   fullContextMode, setFullContextMode, autoRoute, setAutoRoute, generationMode, setGenerationMode, appLanguage,
@@ -197,7 +199,10 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
 
   const currentProjectMeta =
     projects.find((p: { id: string; name?: string; activeBranchId?: string }) => p.id === currentProjectId);
-  const projectName = currentProjectMeta?.name ?? '';
+  const latestContextTitle = composerContextItems.length > 0
+    ? composerContextItems[composerContextItems.length - 1]?.title ?? ''
+    : '';
+  const projectName = currentProjectMeta?.name ?? pendingProjectSave?.projectTitle ?? latestContextTitle ?? '';
   const activeBranchId = currentProjectMeta?.activeBranchId ?? 'main';
   const persistedProjectExists = persistedProjectExistsProp
     ?? (currentProjectId ? projects.some(p => p.id === currentProjectId) : undefined);
@@ -382,6 +387,8 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             projectName={projectName}
             activeBranch={activeBranchId}
             persistedProjectExists={persistedProjectExists}
+            pendingProjectSave={pendingProjectSave}
+            onSavePendingProject={onSavePendingProject}
             onShare={onShare}
             onDownloadProject={handleDownloadProject}
             onExportReactNative={Object.keys(files).length > 0 ? handleExportReactNative : undefined}
@@ -395,6 +402,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             previewBlockedReason={previewBlockedReason}
             projectId={currentProjectId ?? ''}
             previewUrl={previewUrl}
+            appLanguage={appLanguage}
             onVisualElementSelected={handleVisualElementSelected}
           />
         </div>

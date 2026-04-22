@@ -145,14 +145,27 @@ export interface Attachment {
   textContent?: string;           // extracted text for PDFs
 }
 
+type GenerationSource = 'chat' | 'weekly-feed' | 'niche' | 'trend-niche';
+type ComposerContextSource = 'weekly-feed' | 'niche' | 'trend-niche' | 'dashboard' | 'manual';
+
 export interface ComposerContextItem {
   id:        string;
-  source:    'weekly-feed' | 'niche' | 'dashboard' | 'manual';
+  source:    ComposerContextSource;
   title:     string;
   intent:    string;
   summary:   string;
   createdAt: number;
   plan?:     ProjectPlan;
+}
+
+export interface ActiveProjectContext {
+  id: string;
+  source: ComposerContextSource;
+  title: string;
+  intent: string;
+  summary: string;
+  plan: ProjectPlan;
+  createdAt: number;
 }
 
 type PlanApprovalDecision = {
@@ -408,7 +421,7 @@ function addRevision(
   existing: StoredProject,
   patch: {
     prompt:      string;
-    source:      'chat' | 'weekly-feed' | 'niche';
+    source:      GenerationSource;
     files:       Record<string, string>;
     modelId?:    string;
     durationMs?: number;
@@ -438,7 +451,7 @@ interface PendingProjectSave {
   finalFiles: FileMap;
   chatHistoryToSave: any[];
   userPrompt: string;
-  source: 'chat' | 'weekly-feed' | 'niche';
+  source: GenerationSource;
   effectiveModel: string;
   generationStartMs: number;
   generationLogs: string[];
@@ -446,6 +459,14 @@ interface PendingProjectSave {
   plan: ProjectPlan | null;
   planTheme: string;
   reqUsage: UsageData;
+}
+
+type PendingProjectSaveReason = 'manual-after-preview' | 'manual-no-preview';
+
+interface PendingProjectSaveMeta {
+  projectId: string;
+  projectTitle: string;
+  previewReady: boolean;
 }
 
 type ProjectPersistenceState = 'none' | 'unknown' | 'exists' | 'missing' | 'draft';
@@ -711,7 +732,7 @@ export const useStudio = () => {
     }
     // Preview lifecycle — iframe loaded successfully
     setPreviewLifecycle('preview-ready');
-    commitPendingProjectSaveRef.current('preview-ready');
+    setPendingProjectSaveMeta(prev => prev ? { ...prev, previewReady: true } : prev);
   }, []);
 
   useEffect(() => {
@@ -731,6 +752,7 @@ export const useStudio = () => {
         setPreviewBlockedReason(null);
         if (!currentSnapshotId) {
           setPreviewLifecycle('preview-ready');
+          setPendingProjectSaveMeta(prev => prev ? { ...prev, previewReady: true } : prev);
           return;
         }
         if (lastPreviewReadyRevisionRef.current === state.activeRevisionId) return;
@@ -848,18 +870,22 @@ export const useStudio = () => {
 
   const clearAttachments = useCallback(() => setAttachments([]), []);
 
+  const [activeProjectContext, setActiveProjectContext] = useState<ActiveProjectContext | null>(null);
+
   const removeComposerContextItem = useCallback((id: string) => {
     setComposerContextItems(prev => prev.filter(item => item.id !== id));
+    setActiveProjectContext(prev => (prev?.id === id ? null : prev));
   }, []);
 
   const clearComposerContextItems = useCallback(() => {
     setComposerContextItems([]);
+    setActiveProjectContext(null);
   }, []);
 
   const addComposerContextFromPlan = useCallback((
     plan: ProjectPlan | null | undefined,
     intent: string,
-    source: 'weekly-feed' | 'niche' | 'dashboard' | 'manual' = 'weekly-feed',
+    source: ComposerContextSource = 'weekly-feed',
   ) => {
     const appName = (plan?.appName ?? '').trim();
     const title = appName || intent.slice(0, 64) || 'Imported context';
@@ -873,6 +899,15 @@ export const useStudio = () => {
     const normalizedIntent = intent.trim();
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
     const id = `${source}:${slug}:${Date.now()}`;
+    const nextItem: ComposerContextItem = {
+      id,
+      source,
+      title,
+      intent: normalizedIntent,
+      summary,
+      createdAt: Date.now(),
+      plan: plan ?? undefined,
+    };
 
     setComposerContextItems(prev => {
       const duplicateIndex = prev.findIndex(item =>
@@ -883,19 +918,18 @@ export const useStudio = () => {
       const next = duplicateIndex >= 0
         ? [...prev.slice(0, duplicateIndex), ...prev.slice(duplicateIndex + 1)]
         : [...prev];
-      next.push({
-        id,
-        source,
-        title,
-        intent: normalizedIntent,
-        summary,
-        createdAt: Date.now(),
-        plan: plan ?? undefined,
-      });
+      next.push(nextItem);
       return next.slice(-6);
     });
 
-    if (source === 'weekly-feed' || source === 'niche') {
+    if (plan) {
+      setActiveProjectContext({
+        ...nextItem,
+        plan,
+      });
+    }
+
+    if (source === 'weekly-feed' || source === 'niche' || source === 'trend-niche') {
       setGenerationSource(source);
     }
 
@@ -953,7 +987,7 @@ export const useStudio = () => {
   /** Explicit kickoff lifecycle — only meaningful for genesis (existingCodeCount === 0) runs. */
   const [kickoffPhase,    setKickoffPhase]    = useState<KickoffPhase>('idle');
   const [generationMode,  setGenerationMode]  = useState<'landing' | 'app' | 'superapp'>('app');
-  const [generationSource, setGenerationSource] = useState<'chat' | 'weekly-feed' | 'niche'>('chat');
+  const [generationSource, setGenerationSource] = useState<GenerationSource>('chat');
   const [designClassification, setDesignClassification] = useState<ClassificationResult | null>(null);
   const [composerContextItems, setComposerContextItems] = useState<ComposerContextItem[]>([]);
 
@@ -1001,7 +1035,7 @@ export const useStudio = () => {
   const pendingArchitectKickoffRef = useRef<PendingArchitectKickoffSelection | null>(null);
   // Tracks the active generation-plan message ID so markSnapshotStable can set buildStatus:'ready'
   const currentPlanMsgIdRef = useRef<string | null>(null);
-  const commitPendingProjectSaveRef = useRef<(reason: 'preview-ready' | 'manual-no-preview') => boolean>(() => false);
+  const commitPendingProjectSaveRef = useRef<(reason: PendingProjectSaveReason) => boolean>(() => false);
   const lastPreviewReadyRevisionRef = useRef<string | null>(null);
 
   // ── Preview lifecycle — honest completion handshake ───────────────────────
@@ -1028,20 +1062,22 @@ export const useStudio = () => {
     return id ? loadBilling(id).tokens : 0;
   });
 
-  // Generated project is persisted only after preview success,
-  // or after explicit user confirmation if preview failed/blocked.
+  // Generated project stays as a draft until the user explicitly saves it.
+  // If preview failed/blocked, the legacy fallback still asks before saving.
   const pendingProjectSaveRef = useRef<PendingProjectSave | null>(null);
+  const [pendingProjectSaveMeta, setPendingProjectSaveMeta] = useState<PendingProjectSaveMeta | null>(null);
   const pendingSavePromptShownRef = useRef(false);
   const processedArchitectureMessagesRef = useRef<Set<string>>(new Set());
   // Tracks the active draft session ID for the current unsaved generation run.
   // Null when a real persisted project is active (loaded or just saved).
   const _draftSessionIdRef = useRef<string | null>(null);
 
-  const commitPendingProjectSave = useCallback((reason: 'preview-ready' | 'manual-no-preview') => {
+  const commitPendingProjectSave = useCallback((reason: PendingProjectSaveReason) => {
     const pending = pendingProjectSaveRef.current;
     if (!pending) return false;
     pendingProjectSaveRef.current = null;
     pendingSavePromptShownRef.current = false;
+    setPendingProjectSaveMeta(null);
 
     const reqTokens = pending.reqUsage.promptTokens + pending.reqUsage.completionTokens;
     if (reqTokens > 0) {
@@ -1233,8 +1269,8 @@ export const useStudio = () => {
     } as any).catch((err: any) => addLog(`[Project] Cloud save error: ${err}`));
 
     addLog(
-      reason === 'preview-ready'
-        ? `[Project] Saved after preview ready: ${pending.projectTitle}`
+      reason === 'manual-after-preview'
+        ? `[Project] Saved after explicit preview save: ${pending.projectTitle}`
         : `[Project] Saved without preview (confirmed): ${pending.projectTitle}`,
     );
 
@@ -1255,6 +1291,18 @@ export const useStudio = () => {
     return true;
   }, [addLog, appLanguage, authUser?.id, generationMode, projectCost, projectTokens]);
   commitPendingProjectSaveRef.current = commitPendingProjectSave;
+
+  const savePendingProject = useCallback(() => {
+    if (!pendingProjectSaveRef.current) return false;
+    const ready = pendingProjectSaveMeta?.previewReady
+      || previewLifecycle === 'preview-ready'
+      || previewLifecycle === 'degraded';
+    if (!ready) {
+      addLog('[Project] Save requested before preview was ready', 'warn');
+      return false;
+    }
+    return commitPendingProjectSave('manual-after-preview');
+  }, [addLog, commitPendingProjectSave, pendingProjectSaveMeta?.previewReady, previewLifecycle]);
 
   useEffect(() => {
     if (isGenerating) return;
@@ -1277,6 +1325,7 @@ export const useStudio = () => {
     } else {
       pendingProjectSaveRef.current = null;
       pendingSavePromptShownRef.current = false;
+      setPendingProjectSaveMeta(null);
       addLog('[Project] User skipped save because preview did not load');
       chatAppend({
         role: 'assistant',
@@ -1498,6 +1547,7 @@ export const useStudio = () => {
   const createNewProject = useCallback(async () => {
     pendingProjectSaveRef.current = null;
     pendingSavePromptShownRef.current = false;
+    setPendingProjectSaveMeta(null);
     currentPlanMsgIdRef.current = null;
     // Auto-save the current project before clearing so history is not lost
     if (currentProjectId && Object.keys(_latestFilesRef.current).length > 0) {
@@ -1559,6 +1609,7 @@ export const useStudio = () => {
   const loadProject = useCallback(async (project: { id: string }) => {
     pendingProjectSaveRef.current = null;
     pendingSavePromptShownRef.current = false;
+    setPendingProjectSaveMeta(null);
     clearComposerContextItems();
     addLog(`[Project] Loading ${project.id.slice(0, 8)}…`);
     setProjectPersistenceState('unknown');
@@ -1906,6 +1957,7 @@ export const useStudio = () => {
 
     pendingProjectSaveRef.current = null;
     pendingSavePromptShownRef.current = false;
+    setPendingProjectSaveMeta(null);
     fixAttemptsRef.current = 0;  // reset auto-fix counter for this generation
     setIsGenerating(true);
     setProgress(5);
@@ -1976,14 +2028,21 @@ export const useStudio = () => {
       contextPackText,
       attachmentContextText,
     ].filter(Boolean).join('\n\n');
-    const effectiveSource: 'chat' | 'weekly-feed' | 'niche' =
+    const effectiveSource: GenerationSource =
       composerContextItems.length === 1 &&
-      (composerContextItems[0].source === 'weekly-feed' || composerContextItems[0].source === 'niche')
+      (
+        composerContextItems[0].source === 'weekly-feed' ||
+        composerContextItems[0].source === 'niche' ||
+        composerContextItems[0].source === 'trend-niche'
+      )
         ? composerContextItems[0].source
         : generationSource;
-    const prebuiltPlanFromContext = composerContextItems.length === 1
-      ? composerContextItems[0].plan
-      : undefined;
+    const prebuiltPlanFromContext = activeProjectContext?.plan
+      ?? (
+        composerContextItems.length === 1
+          ? composerContextItems[0].plan
+          : undefined
+      );
     const generationStartMs = Date.now();
     const generationLogs: string[] = [];
     const generationErrors: string[] = [];
@@ -2676,8 +2735,13 @@ export const useStudio = () => {
           planTheme: result.planTheme ?? 'dark-slate',
           reqUsage,
         };
+        setPendingProjectSaveMeta({
+          projectId,
+          projectTitle,
+          previewReady: false,
+        });
         pendingSavePromptShownRef.current = false;
-        addLog(`[Project] Save queued: waiting for preview (${projectTitle})`);
+        addLog(`[Project] Save ready to request after preview (${projectTitle})`);
         setComposerContextItems([]);
       }
 
@@ -2762,15 +2826,21 @@ export const useStudio = () => {
   const launchWithPlan = useCallback(async (
     plan: ProjectPlan,
     intent: string,
-    source?: 'chat' | 'weekly-feed' | 'niche',
+    source?: GenerationSource,
   ) => {
-    const mappedSource: 'weekly-feed' | 'niche' | 'dashboard' =
-      source === 'niche' ? 'niche' : source === 'weekly-feed' ? 'weekly-feed' : 'dashboard';
+    const mappedSource: ComposerContextSource =
+      source === 'niche'
+        ? 'niche'
+        : source === 'weekly-feed'
+          ? 'weekly-feed'
+          : source === 'trend-niche'
+            ? 'trend-niche'
+            : 'dashboard';
 
     // Ideas from the feed must always start in a fresh empty project so the
     // coder sees existingCodeCount === 0 and generates the full app from
     // scratch instead of producing an incremental patch against stale files.
-    if (source === 'weekly-feed' || source === 'niche') {
+    if (source === 'weekly-feed' || source === 'niche' || source === 'trend-niche') {
       await createNewProject();
     }
 
@@ -3202,7 +3272,7 @@ export const useStudio = () => {
     currentSnapshotId, historyIndex,
     logs, addLog, clearLogs, downloadLogs,
     attachments, addAttachment, removeAttachment, clearAttachments,
-    composerContextItems, addComposerContextFromPlan, removeComposerContextItem, clearComposerContextItems,
+    composerContextItems, activeProjectContext, addComposerContextFromPlan, removeComposerContextItem, clearComposerContextItems,
     handleSend,
     onSend: handleSend,
     launchWithPlan,
@@ -3273,6 +3343,8 @@ export const useStudio = () => {
     previewBlockedReason,
     previewUrl,
     previewReady,
+    pendingProjectSave: pendingProjectSaveMeta,
+    savePendingProject,
     // kickoff lifecycle — explicit phase for genesis builds
     kickoffPhase,
     // blueprint confirmation
@@ -3288,11 +3360,11 @@ export const useStudio = () => {
     // state — re-memoize only when actual data changes
     // messages/input intentionally excluded — returned directly below
     files, activeFile, theme, apiKey, selectedModel,
-    isGenerating, device, progress, currentPhase, kickoffPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, previewUrl, previewReady, machineState,
+    isGenerating, device, progress, currentPhase, kickoffPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, previewUrl, previewReady, pendingProjectSaveMeta, machineState,
     designClassification,
     projectGraph,
     snapshots, historyIndex, currentProjectId, currentProject, currentSnapshotId, stableSnapshotId, projectPersistenceState,
-    projects, showSettings, logs, attachments, composerContextItems,
+    projects, showSettings, logs, attachments, composerContextItems, activeProjectContext,
     sessionCost, sessionTokens, projectCost, projectTokens,
     appLanguage,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3312,6 +3384,7 @@ export const useStudio = () => {
     addComposerContextFromPlan, removeComposerContextItem, clearComposerContextItems,
     createNewProject, createProject, switchProject, loadProject, deleteProject, refreshProjects, stopGeneration,
     handleSend, launchWithPlan, publishProject, classifyAndStore,
+    savePendingProject,
     onSettings, setShowSettings,
     addFigmaAccount, removeFigmaAccount, refreshFigmaAccounts, validateFigmaLink,
     setEngineApiKey, setEngineModelId, setAgentConfig,

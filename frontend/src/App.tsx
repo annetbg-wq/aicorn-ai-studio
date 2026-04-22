@@ -6,6 +6,7 @@ import ArchitectDashboard       from './modules/architect/ArchitectDashboard';
 const EngineWorkspace    = lazy(() => lazyWithRetry(() => import('./modules/engine/EngineWorkspace')).then(m => ({ default: m.EngineWorkspace })));
 
 const Dashboard          = lazy(() => lazyWithRetry(() => import('./components/Dashboard')).then(m => ({ default: m.Dashboard })));
+const TrendNichesModule  = lazy(() => lazyWithRetry(() => import('./components/dashboard/TrendNichesModule')).then(m => ({ default: m.TrendNichesModule })));
 const ProjectsPage       = lazy(() => lazyWithRetry(() => import('./pages/ProjectsPage')));
 const PlatinumFigma      = lazy(() => lazyWithRetry(() => import('./components/PlatinumFigma')).then(m => ({ default: m.PlatinumFigma })));
 const AgentLabPanel      = lazy(() => lazyWithRetry(() => import('./components/AgentLabPanel')).then(m => ({ default: m.AgentLabPanel })));
@@ -40,6 +41,11 @@ import { FigmaOAuthService }       from './services/FigmaOAuthService';
 import { metricsService }       from './services/MetricsService';
 import { ShareService }            from './services/ShareService';
 import { isCreatorMode }          from './services/internalAccess';
+import {
+  getTrendIdeaText,
+  type ProductBlueprint,
+  type TrendNicheIdea,
+} from './services/ideaFeedService';
 import type { ModuleId, ViewId } from './shared/types';
 
 const CODE_STUDIO_INTENT_PREFIX = '__OPEN_CODE_STUDIO__';
@@ -293,6 +299,7 @@ export default function App() {
     }
     uiStore.closeAll();
     if (id === 'engine')    setView('engine');
+    if (id === 'trend-niches') setView('trend-niches');
     if (id === 'figma')     setView('figma');
     if (id === 'architect') setView('architect');
     if (id === 'projects')  setView('projects');
@@ -311,7 +318,7 @@ export default function App() {
     setView('engine');
   };
 
-  const handleLaunchWithPlan = React.useCallback((plan: any, intent: string, source?: 'chat' | 'weekly-feed' | 'niche' | 'weekly-feed-code-studio') => {
+  const handleLaunchWithPlan = React.useCallback((plan: any, intent: string, source?: 'chat' | 'weekly-feed' | 'niche' | 'trend-niche' | 'weekly-feed-code-studio') => {
     const fromWeeklyCodeStudio = source === 'weekly-feed-code-studio' || intent.startsWith(CODE_STUDIO_INTENT_PREFIX);
     if (fromWeeklyCodeStudio) {
       const cleanedIntent = intent.startsWith(CODE_STUDIO_INTENT_PREFIX)
@@ -326,6 +333,46 @@ export default function App() {
     setView('engine');
     studio.launchWithPlan(plan, intent, source);
   }, [studio, handleOpenInCodeStudio]);
+
+  const handleSendTrendIdeaToChat = React.useCallback((idea: TrendNicheIdea, founderBrief: string) => {
+    const copy = getTrendIdeaText(idea, studio.appLanguage);
+    setView('engine');
+    const discussionIntent = `${copy.title}\n\n${founderBrief}`;
+    void studio.createNewProject()
+      .then(() => {
+        studio.addComposerContextFromPlan(null, discussionIntent, 'trend-niche');
+        studio.addSystemMessage([
+          `🧭 Founder brief imported: **${copy.title}**`,
+          '',
+          founderBrief,
+          '',
+          'Continue in chat to discuss the idea with the architect before coding.',
+        ].join('\n'));
+      })
+      .catch((error: unknown) => {
+        studio.addSystemMessage(`⚠️ Failed to import trend brief: ${(error as Error)?.message ?? String(error)}`);
+      });
+  }, [studio]);
+
+  const handleBuildTrendIdea = React.useCallback((idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => {
+    const copy = getTrendIdeaText(idea, studio.appLanguage);
+    setView('engine');
+    void studio.launchWithPlan(blueprint, intent, 'trend-niche')
+      .then(() => {
+        studio.addSystemMessage([
+          `🧠 Blueprint packaged: **${blueprint.appName || copy.title}**`,
+          '',
+          `Market angle: ${copy.marketAngle}`,
+          `Why now: ${copy.whyInteresting}`,
+          `Files planned: ${blueprint.fileArchitecture?.length ?? 0}`,
+          '',
+          'The packaged blueprint is ready. Press Send to start code generation.',
+        ].join('\n'));
+      })
+      .catch((error: unknown) => {
+        studio.addSystemMessage(`⚠️ Failed to launch packaged trend idea: ${(error as Error)?.message ?? String(error)}`);
+      });
+  }, [studio]);
 
   // ── Modal openers — stable refs ───────────────────────────────────────────
   const handleDeploy = React.useCallback(() => setShowDeploy(true), []);
@@ -417,6 +464,7 @@ export default function App() {
   const activeModule: ViewId = uiStore.showAnalytics ? 'analytics'
     : uiStore.showAgentLab  ? 'agentlab'
     : view === 'engine'     ? 'engine'
+    : view === 'trend-niches' ? 'trend-niches'
     : view === 'figma'      ? 'figma'
     : view === 'architect'  ? 'architect'
     : view === 'projects'   ? 'projects'
@@ -465,6 +513,7 @@ export default function App() {
               projects={studio.projects ?? []}
               currentProjectId={studio.currentProjectId ?? null}
               persistedProjectExists={studio.persistedProjectExists}
+              pendingProjectSave={studio.pendingProjectSave ?? null}
               totalVersions={studio.totalVersions ?? 0}
               currentVersion={studio.currentVersion ?? 0}
               lastStableVersion={studio.lastStableVersion}
@@ -480,6 +529,7 @@ export default function App() {
               onNewProject={studio.onNewProject}
               onLoadProject={studio.onLoadProject}
               onDeleteProject={studio.onDeleteProject}
+              onSavePendingProject={studio.savePendingProject}
               onSettings={studio.onSettings}
               setTheme={studio.setTheme}
               snapshots={studio.snapshots ?? []}
@@ -608,6 +658,20 @@ export default function App() {
           </div>
         )}
 
+        {view === 'trend-niches' && (
+          <div className="flex flex-1 overflow-hidden"
+               style={{ animation: 'viewFadeIn 0.28s ease' }}>
+            <Suspense fallback={<PageLoader />}>
+              <TrendNichesModule
+                appLanguage={studio.appLanguage}
+                onBack={() => setView('dashboard')}
+                onSendIdeaToChat={handleSendTrendIdeaToChat}
+                onBuildIdea={handleBuildTrendIdea}
+              />
+            </Suspense>
+          </div>
+        )}
+
         {view === 'benchmark' && (
           <div className="flex flex-1 overflow-hidden"
                style={{ animation: 'viewFadeIn 0.28s ease' }}>
@@ -683,7 +747,7 @@ export default function App() {
                 onNavigateCodeStudio={creatorMode ? () => setView('code-studio') : undefined}
                 onLoadProject={handleLoadProject}
                 onStartBlueprint={handleStartBlueprint}
-                onLaunchWithPlan={(plan, intent, source) => handleLaunchWithPlan(plan, intent, source)}
+                onOpenTrendNiches={() => setView('trend-niches')}
                 appLanguage={studio.appLanguage}
               />
             </Suspense>

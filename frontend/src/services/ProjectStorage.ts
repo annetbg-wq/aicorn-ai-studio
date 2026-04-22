@@ -21,7 +21,7 @@ import {
 export interface ProjectRevision {
   id:           string;    // crypto.randomUUID()
   prompt:       string;    // prompt for this iteration
-  source:       'chat' | 'weekly-feed' | 'niche';
+  source:       'chat' | 'weekly-feed' | 'niche' | 'trend-niche';
   files:        Record<string, string>;  // full file snapshot
   createdAt:    string;    // ISO
   modelId?:     string;
@@ -46,7 +46,7 @@ export interface StoredProject {
 
   // Extended metadata (v2)
   intent?:         string;                        // full original prompt
-  source?:         'chat' | 'weekly-feed' | 'niche';
+  source?:         'chat' | 'weekly-feed' | 'niche' | 'trend-niche';
   plan?:           object;                        // Architect JSON plan
   logs?:           string[];                      // generation log lines
   errors?:         string[];                      // AutoFix / runtime errors

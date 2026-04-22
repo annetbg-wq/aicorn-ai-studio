@@ -4,7 +4,7 @@ import {
   Eye, Code2, Palette, BarChart2, Shield,
   Share2, Copy, Check, GitBranch, GitCommit, CheckCircle,
   FilePlus, Trash2, ZoomIn, ZoomOut, Maximize2, Download,
-  MousePointer2,
+  MousePointer2, Save,
 } from 'lucide-react';
 import { visualEditBridge, type VisualEditMode, type SelectedElement } from '../services/VisualEditBridge';
 import type { FileMap } from '../hooks/useStudio';
@@ -1379,6 +1379,8 @@ interface PreviewCanvasProps {
   projectName?:   string;
   activeBranch?:  string;
   persistedProjectExists?: boolean;
+  pendingProjectSave?: { projectTitle: string; previewReady: boolean } | null;
+  onSavePendingProject?: () => void;
   // Stable-revision tracking
   currentSnapshotId?:   string | null;
   markSnapshotStable?:  (snapshotId: string) => void;
@@ -1392,6 +1394,7 @@ interface PreviewCanvasProps {
   previewBlockedReason?:  string | null;
   projectId:              string;
   previewUrl?:            string;
+  appLanguage?:           string;
   /**
    * Called when the user clicks an element in visual-edit selection mode.
    * Receives the selected element descriptor — host fills chat input with edit prompt.
@@ -1407,6 +1410,8 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   currentVersion, totalVersions,
   addLog, projectName, activeBranch = 'main',
   persistedProjectExists,
+  pendingProjectSave = null,
+  onSavePendingProject,
   currentSnapshotId, markSnapshotStable, currentProjectId,
   isAutoFixing = false,
   isGenerating = false,
@@ -1416,6 +1421,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   previewBlockedReason,
   projectId,
   previewUrl,
+  appLanguage = 'en',
   onVisualElementSelected,
 }) => {
   const iframeUrl = previewUrl || (projectId ? `/preview/${projectId}` : '');
@@ -1587,6 +1593,10 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   const isPreviewReady =
     previewLifecycle === 'preview-ready' ||
     previewLifecycle === 'degraded';
+  const previewSaveLabels = (appLanguage || 'en').toLowerCase().startsWith('ru')
+    ? { ready: 'Превью готово', save: 'Сохранить проект', draft: 'Draft не попал в Projects' }
+    : { ready: 'Preview ready', save: 'Save project', draft: 'Draft is not in Projects' };
+  const showSaveProjectCta = !!pendingProjectSave?.previewReady && isPreviewReady && !!onSavePendingProject;
   const [hasPreviewReady, setHasPreviewReady] = useState(false);
   useEffect(() => {
     setHasPreviewReady(false);
@@ -1838,6 +1848,57 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             }}
           >
             ×
+          </button>
+        </div>
+      )}
+
+      {showSaveProjectCta && (
+        <div
+          data-testid="save-project-cta"
+          style={{
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            padding: '10px 16px',
+            borderBottom: `1px solid ${isDark ? 'rgba(34,197,94,0.24)' : 'rgba(22,163,74,0.24)'}`,
+            background: isDark ? 'rgba(34,197,94,0.09)' : 'rgba(22,163,74,0.08)',
+            color: isDark ? 'rgba(220,252,231,0.92)' : '#14532d',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+            <CheckCircle size={16} style={{ color: '#16a34a', flexShrink: 0 }} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0 }}>
+                {previewSaveLabels.ready}
+              </div>
+              <div style={{ fontSize: 10.5, opacity: 0.78, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {pendingProjectSave?.projectTitle || projectName || previewSaveLabels.draft}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onSavePendingProject}
+            style={{
+              height: 36,
+              borderRadius: 8,
+              border: '1px solid rgba(22,163,74,0.45)',
+              background: '#16a34a',
+              color: '#ffffff',
+              fontSize: 12,
+              fontWeight: 850,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              padding: '0 14px',
+              cursor: 'pointer',
+              boxShadow: '0 6px 18px rgba(22,163,74,0.24)',
+              flexShrink: 0,
+            }}
+          >
+            <Save size={14} />
+            {previewSaveLabels.save}
           </button>
         </div>
       )}

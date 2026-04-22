@@ -16,9 +16,42 @@ vi.mock('../../services/internalAccess', () => ({
 
 vi.mock('../../services/ideaFeedService', () => ({
   ensureNicheIdeas: vi.fn(() => Promise.resolve([])),
+  ensureTrendNichesModel: vi.fn(() => Promise.resolve({
+    daily: [],
+    weekly: [],
+    monthly: [],
+    generatedAt: '',
+    dateKey: '',
+    weekKey: '',
+    monthKey: '',
+  })),
+  filterTrendNicheIdeas: (ideas: unknown[]) => ideas,
   getIdeaFeedEventName: () => 'aic-ideas-updated',
+  getTrendIdeaText: (idea: { localized?: Record<string, any>; appName?: string; description?: string }) => ({
+    title: idea.localized?.en?.title ?? idea.appName ?? 'Idea',
+    description: idea.localized?.en?.description ?? idea.description ?? '',
+    audience: '',
+    marketAngle: '',
+    whyInteresting: '',
+  }),
   hasIdeaGenerationAccess: () => false,
   loadCachedNiches: () => [],
+  loadCachedTrendNiches: () => ({
+    daily: [],
+    weekly: [],
+    monthly: [],
+    generatedAt: '',
+    dateKey: '',
+    weekKey: '',
+    monthKey: '',
+  }),
+  loadTrendIdeaBank: () => [],
+  loadTrendNicheInterests: () => [],
+  markTrendIdeaSentToChat: () => [],
+  removeTrendIdeaFromBank: () => [],
+  saveTrendIdeaToBank: () => [],
+  saveTrendNicheInterests: vi.fn(),
+  TREND_NICHE_INTERESTS: [],
 }));
 
 afterEach(() => {
