@@ -88,11 +88,86 @@ export interface GenerationTrace {
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY  = 'STUDIO_GEN_TRACES';
+const DEBUG_STORAGE_KEY = 'STUDIO_FULL_DEBUG_TRACES';
+const FIRST_LLM_STEP_LAST_KEY = 'ai_studio:first_llm_step:last';
+const FIRST_LLM_STEP_HISTORY_KEY = 'ai_studio:first_llm_step:history';
 const MAX_TRACES   = 50;
+const MAX_FIRST_LLM_STEP_RECORDS = 20;
 const MAX_SPAN_DATA = 2_000; // chars — prevent huge content blobs in storage
 const MAX_VISIBLE_SUMMARY = 220;
 const MAX_TEXT_EXCERPT = 1_200;
 const REDACTED = '[redacted]';
+
+export type FirstLLMStepParseStatus =
+  | 'raw_received'
+  | 'parsed_ok'
+  | 'parsed_failed'
+  | 'request_failed';
+
+export interface FirstLLMStepDebugRecord {
+  schema: 'aic-first-llm-step-v1';
+  id: string;
+  timestamp: string;
+  stepIdentity: 'SimpleGeneration.generatePlan';
+  projectId?: string;
+  intentText: string;
+  route?: {
+    slot?: string;
+    provider?: string;
+    modelId?: string;
+    endpoint?: string;
+    keySource?: string;
+    fallbackReason?: string;
+    reason?: string;
+  };
+  request: {
+    systemPrompt: string;
+    userPayload: string;
+    stream: boolean;
+    temperature: number;
+    maxTokens: number;
+  };
+  statusHistory: FirstLLMStepParseStatus[];
+  parseStatus: FirstLLMStepParseStatus;
+  rawCompletionText?: string;
+  parsedJsonObject?: unknown;
+  parseErrorMessage?: string;
+  requestErrorMessage?: string;
+}
+
+interface StoredFullDebugTraceEnvelope {
+  runId: string;
+  traceId: string;
+  projectId?: string;
+  branchId?: string;
+  startedAt: string;
+  finishedAt?: string;
+  trace: FullDebugTrace;
+}
+
+interface FullDebugTraceLookup {
+  runId?: string | null;
+  projectId?: string | null;
+  branchId?: string | null;
+}
+
+interface FullDebugTraceExportPayload {
+  schema: 'aic-rg-full-debug-trace-v1';
+  exportedAt: string;
+  traceId: string;
+  runId: string;
+  projectId?: string;
+  branchId?: string;
+  mode?: GenerationTrace['mode'];
+  model?: string;
+  outcome?: SpanStatus;
+  errorSummary?: string;
+  safety: {
+    redaction: 'secrets-sensitive-headers-hidden-chain-of-thought';
+    rawHiddenChainOfThought: 'excluded';
+  };
+  fullDebugTrace: FullDebugTrace;
+}
 
 function uid(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -100,10 +175,22 @@ function uid(): string {
 
 function redactSecrets(input: string): string {
   return input
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, REDACTED)
+    .replace(/<chain[_-]?of[_-]?thought>[\s\S]*?<\/chain[_-]?of[_-]?thought>/gi, REDACTED)
+    .replace(/^.*(?:raw\s+hidden\s+chain[-\s]?of[-\s]?thought|hidden\s+chain[-\s]?of[-\s]?thought|hidden\s+reasoning|chain[-\s]?of[-\s]?thought).*$/gim, REDACTED)
     .replace(/(authorization\s*[:=]\s*)(bearer\s+)?[^\s,'"`]+/gi, `$1${REDACTED}`)
     .replace(/((?:api[_-]?key|token|secret|password|cookie|session)\s*[:=]\s*)(["'])?[^"',\s`]+(\2)?/gi, `$1${REDACTED}`)
     .replace(/(\b[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)\b\s*=\s*)([^\s]+)/g, `$1${REDACTED}`)
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, REDACTED);
+}
+
+function isSensitiveKey(key: string): boolean {
+  return /^(authorization|cookie|set-cookie)$/i.test(key)
+    || /(?:api[_-]?key|token|secret|password|cookie|authorization|session|private[_-]?key|headers|env)/i.test(key);
+}
+
+function isHiddenReasoningKey(key: string): boolean {
+  return /(?:chain[_-]?of[_-]?thought|hidden[_-]?(?:cot|reasoning|thought)|raw[_-]?(?:cot|thought|reasoning)|thinking|thoughts?)/i.test(key);
 }
 
 function truncateString(value: string, limit: number): string {
@@ -131,7 +218,7 @@ function sanitizeUnknown(value: unknown, limit = MAX_SPAN_DATA): unknown {
 
   const out: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
-    if (/^(authorization|cookie|set-cookie)$/i.test(key)) {
+    if (isSensitiveKey(key) || isHiddenReasoningKey(key)) {
       out[key] = REDACTED;
       continue;
     }
@@ -142,6 +229,71 @@ function sanitizeUnknown(value: unknown, limit = MAX_SPAN_DATA): unknown {
 
 function sanitizeRecord(data: Record<string, unknown>, limit = MAX_SPAN_DATA): Record<string, unknown> {
   return sanitizeUnknown(data, limit) as Record<string, unknown>;
+}
+
+function sanitizePromptRecord(record: TracePromptRecord): TracePromptRecord {
+  return {
+    label: sanitizeText(record.label, 80),
+    summary: sanitizeText(record.summary, 200),
+    excerpt: record.excerpt ? sanitizeText(record.excerpt, MAX_TEXT_EXCERPT) : undefined,
+    promptChars: record.promptChars,
+    responseChars: record.responseChars,
+  };
+}
+
+function sanitizeFullDebugTrace(trace: FullDebugTrace): FullDebugTrace {
+  return {
+    runId: sanitizeText(trace.runId, 120),
+    startedAt: sanitizeText(trace.startedAt, 80),
+    finishedAt: trace.finishedAt ? sanitizeText(trace.finishedAt, 80) : undefined,
+    userPrompt: sanitizeText(trace.userPrompt, MAX_TEXT_EXCERPT),
+    finalOutcome: trace.finalOutcome,
+    stopReason: trace.stopReason ? sanitizeText(trace.stopReason, 200) : undefined,
+    routes: (trace.routes ?? []).map(route => ({
+      role: sanitizeText(route.role, 80),
+      keySource: route.keySource ? sanitizeText(route.keySource, 120) : undefined,
+      fallbackReason: route.fallbackReason ? sanitizeText(route.fallbackReason, 200) : undefined,
+      reason: route.reason ? sanitizeText(route.reason, 200) : undefined,
+      ...sanitizeLabels(route),
+    })),
+    architectSummary: trace.architectSummary ? sanitizeText(trace.architectSummary, MAX_TEXT_EXCERPT) : undefined,
+    designSummary: trace.designSummary ? sanitizeText(trace.designSummary, MAX_TEXT_EXCERPT) : undefined,
+    promptRecords: (trace.promptRecords ?? []).map(sanitizePromptRecord),
+    events: (trace.events ?? []).map(event => ({
+      id: sanitizeText(event.id, 120),
+      order: event.order,
+      type: event.type,
+      kind: event.kind,
+      status: event.status,
+      summary: sanitizeText(event.summary, 240),
+      errorSummary: event.errorSummary ? sanitizeText(event.errorSummary, 240) : undefined,
+      attemptNumber: event.attemptNumber,
+      timing: event.timing ? sanitizeUnknown(event.timing, 200) as typeof event.timing : undefined,
+      labels: sanitizeLabels(event.labels),
+      prompt: event.prompt ? sanitizePromptRecord(event.prompt) : undefined,
+      outputExcerpt: event.outputExcerpt ? sanitizeText(event.outputExcerpt, MAX_TEXT_EXCERPT) : undefined,
+      parserDecision: event.parserDecision ? sanitizeUnknown(event.parserDecision) as TraceParserDecision : undefined,
+      reviewerDecision: event.reviewerDecision ? sanitizeUnknown(event.reviewerDecision) as TraceReviewerDecision : undefined,
+      compileRuntimeLogs: event.compileRuntimeLogs?.map(log => sanitizeText(log, 300)),
+      diffMetadata: event.diffMetadata ? sanitizeUnknown(event.diffMetadata) as TraceDiffMetadata : undefined,
+      stopReason: event.stopReason ? sanitizeText(event.stopReason, 200) : undefined,
+      metadata: event.metadata ? sanitizeRecord(event.metadata) : undefined,
+    })),
+  };
+}
+
+function traceMatchesLookup(trace: Pick<GenerationTrace, 'id' | 'projectId' | 'branchId' | 'fullDebugTrace'>, lookup: FullDebugTraceLookup): boolean {
+  if (lookup.runId && trace.id !== lookup.runId && trace.fullDebugTrace?.runId !== lookup.runId) return false;
+  if (lookup.projectId && trace.projectId !== lookup.projectId) return false;
+  if (lookup.branchId && trace.branchId && trace.branchId !== lookup.branchId) return false;
+  return true;
+}
+
+function envelopeMatchesLookup(envelope: StoredFullDebugTraceEnvelope, lookup: FullDebugTraceLookup): boolean {
+  if (lookup.runId && envelope.runId !== lookup.runId && envelope.traceId !== lookup.runId) return false;
+  if (lookup.projectId && envelope.projectId !== lookup.projectId) return false;
+  if (lookup.branchId && envelope.branchId && envelope.branchId !== lookup.branchId) return false;
+  return true;
 }
 
 function sanitizeLabels(labels?: TraceSafeModelLabel): TraceSafeModelLabel | undefined {
@@ -225,22 +377,32 @@ function normalizeStoredTrace(trace: GenerationTrace): GenerationTrace {
   if (trace.visibleReasoningTrace && trace.fullDebugTrace) {
     return {
       ...trace,
+      intent: sanitizeText(trace.intent, MAX_TEXT_EXCERPT),
+      model: sanitizeText(trace.model, 120),
+      errorSummary: trace.errorSummary ? sanitizeText(trace.errorSummary, 240) : undefined,
+      spans: (trace.spans ?? []).map(span => sanitizeUnknown(span) as TraceSpan),
       visibleReasoningTrace: {
         ...trace.visibleReasoningTrace,
+        runId: sanitizeText(trace.visibleReasoningTrace.runId, 120),
         activeStepId: trace.visibleReasoningTrace.activeStepId ?? null,
-        steps: trace.visibleReasoningTrace.steps ?? [],
+        steps: (trace.visibleReasoningTrace.steps ?? []).map(step => ({
+          ...step,
+          id: sanitizeText(step.id, 120),
+          summary: sanitizeVisibleSummary(step.summary),
+          errorSummary: step.errorSummary ? sanitizeText(step.errorSummary, 240) : undefined,
+          labels: sanitizeLabels(step.labels),
+        })),
       },
-      fullDebugTrace: {
-        ...trace.fullDebugTrace,
-        routes: trace.fullDebugTrace.routes ?? [],
-        promptRecords: trace.fullDebugTrace.promptRecords ?? [],
-        events: trace.fullDebugTrace.events ?? [],
-      },
+      fullDebugTrace: sanitizeFullDebugTrace(trace.fullDebugTrace),
     };
   }
 
   return {
     ...trace,
+    intent: sanitizeText(trace.intent, MAX_TEXT_EXCERPT),
+    model: sanitizeText(trace.model, 120),
+    errorSummary: trace.errorSummary ? sanitizeText(trace.errorSummary, 240) : undefined,
+    spans: (trace.spans ?? []).map(span => sanitizeUnknown(span) as TraceSpan),
     visibleReasoningTrace: buildLegacyVisibleTrace(trace),
     fullDebugTrace: buildLegacyDebugTrace(trace),
   };
@@ -264,6 +426,99 @@ function saveTraces(traces: GenerationTrace[]): void {
     const trimmed = traces.slice(-Math.floor(MAX_TRACES / 4));
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed)); } catch { /* ignore */ }
   }
+}
+
+function loadDebugTraceEnvelopes(): StoredFullDebugTraceEnvelope[] {
+  try {
+    const raw = localStorage.getItem(DEBUG_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as StoredFullDebugTraceEnvelope[];
+    return parsed.map(envelope => ({
+      ...envelope,
+      runId: sanitizeText(envelope.runId, 120),
+      traceId: sanitizeText(envelope.traceId, 120),
+      projectId: envelope.projectId ? sanitizeText(envelope.projectId, 120) : undefined,
+      branchId: envelope.branchId ? sanitizeText(envelope.branchId, 120) : undefined,
+      startedAt: sanitizeText(envelope.startedAt, 80),
+      finishedAt: envelope.finishedAt ? sanitizeText(envelope.finishedAt, 80) : undefined,
+      trace: sanitizeFullDebugTrace(envelope.trace),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function saveDebugTraceEnvelopes(envelopes: StoredFullDebugTraceEnvelope[]): void {
+  try {
+    localStorage.setItem(DEBUG_STORAGE_KEY, JSON.stringify(envelopes.slice(-MAX_TRACES)));
+  } catch {
+    const trimmed = envelopes.slice(-Math.floor(MAX_TRACES / 4));
+    try { localStorage.setItem(DEBUG_STORAGE_KEY, JSON.stringify(trimmed)); } catch { /* ignore */ }
+  }
+}
+
+function loadFirstLLMStepHistory(): FirstLLMStepDebugRecord[] {
+  try {
+    const raw = localStorage.getItem(FIRST_LLM_STEP_HISTORY_KEY);
+    return raw ? JSON.parse(raw) as FirstLLMStepDebugRecord[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadLastFirstLLMStepRecord(): FirstLLMStepDebugRecord | null {
+  try {
+    const raw = localStorage.getItem(FIRST_LLM_STEP_LAST_KEY);
+    return raw ? JSON.parse(raw) as FirstLLMStepDebugRecord : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveFirstLLMStepRecord(record: FirstLLMStepDebugRecord): void {
+  try {
+    localStorage.setItem(FIRST_LLM_STEP_LAST_KEY, JSON.stringify(record));
+  } catch { /* ignore quota */ }
+
+  try {
+    const history = loadFirstLLMStepHistory().filter(item => item.id !== record.id);
+    history.push(record);
+    localStorage.setItem(
+      FIRST_LLM_STEP_HISTORY_KEY,
+      JSON.stringify(history.slice(-MAX_FIRST_LLM_STEP_RECORDS)),
+    );
+  } catch { /* ignore quota */ }
+
+  try {
+    window.dispatchEvent(new CustomEvent('studio-first-llm-step', { detail: record }));
+  } catch { /* test environment */ }
+}
+
+function toDebugTraceEnvelope(trace: GenerationTrace): StoredFullDebugTraceEnvelope {
+  const debugTrace = sanitizeFullDebugTrace(trace.fullDebugTrace);
+  return {
+    runId: debugTrace.runId,
+    traceId: trace.id,
+    projectId: trace.projectId ? sanitizeText(trace.projectId, 120) : undefined,
+    branchId: trace.branchId ? sanitizeText(trace.branchId, 120) : undefined,
+    startedAt: sanitizeText(trace.startedAt, 80),
+    finishedAt: debugTrace.finishedAt,
+    trace: debugTrace,
+  };
+}
+
+function persistDebugTrace(trace: GenerationTrace): void {
+  const envelope = toDebugTraceEnvelope(trace);
+  const existing = loadDebugTraceEnvelopes().filter(item => item.runId !== envelope.runId && item.traceId !== envelope.traceId);
+  existing.push(envelope);
+  saveDebugTraceEnvelopes(existing);
+}
+
+function latestStoredTrace(lookup: FullDebugTraceLookup): GenerationTrace | null {
+  return loadTraces()
+    .slice()
+    .reverse()
+    .find(trace => traceMatchesLookup(trace, lookup)) ?? null;
 }
 
 // ─── Active Trace Handle ──────────────────────────────────────────────────────
@@ -680,13 +935,15 @@ export class TraceHandle {
       this._activeSteps.delete(stepId);
     }
 
+    const finishedTrace = normalizeStoredTrace(this._trace);
     const all = loadTraces();
-    all.push(normalizeStoredTrace(this._trace));
+    all.push(finishedTrace);
     saveTraces(all);
+    persistDebugTrace(finishedTrace);
     generationTracer.clearActive(this.id);
 
     try {
-      window.dispatchEvent(new CustomEvent('studio-trace', { detail: { ...this._trace } }));
+      window.dispatchEvent(new CustomEvent('studio-trace', { detail: { ...finishedTrace } }));
     } catch { /* test environment */ }
   }
 
@@ -775,9 +1032,89 @@ class GenerationTracerClass {
     return loadTraces().slice(-n);
   }
 
+  /** Retrieve a sanitized full debug trace for the active or recently persisted run. */
+  getFullDebugTrace(lookup: FullDebugTraceLookup = {}): FullDebugTrace | null {
+    const activeSnapshot = this._active?.snapshot();
+    if (activeSnapshot && traceMatchesLookup(activeSnapshot, lookup)) {
+      return sanitizeFullDebugTrace(activeSnapshot.fullDebugTrace);
+    }
+
+    const debugEnvelope = loadDebugTraceEnvelopes()
+      .slice()
+      .reverse()
+      .find(envelope => envelopeMatchesLookup(envelope, lookup));
+    if (debugEnvelope) {
+      return sanitizeFullDebugTrace(debugEnvelope.trace);
+    }
+
+    const storedTrace = latestStoredTrace(lookup);
+    return storedTrace ? sanitizeFullDebugTrace(storedTrace.fullDebugTrace) : null;
+  }
+
+  /** Persist the local-only first LLM step debug record exactly as captured. */
+  recordFirstLLMStep(record: FirstLLMStepDebugRecord): void {
+    saveFirstLLMStepRecord(record);
+  }
+
+  /** Load the last local-only first LLM step debug record. */
+  getLastFirstLLMStep(): FirstLLMStepDebugRecord | null {
+    return loadLastFirstLLMStepRecord();
+  }
+
+  /** Load recent local-only first LLM step debug records. */
+  getFirstLLMStepHistory(n = MAX_FIRST_LLM_STEP_RECORDS): FirstLLMStepDebugRecord[] {
+    return loadFirstLLMStepHistory().slice(-n);
+  }
+
+  /** Build a structured, sanitized JSON export payload for forensic investigation. */
+  getFullDebugTraceExport(lookup: FullDebugTraceLookup = {}): FullDebugTraceExportPayload | null {
+    const activeSnapshot = this._active?.snapshot();
+    const trace = activeSnapshot && traceMatchesLookup(activeSnapshot, lookup)
+      ? activeSnapshot
+      : latestStoredTrace(lookup);
+    const debugEnvelope = trace ? null : loadDebugTraceEnvelopes()
+      .slice()
+      .reverse()
+      .find(envelope => envelopeMatchesLookup(envelope, lookup));
+    const fullDebugTrace = trace
+      ? sanitizeFullDebugTrace(trace.fullDebugTrace)
+      : debugEnvelope
+        ? sanitizeFullDebugTrace(debugEnvelope.trace)
+        : null;
+
+    if (!fullDebugTrace) return null;
+
+    return {
+      schema: 'aic-rg-full-debug-trace-v1',
+      exportedAt: new Date().toISOString(),
+      traceId: trace?.id ?? debugEnvelope?.traceId ?? fullDebugTrace.runId,
+      runId: fullDebugTrace.runId,
+      projectId: trace?.projectId ?? debugEnvelope?.projectId,
+      branchId: trace?.branchId ?? debugEnvelope?.branchId,
+      mode: trace?.mode,
+      model: trace?.model ? sanitizeText(trace.model, 120) : undefined,
+      outcome: trace?.outcome,
+      errorSummary: trace?.errorSummary ? sanitizeText(trace.errorSummary, 240) : undefined,
+      safety: {
+        redaction: 'secrets-sensitive-headers-hidden-chain-of-thought',
+        rawHiddenChainOfThought: 'excluded',
+      },
+      fullDebugTrace,
+    };
+  }
+
+  /** Format the structured debug export as pretty JSON for copy/download affordances. */
+  formatFullDebugTraceExport(lookup: FullDebugTraceLookup = {}): string | null {
+    const payload = this.getFullDebugTraceExport(lookup);
+    return payload ? JSON.stringify(payload, null, 2) : null;
+  }
+
   /** Clear all stored traces. */
   clear(): void {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(DEBUG_STORAGE_KEY);
+    localStorage.removeItem(FIRST_LLM_STEP_LAST_KEY);
+    localStorage.removeItem(FIRST_LLM_STEP_HISTORY_KEY);
     this._active = null;
   }
 

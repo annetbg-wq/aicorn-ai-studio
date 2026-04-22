@@ -1,5 +1,22 @@
 import type { ArtifactFile, ArtifactContract, ArtifactParseResult } from '../types/artifact';
 
+export interface ArtifactParseDebugCandidate {
+  strategy: 'fenced_json' | 'loose_json' | 'whole_json' | 'legacy_file_markers';
+  matched: boolean;
+  extractedText?: string | null;
+  parsedObject?: unknown | null;
+  extractedFiles?: ArtifactFile[] | null;
+  acceptedArtifact?: ArtifactContract | null;
+}
+
+export interface ArtifactParseDebugInfo {
+  selectedStrategy: ArtifactParseDebugCandidate['strategy'] | 'none';
+  strategies: ArtifactParseDebugCandidate[];
+  legacyFileMap?: Record<string, string>;
+  legacyFiles?: ArtifactFile[];
+  finalResult: ArtifactParseResult;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function normalizePath(p: string): string {
@@ -18,7 +35,19 @@ function findMatchingBrace(str: string, start: number): number {
 }
 
 function tryParseJson(str: string): unknown | null {
-  try { return JSON.parse(str); } catch { return null; }
+  try { return JSON.parse(str); } catch { /* fall through */ }
+
+  // Some model outputs keep the top-level JSON artifact structure intact but
+  // emit a stray backslash before indentation whitespace inside a file-content
+  // string (for example `...\              Profile`). That is invalid JSON,
+  // but removing only those impossible `\ ` / `\t` escapes preserves the
+  // artifact body and avoids falling through to legacy file-marker parsing.
+  const repairedWhitespaceEscapes = str.replace(/\\(?=[ \t])/g, '');
+  if (repairedWhitespaceEscapes !== str) {
+    try { return JSON.parse(repairedWhitespaceEscapes); } catch { /* fall through */ }
+  }
+
+  return null;
 }
 
 function detectEntry(files: ArtifactFile[], hint?: string): string {
@@ -33,11 +62,20 @@ function detectEntry(files: ArtifactFile[], hint?: string): string {
 
 // ─── Strategy: fenced ```json block ────────────────────────────────────────
 
+function extractFencedJsonText(raw: string): string | null {
+  const trimmed = raw.trim();
+  const openingFence = /^```json[^\S\r\n]*(?:\r?\n)?/i.exec(trimmed);
+  if (!openingFence) return null;
+
+  let candidate = trimmed.slice(openingFence[0].length);
+  candidate = candidate.replace(/\r?\n?\s*```$/, '');
+  const normalized = candidate.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function tryFencedJson(raw: string): unknown | null {
-  const re = /```json\s*\n([\s\S]*?)```/i;
-  const m = re.exec(raw);
-  if (!m) return null;
-  return tryParseJson(m[1].trim());
+  const extracted = extractFencedJsonText(raw);
+  return extracted ? tryParseJson(extracted) : null;
 }
 
 // ─── Strategy: first '{' with "artifact" or "files" key ────────────────────
@@ -212,6 +250,11 @@ export function parseArtifact(raw: string): ArtifactParseResult {
     return { success: false, error: 'Empty input', fallbackUsed: false };
   }
 
+  // — Early truncation guard: reject before any JSON strategy attempts —
+  if (looksLikeTruncatedArtifact(raw)) {
+    return { success: false, error: 'Artifact appears truncated (stream cut off)', fallbackUsed: false };
+  }
+
   // — JSON strategies (priority order) —
   const strategies = [tryFencedJson, tryLooseJson, tryWholeJson];
   for (const strategy of strategies) {
@@ -252,6 +295,87 @@ export function parseArtifact(raw: string): ArtifactParseResult {
   }
 
   return { success: false, error: 'No parseable artifact found', fallbackUsed: true };
+}
+
+export function debugArtifactParse(raw: string): ArtifactParseDebugInfo {
+  const finalResult = parseArtifact(raw);
+  const strategies: ArtifactParseDebugCandidate[] = [];
+  let selectedStrategy: ArtifactParseDebugInfo['selectedStrategy'] = 'none';
+
+  const collectJsonCandidate = (
+    strategy: ArtifactParseDebugCandidate['strategy'],
+    extractedText: string | null,
+  ): void => {
+    const parsedObject = extractedText ? tryParseJson(extractedText) : null;
+    const extractedFiles = parsedObject ? extractFiles(parsedObject) : null;
+    const meta = parsedObject ? extractMeta(parsedObject) : {};
+    const acceptedArtifact = extractedFiles
+      ? {
+          revisionId: meta.revisionId ?? 'debug-artifact',
+          entry: detectEntry(extractedFiles, meta.entry),
+          files: extractedFiles,
+          ...(meta.routes ? { routes: meta.routes } : {}),
+          ...(meta.dependencies ? { dependencies: meta.dependencies } : {}),
+          ...(meta.theme ? { theme: meta.theme } : {}),
+        }
+      : null;
+
+    const matched = Boolean(extractedText);
+    const accepted = matched && extractedFiles !== null;
+    if (accepted && selectedStrategy === 'none') selectedStrategy = strategy;
+
+    strategies.push({
+      strategy,
+      matched,
+      extractedText,
+      parsedObject,
+      extractedFiles,
+      acceptedArtifact,
+    });
+  };
+
+  collectJsonCandidate('fenced_json', extractFencedJsonText(raw));
+
+  const looseIdx = raw.search(/\{[\s\S]*?"(?:artifact|files)"/);
+  const looseExtracted = looseIdx === -1
+    ? null
+    : (() => {
+        const end = findMatchingBrace(raw, looseIdx);
+        return end === -1 ? null : raw.slice(looseIdx, end + 1);
+      })();
+  collectJsonCandidate('loose_json', looseExtracted);
+
+  const wholeTrimmed = raw.trim();
+  collectJsonCandidate('whole_json', wholeTrimmed.length > 0 ? wholeTrimmed : null);
+
+  const legacyFileMap = parseFileMarkers(raw);
+  const legacyFiles = convertLegacyFiles(legacyFileMap);
+  const legacyAcceptedArtifact = legacyFiles.length > 0
+    ? {
+        revisionId: 'debug-artifact',
+        entry: detectEntry(legacyFiles),
+        files: legacyFiles,
+      }
+    : null;
+  if (legacyAcceptedArtifact && selectedStrategy === 'none') {
+    selectedStrategy = 'legacy_file_markers';
+  }
+  strategies.push({
+    strategy: 'legacy_file_markers',
+    matched: legacyFiles.length > 0,
+    extractedText: null,
+    parsedObject: null,
+    extractedFiles: legacyFiles.length > 0 ? legacyFiles : null,
+    acceptedArtifact: legacyAcceptedArtifact,
+  });
+
+  return {
+    selectedStrategy,
+    strategies,
+    legacyFileMap,
+    legacyFiles,
+    finalResult,
+  };
 }
 
 // ─── Semantic health classification ───────────────────────────────────────────

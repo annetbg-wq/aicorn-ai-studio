@@ -92,6 +92,26 @@ const SIMPLE_ARTIFACT = JSON.stringify({
   },
 });
 
+const FENCED_STEP4_ARTIFACT_WITHOUT_CLOSING_FENCE = [
+  '```json',
+  JSON.stringify({
+    artifact: {
+      entry: 'src/App.tsx',
+      files: [
+        {
+          path: 'src/App.tsx',
+          content: 'export default function App() { return <main>Community Connect</main>; }',
+        },
+        {
+          path: 'src/pages/Home.tsx',
+          content: 'export default function Home() { return <section>Home feed</section>; }',
+        },
+      ],
+      routes: ['/', '/home'],
+    },
+  }),
+].join('\n');
+
 function makeConfig(overrides: Partial<PipelineRunConfig> = {}): PipelineRunConfig {
   return {
     intent:        'Build a test app',
@@ -118,6 +138,12 @@ function queueRunToCompile() {
   vi.mocked(llmFetchStream)
     .mockResolvedValueOnce(makeStreamingResponse('{"technicalBlueprint":{"stack":["react"]}}'))
     .mockResolvedValueOnce(makeStreamingResponse(SIMPLE_ARTIFACT));
+}
+
+function queueRunToCompileWithStep4Artifact(step4Artifact: string) {
+  vi.mocked(llmFetchStream)
+    .mockResolvedValueOnce(makeStreamingResponse('{"technicalBlueprint":{"stack":["react"]}}'))
+    .mockResolvedValueOnce(makeStreamingResponse(step4Artifact));
 }
 
 // ── Setup / teardown ───────────────────────────────────────────────────────
@@ -264,6 +290,97 @@ describe('Session 14.1 — canonical pipeline reached after bridge excision', ()
     expect(result.status).toBe('complete');
     expect(compileSpy).toHaveBeenCalled();
     expect(promoteSpy).toHaveBeenCalled();
+  });
+
+  test('writes the fourth LLM step debug record with raw, extraction, and accepted artifact', async () => {
+    queueRunToCompile();
+    vi.spyOn(revisionManager, 'compileCandidate').mockResolvedValue({ success: true, _compiled: true });
+    vi.spyOn(WhiteScreenDetectorModule, 'runFinalLivePreviewCheck').mockResolvedValue({
+      buildId: 'test-build', status: 'passed', reason: null,
+      message: 'ok', controllerStatus: 'ready', controllerRevisionId: 'test-build',
+      immediateBlank: false, probeOutcome: 'healthy', probeReason: null,
+    });
+    vi.spyOn(revisionManager, 'promote').mockResolvedValue(undefined);
+
+    const result = await SimpleGeneration.run(makeConfig({
+      waitForConfirmation: async () => true,
+    }));
+
+    expect(result.status).toBe('complete');
+    const record = JSON.parse(localStorage.getItem('ai_studio:fourth_llm_step:last') ?? 'null');
+    expect(record).toMatchObject({
+      schema: 'aic-fourth-llm-step-v1',
+      stepIdentity: 'SimpleGeneration.run.coderArtifactGeneration',
+      parseStatus: 'accepted_result_ready',
+      route: {
+        actualProvider: 'openrouter',
+        actualModelId: 'test-model',
+        actualEndpoint: 'https://openrouter.ai/api/v1/chat/completions',
+        transport: 'llmFetchStream',
+      },
+      request: {
+        userPayload: expect.stringContaining('CURRENT USER REQUEST'),
+        stream: true,
+      },
+      extraction: {
+        selectedStrategy: 'loose_json',
+        finalResult: {
+          success: true,
+          fallbackUsed: false,
+          artifact: {
+            entry: 'src/App.tsx',
+          },
+        },
+      },
+      semanticIssue: null,
+    });
+    expect(record.rawCompletionText).toBe(SIMPLE_ARTIFACT);
+    expect(record.acceptedResult.files).toHaveLength(1);
+    expect(record.acceptedResult.files[0]).toMatchObject({
+      path: 'src/App.tsx',
+      content: 'export default function App() { return <main>Test</main>; }',
+    });
+  });
+
+  test('accepts a fenced top-level JSON artifact directly instead of poisoning src/App.tsx through legacy fallback', async () => {
+    queueRunToCompileWithStep4Artifact(FENCED_STEP4_ARTIFACT_WITHOUT_CLOSING_FENCE);
+    vi.spyOn(revisionManager, 'compileCandidate').mockResolvedValue({ success: true, _compiled: true });
+    vi.spyOn(WhiteScreenDetectorModule, 'runFinalLivePreviewCheck').mockResolvedValue({
+      buildId: 'test-build', status: 'passed', reason: null,
+      message: 'ok', controllerStatus: 'ready', controllerRevisionId: 'test-build',
+      immediateBlank: false, probeOutcome: 'healthy', probeReason: null,
+    });
+    vi.spyOn(revisionManager, 'promote').mockResolvedValue(undefined);
+
+    const result = await SimpleGeneration.run(makeConfig({
+      waitForConfirmation: async () => true,
+    }));
+
+    expect(result.status).toBe('complete');
+    const record = JSON.parse(localStorage.getItem('ai_studio:fourth_llm_step:last') ?? 'null');
+    expect(record.parseStatus).toBe('accepted_result_ready');
+    expect(record.semanticIssue).toBeNull();
+    expect(record.extraction.selectedStrategy).toBe('fenced_json');
+    expect(record.extraction.finalResult).toMatchObject({
+      success: true,
+      fallbackUsed: false,
+      artifact: {
+        entry: 'src/App.tsx',
+      },
+    });
+    expect(record.acceptedResult.files).toHaveLength(2);
+    expect(record.acceptedResult.files).toEqual([
+      {
+        path: 'src/App.tsx',
+        content: 'export default function App() { return <main>Community Connect</main>; }',
+      },
+      {
+        path: 'src/pages/Home.tsx',
+        content: 'export default function Home() { return <section>Home feed</section>; }',
+      },
+    ]);
+    expect(record.acceptedResult.files[0].content).not.toContain('"artifact"');
+    expect(record.rawCompletionText).toBe(FENCED_STEP4_ARTIFACT_WITHOUT_CLOSING_FENCE);
   });
 });
 

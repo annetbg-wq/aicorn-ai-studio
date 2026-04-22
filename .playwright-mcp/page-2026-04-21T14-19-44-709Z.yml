@@ -1,0 +1,201 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Projects" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Product Architect" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+        - button "Figma Platinum" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+        - button "Agent Lab" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+        - button "Analytics" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+        - button "Quality" [ref=e49] [cursor=pointer]:
+          - img [ref=e50]
+        - button "Code Studio" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Terminal" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+        - button "DB Console" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "Cloud & Backend — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Packaging & Ship — Coming Soon" [ref=e75]:
+          - img [ref=e76]
+        - button "Growth & Marketing — Coming Soon" [ref=e82]:
+          - img [ref=e83]
+      - button "Weekly Hot Ideas" [active] [ref=e86] [cursor=pointer]:
+        - img [ref=e87]
+    - generic [ref=e399]:
+      - generic [ref=e400]:
+        - generic [ref=e401]:
+          - generic [ref=e402]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e403] [cursor=pointer]:
+            - img [ref=e404]
+            - text: New Project
+          - generic [ref=e406]: Untitled
+          - generic [ref=e407]: /
+          - img [ref=e408]
+          - generic [ref=e412]: main
+          - generic [ref=e413]: ·
+          - img [ref=e414]
+          - generic [ref=e416]: "snap #0"
+        - generic [ref=e418]: Not backed up
+        - generic [ref=e419]:
+          - generic [ref=e420]:
+            - 'button "Theme: dark" [ref=e421] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e422] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e423] [cursor=pointer]'
+          - button "Settings" [ref=e424] [cursor=pointer]:
+            - img [ref=e425]
+          - button "D dev.local@aic-studio.test" [ref=e428] [cursor=pointer]:
+            - generic [ref=e429]: D
+            - generic [ref=e430]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e431] [cursor=pointer]:
+            - img [ref=e432]
+            - text: Backup to Cloud
+      - generic [ref=e435]:
+        - generic [ref=e437]:
+          - generic [ref=e441]:
+            - paragraph [ref=e444]:
+              - text: "🧩 Context added:"
+              - strong [ref=e445]: EcoHome
+              - text: . Review and press Send to generate with this context pack.
+            - button "Copy response" [ref=e446]:
+              - img [ref=e447]
+          - generic [ref=e451]:
+            - generic [ref=e452]:
+              - button "AUTO" [ref=e453]
+              - button "APP" [ref=e454]
+              - button "PAGE" [ref=e455]
+              - button "SUPER" [ref=e456]
+              - button "ALL" [ref=e457]
+              - button "История" [ref=e459]:
+                - img [ref=e460]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e465]:
+                - img [ref=e466]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e469]:
+                - img [ref=e470]
+            - generic [ref=e473]:
+              - generic [ref=e474]:
+                - generic [ref=e475]: NICHE
+                - generic [ref=e476]: EcoHome
+                - button "Remove context" [ref=e477]:
+                  - img [ref=e478]
+              - button "Clear" [ref=e481]
+            - generic [ref=e482]:
+              - button "Attach / tools" [ref=e484]:
+                - img [ref=e485]
+              - textbox "Что строим сегодня?" [ref=e486]: "EcoHome. An app that helps homeowners track and reduce their carbon footprint through actionable insights and tips.. Market context: Rising awareness of climate change and sustainability movements."
+              - button [ref=e487]:
+                - img [ref=e488]
+          - generic [ref=e491]:
+            - generic [ref=e493]: Untitled
+            - generic [ref=e494]: current
+        - generic [ref=e495]:
+          - generic [ref=e496]:
+            - generic [ref=e497]:
+              - button "Preview" [ref=e498] [cursor=pointer]
+              - button "Reasoning" [ref=e499] [cursor=pointer]
+              - button "Code" [ref=e500] [cursor=pointer]
+              - button "Design" [ref=e501] [cursor=pointer]
+              - button "Analytics" [ref=e502] [cursor=pointer]
+              - button "Security" [ref=e503] [cursor=pointer]
+              - button "Cloud" [ref=e504] [cursor=pointer]
+            - generic [ref=e505]:
+              - button "Select" [ref=e506] [cursor=pointer]:
+                - img [ref=e507]
+                - text: Select
+              - generic [ref=e509]:
+                - button "Desktop Chrome" [ref=e510] [cursor=pointer]:
+                  - img [ref=e511]
+                - button "iPhone 16 Pro Max" [ref=e513] [cursor=pointer]:
+                  - img [ref=e514]
+                - button "Pixel 9 Pro" [ref=e516] [cursor=pointer]:
+                  - img [ref=e517]
+                - button "iPad Pro 13" [ref=e519] [cursor=pointer]:
+                  - img [ref=e520]
+              - button "Export" [ref=e522] [cursor=pointer]:
+                - img [ref=e523]
+                - text: Export
+              - button "Expo" [ref=e526] [cursor=pointer]:
+                - img [ref=e527]
+                - text: Expo
+              - button "Share" [ref=e529] [cursor=pointer]:
+                - img [ref=e530]
+                - text: Share
+          - generic [ref=e538]:
+            - generic [ref=e539]:
+              - button [ref=e540] [cursor=pointer]:
+                - img [ref=e541]
+              - generic [ref=e544] [cursor=pointer]: 55%
+              - button [ref=e545] [cursor=pointer]:
+                - img [ref=e546]
+              - button [ref=e550] [cursor=pointer]:
+                - img [ref=e551]
+            - iframe [ref=e560]:
+              - generic [ref=f2e3]:
+                - generic [ref=f2e5]:
+                  - img [ref=f2e7]
+                  - heading "EcoHome" [level=1] [ref=f2e10]
+                - paragraph [ref=f2e11]: Добро пожаловать! Вот ваша сводка по углеродному следу.
+                - generic [ref=f2e14]:
+                  - generic [ref=f2e15]:
+                    - img [ref=f2e16]
+                    - generic [ref=f2e19]:
+                      - generic [ref=f2e20]: "0"
+                      - generic [ref=f2e21]: кг CO₂/год
+                  - generic [ref=f2e22]:
+                    - generic [ref=f2e23]: 🌟
+                    - generic [ref=f2e24]: Отлично
+                  - paragraph [ref=f2e25]: "Цель: менее 3000 кг CO₂/год"
+                - generic [ref=f2e26]:
+                  - generic [ref=f2e28]:
+                    - generic [ref=f2e29]:
+                      - img [ref=f2e30]
+                      - generic [ref=f2e33]: Экономия
+                    - paragraph [ref=f2e34]: 340 кг
+                    - paragraph [ref=f2e35]: за последний месяц
+                  - generic [ref=f2e37]:
+                    - generic [ref=f2e38]:
+                      - img [ref=f2e39]
+                      - generic [ref=f2e42]: Прогресс
+                    - paragraph [ref=f2e43]: 72%
+                    - progressbar [ref=f2e44]
+                - generic [ref=f2e46]:
+                  - heading "Советы по снижению" [level=2] [ref=f2e47]
+                  - generic [ref=f2e48]:
+                    - generic [ref=f2e51] [cursor=pointer]:
+                      - img [ref=f2e53]
+                      - generic [ref=f2e55]:
+                        - paragraph [ref=f2e56]: Перейдите на LED-лампы
+                        - paragraph [ref=f2e57]: Экономия до 80% электроэнергии на освещении
+                        - generic [ref=f2e58]: "-120 кг CO₂/год"
+                    - generic [ref=f2e61] [cursor=pointer]:
+                      - img [ref=f2e63]
+                      - generic [ref=f2e66]:
+                        - paragraph [ref=f2e67]: Уменьшите температуру на 1°C
+                        - paragraph [ref=f2e68]: Сократите расходы на отопление на 7%
+                        - generic [ref=f2e69]: "-200 кг CO₂/год"
+                    - generic [ref=f2e72] [cursor=pointer]:
+                      - img [ref=f2e74]
+                      - generic [ref=f2e78]:
+                        - paragraph [ref=f2e79]: Используйте энергосберегающие приборы
+                        - paragraph [ref=f2e80]: Класс A++ потребляет на 45% меньше энергии
+                        - generic [ref=f2e81]: "-350 кг CO₂/год"
+                - generic [ref=f2e82]:
+                  - generic [ref=f2e84]:
+                    - img [ref=f2e85]
+                    - generic [ref=f2e88]: Premium аналитика
+                  - generic [ref=f2e89]:
+                    - paragraph [ref=f2e90]: Получите доступ к программам компенсации углерода и подробной аналитике.
+                    - button "Разблокировать Premium" [ref=f2e91] [cursor=pointer]:
+                      - img
+                      - text: Разблокировать Premium

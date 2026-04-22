@@ -443,8 +443,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const walletPct  = Math.min((sessionCost   / 1)       * 100, 100);
   const contextPct = Math.min((sessionTokens / 100_000) * 100, 100);
 
-  const recentProjects = [...projects]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  const recentProjects = projects
+    .map(p => ({
+      ...p,
+      name: typeof p.name === 'string' && p.name.trim()
+        ? p.name.trim()
+        : typeof p.title === 'string' && p.title.trim()
+          ? p.title.trim()
+          : 'New Project',
+      updatedAt: p.updatedAt ?? p.date ?? new Date(0).toISOString(),
+      activeBranchId: p.activeBranchId ?? p.branch,
+    }))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, 5);
 
   const handleNewProject     = onNewProject      ?? onEnterEngine;
@@ -592,8 +602,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 ))}
               </div>
               {recentProjects.map((p, idx) => {
-                const lastActivity = fmtSyncTime(storageService.getLastSyncAt(p.id) ?? p.date);
-                const branch       = p.branch       ?? 'main';
+                const lastActivity = fmtSyncTime(storageService.getLastSyncAt(p.id) ?? p.updatedAt);
+                const branch       = p.activeBranchId ?? 'main';
                 const revision     = p.revision     != null ? `r${p.revision}` : '—';
                 const lastGood     = p.lastGood     != null ? `r${p.lastGood}` : '—';
                 const isLast       = idx === recentProjects.length - 1;
@@ -611,7 +621,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
                     <span style={{ fontSize: 12, fontWeight: 500, color: isLightTheme ? '#1f2937' : 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 12 }}>
-                      {p.title || 'Untitled'}
+                      {p.name}
                     </span>
                     <span style={{ fontSize: 11, fontFamily: 'monospace', color: isLightTheme ? '#6b7280' : 'rgba(255,255,255,0.32)' }}>
                       {lastActivity}

@@ -15,6 +15,8 @@ import { Orchestrator } from './Orchestrator';
 import { type AgentExecutionRoute } from './buildAgentRouting';
 import { compileWithRetry, classifyRepairFailure, type CompileLoopResult } from './compileGuard';
 import { validateImports, formatUnresolved } from './importValidator';
+import { validatePropWiring, formatPropWiringIssues, buildPropWiringFixPrompt } from './PropWiringValidator';
+import { validateHookProviders, formatHookProviderIssues, buildHookProviderFixPrompt } from './HookProviderValidator';
 import {
   buildManifestFromPlan,
   parseManifest,
@@ -30,7 +32,9 @@ import {
   convertLegacyFiles,
   parseFileMarkers,
   classifyArtifactHealth,
+  debugArtifactParse,
   type ArtifactSemanticIssue,
+  type ArtifactParseDebugInfo,
 } from './artifactParser';
 import { ArtifactReviewerService } from './ArtifactReviewerService';
 import type { ArtifactContract, ArtifactParseResult } from '../types/artifact';
@@ -1226,6 +1230,141 @@ BANNED animations:
   - No animations > 400ms (feels sluggish)
   - No animations that repeat on hover (distracting)`;
 
+// ─── First-Pass Runtime Safety Patch ─────────────────────────────────────────
+// Appended to the NEW-project system prompt only (not the edit prompt).
+// Ensures the very first generated prototype boots and renders without crashing.
+
+const FIRST_PASS_RUNTIME_SAFETY_PATCH = `
+
+══════════════════════════════════════════════════════
+  FIRST-PASS RUNTIME SAFETY — MANDATORY for new projects
+══════════════════════════════════════════════════════
+
+Core rule: The first generated prototype must not only compile — it must
+boot and render meaningful UI without runtime errors in a clean environment.
+
+Treat any of the following as a FAILED prototype, not a success:
+  - hook used outside provider (e.g. "useApp must be used within AppProvider")
+  - missing provider / store / context wrapper
+  - missing router or layout wrapper required by rendered screens
+  - "Cannot read properties of undefined" runtime crash
+  - any visible runtime exception replacing the app UI
+
+Required behavior for first-pass generation:
+
+1. SELF-CONTAINED FIRST RUN
+   For the very first generation in a new project, prefer a self-contained
+   app that can boot immediately. Do not introduce architecture that depends
+   on missing files or missing runtime wrappers.
+
+2. PROVIDER COMPLETENESS RULE
+   If you generate or use any custom hook such as useApp, useXContext,
+   or useSomething from a custom context/store/provider, then in the SAME
+   artifact you MUST:
+     • create the corresponding Provider component
+     • export it correctly
+     • import it into the app entry/root
+     • wrap the app root with it
+   If you cannot do this reliably in the same generation, do not use the
+   custom hook in the first-pass build.
+
+3. NO ARCHITECTURE ON CREDIT
+   Do not reference providers, contexts, stores, routers, layouts, pages, or
+   modules that are not generated and wired in the same artifact. Do not
+   assume they already exist unless they are confirmed in the current project
+   context.
+
+4. PREFER LOCAL STATE OVER INCOMPLETE ARCHITECTURE
+   For first-pass / new-project generation:
+     • prefer local component state
+     • prefer mock/seed data already in the component file
+     • prefer simple lifted state in App.tsx instead of introducing custom
+       providers/stores unless the full chain is created and wired correctly.
+
+5. ROOT INTEGRITY RULE
+   Before finishing generation, verify the app entry path is coherent:
+     • root render target exists
+     • top-level providers are wrapped (e.g. <AppProvider> wraps <App>)
+     • router wrapper exists if pages or navigation require it
+     • any hook used by initially-rendered screens can execute safely on
+       the very first render
+
+6. FIRST RENDER SAFETY OVER ELEGANCE
+   Priority order for the first run:
+     1. app boots without runtime errors
+     2. meaningful UI appears on screen
+     3. architecture elegance and modularity
+   Never sacrifice 1 and 2 for 3.
+
+7. SAFE SIMPLIFICATION RULE
+   If the requested architecture is too complex for a safe first pass,
+   simplify it. A working high-fidelity prototype with local state and mock
+   data is better than a clean-architecture app that crashes on boot.
+
+8. RUNTIME-AWARE GENERATION CONSTRAINT
+   When generating the first version of a new app, avoid patterns like:
+     • custom context hook without visible provider wiring in the same artifact
+     • lazy imports to pages/modules not guaranteed to exist
+     • route trees without a router wrapper
+     • shared store assumptions without initialization in the artifact
+     • cross-file dependencies not included in the artifact
+
+9. MILESTONE-1 FALLBACK
+   If a feature normally requires provider-based global state but safe
+   provider wiring is uncertain, generate:
+     • a working local-state version for the first pass
+     • clear comments marking where a future provider/store can be extracted
+   Do not fail the first prototype because of premature architectural
+   abstraction.
+
+10. SUCCESS CRITERIA FOR THE FIRST RUN
+    The first run is only successful if:
+      • compile succeeds
+      • preview mounts
+      • the rendered app shows meaningful content
+      • no application-level runtime error is shown to the user
+
+    When in doubt between:
+      A. more elegant architecture with runtime risk
+      B. simpler architecture with guaranteed boot safety
+    ALWAYS choose B for the first generation.
+
+11. PROP WIRING CONTRACT — ZERO TOLERANCE
+    Every component that declares required props (non-optional fields in its Props
+    interface) MUST receive those props at every call-site in App.tsx.
+
+    Rules:
+      a. If interface DashboardProps { items: Item[]; onAdd: (i: Item) => void; }
+         then App.tsx MUST have:
+           const [items, setItems] = useState<Item[]>([]);
+           <Dashboard items={items} onAdd={(i) => setItems(p => [...p, i])} />
+         NOT: <Dashboard />   ← runtime crash: "Cannot read properties of undefined"
+
+      b. Required = NOT marked optional (no "?") AND NOT given a default in the
+         destructure. Treat all non-optional props as required.
+
+      c. If a component needs data from a sibling or parent, use props + state
+         in App.tsx — do NOT assume it will be wired by something else.
+
+      d. Before returning the artifact, do a final scan:
+         For every component rendered in App.tsx routes or directly,
+         verify ALL its required props are explicitly passed.
+         If any prop is missing, add the useState + handler in App.tsx NOW.
+
+      e. This rule overrides clean architecture concerns on first pass.
+         A correctly-wired but less elegant App.tsx is always better than
+         a beautifully-structured app that crashes with "Cannot read".
+
+12. SELF-CHECK BEFORE RETURNING THE ARTIFACT
+    Run this mental checklist on the final artifact before outputting it:
+      □ Every <Component /> in App.tsx routes has all required props
+      □ Every useState hook that feeds a required prop is initialized
+      □ Every callback prop (onX handlers) is defined in App.tsx or a wrapper
+      □ No component is rendered without its required data being available
+      □ All custom hooks are used inside their corresponding Provider
+      □ The Router wraps all Routes; BrowserRouter is at the root level
+      □ No lazy import references a page that is not in the artifact`;
+
 const CSS_RECIPES = `
 
 ══════════════════════════════════════════════════════
@@ -1412,6 +1551,197 @@ Use this schema:
     ]
   }
 }`;
+
+type ThirdLLMStepStatus =
+  | 'raw_received'
+  | 'json_match_found'
+  | 'json_match_missing'
+  | 'parsed_ok'
+  | 'parsed_failed'
+  | 'accepted_result_ready'
+  | 'accepted_result_missing'
+  | 'request_failed';
+
+interface ThirdLLMStepDebugRecord {
+  schema: 'aic-third-llm-step-v1';
+  id: string;
+  timestamp: string;
+  stepIdentity: 'SimpleGeneration.run.techLeadBlueprint';
+  projectId?: string;
+  intentText: string;
+  language?: string;
+  generationMode: GenerationMode;
+  route: {
+    slot?: string;
+    provider?: string;
+    modelId?: string;
+    endpoint?: string;
+    keySource?: string;
+    fallbackReason?: string;
+    reason?: string;
+  };
+  request: {
+    systemPrompt: string;
+    userMessage: string;
+    temperature: number;
+    maxTokens: number;
+    stream: boolean;
+  };
+  injectedContext: {
+    productPlan: Record<string, unknown>;
+  };
+  statusHistory: ThirdLLMStepStatus[];
+  parseStatus: ThirdLLMStepStatus;
+  rawCompletionText?: string;
+  cleanedText?: string;
+  extractedJsonSubstring?: string;
+  parsedJsonObject?: unknown;
+  acceptedResult?: Record<string, unknown> | null;
+  parseErrorMessage?: string;
+  requestErrorMessage?: string;
+}
+
+const THIRD_LLM_STEP_LAST_KEY = 'ai_studio:third_llm_step:last';
+const THIRD_LLM_STEP_HISTORY_KEY = 'ai_studio:third_llm_step:history';
+const MAX_THIRD_LLM_STEP_RECORDS = 10;
+
+type FourthLLMStepStatus =
+  | 'request_prepared'
+  | 'request_dispatched'
+  | 'raw_received'
+  | 'parse_inspected'
+  | 'parsed_ok'
+  | 'parsed_failed'
+  | 'semantic_issue_detected'
+  | 'accepted_result_ready'
+  | 'accepted_result_missing'
+  | 'request_failed';
+
+interface FourthLLMStepDebugRecord {
+  schema: 'aic-fourth-llm-step-v1';
+  id: string;
+  timestamp: string;
+  stepIdentity: 'SimpleGeneration.run.coderArtifactGeneration';
+  projectId?: string;
+  intentText: string;
+  language?: string;
+  generationMode: GenerationMode;
+  route: {
+    slot?: string;
+    configuredProvider?: string;
+    configuredModelId?: string;
+    configuredEndpoint?: string;
+    configuredKeySource?: string;
+    configuredFallbackReason?: string;
+    configuredReason?: string;
+    actualProvider?: string;
+    actualModelId?: string;
+    actualEndpoint?: string;
+    transport?: CallLLMResolvedRequestMetadata['transport'];
+    devAgentProvider?: CallLLMResolvedRequestMetadata['devAgentProvider'];
+    timeoutMs?: number;
+  };
+  request: {
+    systemPrompt: string;
+    userPayload: string;
+    temperature: number;
+    maxTokens: number;
+    stream: boolean;
+  };
+  injectedContext: {
+    productPlan: Record<string, unknown>;
+    architectAnalysis: null;
+    technicalBlueprint?: Record<string, unknown> | null;
+    branchGuidancePrompt?: string | null;
+    designSystemPrompt?: string;
+    memoryContext?: string;
+    envPrompt?: string;
+    recentChatContext?: string;
+    attachmentContext?: string;
+  };
+  statusHistory: FourthLLMStepStatus[];
+  parseStatus: FourthLLMStepStatus;
+  rawCompletionText?: string;
+  extraction?: ArtifactParseDebugInfo;
+  acceptedResult?: ArtifactContract | null;
+  semanticIssue?: ArtifactSemanticIssue | null;
+  parseErrorMessage?: string;
+  requestErrorMessage?: string;
+}
+
+const FOURTH_LLM_STEP_LAST_KEY = 'ai_studio:fourth_llm_step:last';
+const FOURTH_LLM_STEP_HISTORY_KEY = 'ai_studio:fourth_llm_step:history';
+const MAX_FOURTH_LLM_STEP_RECORDS = 10;
+
+function thirdStepDebugId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function formatDebugError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function loadThirdLLMStepHistory(): ThirdLLMStepDebugRecord[] {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(THIRD_LLM_STEP_HISTORY_KEY);
+    return raw ? JSON.parse(raw) as ThirdLLMStepDebugRecord[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveThirdLLMStepRecord(record: ThirdLLMStepDebugRecord): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(THIRD_LLM_STEP_LAST_KEY, JSON.stringify(record));
+  } catch { /* ignore local debug storage failures */ }
+
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const history = loadThirdLLMStepHistory().filter(item => item.id !== record.id);
+    history.push(record);
+    localStorage.setItem(
+      THIRD_LLM_STEP_HISTORY_KEY,
+      JSON.stringify(history.slice(-MAX_THIRD_LLM_STEP_RECORDS)),
+    );
+  } catch { /* ignore local debug storage failures */ }
+
+  try {
+    window.dispatchEvent(new CustomEvent('studio-third-llm-step', { detail: record }));
+  } catch { /* test environment */ }
+}
+
+function loadFourthLLMStepHistory(): FourthLLMStepDebugRecord[] {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(FOURTH_LLM_STEP_HISTORY_KEY);
+    return raw ? JSON.parse(raw) as FourthLLMStepDebugRecord[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveFourthLLMStepRecord(record: FourthLLMStepDebugRecord): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(FOURTH_LLM_STEP_LAST_KEY, JSON.stringify(record));
+  } catch { /* ignore local debug storage failures */ }
+
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const history = loadFourthLLMStepHistory().filter(item => item.id !== record.id);
+    history.push(record);
+    localStorage.setItem(
+      FOURTH_LLM_STEP_HISTORY_KEY,
+      JSON.stringify(history.slice(-MAX_FOURTH_LLM_STEP_RECORDS)),
+    );
+  } catch { /* ignore local debug storage failures */ }
+
+  try {
+    window.dispatchEvent(new CustomEvent('studio-fourth-llm-step', { detail: record }));
+  } catch { /* test environment */ }
+}
 
 // ─── FILE Marker Parser ─────────────────────────────────────────────────────
 
@@ -2230,6 +2560,20 @@ function ensureRoutePageFiles(
 
 type ModelSlot = 'primary' | 'build' | 'fix';
 
+interface CallLLMResolvedRequestMetadata {
+  slot: ModelSlot;
+  configuredProvider: string;
+  configuredModelId: string;
+  configuredEndpoint: string;
+  configuredKeySource?: string;
+  actualProvider: string;
+  actualModelId: string;
+  actualEndpoint: string;
+  transport: 'llmFetchStream' | 'dev_agent_bridge';
+  devAgentProvider?: ReturnType<typeof getLocalDevAgentProvider>;
+  timeoutMs: number;
+}
+
 const LLM_TIMEOUT_MS = 240_000; // 240 s timeout budget per standard LLM call
 const CLAUDE_MAX_TIMEOUT_MS = 300_000; // 300 s budget for Claude Max bridge responses
 
@@ -2242,13 +2586,18 @@ async function callLLM(
   signal?: AbortSignal,
   maxTokensOverride?: number,
   route?: AgentExecutionRoute,
-  opts?: { allowLegacyFallback?: boolean },
+  opts?: {
+    allowLegacyFallback?: boolean;
+    onResolvedRequest?: (metadata: CallLLMResolvedRequestMetadata) => void;
+  },
 ): Promise<string> {
   // Standard-path callers must pass a canonical route object.
   // Legacy fallback is allowed only for explicitly opted-in non-standard callers.
   let modelId: string;
   let apiKey: string;
   let endpoint: string;
+  let configuredProvider = route?.provider ?? 'openrouter';
+  let configuredKeySource = route?.keySource;
 
   if (route) {
     modelId  = route.modelId;
@@ -2258,8 +2607,8 @@ async function callLLM(
     modelId  = ConfigService.resolveModel(slot as AgentSlot);
     apiKey   = ConfigService.getKeyForAgent(slot as AgentSlot) || fallbackApiKey;
     const agentKey = slot === 'primary' ? 'agent_primary' : slot === 'build' ? 'agent_build' : 'agent_fix';
-    const provider = ConfigService.getAgentConfig(agentKey).provider || 'openrouter';
-    endpoint = Orchestrator.getEndpoint(provider);
+    configuredProvider = ConfigService.getAgentConfig(agentKey).provider || 'openrouter';
+    endpoint = Orchestrator.getEndpoint(configuredProvider);
   } else {
     throw new Error(
       '[callLLM] ROUTING VIOLATION: callLLM invoked without canonical route object. ' +
@@ -2302,6 +2651,23 @@ async function callLLM(
   }
   const devAgentActive = devAgentProvider !== 'off';
   const timeoutMs = devAgentActive ? CLAUDE_MAX_TIMEOUT_MS : LLM_TIMEOUT_MS;
+  opts?.onResolvedRequest?.({
+    slot,
+    configuredProvider,
+    configuredModelId: modelId,
+    configuredEndpoint: endpoint,
+    configuredKeySource,
+    actualProvider: devAgentActive ? 'local-dev-agent' : configuredProvider,
+    actualModelId: devAgentActive
+      ? (devAgentProvider === 'codex' ? 'gpt-5.1-codex' : 'claude-sonnet-4-6')
+      : modelId,
+    actualEndpoint: devAgentActive
+      ? `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/chat`
+      : endpoint,
+    transport: devAgentActive ? 'dev_agent_bridge' : 'llmFetchStream',
+    devAgentProvider: devAgentActive ? devAgentProvider : undefined,
+    timeoutMs,
+  });
 
   // Merge caller signal with a mode-aware timeout AbortController
   const timeoutCtrl = new AbortController();
@@ -2703,6 +3069,7 @@ export function buildNewCoderSystemPrompt(input: {
 }): string {
   const artistLayerFocusBlock = buildNewModeArtistLayerFocusBlock(input.plan);
   let prompt = SYSTEM_PROMPT
+    + FIRST_PASS_RUNTIME_SAFETY_PATCH
     + CSS_RECIPES
     + SHADCN_CHEATSHEET
     + '\n\nGENERATION_MODE:\n'
@@ -3677,6 +4044,7 @@ User: "pregnancy tracker with weekly updates and symptom log" → {"clear": true
     apiKey:   string;
     /** Canonical route for the primary-slot LLM call. Required — must be resolveStandardRoute('primary'). */
     route:    AgentExecutionRoute;
+    projectId?: string;
     signal?:  AbortSignal;
   }): Promise<{
     appName: string;
@@ -3705,6 +4073,46 @@ Return a JSON object with this exact shape:
 
 Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
 
+    const debugRecordId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `first-llm-step-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const debugTimestamp = new Date().toISOString();
+    const planMaxTokens = 1024;
+    const recordFirstLLMStep = (input: {
+      statusHistory: Array<'raw_received' | 'parsed_ok' | 'parsed_failed' | 'request_failed'>;
+      parseStatus: 'raw_received' | 'parsed_ok' | 'parsed_failed' | 'request_failed';
+      rawCompletionText?: string;
+      parsedJsonObject?: unknown;
+      parseErrorMessage?: string;
+      requestErrorMessage?: string;
+    }) => {
+      generationTracer.recordFirstLLMStep({
+        schema: 'aic-first-llm-step-v1',
+        id: debugRecordId,
+        timestamp: debugTimestamp,
+        stepIdentity: 'SimpleGeneration.generatePlan',
+        projectId: config.projectId,
+        intentText: config.intent,
+        route: {
+          slot: config.route.slot,
+          provider: config.route.provider,
+          modelId: config.route.modelId,
+          endpoint: config.route.endpoint,
+          keySource: config.route.keySource,
+          fallbackReason: config.route.fallbackReason,
+          reason: config.route.reason,
+        },
+        request: {
+          systemPrompt: PLAN_SYSTEM,
+          userPayload: config.intent,
+          stream: true,
+          temperature: 0.3,
+          maxTokens: planMaxTokens,
+        },
+        ...input,
+      });
+    };
+
     const fallback = {
       appName: 'App',
       summary: config.intent.slice(0, 120),
@@ -3728,12 +4136,17 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         config.apiKey,
         undefined,
         config.signal,
-        1024,
+        planMaxTokens,
         config.route,
       );
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') throw err;
       if (isRoutingViolationError(err)) throw err;
+      recordFirstLLMStep({
+        statusHistory: ['request_failed'],
+        parseStatus: 'request_failed',
+        requestErrorMessage: err instanceof Error ? err.message : String(err),
+      });
       return fallback;
     }
 
@@ -3741,6 +4154,12 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       const cleaned = raw.trim().replace(/^```json?\s*\n?/, '').replace(/\n?```\s*$/, '');
       const parsed = JSON.parse(cleaned) as Record<string, unknown>;
       const rawSteps = Array.isArray(parsed['steps']) ? parsed['steps'] as Record<string, unknown>[] : [];
+      recordFirstLLMStep({
+        statusHistory: ['raw_received', 'parsed_ok'],
+        parseStatus: 'parsed_ok',
+        rawCompletionText: raw,
+        parsedJsonObject: parsed,
+      });
       return {
         appName:     typeof parsed['appName']  === 'string' ? parsed['appName']  : 'App',
         summary:     typeof parsed['summary']  === 'string' ? parsed['summary']  : '',
@@ -3752,7 +4171,13 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         })),
         assumptions: Array.isArray(parsed['assumptions']) ? parsed['assumptions'] as string[] : [],
       };
-    } catch {
+    } catch (parseErr) {
+      recordFirstLLMStep({
+        statusHistory: ['raw_received', 'parsed_failed'],
+        parseStatus: 'parsed_failed',
+        rawCompletionText: raw,
+        parseErrorMessage: parseErr instanceof Error ? parseErr.message : String(parseErr),
+      });
       return fallback;
     }
   }
@@ -4981,30 +5406,105 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     config.onLog(`[SimpleGeneration] Artist layer ready: ${JSON.stringify((plan as { artistLayer?: ArtistLayerSpec }).artistLayer ?? {}).slice(0, 240)}`);
 
     let technicalBlueprint: Record<string, unknown> | null = null;
+    const techLeadUserMessage = 'PRODUCT PLAN:\n' + JSON.stringify(plan, null, 2);
+    const techLeadMaxTokens = ConfigService.getMaxTokens('agent_primary', 'tech_lead');
+    const thirdStepId = thirdStepDebugId();
+    const thirdStepTimestamp = new Date().toISOString();
+    const thirdStepStatusHistory: ThirdLLMStepStatus[] = [];
+    let thirdStepRaw: string | undefined;
+    let thirdStepCleaned: string | undefined;
+    let thirdStepExtractedJson: string | undefined;
+    const buildThirdStepRecord = (
+      parseStatus: ThirdLLMStepStatus,
+      patch: Partial<ThirdLLMStepDebugRecord> = {},
+    ): ThirdLLMStepDebugRecord => ({
+      schema: 'aic-third-llm-step-v1',
+      id: thirdStepId,
+      timestamp: thirdStepTimestamp,
+      stepIdentity: 'SimpleGeneration.run.techLeadBlueprint',
+      projectId: config.projectId,
+      intentText: config.intent,
+      language: config.language,
+      generationMode: mode,
+      route: {
+        slot: config.primaryRoute.slot,
+        provider: config.primaryRoute.provider,
+        modelId: config.primaryRoute.modelId,
+        endpoint: config.primaryRoute.endpoint,
+        keySource: config.primaryRoute.keySource,
+        fallbackReason: config.primaryRoute.fallbackReason,
+        reason: config.primaryRoute.reason,
+      },
+      request: {
+        systemPrompt: TECH_LEAD_PROMPT,
+        userMessage: techLeadUserMessage,
+        temperature: 0.3,
+        maxTokens: techLeadMaxTokens,
+        stream: true,
+      },
+      injectedContext: {
+        productPlan: plan,
+      },
+      statusHistory: [...thirdStepStatusHistory],
+      parseStatus,
+      ...patch,
+    });
+
     try {
       const techLeadRaw = await callLLM(
         TECH_LEAD_PROMPT,
-        'PRODUCT PLAN:\n' + JSON.stringify(plan, null, 2),
+        techLeadUserMessage,
         'primary',
         config.apiKey,
         undefined,
         config.signal,
-        ConfigService.getMaxTokens('agent_primary', 'tech_lead'),
+        techLeadMaxTokens,
         config.primaryRoute,
       );
+      thirdStepRaw = techLeadRaw;
+      thirdStepStatusHistory.push('raw_received');
 
       const tbCleaned = techLeadRaw
         .replace(/^```json?\n?/, '')
         .replace(/\n?```$/, '')
         .trim();
+      thirdStepCleaned = tbCleaned;
+      const extractedJsonSubstring = extractFirstJsonObject(tbCleaned);
+      thirdStepExtractedJson = extractedJsonSubstring ?? undefined;
+      thirdStepStatusHistory.push(extractedJsonSubstring ? 'json_match_found' : 'json_match_missing');
 
-      const tbParsed = JSON.parse(extractFirstJsonObject(tbCleaned) ?? tbCleaned);
-      technicalBlueprint = tbParsed?.technicalBlueprint ?? null;
+      const tbParsed = JSON.parse(extractedJsonSubstring ?? tbCleaned) as Record<string, unknown>;
+      thirdStepStatusHistory.push('parsed_ok');
+      technicalBlueprint = (tbParsed?.technicalBlueprint as Record<string, unknown> | undefined) ?? null;
+      thirdStepStatusHistory.push(technicalBlueprint ? 'accepted_result_ready' : 'accepted_result_missing');
+      saveThirdLLMStepRecord(buildThirdStepRecord(
+        technicalBlueprint ? 'accepted_result_ready' : 'accepted_result_missing',
+        {
+          rawCompletionText: techLeadRaw,
+          cleanedText: tbCleaned,
+          extractedJsonSubstring: extractedJsonSubstring ?? undefined,
+          parsedJsonObject: tbParsed,
+          acceptedResult: technicalBlueprint,
+        },
+      ));
 
       config.onLog('[SimpleGeneration] Technical blueprint ready');
     } catch (error) {
       if (isRoutingViolationError(error)) throw error;
       const msg = error instanceof Error ? error.message : String(error);
+      const isParseFailure = thirdStepStatusHistory.includes('raw_received');
+      thirdStepStatusHistory.push(isParseFailure ? 'parsed_failed' : 'request_failed');
+      saveThirdLLMStepRecord(buildThirdStepRecord(
+        isParseFailure ? 'parsed_failed' : 'request_failed',
+        isParseFailure
+          ? {
+              rawCompletionText: thirdStepRaw,
+              cleanedText: thirdStepCleaned,
+              extractedJsonSubstring: thirdStepExtractedJson,
+              parseErrorMessage: msg,
+            }
+          : { requestErrorMessage: msg },
+      ));
       config.onLog(`[SimpleGeneration] Tech Lead parse failed — ${msg}`);
       console.warn('[SimpleGeneration] Tech Lead parse failed', error);
     }
@@ -5152,6 +5652,59 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         ? `\nRECENT CHAT CONTEXT (for continuity with prior turns):\n${recentHistoryContext}`
         : '',
     ].join('\n');
+    const fourthStepId = thirdStepDebugId();
+    const fourthStepTimestamp = new Date().toISOString();
+    const fourthStepStatusHistory: FourthLLMStepStatus[] = ['request_prepared'];
+    let fourthStepResolvedRoute: CallLLMResolvedRequestMetadata | undefined;
+    const buildFourthStepRecord = (
+      parseStatus: FourthLLMStepStatus,
+      patch: Partial<FourthLLMStepDebugRecord> = {},
+    ): FourthLLMStepDebugRecord => ({
+      schema: 'aic-fourth-llm-step-v1',
+      id: fourthStepId,
+      timestamp: fourthStepTimestamp,
+      stepIdentity: 'SimpleGeneration.run.coderArtifactGeneration',
+      projectId: config.projectId,
+      intentText: config.intent,
+      language: config.language,
+      generationMode: mode,
+      route: {
+        slot: config.buildRoute.slot,
+        configuredProvider: fourthStepResolvedRoute?.configuredProvider ?? config.buildRoute.provider,
+        configuredModelId: fourthStepResolvedRoute?.configuredModelId ?? config.buildRoute.modelId,
+        configuredEndpoint: fourthStepResolvedRoute?.configuredEndpoint ?? config.buildRoute.endpoint,
+        configuredKeySource: fourthStepResolvedRoute?.configuredKeySource ?? config.buildRoute.keySource,
+        configuredFallbackReason: config.buildRoute.fallbackReason,
+        configuredReason: config.buildRoute.reason,
+        actualProvider: fourthStepResolvedRoute?.actualProvider,
+        actualModelId: fourthStepResolvedRoute?.actualModelId,
+        actualEndpoint: fourthStepResolvedRoute?.actualEndpoint,
+        transport: fourthStepResolvedRoute?.transport,
+        devAgentProvider: fourthStepResolvedRoute?.devAgentProvider,
+        timeoutMs: fourthStepResolvedRoute?.timeoutMs,
+      },
+      request: {
+        systemPrompt: coderSystemPrompt,
+        userPayload: coderUserPrompt,
+        temperature: 0.3,
+        maxTokens: coderTokens,
+        stream: true,
+      },
+      injectedContext: {
+        productPlan: plan,
+        architectAnalysis: null,
+        technicalBlueprint,
+        branchGuidancePrompt,
+        designSystemPrompt: config.designSystemPrompt,
+        memoryContext,
+        envPrompt,
+        recentChatContext: recentHistoryContext || undefined,
+        attachmentContext: attachmentContext || undefined,
+      },
+      statusHistory: [...fourthStepStatusHistory],
+      parseStatus,
+      ...patch,
+    });
 
     const newCoderStepId = trace.beginStep({
       kind: 'coder_generation',
@@ -5171,16 +5724,40 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       promptChars: coderSystemPrompt.length + coderUserPrompt.length,
     });
     const closeNewCoder = trace.span('coder_new', { mode, expectedFiles: expectedFileCount });
-    const raw = await callLLM(
-      coderSystemPrompt,
-      coderUserPrompt,
-      'build',
-      config.apiKey,
-      (chunk: string) => { tracker.onChunk(chunk); trace.markFirstToken(); },
-      config.signal,
-      coderTokens,
-      config.buildRoute,
-    );
+    fourthStepStatusHistory.push('request_dispatched');
+    let raw: string;
+    try {
+      raw = await callLLM(
+        coderSystemPrompt,
+        coderUserPrompt,
+        'build',
+        config.apiKey,
+        (chunk: string) => { tracker.onChunk(chunk); trace.markFirstToken(); },
+        config.signal,
+        coderTokens,
+        config.buildRoute,
+        {
+          onResolvedRequest: (metadata) => {
+            fourthStepResolvedRoute = metadata;
+          },
+        },
+      );
+    } catch (error) {
+      tracker.finalise();
+      closeNewCoder({ status: 'error', data: { message: formatDebugError(error) } });
+      trace.finishStep(newCoderStepId, {
+        status: 'failed',
+        summary: 'Coder generation request failed before parsing.',
+        labels: buildTraceLabels(config.buildRoute),
+        errorSummary: formatDebugError(error),
+      });
+      fourthStepStatusHistory.push('request_failed');
+      saveFourthLLMStepRecord(buildFourthStepRecord('request_failed', {
+        requestErrorMessage: formatDebugError(error),
+      }));
+      throw error;
+    }
+    fourthStepStatusHistory.push('raw_received');
     tracker.finalise();
     closeNewCoder({ data: { chars: raw.length } });
     trace.recordOutput({
@@ -5203,8 +5780,29 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     console.log('[SimpleGeneration] RAW first 500:', raw.slice(0, 500));
     console.log('[SimpleGeneration] RAW last 200:', raw.slice(-200));
 
+    const fourthStepExtraction = debugArtifactParse(raw);
+    fourthStepStatusHistory.push('parse_inspected');
+
     // Parse artifact (JSON first, FILE markers as fallback)
     const { parseResult, semanticIssue: firstSemanticIssue } = inspectArtifactAttempt(raw);
+    fourthStepStatusHistory.push(parseResult.success ? 'parsed_ok' : 'parsed_failed');
+    if (firstSemanticIssue) {
+      fourthStepStatusHistory.push('semantic_issue_detected');
+    }
+    const acceptedFourthStepArtifact = parseResult.success && parseResult.artifact && !firstSemanticIssue
+      ? parseResult.artifact
+      : null;
+    fourthStepStatusHistory.push(acceptedFourthStepArtifact ? 'accepted_result_ready' : 'accepted_result_missing');
+    saveFourthLLMStepRecord(buildFourthStepRecord(
+      acceptedFourthStepArtifact ? 'accepted_result_ready' : 'accepted_result_missing',
+      {
+        rawCompletionText: raw,
+        extraction: fourthStepExtraction,
+        acceptedResult: acceptedFourthStepArtifact,
+        semanticIssue: firstSemanticIssue,
+        parseErrorMessage: parseResult.success ? undefined : parseResult.error,
+      },
+    ));
     config.onLog(`[SimpleGeneration] Parse: success=${parseResult.success}, fallback=${parseResult.fallbackUsed}`);
 
     // ── Semantic health check — catches poisoned/truncated artifacts that
@@ -5616,8 +6214,115 @@ Generate the complete application for: ${config.intent}`;
     // ── Pre-write import validation ────────────────────────────────────
     const newUnresolved = validateImports(llmFiles);
     if (newUnresolved.length > 0) {
-      config.onLog(`[ImportValidator] ${newUnresolved.length} unresolved import(s) detected — self-correction will handle`);
+      config.onLog(`[ImportValidator] ${newUnresolved.length} unresolved import(s) detected — pre-generating stubs`);
       newUnresolved.forEach(u => config.onLog(`[ImportValidator]   ${u.sourceFile} → '${u.specifier}'`));
+
+      // Pre-generate minimal stub files to avoid wasting a repair attempt on missing imports
+      for (const u of newUnresolved) {
+        const specifier = u.specifier;
+        // Only handle relative project imports (not node_modules)
+        if (!specifier.startsWith('.')) continue;
+        const baseName = specifier.replace(/.*\//, '').replace(/\.tsx?$/, '');
+        const componentName = baseName.charAt(0).toUpperCase() + baseName.slice(1) || 'Stub';
+        const stubPath = specifier.endsWith('.tsx') || specifier.endsWith('.ts')
+          ? `src/${specifier.replace(/^\.\//, '')}`
+          : `src/${specifier.replace(/^\.\//, '')}.tsx`;
+        const normalizedStub = stubPath.replace(/\/+/g, '/');
+        const keySlash = '/' + normalizedStub.replace(/^src\//, '');
+        const keyBare = normalizedStub;
+        // Only add stub if no file already covers this import
+        if (!llmFiles[keySlash] && !llmFiles[keyBare] && !llmFiles[normalizedStub]) {
+          llmFiles[keySlash] = `export default function ${componentName}() { return null; }\n`;
+          config.onLog(`[ImportValidator] ✓ Pre-generated stub: ${normalizedStub}`);
+        }
+      }
+    }
+
+    // ── Pre-write prop wiring validation ──────────────────────────────────
+    const propWiringIssues = validatePropWiring(llmFiles);
+    if (propWiringIssues.length > 0) {
+      config.onLog(`[PropWiring] ${propWiringIssues.length} prop wiring issue(s) detected — attempting pre-compile fix`);
+      propWiringIssues.forEach(i =>
+        config.onLog(`[PropWiring]   <${i.componentName}> missing props: ${i.missingProps.join(', ')}`)
+      );
+      // Attempt a pre-compile AI fix for prop wiring before going to disk
+      if (config.apiKey) {
+        try {
+          const propFixPrompt = buildPropWiringFixPrompt(propWiringIssues, llmFiles);
+          const propFixRaw = await callLLM(
+            'You fix React/TypeScript prop wiring errors. Return only a JSON artifact.',
+            propFixPrompt,
+            'fix',
+            config.apiKey,
+            undefined,
+            config.signal,
+            undefined,
+            config.fixRoute,
+          );
+          const propFixParsed = parseArtifact(propFixRaw);
+          if (propFixParsed.success && propFixParsed.artifact) {
+            let fixedCount = 0;
+            for (const f of propFixParsed.artifact.files) {
+              const normPath = f.path.startsWith('/') ? f.path : '/' + f.path.replace(/^src\//, '');
+              const bareKey = normPath.replace(/^\//, '');
+              if (llmFiles[normPath] !== undefined || llmFiles[bareKey] !== undefined) {
+                llmFiles[normPath] = f.content;
+                delete llmFiles[bareKey]; // ensure canonical key
+                fixedCount++;
+              }
+            }
+            config.onLog(`[PropWiring] Pre-compile fix applied to ${fixedCount} file(s)`);
+          } else {
+            config.onLog(`[PropWiring] Pre-compile fix parse failed — will surface issues in repair loop`);
+          }
+        } catch (e) {
+          config.onLog(`[PropWiring] Pre-compile fix error: ${String(e)}`);
+        }
+      }
+    }
+
+    // ── Pre-write hook/provider completeness validation ────────────────────
+    const hookProviderIssues = validateHookProviders(llmFiles);
+    if (hookProviderIssues.length > 0) {
+      config.onLog(`[HookProvider] ${hookProviderIssues.length} hook/provider issue(s) detected — attempting pre-compile fix`);
+      formatHookProviderIssues(hookProviderIssues).forEach(msg => config.onLog(msg));
+      if (config.apiKey) {
+        try {
+          const hookFixPrompt = buildHookProviderFixPrompt(hookProviderIssues, llmFiles);
+          const hookFixRaw = await callLLM(
+            'You fix React/TypeScript hook provider completeness errors. Return only a JSON artifact.',
+            hookFixPrompt,
+            'fix',
+            config.apiKey,
+            undefined,
+            config.signal,
+            undefined,
+            config.fixRoute,
+          );
+          const hookFixParsed = parseArtifact(hookFixRaw);
+          if (hookFixParsed.success && hookFixParsed.artifact) {
+            let fixedCount = 0;
+            for (const f of hookFixParsed.artifact.files) {
+              const normPath = f.path.startsWith('/') ? f.path : '/' + f.path.replace(/^src\//, '');
+              const bareKey = normPath.replace(/^\//, '');
+              if (llmFiles[normPath] !== undefined || llmFiles[bareKey] !== undefined) {
+                llmFiles[normPath] = f.content;
+                delete llmFiles[bareKey];
+                fixedCount++;
+              } else {
+                // New file (e.g., Provider didn't exist at all) — add it
+                llmFiles[normPath] = f.content;
+                fixedCount++;
+              }
+            }
+            config.onLog(`[HookProvider] Pre-compile fix applied to ${fixedCount} file(s)`);
+          } else {
+            config.onLog(`[HookProvider] Pre-compile fix parse failed — will surface issues in repair loop`);
+          }
+        } catch (e) {
+          config.onLog(`[HookProvider] Pre-compile fix error: ${String(e)}`);
+        }
+      }
     }
 
     // ── Admission check (after buffering, before compile) ─────────────────
@@ -5843,7 +6548,7 @@ Generate the complete application for: ${config.intent}`;
     });
     config.onLog('[SimpleGeneration] Final live-preview check started');
 
-    const finalCheck = candidateViable
+    let finalCheck = candidateViable
       ? await runFinalLivePreviewCheck(revId)
       : buildSkippedFinalLivePreviewCheck(
         revId,
@@ -5866,6 +6571,97 @@ Generate the complete application for: ${config.intent}`;
     config.onLog(
       `[SimpleGeneration] Final live-preview check ${finalCheck.status}: ${finalCheck.message}`,
     );
+
+    // ── Blank-screen bonus repair pass ─────────────────────────────────────
+    // When the app compiled but renders a blank screen, make one final
+    // diagnostic repair attempt before giving up. Common causes: missing
+    // Router wrapper, root component returns null, Provider not wrapping Routes.
+    if (candidateViable && finalCheck.reason === 'blank_root' && config.apiKey) {
+      config.onLog('[SimpleGeneration] 🔍 Blank screen detected — attempting bonus diagnostic repair');
+      try {
+        const candidateFiles = revisionManager.getRevisionFiles(revId) ?? {};
+        const appContent = candidateFiles['App.tsx'] ?? candidateFiles['/App.tsx'] ?? candidateFiles['src/App.tsx'] ?? '';
+        const mainContent = candidateFiles['main.tsx'] ?? candidateFiles['/main.tsx'] ?? candidateFiles['src/main.tsx'] ?? '';
+
+        const blankScreenPrompt = `The React app compiled successfully but the browser renders a completely blank screen (empty #root / no visible content).
+
+Common causes — check ALL of them:
+1. Root component returns null or undefined
+2. <BrowserRouter> is missing — <Routes> needs a Router wrapper
+3. No <Route path="/"> default route exists
+4. App.tsx renders nothing for the "/" path (wrong path matching)
+5. useState initializes to null and component early-returns null on first render
+6. CSS sets display:none or height:0 on root elements
+
+ENTRY FILE (main.tsx / index.tsx):
+\`\`\`tsx
+${mainContent.slice(0, 1500)}
+\`\`\`
+
+ROOT COMPONENT (App.tsx):
+\`\`\`tsx
+${appContent.slice(0, 2500)}
+\`\`\`
+
+Fix so the app renders meaningful UI immediately on first load:
+- Ensure <BrowserRouter> (or <HashRouter>) wraps <Routes>
+- Ensure a <Route path="/" element={<SomeComponent />}> renders visible content
+- Remove any early null/undefined returns that block the initial render
+- If a component requires data, show a loading state or placeholder — not null
+
+Return the COMPLETE fixed file(s) as a JSON artifact:
+\`\`\`json
+{"artifact":{"files":[{"path":"App.tsx","content":"...complete fixed file..."}]}}
+\`\`\`
+Output ONLY the JSON.`;
+
+        const blankFixRaw = await callLLM(
+          'You fix React apps that compile but render blank screens.',
+          blankScreenPrompt,
+          'fix',
+          config.apiKey,
+          undefined,
+          config.signal,
+          undefined,
+          config.fixRoute,
+        );
+
+        const blankFixParsed = parseArtifact(blankFixRaw);
+        const blankFixFiles: Record<string, string> = {};
+        if (blankFixParsed.success && blankFixParsed.artifact) {
+          for (const f of blankFixParsed.artifact.files) {
+            const key = f.path.startsWith('/') ? f.path : '/' + f.path.replace(/^src\//, '');
+            blankFixFiles[key] = f.content;
+          }
+        } else {
+          Object.assign(blankFixFiles, parseFileMarkers(blankFixRaw));
+        }
+
+        let blankFixWritten = 0;
+        for (const [path, content] of Object.entries(blankFixFiles)) {
+          if (content && content.trim().length > 20) {
+            await revisionManager.writeCandidateFile(revId, path, content);
+            config.onLog(`[SimpleGeneration] ✓ Blank-fix written: ${path}`);
+            blankFixWritten++;
+          }
+        }
+
+        if (blankFixWritten > 0) {
+          const recompileResult = await revisionManager.compileCandidate(revId);
+          if (recompileResult.success) {
+            config.onLog('[SimpleGeneration] ✓ Blank-screen recompile succeeded — re-running final check');
+            finalCheck = await runFinalLivePreviewCheck(revId);
+            config.onLog(`[SimpleGeneration] Final check after blank-screen repair: ${finalCheck.status} (${finalCheck.reason ?? 'ok'})`);
+          } else {
+            config.onLog(`[SimpleGeneration] Blank-screen recompile failed — ${(recompileResult.errors ?? []).join('; ').slice(0, 200)}`);
+          }
+        } else {
+          config.onLog('[SimpleGeneration] Blank-screen fix parse produced no files — skipping');
+        }
+      } catch (blankFixErr) {
+        config.onLog(`[SimpleGeneration] Blank-screen repair error: ${String(blankFixErr)}`);
+      }
+    }
 
     const finalCheckBlockedNotRendered =
       finalCheck.reason === 'blank_root' ||

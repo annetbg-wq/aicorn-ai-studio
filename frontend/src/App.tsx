@@ -464,6 +464,7 @@ export default function App() {
               onCollab={handleCollab}
               projects={studio.projects ?? []}
               currentProjectId={studio.currentProjectId ?? null}
+              persistedProjectExists={studio.persistedProjectExists}
               totalVersions={studio.totalVersions ?? 0}
               currentVersion={studio.currentVersion ?? 0}
               lastStableVersion={studio.lastStableVersion}

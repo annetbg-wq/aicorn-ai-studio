@@ -62,6 +62,45 @@ export interface StoredProject {
 // ProjectMeta is the canonical type — re-exported from shared/projectModel.ts.
 export type { ProjectMeta } from '../shared/projectModel';
 
+const PROJECT_KEY_PREFIX = 'aic-proj-';
+
+function readCanonicalName(raw: unknown, fallback = 'New Project'): string {
+  if (!raw || typeof raw !== 'object') return fallback;
+  const record = raw as Record<string, unknown>;
+  const name = typeof record.name === 'string' ? record.name.trim() : '';
+  if (name) return name;
+  const legacyTitle = typeof record.title === 'string' ? record.title.trim() : '';
+  return legacyTitle || fallback;
+}
+
+function normalizeProjectMeta(raw: unknown): ProjectMeta | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as Record<string, unknown>;
+  const id = typeof record.id === 'string' ? record.id.trim() : '';
+  if (!id) return null;
+  const updatedAt =
+    typeof record.updatedAt === 'string' && record.updatedAt
+      ? record.updatedAt
+      : new Date(0).toISOString();
+  const createdAt =
+    typeof record.createdAt === 'string' && record.createdAt
+      ? record.createdAt
+      : updatedAt;
+
+  return {
+    ...(record as Partial<ProjectMeta>),
+    id,
+    name: readCanonicalName(record),
+    description: typeof record.description === 'string' ? record.description : '',
+    theme: typeof record.theme === 'string' && record.theme ? record.theme : 'dark-slate',
+    createdAt,
+    updatedAt,
+    activeBranchId: typeof record.activeBranchId === 'string' ? record.activeBranchId : undefined,
+    branchIds: Array.isArray(record.branchIds) ? record.branchIds.filter((v): v is string => typeof v === 'string') : undefined,
+    branchCount: typeof record.branchCount === 'number' ? record.branchCount : undefined,
+  };
+}
+
 function createStoredBranch(
   project: StoredProject,
   branchId: string,
@@ -151,20 +190,44 @@ export class ProjectStorage {
   /** Returns metadata for all projects (no files/chatHistory — fast). */
   static listProjects(): ProjectMeta[] {
     try {
-      return JSON.parse(localStorage.getItem(this.META_KEY) || '[]');
+      const parsed = JSON.parse(localStorage.getItem(this.META_KEY) || '[]');
+      if (!Array.isArray(parsed)) return [];
+
+      const seen = new Set<string>();
+      const valid: ProjectMeta[] = [];
+      let changed = false;
+
+      for (const raw of parsed) {
+        const meta = normalizeProjectMeta(raw);
+        if (!meta || seen.has(meta.id) || !this.projectDataExists(meta.id)) {
+          changed = true;
+          continue;
+        }
+        seen.add(meta.id);
+        valid.push(meta);
+        if (meta !== raw) changed = true;
+      }
+
+      if (changed) {
+        try { localStorage.setItem(this.META_KEY, JSON.stringify(valid)); } catch { /* ignore */ }
+      }
+
+      return valid;
     } catch { return []; }
   }
 
   /** Returns the full project including files and chatHistory. */
   static getProject(id: string): StoredProject | null {
     try {
-      const raw = localStorage.getItem(`aic-proj-${id}`);
+      const raw = localStorage.getItem(`${PROJECT_KEY_PREFIX}${id}`);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as StoredProject;
+      const canonicalName = readCanonicalName(parsed);
       const { activeBranchId, branches } = normalizeStoredProjectBranches(parsed);
       const activeBranch = branches[activeBranchId];
       return {
         ...parsed,
+        name: canonicalName,
         activeBranchId,
         branches,
         files: activeBranch?.files ?? parsed.files ?? {},
@@ -176,13 +239,31 @@ export class ProjectStorage {
     } catch { return null; }
   }
 
+  static projectDataExists(id: string): boolean {
+    try {
+      const raw = localStorage.getItem(`${PROJECT_KEY_PREFIX}${id}`);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      return !!parsed && typeof parsed === 'object' && typeof parsed.id === 'string' && parsed.id === id;
+    } catch {
+      return false;
+    }
+  }
+
+  static removeProjectMeta(id: string): void {
+    const meta = this.listProjects().filter(m => m.id !== id);
+    try { localStorage.setItem(this.META_KEY, JSON.stringify(meta)); } catch { /* ignore */ }
+  }
+
   /** Saves full project data and updates the meta index. Returns false if storage is full. */
   static saveProject(project: StoredProject): boolean {
     try {
       const { activeBranchId, branches } = normalizeStoredProjectBranches(project);
       const activeBranch = branches[activeBranchId];
+      const canonicalName = readCanonicalName(project);
       const materializedProject: StoredProject = {
         ...project,
+        name: canonicalName,
         activeBranchId,
         branches,
         files: activeBranch?.files ?? project.files ?? {},
@@ -192,7 +273,7 @@ export class ProjectStorage {
         revisions: (activeBranch?.revisions as ProjectRevision[]) ?? project.revisions,
       };
 
-      localStorage.setItem(`aic-proj-${project.id}`, JSON.stringify(materializedProject));
+      localStorage.setItem(`${PROJECT_KEY_PREFIX}${project.id}`, JSON.stringify(materializedProject));
       const meta = this.listProjects();
       const idx = meta.findIndex(m => m.id === materializedProject.id);
       const metaEntry: ProjectMeta = {
@@ -227,9 +308,8 @@ export class ProjectStorage {
 
   /** Deletes a project and removes it from the meta index. */
   static deleteProject(id: string): void {
-    try { localStorage.removeItem(`aic-proj-${id}`); } catch { /* ignore */ }
-    const meta = this.listProjects().filter(m => m.id !== id);
-    try { localStorage.setItem(this.META_KEY, JSON.stringify(meta)); } catch { /* ignore */ }
+    try { localStorage.removeItem(`${PROJECT_KEY_PREFIX}${id}`); } catch { /* ignore */ }
+    this.removeProjectMeta(id);
   }
 
   static getBranch(projectId: string, branchId: string): PersistedProjectBranch | null {

@@ -94,7 +94,8 @@ export type WhiteScreenReason =
   | 'blank-body'         // document.body has zero visible content
   | 'minimal-content'    // root has < MIN_MEANINGFUL_ELEMENTS elements and < MIN_TEXT_LENGTH text
   | 'loading-shell-only' // only a "loading" / "waiting" placeholder rendered
-  | 'zero-height-root';  // #root has 0 computed height (collapsed / display:none)
+  | 'zero-height-root'   // #root has 0 computed height (collapsed / display:none)
+  | 'runtime-error-screen'; // rendered an application error fallback instead of the app
 
 /** Raw DOM metrics collected inside the iframe. */
 export interface DOMMetrics {
@@ -136,7 +137,7 @@ interface FinalCheckSettleResult {
 
 interface RenderFailureDescriptor {
   failureReason: Extract<FinalLivePreviewCheckFailureReason, 'blank_root' | 'placeholder_only'>;
-  logEvent: 'final_check_blank_root' | 'final_check_placeholder_only';
+  logEvent: 'final_check_blank_root' | 'final_check_placeholder_only' | 'final_check_runtime_error';
   message: string;
 }
 
@@ -229,6 +230,12 @@ function describeRenderFailure(reason: WhiteScreenReason): RenderFailureDescript
         logEvent: 'final_check_placeholder_only',
         message: 'Final live-preview check failed: preview is only showing placeholder content',
       };
+    case 'runtime-error-screen':
+      return {
+        failureReason: 'placeholder_only',
+        logEvent: 'final_check_runtime_error',
+        message: 'Final live-preview check failed: preview is showing a runtime application error',
+      };
     case 'empty-root':
     case 'blank-body':
     case 'zero-height-root':
@@ -259,6 +266,17 @@ function isStructurallyPlaceholderLike(metrics: DOMMetrics): boolean {
   const collapsed = metrics.rootOffsetHeight < MIN_SPARSE_RENDER_HEIGHT;
 
   return lowStructure && lowText && noInteractive && noVisualSurface && collapsed;
+}
+
+function isRuntimeErrorScreen(metrics: DOMMetrics): boolean {
+  const rootText = metrics.rootTextHead.trim();
+
+  return (
+    metrics.rootChildCount > 0 &&
+    metrics.rootInnerTextLength > 0 &&
+    rootText.length > 0 &&
+    RUNTIME_ERROR_PATTERNS.some(pattern => pattern.test(rootText))
+  );
 }
 
 function inspectIframeRenderSurface(iframe: HTMLIFrameElement | null): ImmediateRenderSurfaceResult {
@@ -644,6 +662,18 @@ const LOADING_PATTERNS = [
   /^initializing/i,
 ];
 
+const RUNTIME_ERROR_PATTERNS = [
+  /must be used within/i,
+  /failed to load/i,
+  /cannot read propert/i,
+  /hook used outside/i,
+  /is not a function/i,
+  /application error/i,
+  /something went wrong/i,
+  /unexpected error/i,
+  /unhandled runtime error/i,
+];
+
 // ── Core probe ──────────────────────────────────────────────────────────────
 
 /**
@@ -723,7 +753,8 @@ export function probeIframe(
  *   3. blank-body        — body has 0 child elements (no root at all)
  *   4. loading-shell-only— loading text with no real interactive/visual surface
  *   5. minimal-content   — sparse, low-text, collapsed content that still looks like a placeholder
- *   6. healthy           — passed all checks
+ *   6. runtime-error-screen — rendered an application error fallback instead of the app
+ *   7. healthy           — passed all checks
  */
 export function evaluateMetrics(
   metrics: DOMMetrics,
@@ -754,7 +785,12 @@ export function evaluateMetrics(
     return { healthy: false, reason: 'minimal-content', buildId, metrics };
   }
 
-  // 6. Healthy
+  // 6. Runtime application error fallback
+  if (isRuntimeErrorScreen(metrics)) {
+    return { healthy: false, reason: 'runtime-error-screen', buildId, metrics };
+  }
+
+  // 7. Healthy
   return { healthy: true, buildId, metrics };
 }
 

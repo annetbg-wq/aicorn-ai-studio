@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseArtifact,
+  debugArtifactParse,
   convertLegacyFiles,
   looksLikeTruncatedArtifact,
   classifyArtifactHealth,
@@ -86,6 +87,82 @@ describe('parseArtifact', () => {
     const result = parseArtifact(raw);
     expect(result.success).toBe(true);
     expect(result.fallbackUsed).toBe(false);
+  });
+
+  it('accepts a complete top-level fenced JSON artifact even when the closing fence is missing', () => {
+    const raw = [
+      '```json',
+      JSON.stringify({
+        artifact: {
+          entry: 'src/App.tsx',
+          files: [
+            {
+              path: 'src/App.tsx',
+              content: 'export default function App() { return <main>Community Connect</main>; }',
+            },
+            {
+              path: 'src/pages/Home.tsx',
+              content: 'export default function Home() { return <section>Home</section>; }',
+            },
+          ],
+          routes: ['/', '/home'],
+        },
+      }),
+    ].join('\n');
+
+    const result = parseArtifact(raw);
+    expect(result.success).toBe(true);
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.artifact?.files).toHaveLength(2);
+    expect(result.artifact?.files[0].content).toContain('Community Connect');
+    expect(result.artifact?.files[0].content).not.toContain('"artifact"');
+    expect(result.artifact?.routes).toEqual(['/', '/home']);
+
+    const debug = debugArtifactParse(raw);
+    expect(debug.selectedStrategy).toBe('fenced_json');
+    expect(debug.finalResult.success).toBe(true);
+    expect(debug.finalResult.fallbackUsed).toBe(false);
+    expect(debug.finalResult.artifact?.files).toHaveLength(2);
+  });
+
+  it('repairs stray backslash-whitespace escapes inside a fenced JSON artifact before legacy fallback', () => {
+    const artifactObject = {
+      artifact: {
+        entry: 'src/App.tsx',
+        files: [
+          {
+            path: 'src/App.tsx',
+            content: [
+              'export default function App() {',
+              '  return (',
+              '    <section>',
+              '      <User />',
+              '              Profile',
+              '    </section>',
+              '  );',
+              '}',
+            ].join('\n'),
+          },
+        ],
+      },
+    };
+
+    const malformedJson = JSON.stringify(artifactObject)
+      .replace('\\n              Profile', '\\              Profile');
+    const raw = `\`\`\`json\n${malformedJson}\n\`\`\``;
+
+    const result = parseArtifact(raw);
+    expect(result.success).toBe(true);
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.artifact?.files).toHaveLength(1);
+    expect(result.artifact?.files[0].content).toContain('<User />');
+    expect(result.artifact?.files[0].content).toContain('Profile');
+    expect(result.artifact?.files[0].content).not.toContain('"artifact"');
+
+    const debug = debugArtifactParse(raw);
+    expect(debug.selectedStrategy).toBe('fenced_json');
+    expect(debug.finalResult.success).toBe(true);
+    expect(debug.finalResult.fallbackUsed).toBe(false);
   });
 
   // 10. Files with empty content are skipped

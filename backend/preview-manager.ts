@@ -161,6 +161,15 @@ export function registerPreviewCompileRoute(app: express.Express): void {
 /**
  * Write user files into preview-workspace/src/, stamp __build_id.ts,
  * then run `vite build --outDir builds/<buildId>`.
+ *
+ * Owns workspace cleanup: clears user-generated files before writing new build
+ * files so stale files from previous builds cannot contaminate the Vite
+ * compilation. Template directories (components/, lib/, themes/, hooks/) and
+ * permanent fixtures (main.tsx, index.css, vite-env.d.ts) are preserved.
+ *
+ * This replaces the legacy /__clear_preview Vite dev-server endpoint that the
+ * frontend previously called before NEW-mode generation. The backend now owns
+ * this cleanup so the generation path has no dependency on the Vite middleware.
  */
 async function compileBuild(
   buildId: string,
@@ -168,6 +177,26 @@ async function compileBuild(
 ): Promise<void> {
   const outDir = path.join(BUILDS_WORKSPACE, buildId);
   const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
+
+  // 0. Clear user-generated files from the shared source workspace.
+  //    Serialised via compileQueue — no concurrent writes possible here.
+  const KEEP_FILES = new Set(['main.tsx', 'index.css', 'vite-env.d.ts', '__build_id.ts']);
+  const KEEP_DIRS  = new Set(['components', 'lib', 'themes', 'hooks']);
+  try {
+    const items = await fsPromises.readdir(srcDir, { withFileTypes: true });
+    for (const item of items) {
+      const itemPath = path.join(srcDir, item.name);
+      if (item.isDirectory()) {
+        if (!KEEP_DIRS.has(item.name)) {
+          await fsPromises.rm(itemPath, { recursive: true, force: true });
+        }
+      } else if (!KEEP_FILES.has(item.name)) {
+        await fsPromises.rm(itemPath, { force: true });
+      }
+    }
+  } catch {
+    // Non-fatal: proceed with compilation even if cleanup fails
+  }
 
   // 1. Write user source files
   for (const [filePath, content] of Object.entries(files)) {
@@ -208,7 +237,7 @@ async function compileBuild(
         console.log(`[preview-manager] build complete: ${buildId}`);
         resolve();
       } else {
-        reject(new Error(`vite build exited ${code}:\n${stderr.slice(-600)}`));
+        reject(new Error(`vite build exited ${code}:\n${stderr.slice(0, 1000)}`));
       }
     });
   });

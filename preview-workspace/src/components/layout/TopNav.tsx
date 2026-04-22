@@ -1,47 +1,85 @@
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Home as HomeIcon, Settings, ShieldCheck } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { Home, Settings, Menu, X } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+
+const navItems = [
+  { path: '/', label: 'Главная', icon: Home },
+  { path: '/settings', label: 'Настройки', icon: Settings },
+];
 
 export default function TopNav() {
   const location = useLocation();
-  const navigate = useNavigate();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 h-16 bg-card/80 backdrop-blur-lg border-b border-border">
-      <div className="max-w-5xl mx-auto h-full flex items-center justify-between px-4">
-        <Button
-          onClick={() => navigate('/')}
-          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-        >
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-            <ShieldCheck className="w-5 h-5 text-foreground" />
+    <header className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
+        <Link to="/" className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <span className="text-sm font-bold text-primary-foreground">CC</span>
           </div>
-          <span className="font-extrabold text-lg text-foreground hidden sm:block">
-            Android Verify
-          </span>
-        </Button>
+          <span className="text-base font-semibold text-foreground">Community Connect</span>
+        </Link>
 
-        <div className="flex items-center gap-1">
-          <Button
-            variant={location.pathname === '/' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => navigate('/')}
-            className="rounded-xl gap-2"
-          >
-            <HomeIcon className="w-4 h-4" />
-            <span className="hidden sm:inline">Главная</span>
-          </Button>
-          <Button
-            variant={location.pathname === '/settings' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => navigate('/settings')}
-            className="rounded-xl gap-2"
-          >
-            <Settings className="w-4 h-4" />
-            <span className="hidden sm:inline">Настройки</span>
-          </Button>
-        </div>
+        {/* Desktop nav */}
+        <nav className="hidden items-center gap-1 sm:flex">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname === item.path;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150 ${
+                  isActive
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Mobile hamburger */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="sm:hidden"
+          onClick={() => setMobileOpen(!mobileOpen)}
+          aria-label="Меню"
+        >
+          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </Button>
       </div>
-    </nav>
+
+      {/* Mobile dropdown */}
+      {mobileOpen && (
+        <nav className="border-t border-border bg-background px-4 py-3 sm:hidden">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname === item.path;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                onClick={() => setMobileOpen(false)}
+                className={`flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors duration-150 ${
+                  isActive
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+    </header>
   );
 }

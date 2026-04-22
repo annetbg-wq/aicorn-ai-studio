@@ -69,6 +69,10 @@ export class ProjectManager {
   }
 
   /** Currently active project, or null. */
+  static getCurrentId(): string | null {
+    return localStorage.getItem(CURRENT_KEY);
+  }
+
   static getCurrent(): Project | null {
     const id = localStorage.getItem(CURRENT_KEY);
     if (!id) return null;

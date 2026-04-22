@@ -1,0 +1,86 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Projects" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Product Architect" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+        - button "Figma Platinum" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+        - button "Agent Lab" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+        - button "Analytics" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+        - button "Quality" [ref=e49] [cursor=pointer]:
+          - img [ref=e50]
+        - button "Code Studio" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Terminal" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+        - button "DB Console" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "Cloud & Backend — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Packaging & Ship — Coming Soon" [ref=e75]:
+          - img [ref=e76]
+        - button "Growth & Marketing — Coming Soon" [ref=e82]:
+          - img [ref=e83]
+      - button "Weekly Hot Ideas" [ref=e86] [cursor=pointer]:
+        - img [ref=e87]
+    - generic [ref=e311]:
+      - generic [ref=e312]:
+        - generic [ref=e313]:
+          - generic [ref=e314]: AIC-RG STUDIO PRO
+          - button "New Project" [active] [ref=e315] [cursor=pointer]:
+            - img [ref=e316]
+            - text: New Project
+          - generic [ref=e318]: New Project
+          - generic [ref=e319]: /
+          - img [ref=e320]
+          - generic [ref=e324]: main
+          - generic [ref=e325]: ·
+          - img [ref=e326]
+          - generic [ref=e328]: "snap #0"
+        - generic [ref=e330]: Not backed up
+        - generic [ref=e331]:
+          - generic [ref=e332]:
+            - 'button "Theme: dark" [ref=e333] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e334] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e335] [cursor=pointer]'
+          - button "Settings" [ref=e336] [cursor=pointer]:
+            - img [ref=e337]
+          - button "D dev.local@aic-studio.test" [ref=e340] [cursor=pointer]:
+            - generic [ref=e341]: D
+            - generic [ref=e342]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e343] [cursor=pointer]:
+            - img [ref=e344]
+            - text: Backup to Cloud
+      - generic [ref=e347]:
+        - generic [ref=e349]:
+          - generic [ref=e351]:
+            - img [ref=e483]
+            - generic [ref=e357]: AIC-RG Studio
+            - generic [ref=e488]: Опишите идею ниже или выберите в сайдбаре
+          - generic [ref=e359]:
+            - generic [ref=e360]
+            - generic [ref=e381]
+          - generic [ref=e512]:
+            - generic [ref=e514]: New Project
+            - generic [ref=e515]: current
+          - generic [ref=e516]:
+            - generic [ref=e517]
+            - generic [ref=e538]
+            - paragraph [ref=e544]: Наведи для превью • Нажми для отката
+        - generic [ref=e394]:
+          - generic [ref=e395]:
+            - generic [ref=e396]
+            - generic [ref=e404]
+          - generic [ref=e489]:
+            - generic [ref=e490]
+            - iframe [ref=e511]:
+              

@@ -127,4 +127,123 @@ describe('GenerationTracer trace layers', () => {
     expect(stored.fullDebugTrace.finalOutcome).toBe('ship_fail');
     expect(JSON.stringify(stored.fullDebugTrace)).not.toContain('sk-secret-456');
   });
+
+  it('persists full debug traces for successful and failed runs with reload-like retrieval', () => {
+    const success = generationTracer.start({
+      intent: 'Build a clean landing page',
+      model: 'test-model',
+      mode: 'new',
+      projectId: 'proj-persist',
+      branchId: 'main',
+    });
+    success.recordDebugEvent({
+      kind: 'coder_generation',
+      summary: 'Generated candidate files.',
+      metadata: { files: 3 },
+    });
+    success.finish('ok', { finalOutcome: 'ship_ok', stopReason: 'no_repair_needed' });
+    const successRunId = success.id;
+
+    const failure = generationTracer.start({
+      intent: 'Repair broken import',
+      model: 'test-model',
+      mode: 'edit',
+      projectId: 'proj-persist',
+      branchId: 'main',
+    });
+    failure.recordDebugEvent({
+      kind: 'repair_attempt',
+      summary: 'Compile repair exhausted budget.',
+      stopReason: 'repair_budget_exhausted',
+    });
+    failure.finish('error', {
+      finalOutcome: 'ship_fail',
+      stopReason: 'repair_budget_exhausted',
+      errorSummary: 'Compile failed',
+    });
+    const failureRunId = failure.id;
+
+    const successDebugTrace = generationTracer.getFullDebugTrace({ runId: successRunId });
+    const failureDebugTrace = generationTracer.getFullDebugTrace({ runId: failureRunId });
+
+    expect(successDebugTrace).toMatchObject({
+      runId: successRunId,
+      finalOutcome: 'ship_ok',
+      stopReason: 'no_repair_needed',
+    });
+    expect(failureDebugTrace).toMatchObject({
+      runId: failureRunId,
+      finalOutcome: 'ship_fail',
+      stopReason: 'repair_budget_exhausted',
+    });
+    expect(generationTracer.formatFullDebugTraceExport({ runId: failureRunId })).toContain('"schema": "aic-rg-full-debug-trace-v1"');
+  });
+
+  it('retrieves the correct full debug trace for the current workspace and run', () => {
+    const mainRun = generationTracer.start({
+      intent: 'Main branch run',
+      model: 'test-model',
+      mode: 'new',
+      projectId: 'proj-scope',
+      branchId: 'main',
+    });
+    mainRun.recordDebugEvent({ kind: 'coder_generation', summary: 'Main branch debug event.' });
+    mainRun.finish('ok', { finalOutcome: 'ship_ok' });
+
+    const featureRun = generationTracer.start({
+      intent: 'Feature branch run',
+      model: 'test-model',
+      mode: 'new',
+      projectId: 'proj-scope',
+      branchId: 'feature',
+    });
+    featureRun.recordDebugEvent({ kind: 'coder_generation', summary: 'Feature branch debug event.' });
+    featureRun.finish('ok', { finalOutcome: 'ship_ok' });
+
+    const mainDebugTrace = generationTracer.getFullDebugTrace({
+      projectId: 'proj-scope',
+      branchId: 'main',
+      runId: mainRun.id,
+    });
+    const wrongBranchDebugTrace = generationTracer.getFullDebugTrace({
+      projectId: 'proj-scope',
+      branchId: 'feature',
+      runId: mainRun.id,
+    });
+
+    expect(mainDebugTrace?.events[0]?.summary).toBe('Main branch debug event.');
+    expect(wrongBranchDebugTrace).toBeNull();
+  });
+
+  it('redacts sensitive fields and hidden chain-of-thought from debug exports', () => {
+    const trace = generationTracer.start({
+      intent: 'Investigate failure',
+      model: 'test-model',
+      mode: 'new',
+      projectId: 'proj-redact',
+      branchId: 'main',
+    });
+    trace.recordDebugEvent({
+      kind: 'coder_generation',
+      summary: 'Safe debug event',
+      outputExcerpt: '<thinking>private model reasoning</thinking>\nRendered files.',
+      metadata: {
+        apiKey: 'plain-unpatterned-secret',
+        headers: { authorization: 'Bearer plain-token', 'x-safe': 'still excluded' },
+        chainOfThought: 'RAW HIDDEN CHAIN-OF-THOUGHT SHOULD NEVER EXPORT',
+        safeCount: 2,
+      },
+    });
+    trace.finish('ok', { finalOutcome: 'ship_ok' });
+
+    const exported = generationTracer.formatFullDebugTraceExport({ runId: trace.id });
+
+    expect(exported).toContain('Safe debug event');
+    expect(exported).toContain('Rendered files.');
+    expect(exported).toContain('[redacted]');
+    expect(exported).not.toContain('plain-unpatterned-secret');
+    expect(exported).not.toContain('plain-token');
+    expect(exported).not.toContain('RAW HIDDEN CHAIN-OF-THOUGHT');
+    expect(exported).not.toContain('private model reasoning');
+  });
 });

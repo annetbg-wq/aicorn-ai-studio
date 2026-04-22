@@ -1,0 +1,133 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Projects" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Product Architect" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+        - button "Figma Platinum" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+        - button "Agent Lab" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+        - button "Analytics" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+        - button "Quality" [ref=e49] [cursor=pointer]:
+          - img [ref=e50]
+        - button "Code Studio" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Terminal" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+        - button "DB Console" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "Cloud & Backend — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Packaging & Ship — Coming Soon" [ref=e75]:
+          - img [ref=e76]
+        - button "Growth & Marketing — Coming Soon" [ref=e82]:
+          - img [ref=e83]
+      - button "Weekly Hot Ideas" [ref=e86] [cursor=pointer]:
+        - img [ref=e87]
+    - generic [ref=e519]:
+      - generic [ref=e520]:
+        - generic [ref=e521]:
+          - generic [ref=e522]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e523] [cursor=pointer]:
+            - img [ref=e524]
+            - text: New Project
+          - generic [ref=e526]: New Project
+          - generic [ref=e527]: /
+          - img [ref=e528]
+          - generic [ref=e532]: main
+          - generic [ref=e533]: ·
+          - img [ref=e534]
+          - generic [ref=e536]: "snap #0"
+        - generic [ref=e538]: Not backed up
+        - generic [ref=e539]:
+          - generic [ref=e540]:
+            - 'button "Theme: dark" [ref=e541] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e542] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e543] [cursor=pointer]'
+          - button "Settings" [ref=e544] [cursor=pointer]:
+            - img [ref=e545]
+          - button "D dev.local@aic-studio.test" [ref=e548] [cursor=pointer]:
+            - generic [ref=e549]: D
+            - generic [ref=e550]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e551] [cursor=pointer]:
+            - img [ref=e552]
+            - text: Backup to Cloud
+      - generic [ref=e555]:
+        - generic [ref=e557]:
+          - generic [ref=e561]:
+            - paragraph [ref=e564]:
+              - text: "🧩 Context added:"
+              - strong [ref=e565]: EcoHome
+              - text: . Review and press Send to generate with this context pack.
+            - button "Copy response" [ref=e566]:
+              - img [ref=e567]
+          - generic [ref=e571]:
+            - generic [ref=e572]:
+              - button "AUTO" [ref=e573]
+              - button "APP" [ref=e574]
+              - button "PAGE" [ref=e575]
+              - button "SUPER" [ref=e576]
+              - button "ALL" [ref=e577]
+              - button "История" [ref=e579]:
+                - img [ref=e580]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e585]:
+                - img [ref=e586]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e589]:
+                - img [ref=e590]
+            - generic [ref=e593]:
+              - generic [ref=e594]:
+                - generic [ref=e595]: NICHE
+                - generic [ref=e596]: EcoHome
+                - button "Remove context" [ref=e597]:
+                  - img [ref=e598]
+              - button "Clear" [ref=e601]
+            - generic [ref=e602]:
+              - button "Attach / tools" [ref=e604]:
+                - img [ref=e605]
+              - textbox "Что строим сегодня?" [ref=e606]: "EcoHome. An app that helps homeowners track and reduce their carbon footprint through actionable insights and tips.. Market context: Rising awareness of climate change and sustainability movements."
+              - button [ref=e607]:
+                - img [ref=e608]
+        - generic [ref=e611]:
+          - generic [ref=e612]:
+            - generic [ref=e613]:
+              - button "Preview" [ref=e614] [cursor=pointer]
+              - button "Reasoning" [ref=e615] [cursor=pointer]
+              - button "Code" [ref=e616] [cursor=pointer]
+              - button "Design" [ref=e617] [cursor=pointer]
+              - button "Analytics" [ref=e618] [cursor=pointer]
+              - button "Security" [ref=e619] [cursor=pointer]
+              - button "Cloud" [ref=e620] [cursor=pointer]
+            - generic [ref=e621]:
+              - button "Select" [ref=e622] [cursor=pointer]:
+                - img [ref=e623]
+                - text: Select
+              - generic [ref=e625]:
+                - button "Desktop Chrome" [ref=e626] [cursor=pointer]:
+                  - img [ref=e627]
+                - button "iPhone 16 Pro Max" [ref=e629] [cursor=pointer]:
+                  - img [ref=e630]
+                - button "Pixel 9 Pro" [ref=e632] [cursor=pointer]:
+                  - img [ref=e633]
+                - button "iPad Pro 13" [ref=e635] [cursor=pointer]:
+                  - img [ref=e636]
+              - button "Export" [ref=e638] [cursor=pointer]:
+                - img [ref=e639]
+                - text: Export
+              - button "Share" [ref=e642] [cursor=pointer]:
+                - img [ref=e643]
+                - text: Share
+          - generic [ref=e651]:
+            - img [ref=e653]
+            - generic [ref=e658]: AIC-RG Studio
+            - generic [ref=e659]:
+              - text: Опишите идею ниже или выберите
+              - text: в сайдбаре

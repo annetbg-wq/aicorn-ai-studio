@@ -68,6 +68,7 @@ export interface EngineWorkspaceProps {
   // ── Project context ───────────────────────────────────────────
   projects:          Array<{ id: string; name: string; description: string; theme: string; createdAt: string; updatedAt: string; [key: string]: any }>;
   currentProjectId:  string | null;
+  persistedProjectExists?: boolean;
   /** Total snapshots in undo/redo history. */
   totalVersions:     number;
   /** 1-indexed snapshot position in undo/redo history. */
@@ -169,7 +170,7 @@ export interface EngineWorkspaceProps {
 
 export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineWorkspace({
   theme, themes, cloudAvailable, onShare, onDeploy, onCollab,
-  projects, currentProjectId, totalVersions, currentVersion, lastStableVersion,
+  projects, currentProjectId, persistedProjectExists: persistedProjectExistsProp, totalVersions, currentVersion, lastStableVersion,
   messages, input, setInput, onSend, onStop, isGenerating, progress, currentPhase, scrollRef,
   onNewProject, onLoadProject, onDeleteProject, onSettings, setTheme,
   snapshots, currentSnapshotId, onRestoreSnapshot, markSnapshotStable,
@@ -195,10 +196,11 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
   const isDark = theme !== 'light';
 
   const currentProjectMeta =
-    projects.find((p: { id: string; title?: string; name?: string; activeBranchId?: string }) => p.id === currentProjectId);
-  const projectName = currentProjectMeta?.title ?? currentProjectMeta?.name ?? '';
+    projects.find((p: { id: string; name?: string; activeBranchId?: string }) => p.id === currentProjectId);
+  const projectName = currentProjectMeta?.name ?? '';
   const activeBranchId = currentProjectMeta?.activeBranchId ?? 'main';
-  const persistedProjectExists = currentProjectId ? projects.some(p => p.id === currentProjectId) : undefined;
+  const persistedProjectExists = persistedProjectExistsProp
+    ?? (currentProjectId ? projects.some(p => p.id === currentProjectId) : undefined);
 
   // ── Snapshot layer (undo/redo) — see useStudio glossary ─────────
   // These are snapshot counters, NOT RevisionManager build-revision UUIDs.
