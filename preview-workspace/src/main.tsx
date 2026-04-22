@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
+import './styles/premium.css';
 import { BUILD_ID as INITIAL_BUILD_ID } from './__build_id';
 
 interface ViteHot {

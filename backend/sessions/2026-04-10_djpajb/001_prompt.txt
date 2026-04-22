@@ -1,3 +1,0 @@
-Generate exactly 3 weekly hot product ideas as a strict JSON array.
-For each item include fields: id, appName, description, targetAudience, painPoint, competitorGap, marketContext, productStrategy, userJourney, pages, dataModel, uxPatterns, architecture, generatedAt.
-No markdown. No prose. JSON only.

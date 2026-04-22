@@ -1,0 +1,130 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Agent Lab" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Analytics" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+        - button "Quality" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Code Studio" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+        - button "Terminal" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "DB Console" [ref=e70] [cursor=pointer]:
+          - img [ref=e71]
+        - button "Cloud & Backend — Coming Soon" [ref=e76]:
+          - img [ref=e77]
+        - button "Packaging & Ship — Coming Soon" [ref=e80]:
+          - img [ref=e81]
+        - button "Growth & Marketing — Coming Soon" [ref=e87]:
+          - img [ref=e88]
+      - button "Weekly Hot Ideas" [ref=e91] [cursor=pointer]:
+        - img [ref=e92]
+    - generic [ref=e583]:
+      - generic [ref=e584]:
+        - generic [ref=e585]:
+          - generic [ref=e586]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e587] [cursor=pointer]:
+            - img [ref=e588]
+            - text: New Project
+          - generic [ref=e590]: New Project
+          - generic [ref=e591]: /
+          - img [ref=e592]
+          - generic [ref=e596]: main
+          - generic [ref=e597]: ·
+          - img [ref=e598]
+          - generic [ref=e600]: "snap #0"
+        - generic [ref=e602]: Not backed up
+        - generic [ref=e603]:
+          - generic [ref=e604]:
+            - 'button "Theme: dark" [ref=e605] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e606] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e607] [cursor=pointer]'
+          - button "Settings" [ref=e608] [cursor=pointer]:
+            - img [ref=e609]
+          - button "D dev.local@aic-studio.test" [ref=e612] [cursor=pointer]:
+            - generic [ref=e613]: D
+            - generic [ref=e614]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e615] [cursor=pointer]:
+            - img [ref=e616]
+            - text: Backup to Cloud
+      - generic [ref=e619]:
+        - generic [ref=e621]:
+          - generic [ref=e726]:
+            - paragraph [ref=e729]: "⚠️ Failed to import trend brief: vite build exited 1: \x1b[31mx\x1b[39m Build failed in 1.18s \x1b[31merror during build: \x1b[31mCould not resolve \"./styles/premium.css\" from \"src/main.tsx\"\x1b[31m file: \x1b[36mC:/ai_studio/preview-workspace/src/main.tsx\x1b[31m at getRollupError (file:///C:/ai_studio/preview-workspace/node_modules/rollup/dist/es/shared/parseAst.js:402:41) at error (file:///C:/ai_studio/preview-workspace/node_modules/rollup/dist/es/shared/parseAst.js:398:42) at ModuleLoader.handleInvalidResolvedId (file:///C:/ai_studio/preview-workspace/node_modules/rollup/dist/es/shared/node-entry.js:21710:24) at file:///C:/ai_studio/preview-workspace/node_modules/rollup/dist/es/shared/node-entry.js:21670:26\x1b[39m"
+            - button "Copy response" [ref=e730]:
+              - img [ref=e731]
+          - generic [ref=e631]:
+            - generic [ref=e632]:
+              - button "AUTO" [ref=e633]
+              - button "APP" [ref=e634]
+              - button "PAGE" [ref=e635]
+              - button "SUPER" [ref=e636]
+              - button "ALL" [ref=e637]
+              - button "История" [ref=e639]:
+                - img [ref=e640]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e645]:
+                - img [ref=e646]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e649]:
+                - img [ref=e650]
+            - generic [ref=e653]:
+              - button "Attach / tools" [ref=e655]:
+                - img [ref=e656]
+              - textbox "Что строим сегодня?" [ref=e657]
+              - button [disabled] [ref=e658]:
+                - img [ref=e659]
+        - generic [ref=e662]:
+          - generic [ref=e663]:
+            - generic [ref=e664]:
+              - button "Preview" [ref=e665] [cursor=pointer]
+              - button "Reasoning" [ref=e666] [cursor=pointer]
+              - button "Code" [ref=e667] [cursor=pointer]
+              - button "Design" [ref=e668] [cursor=pointer]
+              - button "Analytics" [ref=e669] [cursor=pointer]
+              - button "Security" [ref=e670] [cursor=pointer]
+              - button "Cloud" [ref=e671] [cursor=pointer]
+            - generic [ref=e672]:
+              - button "Select" [ref=e673] [cursor=pointer]:
+                - img [ref=e674]
+                - text: Select
+              - generic [ref=e676]:
+                - button "Desktop Chrome" [ref=e677] [cursor=pointer]:
+                  - img [ref=e678]
+                - button "iPhone 16 Pro Max" [ref=e680] [cursor=pointer]:
+                  - img [ref=e681]
+                - button "Pixel 9 Pro" [ref=e683] [cursor=pointer]:
+                  - img [ref=e684]
+                - button "iPad Pro 13" [ref=e686] [cursor=pointer]:
+                  - img [ref=e687]
+              - button "Export" [ref=e689] [cursor=pointer]:
+                - img [ref=e690]
+                - text: Export
+              - button "Share" [ref=e693] [cursor=pointer]:
+                - img [ref=e694]
+                - text: Share
+          - generic [ref=e702]:
+            - generic [ref=e703]:
+              - button [ref=e704] [cursor=pointer]:
+                - img [ref=e705]
+              - generic [ref=e708] [cursor=pointer]: 48%
+              - button [ref=e709] [cursor=pointer]:
+                - img [ref=e710]
+              - button [ref=e714] [cursor=pointer]:
+                - img [ref=e715]
+            - iframe [ref=e724]:
+              - generic [active] [ref=f2e1]: Build not found

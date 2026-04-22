@@ -20,6 +20,7 @@ import {
   inferProductType,
 } from '../../services/ArchitectPlannerService';
 import { ProjectRepository } from '../../services/ProjectRepository';
+import { ProjectStorage } from '../../services/ProjectStorage';
 import { revisionManager } from '../../services/RevisionManager';
 
 const generationPipelineMock = vi.hoisted(() => ({
@@ -471,6 +472,55 @@ function configureFailedKickoffGeneration() {
   configureKickoffArchitectMocks();
 }
 
+function configureBlockedPreviewKickoffGeneration() {
+  generationPipelineMock.generatePlan.mockResolvedValue({
+    appName: 'Kickoff Test',
+    theme: 'dark-slate',
+    pages: [{ name: 'Home', path: '/', file: 'src/pages/Home.tsx' }],
+    steps: [
+      { id: 'think', label: 'Understand request', status: 'active' },
+      { id: 'architect', label: 'Plan structure', status: 'pending' },
+      { id: 'code', label: 'Generate code', status: 'pending' },
+      { id: 'theme', label: 'Apply theme', status: 'pending' },
+      { id: 'save', label: 'Save result', status: 'pending' },
+    ],
+  });
+
+  generationPipelineMock.run.mockImplementation(async (config: any) => {
+    const plan = makeKickoffGenerationPlan();
+    emitKickoffPlanReady(config);
+
+    const approval = await config.waitForConfirmation(plan);
+    expect(approval).toEqual(expect.objectContaining({
+      confirmed: true,
+      requiredKickoffScopeId: 'core',
+    }));
+
+    config.onPhase?.({ phase: 'think', progress: 20 });
+
+    return {
+      status: 'success',
+      message: 'Built with preview blockers',
+      operations: [
+        {
+          op: 'upsert',
+          name: 'src/App.tsx',
+          content: 'export default function App() { return <main>Blocked Preview</main>; }',
+        },
+      ],
+      graph: { files: [] },
+      plan,
+      planTheme: 'dark-slate',
+      qualitySummary: {
+        severity: 'blocking',
+        blockers: ['Preview blocked in test'],
+      },
+    };
+  });
+
+  configureKickoffArchitectMocks();
+}
+
 describe('useStudio kickoff failure recovery', () => {
   it('rejects the pending confirmation flow immediately when kickoff approval fails', () => {
     const addLog = vi.fn();
@@ -813,6 +863,51 @@ describe('Project repository missing-state truth', () => {
   });
 });
 
+describe('Draft persistence guard', () => {
+  it('keeps blocked generation as in-session draft and does not persist before explicit Save', async () => {
+    configureBlockedPreviewKickoffGeneration();
+
+    let latestStudio: StudioHook | null = null;
+
+    render(React.createElement(StudioLifecycleHarness, {
+      onRender: (studio) => {
+        latestStudio = studio;
+      },
+    }));
+
+    await waitFor(() => expect(latestStudio).not.toBeNull());
+
+    act(() => {
+      latestStudio!.setInput('build a simple todo app');
+    });
+
+    await waitFor(() => expect(latestStudio!.input).toBe('build a simple todo app'));
+
+    await act(async () => {
+      void latestStudio!.handleSend();
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.pendingPlan?.architectKickoff?.selectedOptionId).toBe('core');
+      expect(latestStudio!.kickoffPhase).toBe('awaiting_confirmation');
+    });
+
+    await act(async () => {
+      await latestStudio!.confirmPlan();
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.isGenerating).toBe(false);
+      expect(latestStudio!.previewLifecycle).toBe('blocked');
+      expect(latestStudio!.pendingProjectSave?.previewReady).toBe(false);
+      expect(latestStudio!.persistedProjectExists).not.toBe(true);
+    });
+
+    expect(vi.mocked(ProjectStorage.saveProject)).not.toHaveBeenCalled();
+    expect(vi.mocked(ProjectRepository.saveProject)).not.toHaveBeenCalled();
+  });
+});
+
 describe('launchWithPlan context handoff', () => {
   it('adds trend-niche brief into composer context and chat state', async () => {
     let latestStudio: StudioHook | null = null;
@@ -850,6 +945,41 @@ describe('launchWithPlan context handoff', () => {
       )).toBe(true);
       expect(latestStudio!.currentProjectId).toBeTruthy();
     });
+  });
+});
+
+describe('Direct chat context import', () => {
+  it('imports trend brief into transient chat context without project creation or persistence', async () => {
+    let latestStudio: StudioHook | null = null;
+    const createEmptyCandidateSpy = vi.spyOn(revisionManager, 'createEmptyCandidate');
+
+    render(
+      React.createElement(StudioLifecycleHarness, {
+        onRender: (studio) => {
+          latestStudio = studio;
+        },
+      }),
+    );
+
+    await waitFor(() => expect(latestStudio).not.toBeNull());
+
+    act(() => {
+      latestStudio!.setChatContext('Founder-ready brief for discussion', 'trend-niche');
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.composerContextItems).toHaveLength(1);
+      expect(latestStudio!.composerContextItems[0].source).toBe('trend-niche');
+      expect(latestStudio!.input).toContain('Founder-ready brief for discussion');
+    });
+
+    expect(latestStudio!.persistedProjectExists).not.toBe(true);
+    expect(createEmptyCandidateSpy).not.toHaveBeenCalled();
+    expect(vi.mocked(ProjectStorage.saveProject)).not.toHaveBeenCalled();
+    expect(vi.mocked(ProjectRepository.saveProject)).not.toHaveBeenCalled();
+    expect(latestStudio!.messages.some((message) =>
+      typeof message.content === 'string' && message.content.includes('Failed to import trend brief'),
+    )).toBe(false);
   });
 });
 

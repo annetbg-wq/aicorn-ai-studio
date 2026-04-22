@@ -1,0 +1,61 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Agent Lab" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Analytics" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+        - button "Quality" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Code Studio" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+        - button "Terminal" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "DB Console" [ref=e70] [cursor=pointer]:
+          - img [ref=e71]
+        - button "Cloud & Backend — Coming Soon" [ref=e76]:
+          - img [ref=e77]
+        - button "Packaging & Ship — Coming Soon" [ref=e80]:
+          - img [ref=e81]
+        - button "Growth & Marketing — Coming Soon" [ref=e87]:
+          - img [ref=e88]
+      - button "Weekly Hot Ideas" [ref=e91] [cursor=pointer]:
+        - img [ref=e92]
+    - generic [ref=e583]:
+      - generic [ref=e584]:
+        - generic [ref=e585]:
+          - generic [ref=e586]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e587] [cursor=pointer]
+          - generic [ref=e590]: New Project
+          - generic [ref=e591]: /
+          - img [ref=e592]
+          - generic [ref=e596]: main
+          - generic [ref=e597]: ·
+          - img [ref=e598]
+          - generic [ref=e600]: "snap #0"
+        - generic [ref=e602]: Not backed up
+        - generic [ref=e603]:
+          - generic [ref=e604]
+          - button "Settings" [ref=e608] [cursor=pointer]
+          - button "D dev.local@aic-studio.test" [ref=e612] [cursor=pointer]
+          - button "Backup to Cloud" [ref=e615] [cursor=pointer]
+      - generic [ref=e619]:
+        - generic [ref=e621]:
+          - generic [ref=e726]
+          - generic [ref=e631]
+        - generic [ref=e662]:
+          - generic [ref=e663]
+          - generic [ref=e702]
