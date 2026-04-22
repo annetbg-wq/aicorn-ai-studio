@@ -11,6 +11,7 @@ export type ModuleId =
   | 'package'
   | 'growth'
   | 'projects'
+  | 'trend-niches'
   | 'code-studio'
   | 'terminal'
   | 'db-console';

@@ -2055,7 +2055,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                 }}
               >
                 <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.8 }}>
-                  {item.source === 'niche' ? 'NICHE' : item.source === 'weekly-feed' ? 'WEEKLY' : item.source.toUpperCase()}
+                  {item.source === 'trend-niche' ? 'TREND' : item.source === 'niche' ? 'NICHE' : item.source === 'weekly-feed' ? 'WEEKLY' : item.source.toUpperCase()}
                 </span>
                 <span className="text-[10px] max-w-[170px] truncate" style={{ fontWeight: 600 }}>
                   {item.title}

@@ -1,21 +1,14 @@
 /**
  * Dashboard — Home screen.
  * Section 1: Platform module cards (navigation)
- * Section 2: Market Intelligence — Trending Niches with Generate Blueprint
+ * Section 2: Market Intelligence entry point
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, ArrowRight, X, Code2,
+  LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, ArrowRight, Code2,
 } from 'lucide-react';
 import { isCreatorMode } from '../services/internalAccess';
-import { useAuth } from '../contexts/AuthContext';
-import {
-  ensureNicheIdeas,
-  getIdeaFeedEventName,
-  hasIdeaGenerationAccess,
-  loadCachedNiches,
-} from '../services/ideaFeedService';
 import { storageService } from '../services/storageService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -32,34 +25,13 @@ interface DashboardProps {
   onNavigateCodeStudio?:  () => void;
   onNewProject?:          () => void;
   onOpenAllProjects?: () => void;
-  onLaunchWithPlan?: (plan: Record<string, unknown>, intent: string, source?: 'weekly-feed' | 'niche') => void;
+  onOpenTrendNiches?: () => void;
   appLanguage?:       string;
 }
 
 interface ModuleCard {
   id: string; icon: React.ElementType; title: string; description: string;
   available: boolean; accent: string;
-}
-
-interface TrendingNiche {
-  id: string; icon: string; title: string; tag: string; tagColor: string;
-  whyNow: string; blueprint: string;
-  launchPlan?: Record<string, unknown>;
-  launchIntent?: string;
-}
-
-function mapIdeaToTrendingNiche(idea: Record<string, unknown>, idx: number): TrendingNiche {
-  return {
-    id: String(idea.id ?? `weekly-niche-${idx}`),
-    icon: ['📈', '🧠', '⚡', '💼', '🛠️', '🌍'][idx % 6],
-    title: String(idea.appName ?? idea.targetAudience ?? 'Trending niche'),
-    tag: 'Weekly Trend',
-    tagColor: '#3b82f6',
-    whyNow: String(idea.marketContext ?? idea.painPoint ?? ''),
-    blueprint: JSON.stringify(idea, null, 2),
-    launchPlan: idea,
-    launchIntent: `${String(idea.appName ?? 'Project')}: ${String(idea.description ?? '')}`,
-  };
 }
 
 // ── Static data ───────────────────────────────────────────────────────────────
@@ -218,147 +190,6 @@ const DASH_LABELS: Record<string, Record<string, string>> = {
   },
 };
 
-const TRENDING_NICHES: TrendingNiche[] = [
-  {
-    id: 'ai-agents-b2b', icon: '🤖', title: 'AI Agents for B2B',
-    tag: 'High Growth', tagColor: '#3b82f6',
-    whyNow: 'Tool-calling AI matured in 2025. Enterprises pay $50–500/mo for automation — no vertical leader yet.',
-    blueprint: `Build an AI Agents SaaS for B2B workflow automation.
-
-[Technical & Market Analysis]
-• Efficiency: React SPA + Supabase Edge Functions + OpenAI tool-calling — zero heavy infra
-• Future-Proof: Plug-and-play model layer; swap Claude/GPT-4o without rewriting agent logic
-• Market Fit: Enterprises paying $50–500/mo; no vertical leader in legal/accounting/HR yet
-
-Product Architecture:
-- Landing with ROI calculator → Email signup → Free 7-day trial → $49/mo Pro
-- Core: Visual workflow builder + AI agent runner (Supabase Edge Function)
-- Paywall: Hard limit at 5 automations on free plan
-- Gamification: "Hours saved" counter, streak badges, team leaderboard
-
-Build Phases:
-1. Landing + Auth + Dashboard shell
-2. Workflow builder (drag-and-drop trigger/action nodes)
-3. AI agent execution (Supabase Edge Functions + OpenAI tool calling)
-4. Stripe billing + usage analytics dashboard`,
-  },
-  {
-    id: 'micro-saas-tax', icon: '💰', title: 'Micro-SaaS Tax Tool',
-    tag: 'Revenue Ready', tagColor: '#10b981',
-    whyNow: 'TurboTax ignores 59M US freelancers. Mobile-first quarterly tax automation is wide open at $19/mo.',
-    blueprint: `Build a Micro-SaaS for freelancer quarterly tax automation (US Form 1040).
-
-[Technical & Market Analysis]
-• Efficiency: Mobile-first PWA; OCR via FileReader + OpenAI Vision — no separate backend needed
-• Future-Proof: API-first design; ready for 2026 document AI models (AWS Textract, Google DocAI)
-• Market Fit: 59M US freelancers underserved by TurboTax; OCR + mobile = clear competitive edge
-
-Product Architecture:
-- Landing: "Know your taxes in 60 seconds" → Free (3 receipts) → $19/mo Pro
-- Core: Receipt upload (drag/camera) → OCR → AI categorization → quarterly estimate
-- Onboarding: 3-step wizard: income type → state → first receipt upload
-- Gamification: Tax health score, savings streak, quarterly milestone alerts
-
-Build Phases:
-1. Landing + Auth + dashboard shell
-2. Receipt upload + OCR + AI categorization flow
-3. Tax estimate engine (federal + state rules as JSON config)
-4. PDF export + Stripe paywall`,
-  },
-  {
-    id: 'creator-platform', icon: '✍️', title: 'Creator Monetization Hub',
-    tag: 'Proven', tagColor: '#f59e0b',
-    whyNow: 'Substack takes 10% of revenue. Creators want owned audience + multi-stream monetization in one tool.',
-    blueprint: `Build a Creator Monetization Hub — newsletter + community + digital products.
-
-[Technical & Market Analysis]
-• Efficiency: Supabase for auth/storage, Resend for email delivery — zero DevOps overhead
-• Future-Proof: Modular revenue blocks; add live events or AI courses without core changes
-• Market Fit: Substack charges 10%; creators at $5K+/mo are actively seeking lower-fee alternatives
-
-Product Architecture:
-- Landing: Revenue calculator ("You're leaving $X/mo on Substack") → Free → $29/mo Pro
-- Core: Newsletter editor + subscriber management + community (threaded comments)
-- Monetization: Paid newsletters, digital product store, tip jar
-- Gamification: Subscriber milestone badges, monthly revenue streak
-
-Build Phases:
-1. Auth + subscriber list + newsletter editor
-2. Community module (threaded comments + reactions)
-3. Digital product store (Stripe checkout)
-4. Analytics dashboard + milestone notification system`,
-  },
-  {
-    id: 'ai-legal', icon: '⚖️', title: 'AI Legal Assistant',
-    tag: 'Untapped', tagColor: '#8b5cf6',
-    whyNow: 'SMBs spend $2B/year on contract review. AI handles NDAs and GDPR policies for $29/mo vs $300/hr lawyer.',
-    blueprint: `Build an AI Legal Assistant SaaS for SMBs — contracts, NDAs, GDPR compliance.
-
-[Technical & Market Analysis]
-• Efficiency: GPT-4o for doc analysis; Supabase Storage for vault; average review < 3 seconds
-• Future-Proof: Jurisdiction rules stored as JSON config — update laws without redeploying
-• Market Fit: $200–500/hr lawyer consultation → $29/mo SaaS; validated SMB pain point
-
-Product Architecture:
-- Landing: "Review any contract in 30 seconds" → Free (3 reviews) → $29/mo Pro
-- Core: Upload PDF/DOCX → AI risk scoring → Clause highlights → Suggested rewrites
-- Templates: NDA, freelance agreement, privacy policy, terms of service
-- Onboarding: Upload your first contract in step 1 of signup flow
-
-Build Phases:
-1. Landing + Auth + document upload UI
-2. AI contract analysis (risk score + clause highlights)
-3. Template library (4 core document types)
-4. Contract vault (Supabase Storage) + team sharing`,
-  },
-  {
-    id: 'ai-hr', icon: '👥', title: 'AI HR Copilot',
-    tag: 'Emerging', tagColor: '#f43f5e',
-    whyNow: 'Series A–B startups (20–200 employees) waste 8h/week on HR docs with no dedicated HR team.',
-    blueprint: `Build an AI HR Copilot SaaS for startups (20–200 employees).
-
-[Technical & Market Analysis]
-• Efficiency: AI doc generation via OpenAI; Supabase for records; webhooks for Slack/Notion
-• Future-Proof: HR templates as configurable JSON; add country compliance as drop-in modules
-• Market Fit: Gusto/BambooHR target enterprise; Series A startups fully unserved at $49/mo
-
-Product Architecture:
-- Landing: "Replace 8h of HR work with 8 minutes" → Free trial → $49/mo per workspace
-- Core: AI policy generator, onboarding checklist builder, performance review draft tool
-- Integrations: Slack (announce new hires), Notion (sync policy docs)
-- Gamification: Team health score, onboarding completion streaks
-
-Build Phases:
-1. Auth + employee directory dashboard
-2. AI policy + document generator
-3. Onboarding workflow builder (task checklists)
-4. Slack/Notion webhook integration + team analytics`,
-  },
-  {
-    id: 'smb-automation', icon: '⚡', title: 'SMB No-Code Automation',
-    tag: 'High Volume', tagColor: '#06b6d4',
-    whyNow: 'Zapier charges $299/mo for 10 automations. Vertical-focused alternative wins fast on price + depth.',
-    blueprint: `Build a No-Code Automation SaaS for SMBs — vertical-focused Zapier alternative.
-
-[Technical & Market Analysis]
-• Efficiency: Supabase Edge Functions as runners; React flow canvas for builder; $0 idle cost
-• Future-Proof: Connector system as plugins — add new integrations without core changes
-• Market Fit: Zapier at $299/mo vs our $29/mo; e-commerce SMBs need only 5–10 automations
-
-Product Architecture:
-- Landing: "Automate your store in 5 minutes" → Free (3 automations) → $29/mo Pro
-- Core: Visual workflow builder (trigger → condition → action nodes)
-- Connectors v1: Shopify, Gmail, WhatsApp, Google Sheets, Stripe
-- Gamification: "Hours saved" counter, automation health score, streak calendar
-
-Build Phases:
-1. Auth + visual workflow builder (React draggable nodes)
-2. Trigger/action execution engine (Supabase Edge Functions)
-3. Pre-built connector library (Shopify + Gmail as v1)
-4. Analytics dashboard + Stripe billing`,
-  },
-];
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const fmtCost = (n: number) =>
@@ -380,7 +211,7 @@ function fmtSyncTime(isoString: string | null): string {
 export const Dashboard: React.FC<DashboardProps> = ({
   sessionCost, sessionTokens, cloudAvailable, projects,
   onEnterEngine, onLoadProject, onStartBlueprint,
-  onNavigateFigma, onNavigateCodeStudio, onNewProject, onOpenAllProjects, onLaunchWithPlan,
+  onNavigateFigma, onNavigateCodeStudio, onNewProject, onOpenAllProjects, onOpenTrendNiches,
   appLanguage = 'en',
 }) => {
   const repairMojibake = (value: string): string => {
@@ -391,10 +222,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       return value;
     }
   };
-  const { googleAccessToken } = useAuth();
   const [hovered,        setHovered]        = useState<string | null>(null);
-  const [blueprintNiche, setBlueprintNiche] = useState<TrendingNiche | null>(null);
-  const [trendingNiches, setTrendingNiches] = useState<TrendingNiche[]>(TRENDING_NICHES);
   const LRaw = DASH_LABELS[appLanguage] ?? DASH_LABELS['en'];
   const L = Object.fromEntries(
     Object.entries(LRaw).map(([k, v]) => [k, repairMojibake(v)]),
@@ -403,42 +231,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const visibleModules = creatorMode
     ? MODULES
     : MODULES.filter(mod => mod.id !== 'code-studio');
-
-  useEffect(() => {
-    const readNiches = async () => {
-      try {
-        let ideas = loadCachedNiches() as Array<Record<string, unknown>>;
-        if (ideas.length === 0 && hasIdeaGenerationAccess(googleAccessToken)) {
-          ideas = await ensureNicheIdeas(googleAccessToken);
-        }
-        if (ideas.length === 0) {
-          setTrendingNiches(TRENDING_NICHES);
-          return;
-        }
-
-        setTrendingNiches(ideas.slice(0, 6).map(mapIdeaToTrendingNiche));
-      } catch {
-        setTrendingNiches(TRENDING_NICHES);
-      }
-    };
-
-    void readNiches();
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === 'aic_ideas_niches') {
-        void readNiches();
-      }
-    };
-    const onIdeaFeed = () => {
-      void readNiches();
-    };
-
-    window.addEventListener('storage', onStorage);
-    window.addEventListener(getIdeaFeedEventName(), onIdeaFeed);
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener(getIdeaFeedEventName(), onIdeaFeed);
-    };
-  }, [googleAccessToken]);
 
   const walletPct  = Math.min((sessionCost   / 1)       * 100, 100);
   const contextPct = Math.min((sessionTokens / 100_000) * 100, 100);
@@ -459,6 +251,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const handleNewProject     = onNewProject      ?? onEnterEngine;
   const handleOpenAllProjects = onOpenAllProjects ?? onEnterEngine;
+  const handleOpenTrendNiches = onOpenTrendNiches ?? onEnterEngine;
 
   // Цвета для светлой темы
   const isLightTheme = true; // theme === 'light'
@@ -644,6 +437,79 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
+      <div style={{ width: '100%', maxWidth: 900, marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: isLightTheme ? 'rgba(37,99,235,0.55)' : 'rgba(96,165,250,0.45)' }}>
+            {L.market}
+          </span>
+          <div style={{ flex: 1, height: 1, background: isLightTheme ? 'rgba(37,99,235,0.12)' : 'rgba(96,165,250,0.1)' }} />
+        </div>
+
+        <div
+          onClick={handleOpenTrendNiches}
+          onMouseEnter={() => setHovered('trend-niches-entry')}
+          onMouseLeave={() => setHovered(null)}
+          style={{
+            borderRadius: 16,
+            padding: '20px 22px',
+            background: '#ffffff',
+            border: `1px solid ${hovered === 'trend-niches-entry' ? 'rgba(37,99,235,0.36)' : 'rgba(37,99,235,0.18)'}`,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 18,
+            boxShadow: hovered === 'trend-niches-entry' ? '0 6px 18px rgba(37,99,235,0.12)' : '0 1px 3px rgba(0,0,0,0.06)',
+            transform: hovered === 'trend-niches-entry' ? 'translateY(-2px)' : 'translateY(0)',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 13, minWidth: 0 }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+              background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.22)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb',
+            }}>
+              <TrendingUp size={18} strokeWidth={1.8} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: textColorPrimary, lineHeight: 1.2 }}>
+                {L.niches}
+              </div>
+              <div style={{ fontSize: 11, color: textColorMuted, marginTop: 4 }}>
+                {appLanguage === 'ru'
+                  ? 'Идеи дня, недели, месяца и отдельный банк идей'
+                  : 'Daily, weekly, monthly ideas and a separate idea bank'}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpenTrendNiches();
+            }}
+            style={{
+              height: 34,
+              borderRadius: 8,
+              border: '1px solid rgba(37,99,235,0.32)',
+              background: 'rgba(37,99,235,0.08)',
+              color: '#2563eb',
+              fontSize: 12,
+              fontWeight: 800,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              padding: '0 12px',
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+          >
+            {appLanguage === 'ru' ? 'Открыть' : 'Open'}
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      </div>
+
       {/* ══ PLATFORM MODULES LAYER ═══════════════════════════════════════════════ */}
 
       {/* Layer label */}
@@ -791,188 +657,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
         })}
       </div>
 
-      {/* ── Market Intelligence Section ── */}
-      <div style={{ width: '100%', maxWidth: 900, marginTop: 48 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: isLightTheme ? '#6b7280' : 'rgba(255,255,255,0.22)', marginBottom: 4 }}>
-              {L.market}
-            </div>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: isLightTheme ? '#111111' : 'rgba(255,255,255,0.8)' }}>
-              {L.niches}
-            </h2>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: isLightTheme ? 'rgba(22,163,74,0.08)' : 'rgba(74,222,128,0.07)', border: isLightTheme ? '1px solid rgba(22,163,74,0.2)' : '1px solid rgba(74,222,128,0.14)', borderRadius: 20, padding: '5px 12px' }}>
-            <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#16a34a', boxShadow: isLightTheme ? '0 0 5px rgba(22,163,74,0.4)' : '0 0 5px #4ade8066' }} />
-            <span style={{ fontSize: 10, fontWeight: 600, color: isLightTheme ? '#16a34a' : 'rgba(74,222,128,0.65)', letterSpacing: '0.06em' }}>
-              {L.trends}
-            </span>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-          {trendingNiches.map(niche => {
-            const isH = hovered === `niche-${niche.id}`;
-            return (
-              <div
-                key={niche.id}
-                onMouseEnter={() => setHovered(`niche-${niche.id}`)}
-                onMouseLeave={() => setHovered(null)}
-                style={{
-                  borderRadius: 14, padding: '16px',
-                  display: 'flex', flexDirection: 'column', gap: 10,
-                  background: isLightTheme ? '#ffffff' : isH ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.018)',
-                  border: `1px solid ${isLightTheme ? '#e5e7eb' : isH ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)'}`,
-                  backdropFilter: isLightTheme ? 'none' : 'blur(12px)',
-                  transform: isH ? 'translateY(-2px)' : 'none',
-                  transition: 'all 0.22s ease',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 22 }}>{niche.icon}</span>
-                  <span style={{
-                    fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
-                    color: niche.tagColor, background: isLightTheme ? `${niche.tagColor}20` : `${niche.tagColor}1a`,
-                    border: `1px solid ${niche.tagColor}40`, padding: '3px 7px', borderRadius: 5,
-                  }}>
-                    {niche.tag}
-                  </span>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 650, color: isLightTheme ? '#111111' : 'rgba(255,255,255,0.82)', marginBottom: 5 }}>{niche.title}</div>
-                  <div style={{ fontSize: 11, lineHeight: 1.55, color: isLightTheme ? '#444444' : 'rgba(255,255,255,0.35)' }}>{niche.whyNow}</div>
-                </div>
-
-                <button
-                  onClick={() => setBlueprintNiche(niche)}
-                  style={{
-                    marginTop: 'auto', padding: '7px 0', borderRadius: 8,
-                    fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    color: isLightTheme ? niche.tagColor : niche.tagColor, background: isLightTheme ? `${niche.tagColor}20` : `${niche.tagColor}12`,
-                    border: `1px solid ${niche.tagColor}40`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                    transition: 'all 0.18s',
-                  }}
-                >
-                  <span style={{ fontSize: 12 }}>⚡</span> {appLanguage === 'ru' ? 'Добавить в контекст' : 'Add to Context'}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
       {/* ── Footer ── */}
       <div style={{ marginTop: 44, fontSize: 10, letterSpacing: '0.06em', color: isLightTheme ? '#9ca3af' : 'rgba(255,255,255,0.12)' }}>
         {L.footer}
       </div>
 
-      {/* ── Blueprint Modal ── */}
-      {blueprintNiche && (
-        <div
-          onClick={() => setBlueprintNiche(null)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 1000,
-            background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: '100%', maxWidth: 580, maxHeight: '82vh',
-              background: '#0e0e14', border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: 18, display: 'flex', flexDirection: 'column',
-              boxShadow: '0 24px 80px rgba(0,0,0,0.6)', animation: 'modalPop 0.22s ease',
-            }}
-          >
-            {/* Header */}
-            <div style={{
-              padding: '18px 20px 16px', flexShrink: 0,
-              borderBottom: '1px solid rgba(255,255,255,0.07)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 22 }}>{blueprintNiche.icon}</span>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.85)' }}>
-                    {blueprintNiche.title} — Blueprint
-                  </div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
-                    {L.blueprint}
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => setBlueprintNiche(null)}
-                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 4, borderRadius: 6 }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Blueprint body */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px' }}>
-              <div style={{
-                fontSize: 12, lineHeight: 1.8, color: 'rgba(255,255,255,0.72)',
-                whiteSpace: 'pre-wrap',
-                fontFamily: '"JetBrains Mono", "Fira Code", "Consolas", monospace',
-                background: 'rgba(255,255,255,0.03)', borderRadius: 10,
-                padding: '16px 18px', border: '1px solid rgba(255,255,255,0.06)',
-              }}>
-                {blueprintNiche.blueprint}
-              </div>
-            </div>
-
-            {/* Footer buttons */}
-            <div style={{
-              padding: '14px 20px', flexShrink: 0,
-              borderTop: '1px solid rgba(255,255,255,0.07)',
-              display: 'flex', gap: 10, justifyContent: 'flex-end',
-            }}>
-              <button
-                onClick={() => setBlueprintNiche(null)}
-                style={{
-                  padding: '8px 18px', borderRadius: 9, fontSize: 12, fontWeight: 600,
-                  background: 'transparent', color: 'rgba(255,255,255,0.4)',
-                  border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer',
-                }}
-              >
-                {L.cancel}
-              </button>
-              <button
-                onClick={() => {
-                  if (blueprintNiche.launchPlan && blueprintNiche.launchIntent && onLaunchWithPlan) {
-                    onLaunchWithPlan(blueprintNiche.launchPlan, blueprintNiche.launchIntent, 'niche');
-                  } else {
-                    onStartBlueprint(blueprintNiche.blueprint);
-                  }
-                  setBlueprintNiche(null);
-                }}
-                style={{
-                  padding: '8px 22px', borderRadius: 9, fontSize: 12, fontWeight: 700,
-                  background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
-                  color: '#fff', border: 'none', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 7,
-                  boxShadow: '0 4px 16px rgba(59,130,246,0.3)',
-                }}
-              >
-                {L.build}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <style>{`
         @keyframes arrowPulse {
           from { opacity: 0; transform: translateX(-4px); }
           to   { opacity: 1; transform: translateX(0);    }
-        }
-        @keyframes modalPop {
-          from { opacity: 0; transform: scale(0.95) translateY(8px); }
-          to   { opacity: 1; transform: scale(1)    translateY(0);   }
         }
       `}</style>
     </div>

@@ -2171,7 +2171,7 @@ export interface ProjectMeta {
   branchCount?:    number;
   deployUrl?:      string;
   intent?:         string;
-  source?:         'chat' | 'weekly-feed' | 'niche';
+  source?:         'chat' | 'weekly-feed' | 'niche' | 'trend-niche';
   errors?:         string[];
   pagesCount?:     number;
   modelId?:        string;

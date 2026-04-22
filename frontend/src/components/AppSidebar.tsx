@@ -21,6 +21,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'engine',    icon: LayoutGrid,    label: 'System Engine',      available: true  },
+  { id: 'trend-niches', icon: TrendingUp, label: 'Трендовые ниши',     available: true  },
   { id: 'projects',  icon: FolderOpen,    label: 'Projects',           available: true  },
   { id: 'architect', icon: PenTool,       label: 'Product Architect',  available: true  },
   { id: 'figma',     icon: Figma,         label: 'Figma Platinum',     available: true  },

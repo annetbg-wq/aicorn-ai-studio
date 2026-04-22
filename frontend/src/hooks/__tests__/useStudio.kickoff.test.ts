@@ -20,6 +20,7 @@ import {
   inferProductType,
 } from '../../services/ArchitectPlannerService';
 import { ProjectRepository } from '../../services/ProjectRepository';
+import { revisionManager } from '../../services/RevisionManager';
 
 const generationPipelineMock = vi.hoisted(() => ({
   autoFix: vi.fn(),
@@ -809,6 +810,46 @@ describe('Project repository missing-state truth', () => {
     expect(latestStudio!.messages.some(message =>
       String(message.content).includes('not opened as a new blank project'),
     )).toBe(true);
+  });
+});
+
+describe('launchWithPlan context handoff', () => {
+  it('adds trend-niche brief into composer context and chat state', async () => {
+    let latestStudio: StudioHook | null = null;
+    vi.spyOn(revisionManager, 'createEmptyCandidate').mockResolvedValue('candidate:test');
+
+    render(
+      React.createElement(StudioLifecycleHarness, {
+        onRender: (studio) => {
+          latestStudio = studio;
+        },
+      }),
+    );
+
+    await waitFor(() => expect(latestStudio).not.toBeNull());
+
+    await act(async () => {
+      await latestStudio!.launchWithPlan({
+        appName: 'Разговорный английский',
+        description: 'Приложение для ежедневной тренировки живой речи.',
+        theme: 'dark-slate',
+        layout: { type: 'tabs', navigation: 'bottom-tabs' },
+        pages: [],
+        shadcnComponents: [],
+        icons: [],
+      } as any, 'Founder-ready brief\n\nНазвание: Разговорный английский', 'trend-niche');
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.composerContextItems).toHaveLength(1);
+      expect(latestStudio!.composerContextItems[0].source).toBe('trend-niche');
+      expect(latestStudio!.composerContextItems[0].title).toBe('Разговорный английский');
+      expect(latestStudio!.input).toContain('Founder-ready brief');
+      expect(latestStudio!.messages.some((message) =>
+        typeof message.content === 'string' && message.content.includes('Context added: **Разговорный английский**'),
+      )).toBe(true);
+      expect(latestStudio!.currentProjectId).toBeTruthy();
+    });
   });
 });
 
