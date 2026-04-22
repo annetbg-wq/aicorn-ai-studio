@@ -2082,6 +2082,8 @@ export const useStudio = () => {
           ? composerContextItems[0].plan
           : undefined
       );
+    const autoStartPackagedTrendBuild =
+      effectiveSource === 'trend-niche' && !!prebuiltPlanFromContext;
     const generationStartMs = Date.now();
     const generationLogs: string[] = [];
     const generationErrors: string[] = [];
@@ -2462,23 +2464,55 @@ export const useStudio = () => {
             },
           });
         },
-        waitForConfirmation: (_plan) => new Promise<PlanApprovalDecision>((resolve) => {
-          planResolverRef.current = resolve;
+        waitForConfirmation: async (_plan) => {
           const architectKickoff = pendingArchitectKickoffRef.current;
           pendingArchitectKickoffRef.current = null;
-          setKickoffPhase('awaiting_confirmation');
-          addLog('[Kickoff] kickoff_waiting_for_confirmation');
-          setPendingPlan({
-            id:            `plan_${Date.now()}`,
-            plan:          _plan as ProjectPlan,
-            blueprintText: '', // already shown via onPlanReady
-            technicalBlueprint: null, // already shown via onPlanReady
-            appName:       (_plan as any).appName ?? '',
-            theme:         (_plan as any).theme ?? '',
-            pages:         ((_plan as any).pages ?? []).map((p: any) => p.name ?? p),
-            architectKickoff,
+
+          // Founder "Build now" flow: packaged trend ideas should move directly
+          // into generation without an extra hidden confirmation gate.
+          if (autoStartPackagedTrendBuild) {
+            setKickoffPhase('build_starting');
+            addLog('[FounderFlow] Packaged trend idea confirmed automatically — starting build');
+
+            const approval = await prepareKickoffBuildApproval({
+              pendingPlan: {
+                id:            `plan_${Date.now()}`,
+                plan:          _plan as ProjectPlan,
+                blueprintText: '',
+                technicalBlueprint: null,
+                appName:       (_plan as any).appName ?? '',
+                theme:         (_plan as any).theme ?? '',
+                pages:         ((_plan as any).pages ?? []).map((p: any) => p.name ?? p),
+                architectKickoff,
+              },
+              language: appLanguage,
+              // Never persist kickoff snapshots for draft founder flows.
+              persistKickoffSnapshot: false,
+            });
+
+            return {
+              confirmed: true,
+              approvedPlan: approval.approvedPlan,
+              requiredKickoffScopeId: architectKickoff?.selectedOptionId,
+            };
+          }
+
+          return await new Promise<PlanApprovalDecision>((resolve) => {
+            planResolverRef.current = resolve;
+            setKickoffPhase('awaiting_confirmation');
+            addLog('[Kickoff] kickoff_waiting_for_confirmation');
+            setPendingPlan({
+              id:            `plan_${Date.now()}`,
+              plan:          _plan as ProjectPlan,
+              blueprintText: '', // already shown via onPlanReady
+              technicalBlueprint: null, // already shown via onPlanReady
+              appName:       (_plan as any).appName ?? '',
+              theme:         (_plan as any).theme ?? '',
+              pages:         ((_plan as any).pages ?? []).map((p: any) => p.name ?? p),
+              architectKickoff,
+            });
           });
-        }),
+        },
         waitForDiffReview: (diffs) => new Promise<string[] | false>((resolve) => {
           diffResolverRef.current = resolve;
           setPendingDiff(diffs);
