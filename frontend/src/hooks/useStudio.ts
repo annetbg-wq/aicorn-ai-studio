@@ -1121,6 +1121,20 @@ export const useStudio = () => {
   const commitPendingProjectSave = useCallback((reason: PendingProjectSaveReason) => {
     const pending = pendingProjectSaveRef.current;
     if (!pending) return false;
+    const previewReadyForSave =
+      pendingProjectSaveMeta?.previewReady
+      || previewLifecycle === 'preview-ready'
+      || previewLifecycle === 'degraded';
+    if (!previewReadyForSave) {
+      addLog('[Project] Save blocked: preview is not ready yet', 'warn');
+      return false;
+    }
+
+    const persistedProjectName = getCanonicalProjectName(
+      { name: pending.projectTitle },
+      (pending.plan?.appName ?? '').trim() || 'New Project',
+    );
+
     pendingProjectSaveRef.current = null;
     pendingSavePromptShownRef.current = false;
     setPendingProjectSaveMeta(null);
@@ -1217,6 +1231,7 @@ export const useStudio = () => {
     if (existing) {
       ProjectStorage.saveProject({
         ...existing,
+        name: existing.name || persistedProjectName,
         activeBranchId,
         branches: updatedBranches,
         files: mergedBranchFiles,
@@ -1249,7 +1264,7 @@ export const useStudio = () => {
       };
       const fallback: StoredProject = {
         id:             pending.projectId,
-        name:           pending.projectTitle,
+        name:           persistedProjectName,
         description:    pending.userPrompt.slice(0, 120),
         theme:          pending.planTheme,
         createdAt:      saveNow,
@@ -1288,7 +1303,7 @@ export const useStudio = () => {
     const existingForCloud = ProjectStorage.getProject(pending.projectId);
     ProjectRepository.saveProject({
       id:          pending.projectId,
-      name:        pending.projectTitle,
+      name:        persistedProjectName,
       userId:      authUser?.id ?? 'anonymous',
       description: pending.userPrompt.slice(0, 120),
       theme:       pending.planTheme,
@@ -1315,7 +1330,7 @@ export const useStudio = () => {
       revisions:      existingForCloud?.revisions ?? [],
     } as any).catch((err: any) => addLog(`[Project] Cloud save error: ${err}`));
 
-    addLog(`[Project] Saved after explicit preview save: ${pending.projectTitle}`);
+    addLog(`[Project] Saved after explicit preview save: ${persistedProjectName}`);
 
     // Write journal record for the save event and clean up draft state.
     const draftIdAtSave = _draftSessionIdRef.current;
@@ -1325,14 +1340,14 @@ export const useStudio = () => {
         projectId: pending.projectId,
         status: 'ok',
         acceptedFiles: Object.keys(pending.finalFiles),
-        metadata: { projectTitle: pending.projectTitle, reason },
+        metadata: { projectTitle: persistedProjectName, reason },
       });
       _draftSessionIdRef.current = null;
       localStorage.removeItem('AIC_DRAFT_SESSION_ID');
     }
 
     return true;
-  }, [addLog, appLanguage, authUser?.id, generationMode, projectCost, projectTokens]);
+  }, [addLog, appLanguage, authUser?.id, generationMode, pendingProjectSaveMeta?.previewReady, previewLifecycle, projectCost, projectTokens]);
   commitPendingProjectSaveRef.current = commitPendingProjectSave;
 
   const savePendingProject = useCallback(() => {
@@ -1379,7 +1394,7 @@ export const useStudio = () => {
   }, [messages, files, currentProjectId]); // `files` is a useMemo — stable ref unless projectGraph or filesRaw changes
 
   useEffect(() => {
-    if (!currentProjectId) {
+    if (projectPersistenceState !== 'exists' || !currentProjectId) {
       processedArchitectureMessagesRef.current.clear();
       return;
     }
@@ -1427,11 +1442,11 @@ export const useStudio = () => {
         },
       },
     });
-  }, [messages, currentProjectId]);
+  }, [messages, currentProjectId, projectPersistenceState]);
 
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
-    if (!currentProjectId || !lastMessage?.id) return;
+    if (projectPersistenceState !== 'exists' || !currentProjectId || !lastMessage?.id) return;
 
     const messageKey = `${currentProjectId}:${lastMessage.id}`;
     if (processedArchitectureMessagesRef.current.has(messageKey)) return;
@@ -1479,7 +1494,7 @@ export const useStudio = () => {
     return () => {
       cancelled = true;
     };
-  }, [messages, currentProjectId, appLanguage, addLog, chatUpdate]);
+  }, [messages, currentProjectId, appLanguage, addLog, chatUpdate, projectPersistenceState]);
 
   // ── auto-scroll ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1577,7 +1592,11 @@ export const useStudio = () => {
     setPendingProjectSaveMeta(null);
     currentPlanMsgIdRef.current = null;
     // Auto-save the current project before clearing so history is not lost
-    if (currentProjectId && Object.keys(_latestFilesRef.current).length > 0) {
+    if (
+      projectPersistenceState === 'exists' &&
+      currentProjectId &&
+      Object.keys(_latestFilesRef.current).length > 0
+    ) {
       const existing = ProjectStorage.getProject(currentProjectId);
       if (existing) {
         ProjectStorage.saveProject({
@@ -1632,7 +1651,7 @@ export const useStudio = () => {
       projectId: null,
       status: 'ok',
     });
-  }, [currentProjectId, clearSnapshots, clearLogs, clearAttachments, clearComposerContextItems, addLog]);
+  }, [currentProjectId, clearSnapshots, clearLogs, clearAttachments, clearComposerContextItems, addLog, projectPersistenceState]);
 
   const loadProject = useCallback(async (project: { id: string }) => {
     pendingProjectSaveRef.current = null;
@@ -1752,30 +1771,16 @@ export const useStudio = () => {
   );
 
   /**
-   * Creates a named project record and sets it as current.
-   * Does NOT clear chat/files — use createNewProject() for full UI reset.
-   * Throws (and logs) on storage full or 20-project limit.
+   * Legacy entry-point preserved for backward compatibility.
+   * Explicit project persistence is allowed only through savePendingProject()
+   * after a successful preview.
    */
   const createProject = useCallback((
-    meta: { name: string; theme?: string; description?: string },
+    _meta: { name: string; theme?: string; description?: string },
   ): string | null => {
-    try {
-      const proj = ProjectManager.create({
-        name:        meta.name,
-        theme:       meta.theme       ?? 'dark-slate',
-        description: meta.description ?? meta.name,
-      });
-      ProjectManager.setCurrent(proj.id);
-      setCurrentProjectId(proj.id);
-      setProjectPersistenceState('exists');
-      setProjects(ProjectStorage.listProjects());
-      addLog(`[Project] Created: ${proj.name} (${proj.id.slice(0, 8)}…)`);
-      return proj.id;
-    } catch (err: unknown) {
-      addLog(`[Project] ${(err as Error)?.message ?? 'Failed to create project'}`);
-      return null;
-    }
-  }, [addLog, clearComposerContextItems]);
+    addLog('[Project] Direct createProject() is disabled — use "Сохранить проект" after preview', 'warn');
+    return null;
+  }, [addLog]);
 
   const refreshProjects = useCallback(() => {
     void ProjectRepository.listProjects()
@@ -2770,13 +2775,18 @@ export const useStudio = () => {
         effectiveSource !== 'chat'
           ? userPrompt.split(':')[0]?.trim()?.slice(0, 80)
           : '';
-      const projectTitle =
-        ideaTitle
-        || capturedAppName
-        || (result as any)?.planAppName
-        || (result as any)?.plan?.appName
-        || userPrompt?.slice(0, 40)
-        || 'New Project';
+      const projectTitle = getCanonicalProjectName(
+        {
+          name:
+            ideaTitle
+            || capturedAppName
+            || (result as any)?.planAppName
+            || (result as any)?.plan?.appName
+            || userPrompt?.slice(0, 40)
+            || 'New Project',
+        },
+        'New Project',
+      );
 
       if (Object.keys(finalFiles).length > 0) {
         // Draft journal: record successful generation before queuing save
