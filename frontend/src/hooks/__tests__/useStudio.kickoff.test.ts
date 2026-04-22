@@ -948,6 +948,92 @@ describe('launchWithPlan context handoff', () => {
   });
 });
 
+describe('Founder packaged build auto-start', () => {
+  it('auto-confirms packaged trend builds without entering awaiting_confirmation', async () => {
+    let latestStudio: StudioHook | null = null;
+    const phases: string[] = [];
+    const approvalHolder: { value: any } = { value: null };
+
+    vi.spyOn(revisionManager, 'createEmptyCandidate').mockResolvedValue('candidate:test');
+    configureKickoffArchitectMocks();
+
+    generationPipelineMock.generatePlan.mockResolvedValue({
+      appName: 'Founder Builder',
+      theme: 'dark-slate',
+      pages: [{ name: 'Home', path: '/', file: 'src/pages/Home.tsx' }],
+      steps: [
+        { id: 'think', label: 'Understand request', status: 'active' },
+        { id: 'architect', label: 'Plan structure', status: 'pending' },
+        { id: 'code', label: 'Generate code', status: 'pending' },
+        { id: 'theme', label: 'Apply theme', status: 'pending' },
+        { id: 'save', label: 'Save result', status: 'pending' },
+      ],
+    });
+
+    generationPipelineMock.run.mockImplementation(async (config: any) => {
+      const plan = makeKickoffGenerationPlan();
+      emitKickoffPlanReady(config);
+      approvalHolder.value = await config.waitForConfirmation(plan);
+      config.onPhase?.({ phase: 'think', progress: 20 });
+      config.onPhase?.({ phase: 'idle', progress: 100 });
+      return {
+        status: 'success',
+        message: 'Built your app!',
+        operations: [
+          {
+            op: 'upsert',
+            name: 'src/App.tsx',
+            content: 'export default function App() { return <main>Founder Build</main>; }',
+          },
+        ],
+        graph: { files: [] },
+        plan,
+        planTheme: 'dark-slate',
+        qualitySummary: { severity: 'none' },
+      };
+    });
+
+    render(
+      React.createElement(StudioLifecycleHarness, {
+        onRender: (studio) => {
+          latestStudio = studio;
+          phases.push(studio.kickoffPhase);
+        },
+      }),
+    );
+
+    await waitFor(() => expect(latestStudio).not.toBeNull());
+
+    await act(async () => {
+      await latestStudio!.launchWithPlan({
+        appName: 'Founder Builder',
+        description: 'Packaged founder blueprint',
+        theme: 'dark-slate',
+        layout: { type: 'tabs', navigation: 'bottom-tabs' },
+        pages: [{ name: 'Home', path: '/', file: 'src/pages/Home.tsx' }],
+        shadcnComponents: [],
+        icons: [],
+      } as any, 'Build packaged founder trend idea', 'trend-niche');
+    });
+
+    await act(async () => {
+      void latestStudio!.handleSend();
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.isGenerating).toBe(false);
+    });
+
+    expect(approvalHolder.value).toEqual(expect.objectContaining({ confirmed: true }));
+    expect(latestStudio!.pendingPlan).toBeNull();
+    expect(phases).not.toContain('awaiting_confirmation');
+    expect(latestStudio!.messages.some((message) =>
+      typeof message.content === 'string' &&
+      message.content.includes('Packaged trend idea confirmed automatically'),
+    )).toBe(false);
+  });
+});
+
 describe('Direct chat context import', () => {
   it('imports trend brief into transient chat context without project creation or persistence', async () => {
     let latestStudio: StudioHook | null = null;
