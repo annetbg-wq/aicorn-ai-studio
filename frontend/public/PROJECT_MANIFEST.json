@@ -226,6 +226,7 @@
     "services/__tests__/GenerationTracer.traceLayers.test.ts",
     "services/__tests__/HookProviderValidator.test.ts",
     "services/__tests__/ideaFeedDiscovery.test.ts",
+    "services/__tests__/ideaFeedService.bridgeFallback.test.ts",
     "services/__tests__/ideaPackagingService.test.ts",
     "services/__tests__/MetricsService.designTelemetry.test.ts",
     "services/__tests__/orchestratorArtistLayer.test.ts",
@@ -299,5 +300,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-04-22T17:13:51.034Z"
+  "last_scan_timestamp": "2026-04-22T18:23:21.529Z"
 }

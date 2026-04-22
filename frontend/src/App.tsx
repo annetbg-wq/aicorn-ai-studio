@@ -476,8 +476,6 @@ export default function App() {
           activeModule={activeModule}
           onNavigate={handleNavigate}
           onHome={() => setView('dashboard')}
-          onStartBlueprint={handleStartBlueprint}
-          onLaunchWithPlan={handleLaunchWithPlan}
           appLanguage={studio.appLanguage}
         />
 

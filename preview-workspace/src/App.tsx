@@ -1,58 +1,13 @@
 import { Button } from "@/components/ui/button";
-import React from 'react';
-import { HashRouter, Routes, Route, Link } from 'react-router-dom';
-const Onboarding = React.lazy(() => import('./pages/Onboarding'));
-const Home = React.lazy(() => import('./pages/Home'));
-const Settings = React.lazy(() => import('./pages/Settings'));
-import AppLayout from './components/layout/AppLayout';
-
-class RouteGuard extends React.Component<
-  { name: string; children: React.ReactNode },
-  { error: Error | null }
-> {
-  state = { error: null as Error | null };
-  static getDerivedStateFromError(error: Error) { return { error }; }
-  render() {
-    if (this.state.error) {
-      return (
-        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8">
-          <div className="max-w-md text-center space-y-4">
-            <div className="text-4xl">⚠️</div>
-            <h2 className="text-lg font-semibold text-foreground">
-              {this.props.name} failed to load
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {this.state.error.message}
-            </p>
-            <div className="flex gap-3 justify-center">
-              <Button
-                onClick={() => this.setState({ error: null })}
-                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium"
-              >
-                Retry
-              </Button>
-              <Link to="/" className="px-4 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium">
-                Go Home
-              </Link>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
+import { useState } from 'react';
 export default function App() {
+  const [count, setCount] = useState(0);
   return (
-    <HashRouter>
-      <React.Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center"><p className="text-muted-foreground">Loading...</p></div>}>
-      <Routes>
-        <Route path="/onboarding" element={<RouteGuard name="Onboarding"><Onboarding /></RouteGuard>} />
-        <Route path="/" element={<RouteGuard name="Home"><Home /></RouteGuard>} />
-        <Route path="/settings" element={<RouteGuard name="Settings"><Settings /></RouteGuard>} />
-      </Routes>
-      </React.Suspense>
-    </HashRouter>
+    <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#0f172a', color: '#e2e8f0' }}>
+      <div data-testid='live-canary-surface'>
+        <strong data-testid='count-value'>{count}</strong>
+        <Button type='button' onClick={() => setCount(v => v + 1)}>Increment</Button>
+      </div>
+    </main>
   );
 }

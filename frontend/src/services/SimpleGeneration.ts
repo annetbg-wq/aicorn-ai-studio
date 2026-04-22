@@ -2572,6 +2572,8 @@ interface CallLLMResolvedRequestMetadata {
   transport: 'llmFetchStream' | 'dev_agent_bridge';
   devAgentProvider?: ReturnType<typeof getLocalDevAgentProvider>;
   timeoutMs: number;
+  bridgeFallbackActivated?: boolean;
+  bridgeFallbackReason?: string;
 }
 
 const LLM_TIMEOUT_MS = 240_000; // 240 s timeout budget per standard LLM call
@@ -2589,6 +2591,7 @@ async function callLLM(
   opts?: {
     allowLegacyFallback?: boolean;
     onResolvedRequest?: (metadata: CallLLMResolvedRequestMetadata) => void;
+    onLog?: (msg: string) => void;
   },
 ): Promise<string> {
   // Standard-path callers must pass a canonical route object.
@@ -2641,15 +2644,21 @@ async function callLLM(
   };
 
   let devAgentProvider = getLocalDevAgentProvider();
+  let devAgentModeProbeFailed = false;
   try {
     const modeResp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/dev-agent-mode`);
     if (modeResp.ok) {
       devAgentProvider = syncLocalDevAgentMode(await modeResp.json());
     }
   } catch {
-    // bridge unreachable: keep local mode as fallback
+    devAgentModeProbeFailed = true;
   }
-  const devAgentActive = devAgentProvider !== 'off';
+  const devAgentActive = devAgentProvider !== 'off' && !devAgentModeProbeFailed;
+  if (devAgentProvider !== 'off' && devAgentModeProbeFailed) {
+    const fallbackMessage = `[callLLM] Dev-agent mode probe failed (${devAgentProvider}) — using standard ${configuredProvider}/${modelId} flow`;
+    opts?.onLog?.(fallbackMessage);
+    if (!opts?.onLog) console.warn(fallbackMessage);
+  }
   const timeoutMs = devAgentActive ? CLAUDE_MAX_TIMEOUT_MS : LLM_TIMEOUT_MS;
   opts?.onResolvedRequest?.({
     slot,
@@ -2682,12 +2691,13 @@ async function callLLM(
   // AbortError (user stop) is not retried.
   const MAX_RETRIES = 3;
   let lastError: unknown;
+  let useDevAgentBridge = devAgentActive;
   try {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         if (mergedSignal.aborted) throw new DOMException('Aborted', 'AbortError');
         // ── Claude Max override (admin only) ─────────────────
-        if (devAgentActive) {
+        if (useDevAgentBridge) {
           try {
             // Собираем промпт из messages в текст
             const promptParts: string[] = [];
@@ -2720,11 +2730,32 @@ async function callLLM(
 
             const bridgeData = await bridgeResp.json();
             const result = bridgeData.content?.[0]?.text ?? '';
+            if (!result.trim()) {
+              throw new Error('Dev agent bridge returned empty output');
+            }
             if (onStream) onStream(result);
             return result;
           } catch (err) {
             if (err instanceof DOMException && err.name === 'AbortError') throw err;
-            throw new Error(`[callLLM] ${devAgentProvider} bridge failed: ${String((err as Error)?.message ?? err)}`);
+            const bridgeErrorMessage = String((err as Error)?.message ?? err);
+            const fallbackMessage = `[callLLM] ${devAgentProvider} bridge unavailable (${bridgeErrorMessage}) — falling back to standard ${configuredProvider}/${modelId}`;
+            opts?.onLog?.(fallbackMessage);
+            if (!opts?.onLog) console.warn(fallbackMessage);
+            useDevAgentBridge = false;
+            opts?.onResolvedRequest?.({
+              slot,
+              configuredProvider,
+              configuredModelId: modelId,
+              configuredEndpoint: endpoint,
+              configuredKeySource,
+              actualProvider: configuredProvider,
+              actualModelId: modelId,
+              actualEndpoint: endpoint,
+              transport: 'llmFetchStream',
+              timeoutMs,
+              bridgeFallbackActivated: true,
+              bridgeFallbackReason: bridgeErrorMessage,
+            });
           }
         }
         // ── End Claude Max override ───────────────────────────
@@ -2736,7 +2767,7 @@ async function callLLM(
         if (err instanceof DOMException && err.name === 'AbortError') {
           // Distinguish timeout from user stop
           if (signal?.aborted) throw err; // user initiated
-          if (devAgentActive) {
+          if (useDevAgentBridge) {
             throw new Error(`Local ${devAgentProvider} bridge timed out after ${Math.round(timeoutMs / 1000)}s. Try a shorter prompt or rerun.`);
           }
           throw new Error('Generation timed out. Automatic retry was attempted. Please retry once more or switch model.');
