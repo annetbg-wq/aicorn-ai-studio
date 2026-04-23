@@ -78,6 +78,7 @@ import { projectMemory } from './ProjectMemoryService';
 import { envSecretsService, buildEnvPromptInstructions } from './EnvSecretsService';
 import { runQualityGates, formatQualityReport } from './QualityGateService';
 import { EditAdmissionService } from './EditAdmissionService';
+import { generateTheme, type DesignIntent } from './ThemeEngine';
 import type { AdmissionDecision } from './EditAdmissionService';
 import { resolveAdmissionDecision } from './admissionGate';
 import type { KickoffBuildScopeId } from './ArchitectPlannerService';
@@ -144,6 +145,7 @@ export interface ProjectPlan {
   shadcnComponents: string[];
   icons:            string[];
   artistLayer?:     ArtistLayerSpec;
+  designIntent?:    DesignIntent;
   [key: string]: unknown; // allow extra fields from IdeaPlan
 }
 
@@ -5640,18 +5642,32 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     const validThemes = ['dark-slate', 'trust', 'warm', 'neon', 'bloom'];
     const selectedTheme = validThemes.includes(themeName) ? themeName : 'dark-slate';
 
-    // Legacy /__read_preview theme bridge call removed. Theme CSS files are not
-    // bundled in preview-workspace/src/themes/ in the current build, so this
-    // fetch always returned 400 and themedIndexCss was always null. Removing the
-    // bridge read eliminates the dead network call and the spurious failure log.
-    // Theme injection via the canonical path is a future enhancement.
     let themedIndexCss: string | null = null;
-    previewLog('legacy_theme_bridge_bypassed', {
-      endpoint: '__read_preview',
-      source: 'SimpleGeneration.run',
-      theme: selectedTheme,
-    });
-    config.onLog(`[SimpleGeneration] Theme: ${selectedTheme} (canonical path — bridge bypassed)`);
+
+    const designIntent = plan.designIntent as DesignIntent | undefined;
+    if (designIntent) {
+      const generated = generateTheme({ seed: config.projectId ?? 'default', ...designIntent });
+      themedIndexCss = [
+        '@tailwind base;',
+        '@tailwind components;',
+        '@tailwind utilities;',
+        '',
+        generated.cssVars,
+        '',
+        'body {',
+        '  background-color: hsl(var(--background));',
+        '  color: hsl(var(--foreground));',
+        '}',
+      ].join('\n');
+      config.onLog(`[SimpleGeneration] ThemeEngine: ${generated.name}`);
+    } else {
+      previewLog('legacy_theme_bridge_bypassed', {
+        endpoint: '__read_preview',
+        source: 'SimpleGeneration.run',
+        theme: selectedTheme,
+      });
+      config.onLog(`[SimpleGeneration] Theme: ${selectedTheme} (canonical path — bridge bypassed)`);
+    }
 
     // ── Step 2: Coder (build slot) — generate code ────────────────────────
     config.onPhase({ phase: 'code', progress: 40 });
