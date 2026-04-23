@@ -170,6 +170,12 @@ export interface ActiveProjectContext {
   createdAt: number;
 }
 
+type PackagedLaunchContext = {
+  id: string;
+  source: Exclude<GenerationSource, 'chat'>;
+  plan: ProjectPlan;
+};
+
 type PlanApprovalDecision = {
   confirmed: boolean;
   approvedPlan?: ProjectPlan;
@@ -939,13 +945,24 @@ export const useStudio = () => {
   const clearAttachments = useCallback(() => setAttachments([]), []);
 
   const [activeProjectContext, setActiveProjectContext] = useState<ActiveProjectContext | null>(null);
+  const packagedLaunchContextRef = useRef<PackagedLaunchContext | null>(null);
 
   const removeComposerContextItem = useCallback((id: string) => {
-    setComposerContextItems(prev => prev.filter(item => item.id !== id));
-    setActiveProjectContext(prev => (prev?.id === id ? null : prev));
+    if (packagedLaunchContextRef.current?.id === id) {
+      packagedLaunchContextRef.current = null;
+    }
+    const nextItems = composerContextItemsRef.current.filter(item => item.id !== id);
+    composerContextItemsRef.current = nextItems;
+    setComposerContextItems(nextItems);
+    const nextActiveContext = activeProjectContextRef.current?.id === id ? null : activeProjectContextRef.current;
+    activeProjectContextRef.current = nextActiveContext;
+    setActiveProjectContext(nextActiveContext);
   }, []);
 
   const clearComposerContextItems = useCallback(() => {
+    packagedLaunchContextRef.current = null;
+    composerContextItemsRef.current = [];
+    activeProjectContextRef.current = null;
     setComposerContextItems([]);
     setActiveProjectContext(null);
   }, []);
@@ -976,28 +993,41 @@ export const useStudio = () => {
       createdAt: Date.now(),
       plan: plan ?? undefined,
     };
+    packagedLaunchContextRef.current = plan && (
+      source === 'weekly-feed' ||
+      source === 'niche' ||
+      source === 'trend-niche'
+    )
+      ? { id, source, plan }
+      : null;
 
-    setComposerContextItems(prev => {
-      const duplicateIndex = prev.findIndex(item =>
-        item.source === source &&
-        item.title.toLowerCase() === title.toLowerCase() &&
-        item.intent.trim() === normalizedIntent,
-      );
-      const next = duplicateIndex >= 0
-        ? [...prev.slice(0, duplicateIndex), ...prev.slice(duplicateIndex + 1)]
-        : [...prev];
-      next.push(nextItem);
-      return next.slice(-6);
-    });
+    const duplicateIndex = composerContextItemsRef.current.findIndex(item =>
+      item.source === source &&
+      item.title.toLowerCase() === title.toLowerCase() &&
+      item.intent.trim() === normalizedIntent,
+    );
+    const nextItems = duplicateIndex >= 0
+      ? [
+          ...composerContextItemsRef.current.slice(0, duplicateIndex),
+          ...composerContextItemsRef.current.slice(duplicateIndex + 1),
+        ]
+      : [...composerContextItemsRef.current];
+    nextItems.push(nextItem);
+    const trimmedItems = nextItems.slice(-6);
+    composerContextItemsRef.current = trimmedItems;
+    setComposerContextItems(trimmedItems);
 
     if (plan) {
-      setActiveProjectContext({
+      const nextActiveContext = {
         ...nextItem,
         plan,
-      });
+      };
+      activeProjectContextRef.current = nextActiveContext;
+      setActiveProjectContext(nextActiveContext);
     }
 
     if (source === 'weekly-feed' || source === 'niche' || source === 'trend-niche') {
+      generationSourceRef.current = source;
       setGenerationSource(source);
     }
 
@@ -1007,11 +1037,10 @@ export const useStudio = () => {
       else setGenerationMode('app');
     }
 
-    setInput(prev => {
-      const trimmed = prev.trim();
-      if (trimmed.length > 0) return prev;
-      return normalizedIntent;
-    });
+    if (inputRef.current.trim().length === 0) {
+      inputRef.current = normalizedIntent;
+      setInput(normalizedIntent);
+    }
   }, []);
 
   /**
@@ -1069,6 +1098,14 @@ export const useStudio = () => {
   const [generationSource, setGenerationSource] = useState<GenerationSource>('chat');
   const [designClassification, setDesignClassification] = useState<ClassificationResult | null>(null);
   const [composerContextItems, setComposerContextItems] = useState<ComposerContextItem[]>([]);
+  const inputRef = useRef(input);
+  inputRef.current = input;
+  const generationSourceRef = useRef(generationSource);
+  generationSourceRef.current = generationSource;
+  const composerContextItemsRef = useRef(composerContextItems);
+  composerContextItemsRef.current = composerContextItems;
+  const activeProjectContextRef = useRef(activeProjectContext);
+  activeProjectContextRef.current = activeProjectContext;
 
 
   // ── Figma state (extracted hook) ─────────────────────────────────────────────
@@ -1662,6 +1699,7 @@ export const useStudio = () => {
       }
     }
     pendingHistoryClear.current = true;
+    inputRef.current = '';
     setInput('');
     chatReset();
     setPendingPlan(null);
@@ -1674,6 +1712,7 @@ export const useStudio = () => {
     setProjectPersistenceState('none');
     setProjectCost(0);
     setProjectTokens(0);
+    generationSourceRef.current = 'chat';
     setGenerationSource('chat');
     clearSnapshots();
     clearLogs();
@@ -1973,8 +2012,11 @@ export const useStudio = () => {
   // ── handleSend ────────────────────────────────────────────────────────────
   // overridePrompt: used by REQUEST_PLAN_REVISION to bypass the textarea state.
   const _sendImpl = async (overridePrompt?: string) => {
-    const effectiveInput = overridePrompt ?? input;
-    if ((effectiveInput.trim().length === 0 && composerContextItems.length === 0 && attachments.length === 0) || isGenerating) return;
+    const effectiveInput = overridePrompt ?? inputRef.current;
+    const composerContextItemsSnapshot = composerContextItemsRef.current;
+    const activeProjectContextSnapshot = activeProjectContextRef.current;
+    const generationSourceSnapshot = generationSourceRef.current;
+    if ((effectiveInput.trim().length === 0 && composerContextItemsSnapshot.length === 0 && attachments.length === 0) || isGenerating) return;
 
     const liveGenerationCanary =
       typeof window !== 'undefined' &&
@@ -2017,11 +2059,14 @@ export const useStudio = () => {
         theme: 'default',
         pages: ['Page1'],
       });
+      inputRef.current = '';
       setInput('');
       clearAttachments();
       return;
     }
 
+    const packagedLaunchContext = packagedLaunchContextRef.current;
+    generationSourceRef.current = 'chat';
     setGenerationSource('chat');
     const startMs = Date.now();
 
@@ -2082,7 +2127,7 @@ export const useStudio = () => {
     // (planning is handled inside GenerationPipeline via onPlan callback)
 
     const userPrompt = effectiveInput.trim();
-    const hasComposerContext = composerContextItems.length > 0;
+    const hasComposerContext = composerContextItemsSnapshot.length > 0;
     const documentAttachmentContext = attachments
       .filter(a => a.type === 'pdf' || a.type === 'text' || a.type === 'code')
       .map((a, index) => {
@@ -2099,7 +2144,7 @@ export const useStudio = () => {
     const contextPackText = hasComposerContext
       ? [
           'CONTEXT PACK (selected by user):',
-          ...composerContextItems.map((item, index) => {
+          ...composerContextItemsSnapshot.map((item, index) => {
             const lines = [
               `${index + 1}. [${item.source}] ${item.title}`,
               item.intent ? `Intent: ${item.intent}` : '',
@@ -2133,20 +2178,21 @@ export const useStudio = () => {
       attachmentContextText,
     ].filter(Boolean).join('\n\n');
     const effectiveSource: GenerationSource =
-      composerContextItems.length === 1 &&
+      composerContextItemsSnapshot.length === 1 &&
       (
-        composerContextItems[0].source === 'weekly-feed' ||
-        composerContextItems[0].source === 'niche' ||
-        composerContextItems[0].source === 'trend-niche'
+        composerContextItemsSnapshot[0].source === 'weekly-feed' ||
+        composerContextItemsSnapshot[0].source === 'niche' ||
+        composerContextItemsSnapshot[0].source === 'trend-niche'
       )
-        ? composerContextItems[0].source
-        : generationSource;
-    const prebuiltPlanFromContext = activeProjectContext?.plan
+        ? composerContextItemsSnapshot[0].source
+        : packagedLaunchContext?.source ?? generationSourceSnapshot;
+    const prebuiltPlanFromContext = activeProjectContextSnapshot?.plan
       ?? (
-        composerContextItems.length === 1
-          ? composerContextItems[0].plan
+        composerContextItemsSnapshot.length === 1
+          ? composerContextItemsSnapshot[0].plan
           : undefined
-      );
+      )
+      ?? packagedLaunchContext?.plan;
     const autoStartPackagedTrendBuild =
       effectiveSource === 'trend-niche' && !!prebuiltPlanFromContext;
     const generationStartMs = Date.now();
@@ -2251,8 +2297,9 @@ export const useStudio = () => {
       dispatch({ type: 'UPDATE_STEPS', id: planMsgId, stepId, stepStatus });
     const updatePlan = (patch: object) =>
       chatUpdate(planMsgId, patch as Partial<ChatMessage>);
-    setInput('');
-    clearAttachments();
+      inputRef.current = '';
+      setInput('');
+      clearAttachments();
 
     const contextFiles = fullContextMode
       ? files
@@ -2632,7 +2679,7 @@ export const useStudio = () => {
         const compactContextPack = hasComposerContext
           ? [
               'CONTEXT PACK (compact):',
-              ...composerContextItems.map((item, index) => `${index + 1}. [${item.source}] ${item.title}`),
+              ...composerContextItemsSnapshot.map((item, index) => `${index + 1}. [${item.source}] ${item.title}`),
             ].join('\n')
           : '';
         const retryIntent = [
@@ -2891,6 +2938,8 @@ export const useStudio = () => {
         });
         pendingSavePromptShownRef.current = false;
         addLog(`[Project] Save ready to request after preview (${projectTitle})`);
+        packagedLaunchContextRef.current = null;
+        composerContextItemsRef.current = [];
         setComposerContextItems([]);
       }
 

@@ -36,7 +36,7 @@ import {
 interface TrendNichesPanelProps {
   appLanguage?: string;
   onSendIdeaToChat: (idea: TrendNicheIdea, founderBrief: string) => void;
-  onBuildIdea?: (idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => void;
+  onBuildIdea?: (idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => void | Promise<void>;
 }
 
 const LABELS: Record<string, Record<string, string>> = {
@@ -252,7 +252,7 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
         },
       );
       const buildIntent = buildTrendPackagingIntent(idea, blueprint, appLanguage);
-      onBuildIdea(idea, blueprint, buildIntent);
+      await onBuildIdea(idea, blueprint, buildIntent);
     } catch (error) {
       setPackagingError((error as Error)?.message ?? 'Failed to package the idea.');
     } finally {

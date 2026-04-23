@@ -7,7 +7,7 @@ interface TrendNichesModuleProps {
   appLanguage?: string;
   onBack: () => void;
   onSendIdeaToChat: (idea: TrendNicheIdea, founderBrief: string) => void;
-  onBuildIdea?: (idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => void;
+  onBuildIdea?: (idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => void | Promise<void>;
 }
 
 const LABELS: Record<string, Record<string, string>> = {

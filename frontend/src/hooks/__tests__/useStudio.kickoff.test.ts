@@ -1090,17 +1090,13 @@ describe('Founder packaged build auto-start', () => {
         shadcnComponents: [],
         icons: [],
       } as any, 'Build packaged founder trend idea', 'trend-niche');
-    });
-
-    await act(async () => {
-      void latestStudio!.handleSend();
+      await latestStudio!.handleSend();
     });
 
     await waitFor(() => {
-      expect(latestStudio!.isGenerating).toBe(false);
+      expect(approvalHolder.value).toEqual(expect.objectContaining({ confirmed: true }));
     });
 
-    expect(approvalHolder.value).toEqual(expect.objectContaining({ confirmed: true }));
     expect(latestStudio!.pendingPlan).toBeNull();
     expect(phases).not.toContain('awaiting_confirmation');
     expect(latestStudio!.messages.some((message) =>
