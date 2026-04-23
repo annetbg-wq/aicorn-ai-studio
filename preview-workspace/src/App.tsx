@@ -1,5 +1,17 @@
 import { Button } from "@/components/ui/button";
-import React from 'react';
-import './styles/premium.css';
-const signals=[{label:'Clinic inbox load',value:'+31%',detail:'Patient messages are climbing while staffing stays flat.'},{label:'Automation wedge',value:'4 min',detail:'Triage summaries turn raw notes into prioritized work.'},{label:'Buyer trigger',value:'Ops ROI',detail:'Managers can measure saved response time immediately.'}];
-export default function App(){return <main style={{minHeight:'100vh',background:'linear-gradient(135deg,#ecfeff 0%,#f8fafc 42%,#e0f2fe 100%)',color:'#0f172a',fontFamily:'Inter,ui-sans-serif,system-ui',padding:32}}><section style={{maxWidth:1080,margin:'0 auto',display:'grid',gap:24}}><div style={{border:'1px solid rgba(14,116,144,.18)',borderRadius:28,padding:28,background:'rgba(255,255,255,.82)',boxShadow:'0 24px 80px rgba(15,23,42,.12)'}}><p style={{margin:0,fontSize:12,fontWeight:800,letterSpacing:'.18em',textTransform:'uppercase',color:'#0891b2'}}>Trend Niches live audit</p><h1 style={{margin:'12px 0 10px',fontSize:46,lineHeight:1.02}}>Clinic Inbox Triage Copilot</h1><p style={{margin:0,maxWidth:720,fontSize:18,lineHeight:1.7,color:'#475569'}}>AI workspace that converts overloaded patient messages into ranked tasks, clear ownership, and next-best replies for small clinic teams.</p><div style={{marginTop:22,display:'flex',gap:12,flexWrap:'wrap'}}><Button className="premium-focus-ring" style={{border:0,borderRadius:999,padding:'12px 18px',background:'#0e7490',color:'white',fontWeight:800}}>Start triage board</Button><Button className="premium-focus-ring" style={{border:'1px solid #bae6fd',borderRadius:999,padding:'12px 18px',background:'#f0f9ff',color:'#075985',fontWeight:800}}>Review saved protocol</Button></div></div><div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:16}}>{signals.map(signal=><article key={signal.label} style={{border:'1px solid rgba(15,23,42,.08)',borderRadius:22,padding:20,background:'rgba(255,255,255,.72)'}}><strong style={{display:'block',fontSize:28,color:'#0e7490'}}>{signal.value}</strong><h2 style={{margin:'8px 0',fontSize:15}}>{signal.label}</h2><p style={{margin:0,color:'#64748b',lineHeight:1.55}}>{signal.detail}</p></article>)}</div><section style={{borderRadius:24,padding:22,background:'#0f172a',color:'#e2e8f0'}}><h2 style={{margin:'0 0 10px',fontSize:20}}>Preview reached</h2><p style={{margin:0,lineHeight:1.7}}>If the iframe renders this screen, the Trend Niches build path reached the compiled preview.</p></section></section></main>}
+import { useState } from 'react';
+
+export default function App() {
+  const [count, setCount] = useState(0);
+  return (
+    <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#0f172a", color: "#e2e8f0", fontFamily: "system-ui, sans-serif" }}>
+      <section style={{ display: "grid", gap: 12, textAlign: "center" }}>
+        <h1 data-testid="project-title" style={{ margin: 0 }}>Pulse Deck Arena</h1>
+        <p data-testid="count-value" style={{ margin: 0, fontSize: 32 }}>{count}</p>
+        <Button type="button" onClick={() => setCount(value => value + 1)} style={{ padding: "12px 18px", borderRadius: 10, border: "none", cursor: "pointer", background: "#22c55e", color: "#052e16", fontWeight: 700 }}>
+          Increment
+        </Button>
+      </section>
+    </main>
+  );
+}
