@@ -340,24 +340,23 @@ export default function App() {
     studio.setChatContext(founderBrief, 'trend-niche');
   }, [studio]);
 
-  const handleBuildTrendIdea = React.useCallback((idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => {
+  const handleBuildTrendIdea = React.useCallback(async (idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => {
     const copy = getTrendIdeaText(idea, studio.appLanguage);
     setView('engine');
-    void studio.launchWithPlan(blueprint, intent, 'trend-niche')
-      .then(() => {
-        studio.addSystemMessage([
-          `🧠 Blueprint packaged: **${blueprint.appName || copy.title}**`,
-          '',
-          `Market angle: ${copy.marketAngle}`,
-          `Why now: ${copy.whyInteresting}`,
-          `Files planned: ${blueprint.fileArchitecture?.length ?? 0}`,
-          '',
-          'The packaged blueprint is ready. Press Send to start code generation.',
-        ].join('\n'));
-      })
-      .catch((error: unknown) => {
-        studio.addSystemMessage(`⚠️ Failed to launch packaged trend idea: ${(error as Error)?.message ?? String(error)}`);
-      });
+    try {
+      await studio.launchWithPlan(blueprint, intent, 'trend-niche');
+      studio.addSystemMessage([
+        `🧠 Blueprint packaged: **${blueprint.appName || copy.title}**`,
+        '',
+        `Market angle: ${copy.marketAngle}`,
+        `Why now: ${copy.whyInteresting}`,
+        `Files planned: ${blueprint.fileArchitecture?.length ?? 0}`,
+        '',
+        'The packaged blueprint is ready. Press Send to start code generation.',
+      ].join('\n'));
+    } catch (error: unknown) {
+      studio.addSystemMessage(`⚠️ Failed to launch packaged trend idea: ${(error as Error)?.message ?? String(error)}`);
+    }
   }, [studio]);
 
   // ── Modal openers — stable refs ───────────────────────────────────────────
