@@ -1785,6 +1785,15 @@ export const useStudio = () => {
       }
       setProjectPersistenceState('exists');
 
+      const b = loadBilling(full.id);
+      ProjectManager.setCurrent(full.id);
+      // Switch saved-project chat immediately; preview materialization can finish in parallel.
+      chatLoadHistory(full.chatHistory as any[]);
+      setCurrentProjectId(full.id);
+      setProjectCost(b.cost);
+      setProjectTokens(b.tokens);
+      clearSnapshots();
+
       // 1. Compile project files — await so backend compile + preview-mounted(buildId) complete before React state update
       const persistedFileCount = Object.keys(full.files ?? {}).length;
       try {
@@ -1824,19 +1833,9 @@ export const useStudio = () => {
         });
       }
 
-      // 2. Now update React state — preview-workspace already has the files on disk.
-      // startTransition: these are non-critical UI updates; batching prevents
-      // intermediate renders where iframe and React state are out of sync.
-      const b = loadBilling(full.id);
-      ProjectManager.setCurrent(full.id);
+      // 2. Update file state after preview-workspace materialization.
       startTransition(() => {
-        chatLoadHistory(full.chatHistory as any[]);
         setFiles(normalizeToFileMap(full.files));
-        setCurrentProjectId(full.id);
-        setProjectPersistenceState('exists');
-        setProjectCost(b.cost);
-        setProjectTokens(b.tokens);
-        clearSnapshots();
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
