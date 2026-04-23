@@ -1157,6 +1157,9 @@ export interface GenerationReport {
   filesModified: string[];
   pageCount: number;
   duration: number;
+  revisionId?: string;
+  lineageId?: string;
+  lineageRootMessageId?: string;
   visualQuality?: VisualQualitySummary;
   visualPolish?:  VisualPolishSummary;
 }
@@ -1691,6 +1694,7 @@ export interface PersistedProjectBranch {
   updatedAt:       string;
   chatThreadId?:   string;
   headRevisionId?: string;
+  activeLineageId?: string;
   files:           Record<string, string>;
   chatHistory:     unknown[];
   revisions?:      unknown[];

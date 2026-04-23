@@ -176,6 +176,17 @@ type PackagedLaunchContext = {
   plan: ProjectPlan;
 };
 
+type DraftSessionSource =
+  | 'new-project'
+  | 'startup'
+  | 'trend-niche-chat'
+  | 'trend-niche-build';
+
+interface CreateNewProjectOptions {
+  autoSaveCurrentProject?: boolean;
+  sessionSource?: DraftSessionSource;
+}
+
 type PlanApprovalDecision = {
   confirmed: boolean;
   approvedPlan?: ProjectPlan;
@@ -457,6 +468,16 @@ const repositoryMetaToProjectMeta = (
 // ── revision helper ─────────────────────────────────────────────────────────
 
 const MAX_REVISIONS = 5;
+const LINEAGE_RESET_REQUEST_RE =
+  /(full redesign|rebuild|start over|overhaul|new structure|new navigation|new ia|re-architect|build from scratch|redo everything|remake completely|сделай всё заново|начни заново|с нуля|полностью переделай|перестрой всё)/i;
+
+type LineageStatus = 'current' | 'behind' | 'historical';
+
+interface ReconciledProjectThread {
+  history: ChatMessage[];
+  revisions: ProjectRevision[];
+  activeLineageId: string | null;
+}
 
 function addRevision(
   existing: StoredProject,
@@ -467,6 +488,9 @@ function addRevision(
     modelId?:    string;
     durationMs?: number;
     pagesCount?: number;
+    lineageId?: string | null;
+    lineageRootMessageId?: string | null;
+    reportMessageId?: string | null;
   },
 ): ProjectRevision[] | null {
   const current = existing.revisions ?? [];
@@ -482,8 +506,299 @@ function addRevision(
     durationMs:   patch.durationMs,
     isBookmarked: false,
     pagesCount:   patch.pagesCount,
+    lineageId: patch.lineageId ?? undefined,
+    lineageRootMessageId: patch.lineageRootMessageId ?? undefined,
+    reportMessageId: patch.reportMessageId ?? undefined,
   };
   return [rev, ...current];
+}
+
+function shouldStartNewLineage(intent: string, existingFileCount: number): boolean {
+  return existingFileCount > 0 && LINEAGE_RESET_REQUEST_RE.test(intent);
+}
+
+function buildLineageId(rootMessageId: string): string {
+  return `lineage:${rootMessageId}`;
+}
+
+function getMessageRevisionId(
+  message: { report?: unknown; revisionId?: unknown } | null | undefined,
+): string | null {
+  const messageRevisionId = typeof message?.revisionId === 'string' ? message.revisionId.trim() : '';
+  if (messageRevisionId) return messageRevisionId;
+  const reportRevisionId =
+    message?.report && typeof message.report === 'object' && typeof (message.report as any).revisionId === 'string'
+      ? String((message.report as any).revisionId).trim()
+      : '';
+  return reportRevisionId || null;
+}
+
+function getMessageLineageId(
+  message: { report?: unknown; lineageId?: unknown } | null | undefined,
+): string | null {
+  const messageLineageId = typeof message?.lineageId === 'string' ? message.lineageId.trim() : '';
+  if (messageLineageId) return messageLineageId;
+  const reportLineageId =
+    message?.report && typeof message.report === 'object' && typeof (message.report as any).lineageId === 'string'
+      ? String((message.report as any).lineageId).trim()
+      : '';
+  return reportLineageId || null;
+}
+
+function getMessageLineageRootId(
+  message: { report?: unknown; lineageRootMessageId?: unknown } | null | undefined,
+): string | null {
+  const rootMessageId =
+    typeof message?.lineageRootMessageId === 'string'
+      ? message.lineageRootMessageId.trim()
+      : '';
+  if (rootMessageId) return rootMessageId;
+  const reportRootMessageId =
+    message?.report && typeof message.report === 'object' && typeof (message.report as any).lineageRootMessageId === 'string'
+      ? String((message.report as any).lineageRootMessageId).trim()
+      : '';
+  return reportRootMessageId || null;
+}
+
+function getRevisionLineageId(revision: Partial<ProjectRevision> | null | undefined): string | null {
+  return typeof revision?.lineageId === 'string' && revision.lineageId.trim()
+    ? revision.lineageId.trim()
+    : null;
+}
+
+function getRevisionLineageRootId(revision: Partial<ProjectRevision> | null | undefined): string | null {
+  return typeof revision?.lineageRootMessageId === 'string' && revision.lineageRootMessageId.trim()
+    ? revision.lineageRootMessageId.trim()
+    : null;
+}
+
+function findLatestLineageId(history: ChatMessage[] | null | undefined): string | null {
+  if (!Array.isArray(history)) return null;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const lineageId = getMessageLineageId(history[index]);
+    if (lineageId) return lineageId;
+  }
+  return null;
+}
+
+function findLineageRootMessageId(history: ChatMessage[] | null | undefined, lineageId: string | null | undefined): string | null {
+  if (!lineageId || !Array.isArray(history)) return null;
+  for (const message of history) {
+    if (
+      message.type === 'blueprint'
+      && getMessageLineageId(message) === lineageId
+      && (message.startsLineage !== false || message.id === getMessageLineageRootId(message))
+    ) {
+      return message.id;
+    }
+  }
+  return null;
+}
+
+function linkLatestGenerationReportToRevision(
+  history: ChatMessage[],
+  revisionId: string | null,
+  lineageId?: string | null,
+  lineageRootMessageId?: string | null,
+): ChatMessage[] {
+  if (!revisionId) return history;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message.type !== 'generation-report') continue;
+    const nextReport =
+      message.report && typeof message.report === 'object'
+        ? {
+            ...message.report,
+            revisionId,
+            ...(lineageId ? { lineageId } : {}),
+            ...(lineageRootMessageId ? { lineageRootMessageId } : {}),
+          }
+        : message.report;
+    return history.map((entry, entryIndex) => (
+      entryIndex === index
+        ? {
+            ...entry,
+            revisionId,
+            ...(lineageId ? { lineageId } : {}),
+            ...(lineageRootMessageId ? { lineageRootMessageId } : {}),
+            ...(nextReport ? { report: nextReport } : {}),
+          }
+        : entry
+    ));
+  }
+  return history;
+}
+
+function fileMapSignature(files: FileMap | null | undefined): string {
+  if (!files) return '';
+  return JSON.stringify(
+    Object.entries(files)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function reconcileProjectChatHistory(params: {
+  history: ChatMessage[];
+  revisions: ProjectRevision[];
+  currentFiles: FileMap;
+  currentHeadRevisionId?: string | null;
+  currentActiveLineageId?: string | null;
+}): ReconciledProjectThread {
+  const { history, revisions, currentFiles, currentHeadRevisionId, currentActiveLineageId } = params;
+  const clonedHistory = history.map(message => ({ ...message }));
+  const clonedRevisions = revisions.map(revision => ({ ...revision }));
+  if (clonedHistory.length === 0) {
+    return {
+      history: clonedHistory,
+      revisions: clonedRevisions,
+      activeLineageId: currentActiveLineageId ?? getRevisionLineageId(clonedRevisions[0]) ?? null,
+    };
+  }
+
+  const reportIndices = clonedHistory.reduce<number[]>((indexes, message, index) => {
+    if (message.type === 'generation-report') indexes.push(index);
+    return indexes;
+  }, []);
+  const chronologicalRevisions = [...clonedRevisions].reverse();
+  const mappedReportIndices = reportIndices.slice(-chronologicalRevisions.length);
+  const reportRevisionMap = new Map<number, ProjectRevision>();
+  mappedReportIndices.forEach((reportIndex, index) => {
+    const revision = chronologicalRevisions[index];
+    if (revision) reportRevisionMap.set(reportIndex, revision);
+  });
+
+  let walkLineageId: string | null = currentActiveLineageId ?? null;
+  let walkRootMessageId: string | null = null;
+  clonedHistory.forEach((message, index) => {
+    if (message.type === 'blueprint') {
+      const explicitRootMessageId = getMessageLineageRootId(message);
+      const startsLineage =
+        typeof message.startsLineage === 'boolean'
+          ? message.startsLineage
+          : !explicitRootMessageId || explicitRootMessageId === message.id;
+      const rootMessageId = explicitRootMessageId ?? (startsLineage ? message.id : walkRootMessageId ?? message.id);
+      const lineageId = getMessageLineageId(message) ?? buildLineageId(rootMessageId);
+      clonedHistory[index] = {
+        ...message,
+        lineageId,
+        lineageRootMessageId: rootMessageId,
+        startsLineage,
+      };
+      walkLineageId = lineageId;
+      walkRootMessageId = rootMessageId;
+      return;
+    }
+
+    if (message.type !== 'generation-report') return;
+
+    const mappedRevision = reportRevisionMap.get(index);
+    const rootMessageId =
+      getMessageLineageRootId(message)
+      ?? getRevisionLineageRootId(mappedRevision)
+      ?? walkRootMessageId;
+    const lineageId =
+      getMessageLineageId(message)
+      ?? getRevisionLineageId(mappedRevision)
+      ?? (rootMessageId ? buildLineageId(rootMessageId) : walkLineageId);
+    const revisionId = getMessageRevisionId(message) ?? mappedRevision?.id ?? null;
+    const nextReport =
+      message.report && typeof message.report === 'object'
+        ? {
+            ...message.report,
+            ...(revisionId ? { revisionId } : {}),
+            ...(lineageId ? { lineageId } : {}),
+            ...(rootMessageId ? { lineageRootMessageId: rootMessageId } : {}),
+          }
+        : message.report;
+    clonedHistory[index] = {
+      ...message,
+      ...(revisionId ? { revisionId } : {}),
+      ...(lineageId ? { lineageId } : {}),
+      ...(rootMessageId ? { lineageRootMessageId: rootMessageId } : {}),
+      ...(nextReport ? { report: nextReport } : {}),
+    };
+    if (mappedRevision) {
+      mappedRevision.lineageId = lineageId ?? mappedRevision.lineageId;
+      mappedRevision.lineageRootMessageId = rootMessageId ?? mappedRevision.lineageRootMessageId;
+      mappedRevision.reportMessageId = message.id ?? mappedRevision.reportMessageId;
+    }
+    if (lineageId) walkLineageId = lineageId;
+    if (rootMessageId) walkRootMessageId = rootMessageId;
+  });
+
+  const revisionById = new Map(clonedRevisions.map(revision => [revision.id, revision]));
+  const lineageLatestRevisionId = new Map<string, string>();
+  clonedRevisions.forEach(revision => {
+    const lineageId = getRevisionLineageId(revision);
+    if (lineageId && !lineageLatestRevisionId.has(lineageId)) {
+      lineageLatestRevisionId.set(lineageId, revision.id);
+    }
+  });
+
+  const activeLineageId =
+    currentActiveLineageId
+    ?? getRevisionLineageId(currentHeadRevisionId ? revisionById.get(currentHeadRevisionId) : undefined)
+    ?? findLatestLineageId(clonedHistory)
+    ?? getRevisionLineageId(clonedRevisions[0])
+    ?? null;
+
+  const currentSignature = fileMapSignature(currentFiles);
+  const matchesRevision = (revisionId: string | null | undefined): boolean => {
+    if (!revisionId) return false;
+    if (currentHeadRevisionId && currentHeadRevisionId === revisionId) return true;
+    const revision = revisionById.get(revisionId);
+    if (!revision) return false;
+    return fileMapSignature(revision.files) === currentSignature;
+  };
+
+  const historyWithStatus = clonedHistory.map(message => {
+    const lineageId = getMessageLineageId(message);
+    const lineageRootMessageId = getMessageLineageRootId(message);
+    if (message.type === 'generation-report') {
+      const revisionId = getMessageRevisionId(message);
+      const lineageStatus: LineageStatus | undefined = lineageId
+        ? activeLineageId === lineageId
+          ? (matchesRevision(revisionId) ? 'current' : 'behind')
+          : 'historical'
+        : undefined;
+      return {
+        ...message,
+        ...(lineageId ? { lineageId } : {}),
+        ...(lineageRootMessageId ? { lineageRootMessageId } : {}),
+        ...(revisionId ? { revisionId } : {}),
+        ...(lineageStatus ? { lineageStatus } : {}),
+        restoreAvailable: !!revisionId && !matchesRevision(revisionId),
+      };
+    }
+
+    if (
+      message.type === 'blueprint'
+      && lineageId
+      && (message.startsLineage !== false || message.id === lineageRootMessageId)
+    ) {
+      const lastGoodRevisionId = lineageLatestRevisionId.get(lineageId) ?? null;
+      const lineageStatus: LineageStatus = activeLineageId === lineageId
+        ? (matchesRevision(lastGoodRevisionId) ? 'current' : 'behind')
+        : 'historical';
+      return {
+        ...message,
+        lineageId,
+        lineageRootMessageId: lineageRootMessageId ?? message.id,
+        startsLineage: message.startsLineage ?? true,
+        ...(lastGoodRevisionId ? { lastGoodRevisionId } : {}),
+        lineageStatus,
+        restoreAvailable: !!lastGoodRevisionId && !matchesRevision(lastGoodRevisionId),
+      };
+    }
+
+    return message;
+  });
+
+  return {
+    history: historyWithStatus,
+    revisions: clonedRevisions,
+    activeLineageId,
+  };
 }
 
 interface PendingProjectSave {
@@ -500,6 +815,9 @@ interface PendingProjectSave {
   plan: ProjectPlan | null;
   planTheme: string;
   reqUsage: UsageData;
+  lineageId?: string | null;
+  lineageRootMessageId?: string | null;
+  reportMessageId?: string | null;
 }
 
 type PendingProjectSaveReason = 'manual-after-preview';
@@ -531,12 +849,35 @@ function readDraftChatHistory(draftId: string | null): ChatMessage[] {
   }
 }
 
+function isSessionOnlyProjectMessage(message: ChatMessage): boolean {
+  if ((message as any).persistInHistory === false || (message as any).sessionOnly === true) {
+    return true;
+  }
+
+  if (message.role === 'assistant' && message.content === '...') {
+    return true;
+  }
+
+  const text = typeof message.content === 'string' ? message.content.trim() : '';
+  if (!text || message.role !== 'assistant') return false;
+
+  return (
+    text.startsWith('⚠️ Preview failed to load:')
+    || text.startsWith('⚠️ Could not load project:')
+    || text.startsWith('⚠️ Project not found:')
+  );
+}
+
+function buildPersistedProjectChatHistory(history: any[] | null | undefined): ChatMessage[] {
+  return normalizeMessages(Array.isArray(history) ? history : []).filter(message => !isSessionOnlyProjectMessage(message));
+}
+
 function readInitialChatHistory(): ChatMessage[] {
   try {
     const activeProjectId = localStorage.getItem('CURRENT_PROJECT_ID');
     if (activeProjectId && ProjectStorage.projectDataExists(activeProjectId)) {
       const activeProject = ProjectStorage.getProject(activeProjectId);
-      return normalizeMessages((activeProject?.chatHistory as any[]) ?? []);
+      return buildPersistedProjectChatHistory((activeProject?.chatHistory as any[]) ?? []);
     }
     const activeDraftId = localStorage.getItem('AIC_DRAFT_SESSION_ID');
     return readDraftChatHistory(activeDraftId);
@@ -704,7 +1045,7 @@ export const useStudio = () => {
     return s.length - 1;
   });
 
-  const addSnapshot = useCallback((newFiles: FileMap, label: string, revId?: string) => {
+  const addSnapshot = useCallback((newFiles: FileMap, label: string, revId?: string): Snapshot => {
     // Compute snapshot data eagerly so we can call all setters at the same level
     // (never call setState inside another setState updater — that creates render-phase
     // updates which can corrupt the hooks linked list and trigger "Should have a queue").
@@ -725,6 +1066,7 @@ export const useStudio = () => {
     setSnapshots(updated);
     setCurrentSnapshotId(snap.id);
     setHistoryIndex(updated.length - 1);
+    return snap;
   }, [historyIndex, snapshots]);
 
   const restoreSnapshot = useCallback((snap: Snapshot) => {
@@ -1143,6 +1485,7 @@ export const useStudio = () => {
 
   const scrollRef          = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const abortDispositionRef = useRef<'user-stop' | 'context-switch' | null>(null);
   const consecutiveErrors  = useRef(0);
   const lastErrorTime      = useRef(0);
   const networkRetryCountRef   = useRef(0);
@@ -1177,6 +1520,18 @@ export const useStudio = () => {
     const id = localStorage.getItem('CURRENT_PROJECT_ID');
     return id ? loadBilling(id).tokens : 0;
   });
+  const projectLoadRequestRef = useRef(0);
+  const chatThreadSequenceRef = useRef(0);
+  const nextChatThreadKey = useCallback((
+    kind: 'draft' | 'loading' | 'project' | 'missing' | 'error',
+    threadId?: string | null,
+  ) => `${kind}:${threadId ?? 'none'}:${++chatThreadSequenceRef.current}`, []);
+  const [chatThreadKey, setChatThreadKey] = useState(() => {
+    const persistedProjectId = localStorage.getItem('CURRENT_PROJECT_ID');
+    if (persistedProjectId) return `project:${persistedProjectId}:0`;
+    const draftId = localStorage.getItem('AIC_DRAFT_SESSION_ID');
+    return draftId ? `draft:${draftId}:0` : 'draft:none:0';
+  });
 
   // Generated project stays as a draft until the user explicitly saves it.
   // If preview failed/blocked, the legacy fallback still asks before saving.
@@ -1194,6 +1549,25 @@ export const useStudio = () => {
     try { localStorage.removeItem(key); } catch { /* ignore */ }
   }, []);
 
+  const abortActiveGeneration = useCallback((
+    disposition: 'user-stop' | 'context-switch',
+  ) => {
+    if (networkRetryTimeoutRef.current) {
+      clearTimeout(networkRetryTimeoutRef.current);
+      networkRetryTimeoutRef.current = null;
+    }
+    networkRetryCountRef.current = 0;
+    abortDispositionRef.current = disposition;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsGenerating(false);
+    setKickoffPhase('idle');
+    setProgress(0);
+    setCurrentPhase('');
+  }, []);
+
   const commitPendingProjectSave = useCallback((reason: PendingProjectSaveReason) => {
     const pending = pendingProjectSaveRef.current;
     if (!pending) return false;
@@ -1209,6 +1583,9 @@ export const useStudio = () => {
     const persistedProjectName = getCanonicalProjectName(
       { name: pending.projectTitle },
       (pending.plan?.appName ?? '').trim() || 'New Project',
+    );
+    const basePersistedChatHistory = buildPersistedProjectChatHistory(
+      _latestMsgsRef.current.length > 0 ? _latestMsgsRef.current : pending.chatHistoryToSave,
     );
 
     pendingProjectSaveRef.current = null;
@@ -1228,6 +1605,12 @@ export const useStudio = () => {
     }
 
     const existing = ProjectStorage.getProject(pending.projectId);
+    const existingActiveBranchId = existing?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
+    const existingBranch = existing?.branches?.[existingActiveBranchId];
+    const targetLineageId =
+      pending.lineageId
+      ?? existingBranch?.activeLineageId
+      ?? findLatestLineageId(basePersistedChatHistory);
     const revisionPatch = {
       prompt:     pending.userPrompt,
       source:     pending.source,
@@ -1235,6 +1618,9 @@ export const useStudio = () => {
       modelId:    pending.effectiveModel,
       durationMs: Date.now() - pending.generationStartMs,
       pagesCount: pending.plan?.pages?.length ?? 0,
+      lineageId: targetLineageId,
+      lineageRootMessageId: pending.lineageRootMessageId ?? findLineageRootMessageId(basePersistedChatHistory, targetLineageId),
+      reportMessageId: pending.reportMessageId ?? null,
     };
     let newRevisions: ProjectRevision[] | null = null;
     if (existing) {
@@ -1255,10 +1641,16 @@ export const useStudio = () => {
         });
       }
     }
+    const persistedRevisionId = newRevisions?.[0]?.id ?? null;
+    const linkedChatHistory = linkLatestGenerationReportToRevision(
+      basePersistedChatHistory,
+      persistedRevisionId,
+      targetLineageId,
+      revisionPatch.lineageRootMessageId,
+    );
 
     const saveNow = new Date().toISOString();
-    const activeBranchId = existing?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
-    const existingBranch = existing?.branches?.[activeBranchId];
+    const activeBranchId = existingActiveBranchId;
     const mergedBranchFiles = {
       ...(existingBranch?.files ?? existing?.files ?? {}),
       ...pending.finalFiles,
@@ -1286,17 +1678,28 @@ export const useStudio = () => {
       {
         language: appLanguage,
         now: saveNow,
-        revisionId: fallbackBranch.headRevisionId,
+        revisionId: persistedRevisionId ?? fallbackBranch.headRevisionId,
       },
     );
+    const reconciledThread = reconcileProjectChatHistory({
+      history: linkedChatHistory,
+      revisions: newRevisions ?? (fallbackBranch.revisions as ProjectRevision[] | undefined) ?? existing?.revisions ?? [],
+      currentFiles: mergedBranchFiles,
+      currentHeadRevisionId: persistedRevisionId ?? fallbackBranch.headRevisionId ?? null,
+      currentActiveLineageId: targetLineageId ?? existingBranch?.activeLineageId ?? null,
+    });
+    const persistedChatHistory = reconciledThread.history;
+    let persistedChatHistoryForSession = persistedChatHistory;
     const updatedBranch = {
       ...fallbackBranch,
       projectId: pending.projectId,
       name: fallbackBranch.name || activeBranchId,
       updatedAt: saveNow,
+      headRevisionId: persistedRevisionId ?? fallbackBranch.headRevisionId,
+      activeLineageId: reconciledThread.activeLineageId ?? targetLineageId ?? fallbackBranch.activeLineageId,
       files: mergedBranchFiles,
-      chatHistory: pending.chatHistoryToSave,
-      revisions: newRevisions ?? fallbackBranch.revisions ?? existing?.revisions ?? [],
+      chatHistory: persistedChatHistory,
+      revisions: reconciledThread.revisions,
       architecture: refreshedArchitecture.architecture,
     };
     const updatedBranches = {
@@ -1311,7 +1714,7 @@ export const useStudio = () => {
         activeBranchId,
         branches: updatedBranches,
         files: mergedBranchFiles,
-        chatHistory:    pending.chatHistoryToSave,
+        chatHistory:    persistedChatHistory,
         updatedAt:      saveNow,
         intent:         pending.userPrompt,
         source:         pending.source,
@@ -1324,7 +1727,7 @@ export const useStudio = () => {
         generationMode,
         billingCost:    projectCost,
         billingTokens:  projectTokens,
-        revisions:      newRevisions ?? existing.revisions,
+        revisions:      reconciledThread.revisions,
       });
     } else {
       const firstRevision: ProjectRevision = {
@@ -1337,7 +1740,22 @@ export const useStudio = () => {
         durationMs:   Date.now() - pending.generationStartMs,
         isBookmarked: false,
         pagesCount:   pending.plan?.pages?.length ?? 0,
+        lineageId: targetLineageId ?? undefined,
+        lineageRootMessageId: revisionPatch.lineageRootMessageId ?? undefined,
+        reportMessageId: pending.reportMessageId ?? undefined,
       };
+      const firstThread = reconcileProjectChatHistory({
+        history: linkLatestGenerationReportToRevision(
+          basePersistedChatHistory,
+          firstRevision.id,
+          targetLineageId,
+          revisionPatch.lineageRootMessageId,
+        ),
+        revisions: [firstRevision],
+        currentFiles: mergedBranchFiles,
+        currentHeadRevisionId: firstRevision.id,
+        currentActiveLineageId: targetLineageId ?? null,
+      });
       const fallback: StoredProject = {
         id:             pending.projectId,
         name:           persistedProjectName,
@@ -1346,12 +1764,15 @@ export const useStudio = () => {
         createdAt:      saveNow,
         updatedAt:      saveNow,
         files:          mergedBranchFiles,
-        chatHistory:    pending.chatHistoryToSave,
+        chatHistory:    firstThread.history,
         activeBranchId,
         branches: {
           [activeBranchId]: {
             ...updatedBranch,
+            headRevisionId: firstRevision.id,
+            activeLineageId: firstThread.activeLineageId ?? targetLineageId ?? undefined,
             revisions: [firstRevision],
+            chatHistory: firstThread.history,
           },
         },
         intent:         pending.userPrompt,
@@ -1365,11 +1786,14 @@ export const useStudio = () => {
         generationMode,
         billingCost:    projectCost,
         billingTokens:  projectTokens,
-        revisions:      [firstRevision],
+        revisions:      firstThread.revisions,
       };
       const ok = ProjectStorage.saveProject(fallback);
       if (!ok) addLog('[Project] Storage full â€” project not saved');
+      persistedChatHistoryForSession = firstThread.history;
     }
+
+    chatLoadHistory(persistedChatHistoryForSession);
 
     setCurrentProjectId(pending.projectId);
     ProjectManager.setCurrent(pending.projectId);
@@ -1386,7 +1810,7 @@ export const useStudio = () => {
       files:       existingForCloud?.files
                      ? { ...existingForCloud.files, ...pending.finalFiles }
                      : mergedBranchFiles,
-      chatHistory: pending.chatHistoryToSave,
+      chatHistory: existingForCloud?.chatHistory ?? persistedChatHistoryForSession,
       createdAt:   existingForCloud?.createdAt ?? new Date().toISOString(),
       updatedAt:   new Date().toISOString(),
       version:     1,
@@ -1493,15 +1917,23 @@ export const useStudio = () => {
     const now = new Date().toISOString();
     const activeBranchId = storedProject.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
     const existingBranch = storedProject.branches?.[activeBranchId];
+    const reconciledThread = reconcileProjectChatHistory({
+      history: buildPersistedProjectChatHistory(messages),
+      revisions: (existingBranch?.revisions as ProjectRevision[] | undefined) ?? storedProject.revisions ?? [],
+      currentFiles: existingBranch?.files ?? storedProject.files ?? {},
+      currentHeadRevisionId: existingBranch?.headRevisionId ?? null,
+      currentActiveLineageId: existingBranch?.activeLineageId ?? null,
+    });
+    const persistedMessages = reconciledThread.history;
     const nextChatHistory = JSON.stringify(existingBranch?.chatHistory ?? []);
-    const currentChatHistory = JSON.stringify(messages);
+    const currentChatHistory = JSON.stringify(persistedMessages);
     if (nextChatHistory === currentChatHistory) return;
 
     ProjectStorage.saveProject({
       ...storedProject,
       updatedAt: now,
       activeBranchId,
-      chatHistory: messages as any,
+      chatHistory: persistedMessages as any,
       branches: {
         ...(storedProject.branches ?? {}),
         [activeBranchId]: {
@@ -1526,7 +1958,9 @@ export const useStudio = () => {
           name: existingBranch?.name ?? activeBranchId,
           updatedAt: now,
           files: existingBranch?.files ?? storedProject.files ?? {},
-          chatHistory: messages as any,
+          chatHistory: persistedMessages as any,
+          revisions: reconciledThread.revisions,
+          activeLineageId: reconciledThread.activeLineageId ?? existingBranch?.activeLineageId,
         },
       },
     });
@@ -1674,7 +2108,13 @@ export const useStudio = () => {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── project actions ───────────────────────────────────────────────────────
-  const createNewProject = useCallback(async () => {
+  const createNewProject = useCallback(async (options: CreateNewProjectOptions = {}) => {
+    const {
+      autoSaveCurrentProject = true,
+      sessionSource = 'new-project',
+    } = options;
+    projectLoadRequestRef.current += 1;
+    abortActiveGeneration('context-switch');
     pendingProjectSaveRef.current = null;
     pendingSavePromptShownRef.current = false;
     setPendingProjectSaveMeta(null);
@@ -1683,6 +2123,7 @@ export const useStudio = () => {
     clearDraftChatStorage(previousDraftId);
     // Auto-save the current project before clearing so history is not lost
     if (
+      autoSaveCurrentProject &&
       projectPersistenceState === 'exists' &&
       currentProjectId &&
       Object.keys(_latestFilesRef.current).length > 0
@@ -1732,27 +2173,49 @@ export const useStudio = () => {
     // Create a draft session for the next generation run.
     // No persisted project is created here — a project is created only after
     // explicit Save following a successful preview (commitPendingProjectSave).
-    const draftId = draftArtifactJournal.createSession({ source: 'new-project' });
+    const draftId = draftArtifactJournal.createSession({ source: sessionSource });
     _draftSessionIdRef.current = draftId;
     localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
     setCurrentProjectId(draftId);
     setProjectPersistenceState('draft');
+    setChatThreadKey(nextChatThreadKey('draft', draftId));
     draftArtifactJournal.appendRecord(draftId, {
       stepType: 'draft_session_started',
-      source: 'new-project',
+      source: sessionSource,
       projectId: null,
       status: 'ok',
     });
-  }, [clearDraftChatStorage, currentProjectId, clearSnapshots, clearLogs, clearAttachments, clearComposerContextItems, addLog, projectPersistenceState]);
+  }, [abortActiveGeneration, clearDraftChatStorage, currentProjectId, clearSnapshots, clearLogs, clearAttachments, clearComposerContextItems, addLog, nextChatThreadKey, projectPersistenceState]);
+
+  const startTrendIdeaDraftSession = useCallback(async (
+    mode: 'chat' | 'build',
+  ) => {
+    await createNewProject({
+      autoSaveCurrentProject: false,
+      sessionSource: mode === 'chat' ? 'trend-niche-chat' : 'trend-niche-build',
+    });
+  }, [createNewProject]);
 
   const loadProject = useCallback(async (project: { id: string }) => {
+    const loadRequestId = ++projectLoadRequestRef.current;
+    abortActiveGeneration('context-switch');
     pendingProjectSaveRef.current = null;
     pendingSavePromptShownRef.current = false;
     setPendingProjectSaveMeta(null);
+    setPendingPlan(null);
+    setPendingDiff(null);
+    setPendingAdmission(null);
+    currentPlanMsgIdRef.current = null;
+    setPreviewLifecycle('idle');
+    setPreviewBlockedReason(null);
+    setPreviewUrl('');
+    setPreviewReady(false);
+    clearAttachments();
     clearComposerContextItems();
     addLog(`[Project] Loading ${project.id.slice(0, 8)}…`);
     setProjectPersistenceState('unknown');
     // Switch chat context immediately so cross-project messages cannot leak while loading.
+    setChatThreadKey(nextChatThreadKey('loading', project.id));
     chatLoadHistory([]);
     // Clear any active draft session — we are transitioning to a real persisted project.
     _draftSessionIdRef.current = null;
@@ -1760,6 +2223,7 @@ export const useStudio = () => {
     try {
       // Supabase first, localStorage fallback
       const full = await ProjectRepository.getProject(project.id);
+      if (projectLoadRequestRef.current !== loadRequestId) return;
       if (!full) {
         addLog('[Project] Not found in Supabase or localStorage');
         ProjectRepository.removeLocalProjectMeta(project.id);
@@ -1767,6 +2231,7 @@ export const useStudio = () => {
         localStorage.removeItem('aic-current-project');
         setCurrentProjectId(project.id);
         setProjectPersistenceState('missing');
+        setChatThreadKey(nextChatThreadKey('missing', project.id));
         setFiles({});
         chatLoadHistory([]);
         clearSnapshots();
@@ -1787,8 +2252,18 @@ export const useStudio = () => {
 
       const b = loadBilling(full.id);
       ProjectManager.setCurrent(full.id);
+      const activeBranchId = full.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
+      const activeBranch = full.branches?.[activeBranchId];
+      const reconciledThread = reconcileProjectChatHistory({
+        history: buildPersistedProjectChatHistory(full.chatHistory as any[]),
+        revisions: ((activeBranch?.revisions as ProjectRevision[] | undefined) ?? ((full as any).revisions as ProjectRevision[] | undefined) ?? []),
+        currentFiles: normalizeToFileMap(full.files),
+        currentHeadRevisionId: activeBranch?.headRevisionId ?? activeBranch?.architecture?.branch?.headRevisionId ?? null,
+        currentActiveLineageId: activeBranch?.activeLineageId ?? null,
+      });
       // Switch saved-project chat immediately; preview materialization can finish in parallel.
-      chatLoadHistory(full.chatHistory as any[]);
+      setChatThreadKey(nextChatThreadKey('project', full.id));
+      chatLoadHistory(reconciledThread.history);
       setCurrentProjectId(full.id);
       setProjectCost(b.cost);
       setProjectTokens(b.tokens);
@@ -1798,6 +2273,7 @@ export const useStudio = () => {
       const persistedFileCount = Object.keys(full.files ?? {}).length;
       try {
         await ProjectRepository.loadToPreview(full);
+        if (projectLoadRequestRef.current !== loadRequestId) return;
         if (persistedFileCount === 0) {
           setPreviewBlockedReason('Repository preload failed: empty persisted file map');
           addLog('[Project] No persisted files found for preview preload');
@@ -1823,30 +2299,238 @@ export const useStudio = () => {
           }
         }
       } catch (err) {
+        if (projectLoadRequestRef.current !== loadRequestId) return;
         const msg = err instanceof Error ? err.message : String(err);
         addLog(`[Project] ❌ Preview load failed: ${msg}`);
         setPreviewBlockedReason(`Repository preload failed: ${msg}`);
-        chatAppend({
-          role: 'assistant',
-          content: `⚠️ Preview failed to load: ${msg}\n\nTry clicking Retry in the preview panel.`,
-          timestamp: Date.now(),
-        });
       }
 
       // 2. Update file state after preview-workspace materialization.
       startTransition(() => {
+        if (projectLoadRequestRef.current !== loadRequestId) return;
         setFiles(normalizeToFileMap(full.files));
       });
     } catch (err) {
+      if (projectLoadRequestRef.current !== loadRequestId) return;
       const msg = err instanceof Error ? err.message : String(err);
       addLog(`[Project] ❌ Load failed: ${msg}`);
+      setChatThreadKey(nextChatThreadKey('error', project.id));
       chatAppend({
         role: 'assistant',
         content: `⚠️ Could not load project: ${msg}`,
         timestamp: Date.now(),
       });
     }
-  }, [clearSnapshots, addLog, chatAppend, chatLoadHistory, clearComposerContextItems]);
+  }, [abortActiveGeneration, clearSnapshots, addLog, chatAppend, chatLoadHistory, clearAttachments, clearComposerContextItems, nextChatThreadKey]);
+
+  const restorePersistedRevision = useCallback(async (
+    targetRevisionId: string,
+    sourceLabel: 'message' | 'blueprint',
+  ) => {
+    if (projectPersistenceState !== 'exists' || !currentProjectId) return false;
+
+    abortActiveGeneration('context-switch');
+    pendingProjectSaveRef.current = null;
+    pendingSavePromptShownRef.current = false;
+    setPendingProjectSaveMeta(null);
+    setPreviewLifecycle('materializing');
+    setPreviewBlockedReason(null);
+    setPreviewReady(false);
+
+    try {
+      const full = await ProjectRepository.getProject(currentProjectId);
+      if (!full) {
+        throw new Error(`Project not found: ${currentProjectId}`);
+      }
+
+      const activeBranchId = full.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
+      const activeBranch = full.branches?.[activeBranchId];
+      const revisions =
+        ((activeBranch?.revisions as ProjectRevision[] | undefined)
+          ?? ((full as any).revisions as ProjectRevision[] | undefined)
+          ?? []);
+      const targetRevision = revisions.find(revision => revision.id === targetRevisionId);
+      if (!targetRevision) {
+        throw new Error(`Saved revision not found: ${targetRevisionId}`);
+      }
+
+      const restoredFiles = normalizeToFileMap(targetRevision.files);
+      const buildId = await revisionManager.materializePersistedFiles(restoredFiles, {
+        source: sourceLabel === 'blueprint'
+          ? 'useStudio.restoreBlueprintLineage'
+          : 'useStudio.restoreMessageRevision',
+        projectId: currentProjectId,
+      });
+      startTransition(() => {
+        setFiles(restoredFiles);
+      });
+      const restoredSnapshot = addSnapshot(restoredFiles, `Restore: ${targetRevision.prompt}`, buildId);
+      markSnapshotStable(restoredSnapshot.id);
+
+      const now = new Date().toISOString();
+      const storedProject = ProjectStorage.getProject(currentProjectId);
+      const baseProject: StoredProject = storedProject ?? {
+        id: full.id,
+        name: full.name,
+        description: full.description,
+        theme: full.theme,
+        createdAt: full.createdAt,
+        updatedAt: full.updatedAt,
+        version: full.version,
+        files: normalizeToFileMap(full.files),
+        chatHistory: buildPersistedProjectChatHistory(full.chatHistory as any[]),
+        activeBranchId,
+        branches: full.branches,
+        revisions,
+      };
+      const baseBranch = activeBranch ?? baseProject.branches?.[activeBranchId] ?? {
+        id: activeBranchId,
+        projectId: currentProjectId,
+        name: activeBranchId,
+        isDefault: true,
+        createdAt: baseProject.createdAt,
+        updatedAt: now,
+        files: normalizeToFileMap(full.files),
+        chatHistory: buildPersistedProjectChatHistory(full.chatHistory as any[]),
+        revisions,
+        architecture: createProjectBranchArchitecture(
+          currentProjectId,
+          activeBranchId,
+          activeBranchId,
+          now,
+        ),
+      };
+      const branchArchitecture =
+        baseBranch.architecture && typeof baseBranch.architecture === 'object' && 'branchId' in baseBranch.architecture
+          ? baseBranch.architecture
+          : createProjectBranchArchitecture(
+              currentProjectId,
+              activeBranchId,
+              activeBranchId,
+              now,
+            );
+      const reconciledThread = reconcileProjectChatHistory({
+        history: buildPersistedProjectChatHistory(messages),
+        revisions,
+        currentFiles: restoredFiles,
+        currentHeadRevisionId: targetRevision.id,
+        currentActiveLineageId: targetRevision.lineageId ?? baseBranch.activeLineageId ?? null,
+      });
+      const refreshedArchitecture = refreshArchitectureAfterBuild(
+        branchArchitecture,
+        restoredFiles,
+        {
+          language: appLanguage,
+          now,
+          revisionId: targetRevision.id,
+        },
+      );
+      const nextProject: StoredProject = {
+        ...baseProject,
+        updatedAt: now,
+        files: restoredFiles,
+        chatHistory: reconciledThread.history as any,
+        activeBranchId,
+        branches: {
+          ...(baseProject.branches ?? {}),
+          [activeBranchId]: {
+            ...baseBranch,
+            projectId: currentProjectId,
+            name: baseBranch.name || activeBranchId,
+            updatedAt: now,
+            files: restoredFiles,
+            chatHistory: reconciledThread.history as any,
+            revisions: reconciledThread.revisions,
+            headRevisionId: targetRevision.id,
+            activeLineageId: reconciledThread.activeLineageId ?? targetRevision.lineageId ?? baseBranch.activeLineageId,
+            architecture: refreshedArchitecture.architecture,
+          },
+        },
+        revisions: reconciledThread.revisions,
+      };
+      const ok = ProjectStorage.saveProject(nextProject);
+      if (!ok) {
+        throw new Error('Storage full, could not persist restored revision');
+      }
+
+      chatLoadHistory(reconciledThread.history);
+
+      await ProjectRepository.saveProject({
+        ...full,
+        files: restoredFiles,
+        chatHistory: reconciledThread.history as any,
+        updatedAt: now,
+        activeBranchId,
+        branches: nextProject.branches,
+      });
+
+      addLog(`[Project] Restored revision ${targetRevision.id.slice(0, 8)} from ${sourceLabel} history`);
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`[Project] ❌ Restore from ${sourceLabel} failed: ${msg}`);
+      chatAppend({
+        role: 'assistant',
+        content: `⚠️ Could not restore this version: ${msg}`,
+        timestamp: Date.now(),
+        persistInHistory: false,
+        sessionOnly: true,
+      });
+      return false;
+    }
+  }, [abortActiveGeneration, addLog, addSnapshot, appLanguage, chatAppend, chatLoadHistory, currentProjectId, markSnapshotStable, messages, projectPersistenceState]);
+
+  const restoreMessageRevision = useCallback(async (messageId: string) => {
+    const targetMessage = messages.find(message => message.id === messageId);
+    const targetRevisionId = getMessageRevisionId(targetMessage);
+    if (!targetRevisionId) {
+      chatAppend({
+        role: 'assistant',
+        content: '⚠️ Could not restore this version: This message is not linked to a saved revision',
+        timestamp: Date.now(),
+        persistInHistory: false,
+        sessionOnly: true,
+      });
+      return false;
+    }
+    return restorePersistedRevision(targetRevisionId, 'message');
+  }, [chatAppend, messages, restorePersistedRevision]);
+
+  const restoreBlueprintLineage = useCallback(async (messageId: string) => {
+    if (projectPersistenceState !== 'exists' || !currentProjectId) return false;
+    const targetMessage = messages.find(message => message.id === messageId);
+    const targetLineageId = getMessageLineageId(targetMessage);
+    if (!targetLineageId) {
+      chatAppend({
+        role: 'assistant',
+        content: '⚠️ Could not restore this version: This blueprint is not linked to a saved lineage',
+        timestamp: Date.now(),
+        persistInHistory: false,
+        sessionOnly: true,
+      });
+      return false;
+    }
+
+    const full = await ProjectRepository.getProject(currentProjectId);
+    const activeBranchId = full?.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID;
+    const revisions =
+      ((full?.branches?.[activeBranchId]?.revisions as ProjectRevision[] | undefined)
+        ?? ((full as any)?.revisions as ProjectRevision[] | undefined)
+        ?? []);
+    const targetRevision = revisions.find(revision => revision.lineageId === targetLineageId);
+    if (!targetRevision) {
+      chatAppend({
+        role: 'assistant',
+        content: '⚠️ Could not restore this version: No saved revision exists for this blueprint yet',
+        timestamp: Date.now(),
+        persistInHistory: false,
+        sessionOnly: true,
+      });
+      return false;
+    }
+
+    return restorePersistedRevision(targetRevision.id, 'blueprint');
+  }, [chatAppend, currentProjectId, messages, projectPersistenceState, restorePersistedRevision]);
 
   const deleteProject = useCallback(async (id: string) => {
     await ProjectRepository.deleteProject(id);
@@ -1882,10 +2566,11 @@ export const useStudio = () => {
   }, []);
 
   /** Load an existing project into the active workspace (alias for loadProject with PM sync). */
-  const switchProject = useCallback((project: { id: string }) => {
-    ProjectManager.setCurrent(project.id);
-    void loadProject(project);
+  const switchProject = useCallback(async (project: { id: string }) => {
+    await loadProject(project);
   }, [loadProject]);
+  const loadProjectRef = useRef(loadProject);
+  loadProjectRef.current = loadProject;
 
   // ── Auto-init: ensure a project is always active on first load ──────────────
   // Runs once after mount. Always calls loadProject() so the compiled preview
@@ -1918,16 +2603,7 @@ export const useStudio = () => {
         return;
       }
 
-      // No active project — try the most-recent saved one first.
-      const list = ProjectStorage.listProjects()
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      if (list.length > 0) {
-        const recent = list[0];
-        await loadProject({ id: recent.id });
-        return;
-      }
-
-      // Nothing saved — start with a fresh draft session.
+      // No explicitly-selected saved project — start with a fresh draft session.
       // No persisted project is created until the user explicitly saves after a successful preview.
       const existingDraftId = localStorage.getItem('AIC_DRAFT_SESSION_ID');
       const draftId = existingDraftId || draftArtifactJournal.createSession({ source: 'startup' });
@@ -1936,6 +2612,7 @@ export const useStudio = () => {
       localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
       setCurrentProjectId(draftId);
       setProjectPersistenceState('draft');
+      setChatThreadKey(nextChatThreadKey('draft', draftId));
       chatLoadHistory(readDraftChatHistory(draftId));
       if (!existingDraftId) {
         draftArtifactJournal.appendRecord(draftId, {
@@ -1948,23 +2625,17 @@ export const useStudio = () => {
     };
 
     init().catch(() => {/* ignore — addLog already records errors inside loadProject */});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nextChatThreadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopGeneration = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    setIsGenerating(false);
-    setProgress(0);
-    setCurrentPhase('');
+    abortActiveGeneration('user-stop');
     setPreviewLifecycle('idle');
     addLog('⚡ Generation stopped by user');
     chatPatchLast(
       { role: 'assistant', content: '⚡ Остановлено.' },
       (msg) => msg.role === 'assistant' && (msg.content === '...' || msg.content === ''),
     );
-  }, [addLog, chatPatchLast]);
+  }, [abortActiveGeneration, addLog, chatPatchLast]);
 
   const _publishImpl = async (): Promise<string | null> => {
     const code = getPrimaryCode(files);
@@ -2108,18 +2779,22 @@ export const useStudio = () => {
     // createNewProject() has set a draft session but React has not re-rendered yet.
     // Draft session ID always wins to guarantee unsaved runs never bind to a stale
     // persisted project ID.
+    const persistedProjectId =
+      currentProjectId
+      ?? localStorage.getItem('CURRENT_PROJECT_ID')
+      ?? currentProject?.id
+      ?? (projectPersistenceState === 'exists' ? ProjectManager.getCurrentId() : null);
     const stableProjectId =
       localStorage.getItem('AIC_DRAFT_SESSION_ID')
-      ?? currentProjectId
-      ?? localStorage.getItem('CURRENT_PROJECT_ID')
+      ?? persistedProjectId
       ?? ProjectManager.getCurrentId();
     const runWorkspaceContext = resolveStudioKickoffContext(stableProjectId, currentProject);
     const runProjectId = runWorkspaceContext.projectId ?? stableProjectId ?? crypto.randomUUID();
     const runBranchId = runWorkspaceContext.branchId ?? DEFAULT_PROJECT_BRANCH_ID;
     const runTargetsPersistedProject =
       projectPersistenceState === 'exists' &&
-      !!currentProjectId &&
-      runProjectId === currentProjectId;
+      !!persistedProjectId &&
+      runProjectId === persistedProjectId;
     commandBus.dispatch({ type: 'START_GENERATION', intent: effectiveInput, plan: {} });
     addLog('─'.repeat(40));
 
@@ -2230,7 +2905,29 @@ export const useStudio = () => {
     const trustLanguage = appLanguage || userLang;
     const storedProjectForTrust = runProjectId ? ProjectStorage.getProject(runProjectId) : null;
     const activeBranchIdForTrust = storedProjectForTrust?.activeBranchId ?? runBranchId;
-    const branchArchitectureForTrust = storedProjectForTrust?.branches?.[activeBranchIdForTrust]?.architecture ?? null;
+    const currentBranchForTrust = storedProjectForTrust?.branches?.[activeBranchIdForTrust];
+    const currentThreadForTrust = reconcileProjectChatHistory({
+      history: buildPersistedProjectChatHistory(
+        (storedProjectForTrust?.chatHistory as any[]) ?? (baseMessages as any[]),
+      ),
+      revisions: (currentBranchForTrust?.revisions as ProjectRevision[] | undefined) ?? storedProjectForTrust?.revisions ?? [],
+      currentFiles: currentBranchForTrust?.files ?? storedProjectForTrust?.files ?? files,
+      currentHeadRevisionId: currentBranchForTrust?.headRevisionId ?? null,
+      currentActiveLineageId: currentBranchForTrust?.activeLineageId ?? null,
+    });
+    const currentActiveLineageId = currentThreadForTrust.activeLineageId;
+    const currentLineageRootMessageId =
+      findLineageRootMessageId(currentThreadForTrust.history, currentActiveLineageId)
+      ?? null;
+    const projectFiles = Object.keys(files);
+    const existingCodeCount = projectFiles.length;
+    const restartLineageRequested = shouldStartNewLineage(userPrompt, existingCodeCount);
+    const effectiveExistingCodeCount = restartLineageRequested ? 0 : existingCodeCount;
+    const runStartsNewLineage = effectiveExistingCodeCount === 0 || !currentActiveLineageId;
+    let runLineageId = currentActiveLineageId;
+    let runLineageRootMessageId = currentLineageRootMessageId;
+    let runReportMessageId: string | null = null;
+    const branchArchitectureForTrust = currentBranchForTrust?.architecture ?? null;
     const generationTrust = buildBranchTrustUiSummary(
       buildBranchGenerationGuidance(
         branchArchitectureForTrust,
@@ -2254,6 +2951,9 @@ export const useStudio = () => {
       timestamp:        Date.now(),
       content:          `Plan: ${userPrompt.slice(0, 80)}`,
       blueprintVisible: true,
+      startsLineage:    false,
+      ...(runLineageId ? { lineageId: runLineageId } : {}),
+      ...(runLineageRootMessageId ? { lineageRootMessageId: runLineageRootMessageId } : {}),
       progress:         0,
       buildStatus:      'generating' as const,
       generationTrust,
@@ -2300,11 +3000,12 @@ export const useStudio = () => {
       setInput('');
       clearAttachments();
 
-    const contextFiles = fullContextMode
+    const selectedContextFiles = fullContextMode
       ? files
       : activeFile && files[activeFile]
         ? { [activeFile]: files[activeFile] }
         : files;
+    const contextFiles = restartLineageRequested ? {} : selectedContextFiles;
 
     // ── Inject project ID for memory persistence ─────────────────────────
     const contextWithProjectId = {
@@ -2369,7 +3070,7 @@ export const useStudio = () => {
           primaryModel: primaryRoute.modelId,
           buildModel: buildRoute.modelId,
           provider: primaryRoute.provider,
-          existingFileCount: Object.keys(files).length,
+          existingFileCount: effectiveExistingCodeCount,
         },
         status: 'ok',
       });
@@ -2400,8 +3101,6 @@ export const useStudio = () => {
       });
 
       console.log('[DEBUG] pipeline input files:', Object.keys(contextWithTheme));
-      const projectFiles = Object.keys(files);
-      const existingCodeCount = projectFiles?.length || 0;
 
       // ── Pre-build Architect analysis (genesis only) ───────────────────────
       // Runs when there are no existing code files (first build / new branch kickoff).
@@ -2410,7 +3109,7 @@ export const useStudio = () => {
       // to branch-scoped architecture memory after a successful generation.
       pendingArchitectKickoffRef.current = null;
       // Track whether this specific run is a genesis build for kickoff phase logging.
-      const isGenesisRun = existingCodeCount === 0;
+      const isGenesisRun = effectiveExistingCodeCount === 0;
       if (isGenesisRun && !controller.signal.aborted) {
         setKickoffPhase('prompt_received');
         addLog('[Kickoff] kickoff_prompt_received');
@@ -2488,7 +3187,7 @@ export const useStudio = () => {
         // Enable single-page safe mode on genesis (no existing code files).
         // This prevents the model from generating broken multi-page output
         // on the very first request when there's no context to ground on.
-        singlePageSafeMode: existingCodeCount === 0,
+        singlePageSafeMode: effectiveExistingCodeCount === 0,
         generationMode,
         visualPolishMode: generationTrust.mode === 'fast_prototype'
           ? 'fast_prototype'
@@ -2562,6 +3261,10 @@ export const useStudio = () => {
           // chat state is already mutated above; firing SHOW_BLUEPRINT via commandBus
           // would create a second asynchronous mutation path and introduce races.
           const bpId = `blueprint-${Date.now()}`;
+          if (runStartsNewLineage) {
+            runLineageRootMessageId = bpId;
+            runLineageId = buildLineageId(bpId);
+          }
           blueprintIdRef.current = bpId;
           dispatch({
             type: 'APPEND',
@@ -2571,6 +3274,9 @@ export const useStudio = () => {
               id:               bpId,
               timestamp:        Date.now(),
               blueprintVisible: true,
+              startsLineage:    runStartsNewLineage,
+              ...(runLineageId ? { lineageId: runLineageId } : {}),
+              ...(runLineageRootMessageId ? { lineageRootMessageId: runLineageRootMessageId } : {}),
               ...data,
             },
           });
@@ -2743,14 +3449,22 @@ export const useStudio = () => {
       // Hard guarantee: a blueprint message is present after generation response.
       // If onPlanReady did not fire for any reason, append a fallback plan card.
       if (!blueprintIdRef.current) {
+        const fallbackBlueprintId = createMessageId();
+        if (runStartsNewLineage) {
+          runLineageRootMessageId = fallbackBlueprintId;
+          runLineageId = buildLineageId(fallbackBlueprintId);
+        }
         const planMessage = {
-          id: createMessageId(),
+          id: fallbackBlueprintId,
           role: 'system',
           type: 'blueprint',
           content: (result as any)?.planSummary ?? 'Plan: Create todo app with Supabase',
           timestamp: Date.now(),
           raw: result,
           blueprintVisible: true,
+          startsLineage: runStartsNewLineage,
+          ...(runLineageId ? { lineageId: runLineageId } : {}),
+          ...(runLineageRootMessageId ? { lineageRootMessageId: runLineageRootMessageId } : {}),
         };
         blueprintIdRef.current = planMessage.id;
         dispatch({ type: 'APPEND', payload: planMessage });
@@ -2837,13 +3551,22 @@ export const useStudio = () => {
               generationMode,
             },
           )?.reality.ui ?? null;
+          const reportMessageId = createMessageId();
+          runReportMessageId = reportMessageId;
           chatAppend({
+            id: reportMessageId,
             role: 'assistant',
             type: 'generation-report',
             content: reportContent,
             generationTrust,
             branchReality,
-            report,
+            ...(runLineageId ? { lineageId: runLineageId } : {}),
+            ...(runLineageRootMessageId ? { lineageRootMessageId: runLineageRootMessageId } : {}),
+            report: {
+              ...report,
+              ...(runLineageId ? { lineageId: runLineageId } : {}),
+              ...(runLineageRootMessageId ? { lineageRootMessageId: runLineageRootMessageId } : {}),
+            },
           });
         }
       });
@@ -2929,6 +3652,9 @@ export const useStudio = () => {
           plan: ((result as any).plan ?? null) as ProjectPlan | null,
           planTheme: result.planTheme ?? 'dark-slate',
           reqUsage,
+          lineageId: runLineageId ?? null,
+          lineageRootMessageId: runLineageRootMessageId ?? null,
+          reportMessageId: runReportMessageId,
         };
         setPendingProjectSaveMeta({
           projectId,
@@ -2945,11 +3671,17 @@ export const useStudio = () => {
     } catch (err: any) {
       // User-initiated abort — soft stop, no error counter
       if (err?.name === 'AbortError') {
-        addLog('⚡ Generation stopped by user');
-        chatPatchLast(
-          { role: 'assistant', content: '⚡ Остановлено.' },
-          (msg) => msg.role === 'assistant' && (msg.content === '...' || msg.content === ''),
-        );
+        const disposition = abortDispositionRef.current;
+        abortDispositionRef.current = null;
+        if (disposition === 'context-switch') {
+          addLog('[Project] Active generation aborted for context switch');
+        } else {
+          addLog('⚡ Generation stopped by user');
+          chatPatchLast(
+            { role: 'assistant', content: '⚡ Остановлено.' },
+            (msg) => msg.role === 'assistant' && (msg.content === '...' || msg.content === ''),
+          );
+        }
         setCurrentPhase('');
         setPreviewLifecycle('idle');
         return;
@@ -3008,6 +3740,7 @@ export const useStudio = () => {
       setPreviewLifecycle('failed');
     } finally {
       abortControllerRef.current = null;
+      abortDispositionRef.current = null;
       setIsGenerating(false);
       setKickoffPhase('idle');
       setTimeout(() => setProgress(0), 1200);
@@ -3037,7 +3770,9 @@ export const useStudio = () => {
     // Ideas from the feed must always start in a fresh empty project so the
     // coder sees existingCodeCount === 0 and generates the full app from
     // scratch instead of producing an incremental patch against stale files.
-    if (source === 'weekly-feed' || source === 'niche' || source === 'trend-niche') {
+    if (source === 'trend-niche') {
+      await startTrendIdeaDraftSession('build');
+    } else if (source === 'weekly-feed' || source === 'niche') {
       await createNewProject();
     }
 
@@ -3045,7 +3780,7 @@ export const useStudio = () => {
     addSystemMessage(
       `🧩 Context added: **${plan.appName || 'Imported idea'}**. Review and press Send to generate with this context pack.`,
     );
-  }, [addComposerContextFromPlan, addSystemMessage, createNewProject]);
+  }, [addComposerContextFromPlan, addSystemMessage, createNewProject, startTrendIdeaDraftSession]);
 
   const onSettings = useCallback(() => setShowSettings(true), []);
 
@@ -3094,8 +3829,6 @@ export const useStudio = () => {
         requiredKickoffScopeId: pendingPlan?.architectKickoff?.selectedOptionId,
       };
 
-      // Immediately remove fallback blueprint cards so double-click is impossible.
-      dispatch({ type: 'REMOVE_BY_TYPE', msgType: 'blueprint' });
       commandBus.dispatch({
         type: 'PLAN_APPROVED',
         payload: approval.approvedPlan ?? pendingPlan?.plan ?? {},
@@ -3201,6 +3934,7 @@ export const useStudio = () => {
   // window.__E2E_DIFF_RESULT — set to the resolved value after approveDiff/rejectDiff.
   // window.__E2E_PROJECT_TEST.loadProjectById(id) — deterministic project switch
   //   helper used only by browser e2e to avoid hover-dependent card controls.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (import.meta.env.VITE_PLAYWRIGHT_TEST !== '1') return;
     (window as any).__E2E_PREVIEW_TEST = {
@@ -3267,7 +4001,7 @@ export const useStudio = () => {
         setPendingDiff(diffs);
       },
       stageCandidateFiles: (candidateFiles: FileMap) => {
-        const baseFiles = { ...files };
+        const baseFiles = { ..._latestFilesRef.current };
         const diffs = Object.entries(candidateFiles)
           .map(([path, nextContent]) => buildFileDiff(path, baseFiles[path] ?? '', nextContent))
           .filter(diff => diff.changedCount > 0);
@@ -3348,7 +4082,7 @@ export const useStudio = () => {
       getCurrentProjectId: () => localStorage.getItem('CURRENT_PROJECT_ID'),
       loadProjectById: async (id: string) => {
         if (!id) throw new Error('loadProjectById requires a project id');
-        await loadProject({ id });
+        await loadProjectRef.current({ id });
         return {
           projectId: id,
           currentProjectId: localStorage.getItem('CURRENT_PROJECT_ID'),
@@ -3360,7 +4094,7 @@ export const useStudio = () => {
       delete (window as any).__E2E_DIFF_TEST;
       delete (window as any).__E2E_PROJECT_TEST;
     };
-  }, [files, loadProject, setFiles]);
+  }, []);
 
   // ── Fast-start: auto-confirm genesis kickoff with default scope ─────────────
   // When pendingPlan is set for a genesis build (architectKickoff !== null),
@@ -3417,11 +4151,6 @@ export const useStudio = () => {
       commandBus.subscribe('ACCEPT_BLUEPRINT', () => {
         planDecisionRef.current = planDecisionRef.current ?? { confirmed: true };
         setPendingPlan(null);
-        // 1. Hide blueprint card — DOM node stays mounted, no insertBefore crash.
-        if (blueprintIdRef.current) {
-          dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: blueprintIdRef.current, visible: false });
-        }
-        // 2. Append "Building…" after the (now hidden) blueprint — order guaranteed.
         dispatch({
           type: 'APPEND',
           payload: { role: 'assistant', type: 'text', content: '⚙️ Building…' },
@@ -3480,6 +4209,7 @@ export const useStudio = () => {
     /** Authoritative ProjectGraph from the last completed generation. Null before first generation. */
     projectGraph,
     projects, currentProjectId, currentProject, snapshots,
+    chatThreadKey,
     persistedProjectExists: projectPersistenceState === 'exists'
       ? true
       : projectPersistenceState === 'missing'
@@ -3495,6 +4225,7 @@ export const useStudio = () => {
     logs, addLog, clearLogs, downloadLogs,
     attachments, addAttachment, removeAttachment, clearAttachments,
     composerContextItems, activeProjectContext, addComposerContextFromPlan, setChatContext, removeComposerContextItem, clearComposerContextItems,
+    startTrendIdeaDraftSession,
     handleSend,
     onSend: handleSend,
     launchWithPlan,
@@ -3506,6 +4237,8 @@ export const useStudio = () => {
     createProject,
     loadProject,
     onLoadProject: loadProject,
+    restoreMessageRevision,
+    restoreBlueprintLineage,
     switchProject,
     deleteProject,
     onDeleteProject: deleteProject,
@@ -3585,7 +4318,7 @@ export const useStudio = () => {
     isGenerating, device, progress, currentPhase, kickoffPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, previewUrl, previewReady, pendingProjectSaveMeta, machineState,
     designClassification,
     projectGraph,
-    snapshots, historyIndex, currentProjectId, currentProject, currentSnapshotId, stableSnapshotId, projectPersistenceState,
+    snapshots, historyIndex, currentProjectId, currentProject, currentSnapshotId, stableSnapshotId, projectPersistenceState, chatThreadKey,
     projects, showSettings, logs, attachments, composerContextItems, activeProjectContext,
     sessionCost, sessionTokens, projectCost, projectTokens,
     appLanguage,
@@ -3604,7 +4337,8 @@ export const useStudio = () => {
     addLog, clearLogs, downloadLogs,
     addAttachment, removeAttachment, clearAttachments,
     addComposerContextFromPlan, setChatContext, removeComposerContextItem, clearComposerContextItems,
-    createNewProject, createProject, switchProject, loadProject, deleteProject, refreshProjects, stopGeneration,
+    startTrendIdeaDraftSession,
+    createNewProject, createProject, switchProject, loadProject, restoreMessageRevision, restoreBlueprintLineage, deleteProject, refreshProjects, stopGeneration,
     handleSend, launchWithPlan, publishProject, classifyAndStore,
     savePendingProject,
     onSettings, setShowSettings,

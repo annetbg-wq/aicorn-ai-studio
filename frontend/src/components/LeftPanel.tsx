@@ -45,6 +45,12 @@ interface ChatMessage {
   generationTrust?: GenerationTrustState;
   branchReality?: BranchRealityUiSummary | null;
   questions?: string[];
+  lineageId?: string;
+  lineageRootMessageId?: string;
+  startsLineage?: boolean;
+  lastGoodRevisionId?: string;
+  lineageStatus?: 'current' | 'behind' | 'historical';
+  restoreAvailable?: boolean;
 }
 
 interface Project {
@@ -70,6 +76,8 @@ interface LeftPanelProps {
   currentProjectId: string | null;
   onNewProject: () => void;
   onLoadProject: (p: Project) => void;
+  onRestoreMessageRevision?: (messageId: string) => void;
+  onRestoreBlueprintLineage?: (messageId: string) => void;
   onDeleteProject: (id: string) => void;
   onSettings: () => void;
   setTheme: (t: 'dark' | 'medium' | 'light') => void;
@@ -175,6 +183,13 @@ const LABELS: Record<string, Record<string, string>> = {
     visualPolishAppliedFast: 'One quiet visual polish pass ran before finish.',
     visualPolishAppliedGuided: 'One guided visual polish pass ran before finish.',
     visualPolishFailed: 'A polish pass was attempted, but the safer revision was kept.',
+    restoreVersion: 'Restore this version',
+    previewBehindMessage: 'Preview is not showing the version from this message.',
+    restoreBlueprint: 'Rollback to this blueprint',
+    previewBehindBlueprint: 'Preview is not showing the last saved version from this blueprint.',
+    lineageCurrent: 'Current',
+    lineageBehind: 'Behind preview',
+    lineageHistorical: 'Historical',
   },
   ru: {
     file: 'Файл', voice: 'Голос', history: 'История',
@@ -217,6 +232,13 @@ const LABELS: Record<string, Record<string, string>> = {
     visualPolishAppliedFast: 'Перед завершением прошел один тихий визуальный polish-проход.',
     visualPolishAppliedGuided: 'Перед завершением прошел один направленный визуальный polish-проход.',
     visualPolishFailed: 'Попытка polish была, но сохранена более безопасная версия.',
+    restoreVersion: 'Восстановить эту версию',
+    previewBehindMessage: 'В превью сейчас не версия из этого сообщения.',
+    restoreBlueprint: 'Откатить к этому blueprint',
+    previewBehindBlueprint: 'В превью сейчас не последняя сохраненная версия этого blueprint.',
+    lineageCurrent: 'Текущая',
+    lineageBehind: 'Превью отстает',
+    lineageHistorical: 'Историческая',
   },
   es: {
     file: 'Archivo', voice: 'Voz', history: 'Historial',
@@ -258,6 +280,8 @@ const LABELS: Record<string, Record<string, string>> = {
     visualPolishFailedBadge: 'Se mantuvo la versiÃ³n segura',
     visualPolishAppliedFast: 'Se aplicÃ³ una pasada silenciosa de pulido visual antes de terminar.',
     visualPolishAppliedGuided: 'Se aplicÃ³ una pasada guiada de pulido visual antes de terminar.',
+    restoreVersion: 'Restaurar esta versiÃ³n',
+    previewBehindMessage: 'La vista previa no estÃ¡ mostrando la versiÃ³n de este mensaje.',
     visualPolishFailed: 'Se intentÃ³ una pasada de pulido, pero se mantuvo la versiÃ³n mÃ¡s segura.',
   },
   de: {
@@ -771,21 +795,32 @@ const TypingDots = () => (
 );
 
 const GenerationReportCard: React.FC<{
+  messageId: string;
   report: GenerationReport;
   content: string;
   generationTrust?: GenerationTrustState | null;
   branchReality?: BranchRealityUiSummary | null;
+  restoreAvailable?: boolean;
+  lineageStatus?: 'current' | 'behind' | 'historical';
+  onRestoreVersion?: (messageId: string) => void;
   isDark: boolean;
   textColor: string;
   subText: string;
   t: (key: string) => string;
-}> = ({ report, content, generationTrust, branchReality, isDark, textColor, subText, t }) => {
+}> = ({ messageId, report, content, generationTrust, branchReality, restoreAvailable = false, lineageStatus, onRestoreVersion, isDark, textColor, subText, t }) => {
   const isNew = report.mode === 'NEW';
   const allFiles = isNew
     ? report.filesCreated
     : [...report.filesModified, ...report.filesCreated];
   const accent = isDark ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.1)';
   const border = isDark ? 'rgba(16,185,129,0.22)' : 'rgba(16,185,129,0.18)';
+  const lineageStatusLabel = lineageStatus === 'behind'
+    ? t('lineageBehind')
+    : lineageStatus === 'historical'
+      ? t('lineageHistorical')
+      : lineageStatus === 'current'
+        ? t('lineageCurrent')
+        : null;
   return (
     <div className="max-w-[92%]" style={{
       background: accent,
@@ -797,6 +832,19 @@ const GenerationReportCard: React.FC<{
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
         <span style={{ fontSize: 11, fontWeight: 700 }}>{isNew ? 'OK' : 'EDIT'}</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{content}</span>
+        {lineageStatusLabel ? (
+          <span style={{
+            marginLeft: 'auto',
+            fontSize: 10,
+            fontWeight: 700,
+            padding: '3px 8px',
+            borderRadius: 999,
+            background: lineageStatus === 'historical' ? 'rgba(148,163,184,0.18)' : 'rgba(99,102,241,0.15)',
+            color: lineageStatus === 'historical' ? subText : '#818cf8',
+          }}>
+            {lineageStatusLabel}
+          </span>
+        ) : null}
       </div>
       <div style={{ fontSize: 11, color: subText, marginBottom: 7 }}>
         {report.theme !== 'default' ? `Theme: ${report.theme} Â· ` : ''}
@@ -836,6 +884,43 @@ const GenerationReportCard: React.FC<{
         subText={subText}
         t={t}
       />
+      {restoreAvailable ? (
+        <div
+          data-testid={`generation-report-reconciliation-${messageId}`}
+          style={{
+            marginTop: 10,
+            padding: '10px 12px',
+            borderRadius: 10,
+            border: `1px solid ${isDark ? 'rgba(96,165,250,0.22)' : 'rgba(59,130,246,0.18)'}`,
+            background: isDark ? 'rgba(30,41,59,0.4)' : 'rgba(239,246,255,0.9)',
+            display: 'grid',
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 12, lineHeight: 1.5, color: textColor }}>
+            {t('previewBehindMessage')}
+          </div>
+          {onRestoreVersion ? (
+            <button
+              data-testid={`generation-report-restore-${messageId}`}
+              onClick={() => onRestoreVersion(messageId)}
+              style={{
+                justifySelf: 'start',
+                borderRadius: 999,
+                border: 'none',
+                padding: '7px 12px',
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#fff',
+                background: isDark ? '#2563eb' : '#1d4ed8',
+                cursor: 'pointer',
+              }}
+            >
+              {t('restoreVersion')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {branchReality ? (
         <div
           data-testid="generation-branch-reality"
@@ -959,10 +1044,12 @@ interface BlueprintCardProps {
   selectKickoffScope: (optionId: KickoffBuildScopeId) => void;
   onClarifyPlan: (messageId: string) => void;
   cancelPlan: () => void;
+  onRestoreLineage?: (messageId: string) => void;
+  t: (key: string) => string;
 }
 
 const BlueprintCard: React.FC<BlueprintCardProps> = ({
-  m, pendingPlan, isPending, kickoffPhase, isDark, textColor, subText, borderColor, onConfirmPlan, selectKickoffScope, onClarifyPlan, cancelPlan,
+  m, pendingPlan, isPending, kickoffPhase, isDark, textColor, subText, borderColor, onConfirmPlan, selectKickoffScope, onClarifyPlan, cancelPlan, onRestoreLineage, t,
 }) => {
   // Visibility guard — keeps fiber in the tree but renders nothing.
   // This prevents the insertBefore crash that occurs when a node is removed
@@ -976,6 +1063,19 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
   const selectedKickoffScope = pendingPlan?.architectKickoff?.selectedOptionId ?? 'core';
   const isAwaitingKickoffConfirmation = isPending && kickoffPhase === 'awaiting_confirmation';
   const isKickoffBuildStarting = isPending && kickoffPhase === 'build_starting';
+  const lineageStatusLabel = m.lineageStatus === 'behind'
+    ? t('lineageBehind')
+    : m.lineageStatus === 'historical'
+      ? t('lineageHistorical')
+      : m.lineageStatus === 'current'
+        ? t('lineageCurrent')
+        : null;
+  const showRestoreLineage =
+    !isPending
+    && Boolean(m.startsLineage)
+    && Boolean(m.lastGoodRevisionId)
+    && Boolean(m.restoreAvailable)
+    && !!onRestoreLineage;
 
   return (
     <div style={{
@@ -994,14 +1094,26 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
             {bpPages.length} screens · {m.theme} theme
           </div>
         </div>
-        {(isAwaitingKickoffConfirmation || isKickoffBuildStarting) && (
+        {(isAwaitingKickoffConfirmation || isKickoffBuildStarting || lineageStatusLabel) && (
           <div style={{
             fontSize: 10, padding: '3px 8px', borderRadius: 10,
-            background: isAwaitingKickoffConfirmation ? 'rgba(251,191,36,0.15)' : 'rgba(99,102,241,0.15)',
-            color: isAwaitingKickoffConfirmation ? '#f59e0b' : '#818cf8',
+            background: isAwaitingKickoffConfirmation
+              ? 'rgba(251,191,36,0.15)'
+              : lineageStatusLabel
+                ? (m.lineageStatus === 'historical' ? 'rgba(148,163,184,0.18)' : 'rgba(99,102,241,0.15)')
+                : 'rgba(99,102,241,0.15)',
+            color: isAwaitingKickoffConfirmation
+              ? '#f59e0b'
+              : lineageStatusLabel && m.lineageStatus === 'historical'
+                ? subText
+                : '#818cf8',
             fontWeight: 600,
           }}>
-            {isAwaitingKickoffConfirmation ? 'Awaiting confirmation' : 'Build starting'}
+            {isAwaitingKickoffConfirmation
+              ? 'Awaiting confirmation'
+              : isKickoffBuildStarting
+                ? 'Build starting'
+                : lineageStatusLabel}
           </div>
         )}
       </div>
@@ -1017,6 +1129,41 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
           }} />
         )}
         <GenerationTrustBanner trust={m.generationTrust} isDark={isDark} textColor={textColor} />
+        {showRestoreLineage ? (
+          <div
+            data-testid={`blueprint-lineage-reconciliation-${m.id}`}
+            style={{
+              marginTop: 10,
+              padding: '10px 12px',
+              borderRadius: 10,
+              border: `1px solid ${isDark ? 'rgba(96,165,250,0.22)' : 'rgba(59,130,246,0.18)'}`,
+              background: isDark ? 'rgba(30,41,59,0.4)' : 'rgba(239,246,255,0.9)',
+              display: 'grid',
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 12, lineHeight: 1.5, color: textColor }}>
+              {t('previewBehindBlueprint')}
+            </div>
+            <button
+              data-testid={`blueprint-lineage-restore-${m.id}`}
+              onClick={() => onRestoreLineage?.(m.id)}
+              style={{
+                justifySelf: 'start',
+                borderRadius: 999,
+                border: 'none',
+                padding: '7px 12px',
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#fff',
+                background: isDark ? '#2563eb' : '#1d4ed8',
+                cursor: 'pointer',
+              }}
+            >
+              {t('restoreBlueprint')}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {m.technicalBlueprint && JSON.stringify(m.technicalBlueprint).length > 20 && (
@@ -1464,7 +1611,7 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
 
 export const LeftPanel: React.FC<LeftPanelProps> = ({
   messages, input, setInput, onSend, onStop, isGenerating, progress, currentPhase, scrollRef,
-  projects, currentProjectId, onNewProject, onLoadProject, onDeleteProject,
+  projects, currentProjectId, onNewProject, onLoadProject, onRestoreMessageRevision, onRestoreBlueprintLineage, onDeleteProject,
   onSettings, setTheme, currentTheme,
   snapshots, currentSnapshotId, currentVersion, onRestoreSnapshot,
   canUndo, canRedo, onUndo, onRedo,
@@ -1728,6 +1875,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       selectKickoffScope={selectKickoffScope}
                       onClarifyPlan={onClarifyPlan}
                       cancelPlan={cancelPlan}
+                      onRestoreLineage={onRestoreBlueprintLineage}
+                      t={t}
                     />
                   );
                 }
@@ -1747,10 +1896,14 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                     />
                   ) : isReport && m.report ? (
                     <GenerationReportCard
+                      messageId={m.id}
                       report={m.report}
                       content={typeof m.content === 'string' ? m.content : ''}
                       generationTrust={m.generationTrust}
                       branchReality={m.branchReality}
+                      restoreAvailable={Boolean((m as any).restoreAvailable)}
+                      lineageStatus={(m as any).lineageStatus}
+                      onRestoreVersion={onRestoreMessageRevision}
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}

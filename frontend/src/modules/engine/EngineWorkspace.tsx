@@ -68,6 +68,7 @@ export interface EngineWorkspaceProps {
   // ── Project context ───────────────────────────────────────────
   projects:          Array<{ id: string; name: string; description: string; theme: string; createdAt: string; updatedAt: string; [key: string]: any }>;
   currentProjectId:  string | null;
+  chatThreadKey:     string;
   persistedProjectExists?: boolean;
   pendingProjectSave?: { projectTitle: string; previewReady: boolean } | null;
   /** Total snapshots in undo/redo history. */
@@ -91,6 +92,8 @@ export interface EngineWorkspaceProps {
   // ── Project CRUD ──────────────────────────────────────────────
   onNewProject:      () => void;
   onLoadProject:     (p: { id: string; name: string; [key: string]: any }) => void;
+  onRestoreMessageRevision?: (messageId: string) => void;
+  onRestoreBlueprintLineage?: (messageId: string) => void;
   onDeleteProject:   (id: string) => void;
   onSavePendingProject?: () => void;
   onSettings:        () => void;
@@ -172,9 +175,9 @@ export interface EngineWorkspaceProps {
 
 export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineWorkspace({
   theme, themes, cloudAvailable, onShare, onDeploy, onCollab,
-  projects, currentProjectId, persistedProjectExists: persistedProjectExistsProp, pendingProjectSave, totalVersions, currentVersion, lastStableVersion,
+  projects, currentProjectId, chatThreadKey, persistedProjectExists: persistedProjectExistsProp, pendingProjectSave, totalVersions, currentVersion, lastStableVersion,
   messages, input, setInput, onSend, onStop, isGenerating, progress, currentPhase, scrollRef,
-  onNewProject, onLoadProject, onDeleteProject, onSavePendingProject, onSettings, setTheme,
+  onNewProject, onLoadProject, onRestoreMessageRevision, onRestoreBlueprintLineage, onDeleteProject, onSavePendingProject, onSettings, setTheme,
   snapshots, currentSnapshotId, onRestoreSnapshot, markSnapshotStable,
   canUndo, canRedo, onUndo, onRedo,
   fullContextMode, setFullContextMode, autoRoute, setAutoRoute, generationMode, setGenerationMode, appLanguage,
@@ -315,7 +318,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
 
         {/* ── Workspace: chat + canvas ── */}
         <div style={{display:'flex', flex:1, overflow:'hidden'}}>
-          <ChatErrorBoundary>
+          <ChatErrorBoundary key={chatThreadKey}>
           <LeftPanel
             messages={messages}
             input={input}
@@ -330,6 +333,8 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             currentProjectId={currentProjectId}
             onNewProject={onNewProject}
             onLoadProject={onLoadProject}
+            onRestoreMessageRevision={onRestoreMessageRevision}
+            onRestoreBlueprintLineage={onRestoreBlueprintLineage}
             onDeleteProject={onDeleteProject}
             onSettings={onSettings}
             setTheme={setTheme}

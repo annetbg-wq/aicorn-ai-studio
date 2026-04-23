@@ -28,6 +28,18 @@ export interface ProjectRevision {
   durationMs?:  number;
   isBookmarked: boolean;
   pagesCount?:  number;
+  lineageId?: string;
+  lineageRootMessageId?: string;
+  reportMessageId?: string;
+}
+
+export interface StoredChatMessage {
+  role: string;
+  content: string | unknown[];
+  type?: string;
+  id?: string;
+  timestamp?: number;
+  [key: string]: unknown;
 }
 
 export interface StoredProject {
@@ -39,7 +51,7 @@ export interface StoredProject {
   updatedAt: string;
   version?: number;
   files: Record<string, string>;  // path → content
-  chatHistory: Array<{ role: string; content: string; type?: string }>;
+  chatHistory: StoredChatMessage[];
   deployUrl?: string;
   activeBranchId?: string;
   branches?: Record<string, PersistedProjectBranch>;
@@ -113,6 +125,7 @@ function createStoredBranch(
     isDefault: (project.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID) === branchId,
     createdAt: project.createdAt,
     updatedAt: now,
+    activeLineageId: undefined,
     files: {},
     chatHistory: [],
     revisions: [],
@@ -142,6 +155,7 @@ function normalizeStoredProjectBranches(project: StoredProject): {
         updatedAt: branch.updatedAt ?? now,
         chatThreadId: branch.chatThreadId,
         headRevisionId: branch.headRevisionId,
+        activeLineageId: typeof branch.activeLineageId === 'string' ? branch.activeLineageId : undefined,
         files: branch.files ?? {},
         chatHistory: Array.isArray(branch.chatHistory) ? branch.chatHistory : [],
         revisions: Array.isArray(branch.revisions) ? branch.revisions : [],
@@ -163,13 +177,14 @@ function normalizeStoredProjectBranches(project: StoredProject): {
   const branches = Object.fromEntries(
     normalizedEntries.map(([branchId, branch]) => [
       branchId,
-      {
-        ...branch,
-        chatThreadId: branch.architecture.branch.chatThreadId ?? branch.chatThreadId,
-        headRevisionId: branch.architecture.branch.headRevisionId ?? branch.headRevisionId,
-      },
-    ]),
-  ) as Record<string, PersistedProjectBranch>;
+        {
+          ...branch,
+          chatThreadId: branch.architecture.branch.chatThreadId ?? branch.chatThreadId,
+          headRevisionId: branch.architecture.branch.headRevisionId ?? branch.headRevisionId,
+          activeLineageId: branch.activeLineageId,
+        },
+      ]),
+    ) as Record<string, PersistedProjectBranch>;
 
   if (!branches[activeBranchId]) {
     branches[activeBranchId] = {
