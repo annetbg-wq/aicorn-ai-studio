@@ -835,6 +835,50 @@ test.describe('Founder flow split-path smoke regressions', () => {
     expect(state.draftSessionId).toBeTruthy();
   });
 
+  test('Trend Niches -> В диалог hard-resets into a clean draft without leaking the previous project', async ({ page }) => {
+    await installDeterministicRoutes(page);
+    await bootstrapStudio(page);
+
+    const beforeSave = await runTrendBuildToPreview(page, {
+      ideaTitle: IDEA_ALPHA_TITLE,
+      blueprintName: BLUEPRINT_ALPHA,
+      sendPrompt: `${PROJECT_ONE_NAME}: build this now`,
+    });
+
+    expect(beforeSave.legacyMetaCount).toBe(0);
+    expect(beforeSave.currentProjectId).toBeNull();
+    expect(beforeSave.draftSessionId).toBeTruthy();
+
+    await clickSaveProjectCta(page);
+
+    await expect.poll(async () => (await readPersistenceState(page)).legacyMetaCount).toBe(1);
+    await expect.poll(async () => (await readPersistenceState(page)).currentProjectId).not.toBeNull();
+    await expect.poll(async () => (await readPersistenceState(page)).draftSessionId).toBeNull();
+
+    await openTrendNiches(page);
+    await clickTrendIdeaAction(page, IDEA_BETA_TITLE, 'В диалог');
+    await expect(page.getByRole('button', { name: 'Отправить brief' })).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('button', { name: 'Отправить brief' }).click();
+
+    await expect(composerTextarea(page)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('TREND').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(IDEA_BETA_TITLE).first()).toBeVisible({ timeout: 20_000 });
+    await expect(
+      page.getByText(new RegExp(`Blueprint packaged:\\s*${escapeRegExp(BLUEPRINT_ALPHA)}`, 'i'))
+    ).toHaveCount(0);
+    await expect(page.getByText(PROJECT_ONE_NAME)).toHaveCount(0);
+    await expect(page.locator('[data-testid="save-project-cta"]')).toHaveCount(0);
+
+    const state = await readPersistenceState(page);
+    expect(state.legacyMetaCount).toBe(1);
+    expect(state.currentProjectId).toBeNull();
+    expect(state.draftSessionId).toBeTruthy();
+
+    await openProjects(page);
+    await expectProjectCardVisible(page, PROJECT_ONE_NAME);
+    await expect(page.locator('.group.relative.overflow-hidden').filter({ hasText: IDEA_BETA_TITLE })).toHaveCount(0);
+  });
+
   test('Trend Niches -> В работу covers draft->preview->save->projects and keeps chat isolation', async ({ page }) => {
     await installDeterministicRoutes(page);
     await bootstrapStudio(page);

@@ -37,6 +37,13 @@ export interface ChatMessage {
   /** May be a string or a vision content array (image_url + text parts). */
   content: string | any[];
   timestamp: number;
+  revisionId?: string;
+  lineageId?: string;
+  lineageRootMessageId?: string;
+  startsLineage?: boolean;
+  lastGoodRevisionId?: string;
+  lineageStatus?: 'current' | 'behind' | 'historical';
+  restoreAvailable?: boolean;
 
   // generation-plan fields
   appName?: string;

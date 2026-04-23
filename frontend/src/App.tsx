@@ -335,9 +335,14 @@ export default function App() {
     studio.launchWithPlan(plan, intent, source);
   }, [studio, handleOpenInCodeStudio]);
 
-  const handleSendTrendIdeaToChat = React.useCallback((_idea: TrendNicheIdea, founderBrief: string) => {
+  const handleSendTrendIdeaToChat = React.useCallback(async (_idea: TrendNicheIdea, founderBrief: string) => {
     setView('engine');
-    studio.setChatContext(founderBrief, 'trend-niche');
+    try {
+      await studio.startTrendIdeaDraftSession('chat');
+      studio.setChatContext(founderBrief, 'trend-niche');
+    } catch (error: unknown) {
+      studio.addSystemMessage(`⚠️ Failed to open isolated trend draft: ${(error as Error)?.message ?? String(error)}`);
+    }
   }, [studio]);
 
   const handleBuildTrendIdea = React.useCallback(async (idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => {
@@ -495,6 +500,7 @@ export default function App() {
               onCollab={handleCollab}
               projects={studio.projects ?? []}
               currentProjectId={studio.currentProjectId ?? null}
+              chatThreadKey={studio.chatThreadKey ?? 'draft:none:0'}
               persistedProjectExists={studio.persistedProjectExists}
               pendingProjectSave={studio.pendingProjectSave ?? null}
               totalVersions={studio.totalVersions ?? 0}
@@ -511,6 +517,8 @@ export default function App() {
               scrollRef={studio.scrollRef}
               onNewProject={studio.onNewProject}
               onLoadProject={studio.onLoadProject}
+              onRestoreMessageRevision={studio.restoreMessageRevision}
+              onRestoreBlueprintLineage={studio.restoreBlueprintLineage}
               onDeleteProject={studio.onDeleteProject}
               onSavePendingProject={studio.savePendingProject}
               onSettings={studio.onSettings}

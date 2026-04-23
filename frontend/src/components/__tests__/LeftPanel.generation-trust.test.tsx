@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
@@ -35,7 +35,7 @@ afterEach(() => {
   cleanup();
 });
 
-function renderPanel(messages: any[]) {
+function renderPanel(messages: any[], overrides: Partial<React.ComponentProps<typeof LeftPanel>> = {}) {
   return render(
     <LeftPanel
       messages={messages as any}
@@ -75,6 +75,7 @@ function renderPanel(messages: any[]) {
       cancelPlan={() => {}}
       onConfirmPlan={() => {}}
       appLanguage="en"
+      {...overrides}
     />,
   );
 }
@@ -302,6 +303,61 @@ describe('LeftPanel generation trust UX', () => {
     expect(screen.getByTestId('generation-visual-polish')).toHaveTextContent('Visual polish');
     expect(screen.getByTestId('generation-visual-polish')).toHaveTextContent('Polished');
     expect(screen.getByTestId('generation-visual-polish')).toHaveTextContent('One quiet visual polish pass ran before finish.');
+  });
+
+  test('shows restore CTA when the preview is behind the saved message revision', () => {
+    const onRestoreMessageRevision = vi.fn();
+    renderPanel([{
+      id: 'report-restore',
+      role: 'assistant',
+      type: 'generation-report',
+      content: 'Built your app!',
+      timestamp: Date.now(),
+      restoreAvailable: true,
+      report: {
+        mode: 'EDIT',
+        theme: 'default',
+        filesCreated: [],
+        filesModified: ['src/App.tsx'],
+        pageCount: 1,
+        duration: 6,
+      },
+    }], {
+      onRestoreMessageRevision,
+    });
+
+    expect(screen.getByTestId('generation-report-reconciliation-report-restore')).toHaveTextContent('Preview is not showing the version from this message.');
+    fireEvent.click(screen.getByTestId('generation-report-restore-report-restore'));
+    expect(onRestoreMessageRevision).toHaveBeenCalledWith('report-restore');
+  });
+
+  test('shows rollback CTA for historical blueprint lineages', () => {
+    const onRestoreBlueprintLineage = vi.fn();
+
+    renderPanel([{
+      id: 'bp-history',
+      role: 'assistant',
+      type: 'blueprint',
+      content: 'Plan ready',
+      timestamp: Date.now(),
+      appName: 'Legacy dashboard',
+      theme: 'dark-slate',
+      pages: ['Home'],
+      blueprintText: '### Home\n- KPI dashboard',
+      startsLineage: true,
+      lineageId: 'lineage:bp-history',
+      lineageRootMessageId: 'bp-history',
+      lastGoodRevisionId: 'rev-history',
+      lineageStatus: 'historical',
+      restoreAvailable: true,
+    }], {
+      onRestoreBlueprintLineage,
+    });
+
+    expect(screen.getByText('Historical')).toBeInTheDocument();
+    expect(screen.getByTestId('blueprint-lineage-reconciliation-bp-history')).toHaveTextContent('Preview is not showing the last saved version from this blueprint.');
+    fireEvent.click(screen.getByTestId('blueprint-lineage-restore-bp-history'));
+    expect(onRestoreBlueprintLineage).toHaveBeenCalledWith('bp-history');
   });
 
   test('localizes visual quality labels and reasons', () => {

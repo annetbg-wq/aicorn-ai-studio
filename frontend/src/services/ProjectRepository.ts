@@ -154,6 +154,7 @@ function createProjectBranchRecord(
     isDefault: (project.activeBranchId ?? DEFAULT_PROJECT_BRANCH_ID) === branchId,
     createdAt: project.createdAt,
     updatedAt: now,
+    activeLineageId: undefined,
     files: {},
     chatHistory: [],
     revisions: [],
@@ -182,6 +183,7 @@ function normalizeProjectBranches(project: ProjectRecord): {
         updatedAt: branch.updatedAt ?? now,
         chatThreadId: branch.chatThreadId,
         headRevisionId: branch.headRevisionId,
+        activeLineageId: typeof branch.activeLineageId === 'string' ? branch.activeLineageId : undefined,
         files: branch.files ?? {},
         chatHistory: Array.isArray(branch.chatHistory) ? branch.chatHistory : [],
         revisions: Array.isArray(branch.revisions) ? branch.revisions : [],
@@ -203,13 +205,14 @@ function normalizeProjectBranches(project: ProjectRecord): {
   const branches = Object.fromEntries(
     branchEntries.map(([branchId, branch]) => [
       branchId,
-      {
-        ...branch,
-        chatThreadId: branch.architecture.branch.chatThreadId ?? branch.chatThreadId,
-        headRevisionId: branch.architecture.branch.headRevisionId ?? branch.headRevisionId,
-      },
-    ]),
-  ) as Record<string, PersistedProjectBranch>;
+        {
+          ...branch,
+          chatThreadId: branch.architecture.branch.chatThreadId ?? branch.chatThreadId,
+          headRevisionId: branch.architecture.branch.headRevisionId ?? branch.headRevisionId,
+          activeLineageId: branch.activeLineageId,
+        },
+      ]),
+    ) as Record<string, PersistedProjectBranch>;
 
   if (!branches[activeBranchId]) {
     branches[activeBranchId] = {
