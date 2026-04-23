@@ -14,7 +14,7 @@
   },
   "agent_build": {
     "provider": "openrouter",
-    "modelId": "openai/gpt-4o-mini",
+    "modelId": "xiaomi/mimo-v2-pro",
     "fallback1Provider": "openrouter",
     "fallback1ModelId": "z-ai/glm-5.1",
     "maxTokens": {

@@ -3151,6 +3151,8 @@ export const useStudio = () => {
   // window.__E2E_DIFF_TEST.stageCandidateFiles(files) — stage candidate file
   //   contents so DiffPreview resolves into visible editor state after apply.
   // window.__E2E_DIFF_RESULT — set to the resolved value after approveDiff/rejectDiff.
+  // window.__E2E_PROJECT_TEST.loadProjectById(id) — deterministic project switch
+  //   helper used only by browser e2e to avoid hover-dependent card controls.
   useEffect(() => {
     if (import.meta.env.VITE_PLAYWRIGHT_TEST !== '1') return;
     (window as any).__E2E_PREVIEW_TEST = {
@@ -3290,11 +3292,27 @@ export const useStudio = () => {
       awaitPromote: (): Promise<{ success: boolean }> =>
         (window as any).__E2E_DIFF_PROMOTE_PROMISE ?? Promise.resolve({ success: false }),
     };
+    (window as any).__E2E_PROJECT_TEST = {
+      listProjects: () => ProjectStorage.listProjects().map(meta => ({
+        id: meta.id,
+        name: meta.name,
+      })),
+      getCurrentProjectId: () => localStorage.getItem('CURRENT_PROJECT_ID'),
+      loadProjectById: async (id: string) => {
+        if (!id) throw new Error('loadProjectById requires a project id');
+        await loadProject({ id });
+        return {
+          projectId: id,
+          currentProjectId: localStorage.getItem('CURRENT_PROJECT_ID'),
+        };
+      },
+    };
     return () => {
       delete (window as any).__E2E_PREVIEW_TEST;
       delete (window as any).__E2E_DIFF_TEST;
+      delete (window as any).__E2E_PROJECT_TEST;
     };
-  }, [files, setFiles]);
+  }, [files, loadProject, setFiles]);
 
   // ── Fast-start: auto-confirm genesis kickoff with default scope ─────────────
   // When pendingPlan is set for a genesis build (architectKickoff !== null),
