@@ -1425,6 +1425,7 @@ export const useStudio = () => {
     if (source === 'weekly-feed' || source === 'niche' || source === 'trend-niche') {
       generationSourceRef.current = source;
       setGenerationSource(source);
+      if (title) trendIdeaTitleRef.current = title;
     }
 
     if (plan?.pages?.length) {
@@ -1503,6 +1504,9 @@ export const useStudio = () => {
   composerContextItemsRef.current = composerContextItems;
   const activeProjectContextRef = useRef(activeProjectContext);
   activeProjectContextRef.current = activeProjectContext;
+  // Persists the trend-niche idea title across multiple _sendImpl calls
+  // (composerContextItems are cleared after the first call but generationSource stays 'trend-niche')
+  const trendIdeaTitleRef = useRef<string>('');
 
 
   // ── Figma state (extracted hook) ─────────────────────────────────────────────
@@ -2265,11 +2269,11 @@ export const useStudio = () => {
     setProjectTokens(0);
     generationSourceRef.current = 'chat';
     setGenerationSource('chat');
+    trendIdeaTitleRef.current = '';
     clearSnapshots();
     clearLogs();
     clearAttachments();
     clearComposerContextItems();
-    setPreviewLifecycle('idle');
     setPreviewBlockedReason(null);
     setPreviewUrl('');
     setPreviewReady(false);
@@ -3745,7 +3749,7 @@ export const useStudio = () => {
       });
       const ideaTitle =
         effectiveSource === 'trend-niche'
-          ? (composerContextItemsSnapshot[0]?.title ?? '').slice(0, 80)
+          ? (composerContextItemsSnapshot[0]?.title || trendIdeaTitleRef.current || '').slice(0, 80)
           : effectiveSource !== 'chat'
             ? userPrompt.split(':')[0]?.trim()?.slice(0, 80)
             : '';
