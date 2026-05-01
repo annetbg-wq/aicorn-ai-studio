@@ -340,6 +340,7 @@ export default function App() {
     try {
       await studio.startTrendIdeaDraftSession('chat');
       studio.setChatContext(founderBrief, 'trend-niche');
+      studio.onSend();
     } catch (error: unknown) {
       studio.addSystemMessage(`⚠️ Failed to open isolated trend draft: ${(error as Error)?.message ?? String(error)}`);
     }
@@ -356,9 +357,8 @@ export default function App() {
         `Market angle: ${copy.marketAngle}`,
         `Why now: ${copy.whyInteresting}`,
         `Files planned: ${blueprint.fileArchitecture?.length ?? 0}`,
-        '',
-        'The packaged blueprint is ready. Press Send to start code generation.',
       ].join('\n'));
+      studio.onSend();
     } catch (error: unknown) {
       studio.addSystemMessage(`⚠️ Failed to launch packaged trend idea: ${(error as Error)?.message ?? String(error)}`);
     }
@@ -521,6 +521,7 @@ export default function App() {
               onRestoreBlueprintLineage={studio.restoreBlueprintLineage}
               onDeleteProject={studio.onDeleteProject}
               onSavePendingProject={studio.savePendingProject}
+              onRejectPendingProjectSave={studio.rejectPendingProjectSave}
               onSettings={studio.onSettings}
               setTheme={studio.setTheme}
               snapshots={studio.snapshots ?? []}
