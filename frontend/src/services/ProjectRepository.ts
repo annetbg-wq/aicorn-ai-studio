@@ -257,6 +257,21 @@ export const ProjectRepository = {
   // ── Список проектов (только метаданные — быстро) ─────────────────────────
 
   async listProjects(): Promise<ProjectMetaSummary[]> {
+    // Collect local-only (non-UUID) projects — drafts that haven't been synced to Supabase yet
+    const localOnlyProjects = (): ProjectMetaSummary[] =>
+      ProjectStorage.listProjects()
+        .filter(p => !UUID_RE.test(p.id))
+        .map(m => ({
+          id:             m.id,
+          name:           getCanonicalProjectName(m),
+          theme:          m.theme ?? 'dark-slate',
+          updatedAt:      m.updatedAt,
+          version:        1,
+          activeBranchId: m.activeBranchId,
+          branchIds:      m.branchIds,
+          branchCount:    m.branchCount,
+        }));
+
     // Сначала пробуем Supabase
     try {
       const { data, error } = await supabase
@@ -266,12 +281,18 @@ export const ProjectRepository = {
         .limit(50);
 
       if (!error && data) {
-        const meta: ProjectMetaSummary[] = data.flatMap(row => {
+        const supabaseMeta: ProjectMetaSummary[] = data.flatMap(row => {
           const normalized = normalizeMetaSummary(row);
           return normalized ? [normalized] : [];
         });
-        safeSetItem(LOCAL_META_KEY, JSON.stringify(meta));
-        return meta;
+        // Merge: Supabase projects first, then local-only drafts not yet in Supabase
+        const supabaseIds = new Set(supabaseMeta.map(p => p.id));
+        const merged = [
+          ...supabaseMeta,
+          ...localOnlyProjects().filter(p => !supabaseIds.has(p.id)),
+        ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        safeSetItem(LOCAL_META_KEY, JSON.stringify(merged));
+        return merged;
       }
     } catch { /* fall through */ }
 
