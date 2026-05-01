@@ -13,6 +13,7 @@ import { ConfigService, normalizeAppLanguage } from './ConfigService';
 import type { AgentSlot } from './ConfigService';
 import { Orchestrator } from './Orchestrator';
 import { type AgentExecutionRoute } from './buildAgentRouting';
+import { TokenUsageTracker } from './TokenUsageTracker';
 import { compileWithRetry, classifyRepairFailure, type CompileLoopResult } from './compileGuard';
 import { validateImports, formatUnresolved } from './importValidator';
 import { validatePropWiring, formatPropWiringIssues, buildPropWiringFixPrompt } from './PropWiringValidator';
@@ -81,7 +82,7 @@ import { EditAdmissionService } from './EditAdmissionService';
 import { generateTheme, type DesignIntent } from './ThemeEngine';
 import type { AdmissionDecision } from './EditAdmissionService';
 import { resolveAdmissionDecision } from './admissionGate';
-import type { KickoffBuildScopeId } from './ArchitectPlannerService';
+import type { KickoffBuildScopeId, SectionSpec } from './ArchitectPlannerService';
 import { ProjectStorage } from './ProjectStorage';
 import {
   type ArtistLayerPreference,
@@ -102,6 +103,7 @@ import {
   runFinalLivePreviewCheck,
   type FinalLivePreviewCheckResult,
 } from './WhiteScreenDetector';
+import { SECTION_SOURCE_MAP } from '../templates/sectionSourceRegistry';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -146,6 +148,7 @@ export interface ProjectPlan {
   icons:            string[];
   artistLayer?:     ArtistLayerSpec;
   designIntent?:    DesignIntent;
+  sections?:        SectionSpec[];
   [key: string]: unknown; // allow extra fields from IdeaPlan
 }
 
@@ -215,6 +218,7 @@ export interface PipelineRunConfig {
   singlePageSafeMode?: boolean;
   generationMode?: 'landing' | 'app' | 'superapp';
   prebuiltPlan?:  ProjectPlan;
+  reuseSavedPlanForContinuation?: boolean;
   attachments?: Array<{
     type: string;           // 'image' | 'text' | 'code' | 'pdf'
     name: string;
@@ -338,19 +342,24 @@ function mergeDependencySpecs(...groups: Array<DependencySpec[] | undefined>): D
 
 // ─── Architect Prompt (Step 1 — planning only) ─────────────────────────────
 
-const ARCHITECT_PROMPT_LANDING = `You are a web developer designing a landing page.
+const ARCHITECT_PROMPT_LANDING = `You are a UI architect designing a landing page composed of pre-built template sections.
 Output ONLY valid JSON. No markdown.
 
 {
   "appName": "...",
-  "theme": "dark-slate|trust|warm|neon|bloom",
+  "designIntent": { "mood": "calm|corporate|luxury|playful|brutal", "contrast": "low|medium|high", "radius": "sharp|soft|pill" },
+  "sections": [
+    { "template": "HeroLamp",  "props": { "title": "...", "subtitle": "...", "ctaText": "...", "ctaHref": "#pricing" } },
+    { "template": "BentoGrid", "props": { "items": [{ "title": "...", "description": "..." }] } },
+    { "template": "Footer",    "props": { "brand": "..." } }
+  ],
   "layout": { "type": "single", "navigation": "none" },
-  "pages": [{ "path": "/", "name": "App", "file": "App.tsx", "purpose": "...", "isMainScreen": true, "keyElements": [...] }],
-  "shadcnComponents": [...],
-  "icons": [...]
+  "pages": [{ "path": "/", "name": "App", "file": "App.tsx", "purpose": "...", "isMainScreen": true, "keyElements": [] }],
+  "shadcnComponents": [],
+  "icons": []
 }
 
-Keep it simple: 1 page, no routing, hero + features + CTA.`;
+Rules: always start with HeroLamp, always end with Footer, fill props with real product content.`;
 
 const ARCHITECT_PROMPT = `You are a top-tier product founder, UX strategist, and software architect.
 
@@ -400,7 +409,11 @@ Use this schema exactly:
 {
   "appName": "Specific product name",
   "description": "One sentence value proposition",
-  "theme": "dark-slate|trust|warm|neon|bloom",
+  "designIntent": { "mood": "calm|corporate|luxury|playful|brutal", "contrast": "low|medium|high", "radius": "sharp|soft|pill" },
+  "sections": [
+    { "template": "HeroLamp", "props": { "title": "...", "subtitle": "...", "ctaText": "...", "ctaHref": "#pricing" } },
+    { "template": "Footer",   "props": { "brand": "..." } }
+  ],
   "targetUser": "Specific user, context, and pain point",
 
   "productStrategy": {
@@ -504,7 +517,15 @@ Use this schema exactly:
   ],
 
   "shadcnComponents": ["Button", "Card", "Input"],
-  "icons": ["LayoutDashboard", "Settings", "Plus"]
+  "icons": ["LayoutDashboard", "Settings", "Plus"],
+
+  "fileArchitecture": {
+    "contexts": ["UserContext.tsx — if global user/profile state is needed"],
+    "dataFiles": ["data/seedItems.ts — domain seed data with 4–6 realistic items"],
+    "libFiles": ["lib/utils.ts — already exists; lib/formatters.ts — amounts, dates if needed"],
+    "hooks": ["hooks/useLocalStorage.ts — generic persistence hook for main entity"],
+    "domainComponents": ["components/ItemCard.tsx", "components/AddItemSheet.tsx"]
+  }
 }
 
 PRODUCT QUALITY PRINCIPLES:
@@ -554,8 +575,10 @@ CRITICAL RULES:
 5. seedData.needed = true for apps with lists, feeds, dashboards, logs, or content surfaces.
    Seed data must be realistic and domain-specific.
 
-6. pages[] should usually contain 3–6 screens for a normal MVP app.
-   Only go beyond that if clearly justified by the product.
+6. pages[] MUST contain 5–8 screens for a normal MVP app.
+   Target at minimum: dashboard/home, add/create flow, detail or edit, list/history, settings.
+   Add 1–3 domain-specific screens to reach depth. Only go below 5 if the product is
+   genuinely a single-utility micro-tool (e.g. a timer, a converter).
 
 7. The first page in pages[] should be the initial entry route for the MVP:
    /onboarding if onboarding is required, otherwise the main usable screen.
@@ -569,12 +592,10 @@ CRITICAL RULES:
 10. Think like a product leader:
    define the minimum product that feels intentional, alive, and worth reopening.
 
-THEME SELECTION:
-  dark-slate = focus, work, analytics, pro tools
-  trust = health, education, finance, safety
-  warm = food, travel, lifestyle, comfort
-  neon = gaming, music, creator, youth energy
-  bloom = wellness, care, family, growth
+DESIGN INTENT:
+  mood: calm (teal, relaxed) | corporate (blue, professional) | luxury (gold, premium) | playful (purple/pink, vibrant) | brutal (red/mono, stark)
+  contrast: low (soft) | medium (balanced) | high (stark)
+  radius: sharp (0.25rem) | soft (0.5rem) | pill (9999px)
 `;
 
 // ─── Architect Prompt — SUPERAPP (Momna-level full architecture) ────────────
@@ -610,7 +631,8 @@ STEP 2 — OUTPUT (after </thinking>, output ONLY valid JSON — no markdown):
 {
   "appName": "Human readable name",
   "description": "One sentence: what this app does for the user",
-  "theme": "dark-slate|trust|warm|neon|bloom",
+  "designIntent": { "mood": "calm|corporate|luxury|playful|brutal", "contrast": "low|medium|high", "radius": "sharp|soft|pill" },
+  "sections": [],
   "targetUser": "Detailed description: who, when, why they use this app",
 
   "architecture": {
@@ -688,12 +710,10 @@ STEP 2 — OUTPUT (after </thinking>, output ONLY valid JSON — no markdown):
   }
 }
 
-THEME SELECTION:
-  dark-slate = SaaS, tools, dashboards, analytics
-  trust = medical, health, education, finance
-  warm = food, restaurant, travel, lifestyle
-  neon = gaming, entertainment, creative, music
-  bloom = wellness, beauty, pregnancy, kids, fitness
+DESIGN INTENT:
+  mood: calm (teal) | corporate (blue) | luxury (gold) | playful (purple/pink) | brutal (red/mono)
+  contrast: low | medium | high
+  radius: sharp | soft | pill
 
 RULES:
 - <thinking> section is MANDATORY. Think deeply before writing JSON.
@@ -794,8 +814,10 @@ IF GENERATION_MODE === "app":
   - Multi-file architecture is MANDATORY
   - App.tsx is orchestration-only: providers + routing only if the plan needs multiple routes
   - Do NOT place all UI/state/logic in App.tsx
-  - Generate pages/ with at least 2 screens
+  - Generate pages/ with at least 4 screens (e.g. dashboard, add/form, list/history, settings)
   - Generate reusable components/ for shared UI pieces
+  - Generate hooks/ with at least one custom hook (e.g. useLocalStorage, useData)
+  - Generate data/ with realistic seed data (never empty arrays)
 
 IF GENERATION_MODE === "superapp":
   - Multi-file architecture is MANDATORY
@@ -835,6 +857,59 @@ QUALITY REQUIREMENTS:
   - Responsive: mobile-first, then sm: md: lg: breakpoints
   - All text is readable: sufficient contrast, proper font sizes
   - Buttons describe their action: "Add Task" not "Submit"
+
+PREMIUM VISUAL STANDARDS — every screen must look like a $200/month SaaS product:
+
+  Cards (default):
+    className="bg-card border border-border rounded-2xl shadow-sm p-5"
+    On hover: add "hover:shadow-md hover:border-border/60 transition-all duration-200"
+
+  Primary action buttons:
+    className="bg-primary text-primary-foreground rounded-xl px-5 py-2.5 font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all duration-150"
+
+  Stat / metric widgets (for dashboards):
+    <div className="bg-card rounded-2xl p-5 border border-border shadow-sm">
+      <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Label</p>
+      <p className="text-3xl font-bold text-foreground">Value</p>
+      <p className="text-xs text-emerald-500 mt-1">↑ 8.2% vs last week</p>
+    </div>
+
+  Section headers (list/grid sections):
+    <div className="flex items-center justify-between mb-4">
+      <h2 className="text-lg font-bold tracking-tight">Section Title</h2>
+      <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">See all</Button>
+    </div>
+
+  List items (mobile-first):
+    className="flex items-center gap-3 px-4 py-3.5 hover:bg-accent/50 active:bg-accent transition-colors cursor-pointer"
+    Left: domain icon in 40×40 colored rounded-full circle (use bg-primary/10 text-primary)
+    Right: metadata + optional chevron
+    Title: font-medium text-foreground; Subtitle: text-sm text-muted-foreground
+
+  Page header pattern (mobile app, top of screen):
+    <header className="px-4 pt-12 pb-5">
+      <p className="text-sm text-muted-foreground">Contextual greeting/date</p>
+      <h1 className="text-2xl font-bold mt-0.5 tracking-tight">Screen Title</h1>
+    </header>
+
+  Hero gradient area:
+    className="bg-gradient-to-br from-primary/10 via-background to-accent/5"
+
+  Tags / badges:
+    className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-primary/10 text-primary"
+
+  Input fields:
+    className="bg-background border border-input rounded-xl px-4 py-2.5 text-sm"
+
+  PROHIBITED visual patterns (make products look cheap — NEVER do these):
+    - rounded-md on main cards (too sharp — always rounded-2xl or rounded-xl)
+    - p-3 or p-4 on cards (too cramped — use p-5 or p-6)
+    - text-gray-* classes (use design tokens only)
+    - Flat borderless cards with zero elevation
+    - Dense content with no whitespace between sections
+    - Plain heading with no visual hierarchy below it
+    - Tables with no hover states or striping
+    - Forms with labels below inputs
 
 DESIGN SYSTEM (CSS variables — theme is applied via index.css):
   bg-background / text-foreground       → main surfaces
@@ -1230,7 +1305,96 @@ BANNED animations:
   - No infinite spinning loaders (except actual loading)
   - No bouncing elements
   - No animations > 400ms (feels sluggish)
-  - No animations that repeat on hover (distracting)`;
+  - No animations that repeat on hover (distracting)
+
+INTERACTIVE PATTERNS PLAYBOOK — every button and form MUST do something:
+
+NEVER render passive UI like these:
+  <Button>Add Item</Button>          ← no onClick = broken
+  <form>...</form>                   ← no onSubmit = broken
+  <li>...</li>                       ← no onClick/action = dead list
+
+PATTERN 1 — Add item to list:
+  const [items, setItems] = useState<Item[]>(SEED_DATA);
+  const [newTitle, setNewTitle] = useState('');
+  const handleAdd = () => {
+    if (!newTitle.trim()) return;
+    setItems(prev => [...prev, { id: Date.now().toString(), title: newTitle.trim(), createdAt: new Date().toISOString() }]);
+    setNewTitle('');
+  };
+  <Input value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()} placeholder="Add new..." />
+  <Button onClick={handleAdd} disabled={!newTitle.trim()}><Plus size={16} />Add</Button>
+
+PATTERN 2 — Delete with confirmation:
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  // In list item:
+  <Button variant="ghost" size="icon" onClick={() => setDeleteId(item.id)}><Trash2 size={16}/></Button>
+  // AlertDialog at page level:
+  <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+    <AlertDialogContent>
+      <AlertDialogHeader><AlertDialogTitle>Delete this item?</AlertDialogTitle></AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction onClick={() => { setItems(p => p.filter(i => i.id !== deleteId)); setDeleteId(null); }}>Delete</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+
+PATTERN 3 — Form with inline validation:
+  const [form, setForm] = useState({ name: '', amount: '' });
+  const [errors, setErrors] = useState<Record<string,string>>({});
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const errs: Record<string,string> = {};
+    if (!form.name.trim()) errs.name = 'Name is required';
+    if (!form.amount || isNaN(Number(form.amount))) errs.amount = 'Valid amount required';
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    setErrors({});
+    // proceed — add to state, close sheet, etc.
+  };
+  <form onSubmit={handleSubmit} className="space-y-4">
+    <div>
+      <Input value={form.name} onChange={e => setForm(p => ({...p, name: e.target.value}))}
+             className={errors.name ? 'border-destructive' : ''} placeholder="Name" />
+      {errors.name && <p className="text-xs text-destructive mt-1">{errors.name}</p>}
+    </div>
+    <Button type="submit" className="w-full">Save</Button>
+  </form>
+
+PATTERN 4 — Toggle/complete item:
+  const [completed, setCompleted] = useState(item.done);
+  <button onClick={() => setCompleted(p => !p)}
+    className={\`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all \${
+      completed ? 'bg-primary border-primary' : 'border-muted-foreground/40 hover:border-primary/50'}\`}>
+    {completed && <Check size={12} className="text-primary-foreground"/>}
+  </button>
+
+PATTERN 5 — Sheet for add/edit (preferred over full-page nav for quick actions):
+  const [open, setOpen] = useState(false);
+  <Sheet open={open} onOpenChange={setOpen}>
+    <SheetTrigger asChild>
+      <Button className="gap-2"><Plus size={16}/>Add Item</Button>
+    </SheetTrigger>
+    <SheetContent side="bottom" className="rounded-t-2xl pb-8">
+      <SheetHeader><SheetTitle>Add New Item</SheetTitle></SheetHeader>
+      {/* form */}
+      <Button className="w-full mt-4" onClick={() => { handleAdd(); setOpen(false); }}>Save</Button>
+    </SheetContent>
+  </Sheet>
+
+PATTERN 6 — localStorage persistence (every app MUST persist data):
+  const [data, setData] = useState<Item[]>(() => {
+    try { return JSON.parse(localStorage.getItem('app_data') || 'null') ?? SEED_DATA; }
+    catch { return SEED_DATA; }
+  });
+  useEffect(() => { localStorage.setItem('app_data', JSON.stringify(data)); }, [data]);
+
+ENFORCEMENT RULES:
+  ① Every list page: wire PATTERN 1 (add) + PATTERN 2 (delete) + PATTERN 6 (persist)
+  ② Every form: wire PATTERN 3 (submit + validation)
+  ③ Every checkbox / task / toggle: wire PATTERN 4
+  ④ Quick-add actions inside a view: wire PATTERN 5 (sheet)
+  ⑤ Data survives page reload: wire PATTERN 6 for all key state`;
 
 // ─── First-Pass Runtime Safety Patch ─────────────────────────────────────────
 // Appended to the NEW-project system prompt only (not the edit prompt).
@@ -1799,11 +1963,18 @@ function extractFirstJsonObject(raw: string): string | null {
 async function readStream(
   resp: Response,
   onChunk: (text: string) => void,
+  meta?: {
+    modelId?: string;
+    stage?: string;
+    softLimit?: number;
+  },
 ): Promise<string> {
   const reader = resp.body!.getReader();
   const decoder = new TextDecoder();
   let full = '';
   let buffer = '';  // carry incomplete lines between chunks
+  let finishReason = '';
+  let completionTokens = 0;
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -1825,6 +1996,13 @@ async function readStream(
           full += delta;
           onChunk(delta);
         }
+        // Capture finish_reason from the final choices chunk
+        const fr = parsed.choices?.[0]?.finish_reason;
+        if (fr) finishReason = fr;
+        // Capture usage — OpenRouter sends this in the final chunk
+        if (parsed.usage?.completion_tokens) {
+          completionTokens = parsed.usage.completion_tokens;
+        }
       } catch { /* skip malformed JSON */ }
     }
   }
@@ -1840,8 +2018,46 @@ async function readStream(
           full += delta;
           onChunk(delta);
         }
+        const fr = parsed.choices?.[0]?.finish_reason;
+        if (fr) finishReason = fr;
+        if (parsed.usage?.completion_tokens) {
+          completionTokens = parsed.usage.completion_tokens;
+        }
       } catch { /* skip */ }
     }
+  }
+
+  // Estimate tokens from text length if API didn't report usage
+  if (completionTokens === 0 && full.length > 0) {
+    completionTokens = Math.round(full.length / 4);
+  }
+
+  // ── Record token usage for model efficiency tracker ────────────────────
+  if (meta?.modelId) {
+    TokenUsageTracker.record({
+      modelId:         meta.modelId,
+      stage:           meta.stage ?? 'unknown',
+      completionTokens,
+      softLimit:       meta.softLimit,
+      overflowed:      finishReason === 'length',
+    });
+  }
+
+  // ── Emit overflow event so UI can show inter-step notification ──────────
+  if (finishReason === 'length') {
+    window.dispatchEvent(new CustomEvent('agent-token-overflow', {
+      detail: {
+        modelId:         meta?.modelId ?? 'unknown',
+        stage:           meta?.stage ?? 'unknown',
+        completionTokens,
+        softLimit:       meta?.softLimit,
+      },
+    }));
+    console.warn(
+      `[readStream] finish_reason=length — step truncated.` +
+      ` model=${meta?.modelId} stage=${meta?.stage}` +
+      ` tokens=${completionTokens} softLimit=${meta?.softLimit}`,
+    );
   }
 
   return full;
@@ -2225,12 +2441,146 @@ function toComponentName(raw: string, fallback = 'Page'): string {
   return safe || fallback;
 }
 
+export function buildLandingFallbackSections(
+  intent: string,
+  appName: string,
+): SectionSpec[] {
+  const safeAppName = appName.trim() || 'App';
+  const safeIntent = intent.trim() || `Explore what ${safeAppName} can do.`;
+
+  return [
+    {
+      template: 'HeroLamp',
+      props: {
+        title: safeAppName,
+        subtitle: safeIntent,
+        ctaText: 'Explore the prototype',
+        ctaHref: '#features',
+      },
+    },
+    {
+      template: 'BentoGrid',
+      props: {
+        className: 'mx-auto max-w-6xl px-4 py-20',
+        items: [
+          {
+            title: 'Focused first impression',
+            description: `The prototype for ${safeAppName} opens with one clear promise instead of a generic landing page.`,
+          },
+          {
+            title: 'Structured section flow',
+            description: 'Each section is rendered from a dedicated template file so the app stays modular.',
+          },
+          {
+            title: 'Fast iteration path',
+            description: 'The generated structure is ready for design swaps without collapsing back into one monolithic file.',
+          },
+        ],
+      },
+    },
+    {
+      template: 'FAQ',
+      props: {
+        items: [
+          {
+            question: `What does ${safeAppName} show first?`,
+            answer: safeIntent,
+          },
+          {
+            question: 'How is this prototype structured?',
+            answer: 'App.tsx composes section imports, while each section lives in its own file under components/sections.',
+          },
+        ],
+      },
+    },
+    {
+      template: 'CTA',
+      props: {
+        title: `Start with ${safeAppName}`,
+        subtitle: 'Review the generated section structure and continue iterating from a modular foundation.',
+        primaryText: 'Open prototype',
+        primaryHref: '#',
+        secondaryText: 'Review sections',
+        secondaryHref: '#features',
+      },
+    },
+    {
+      template: 'Footer',
+      props: {
+        brand: safeAppName,
+        tagline: safeIntent,
+      },
+    },
+  ];
+}
+
+function ensureLandingSectionsPlan(
+  rawPlan: Record<string, unknown>,
+  intent: string,
+  onLog: (msg: string) => void,
+): Record<string, unknown> {
+  const plan = JSON.parse(JSON.stringify(rawPlan || {})) as Record<string, unknown> & {
+    appName?: string;
+    description?: string;
+    sections?: SectionSpec[];
+  };
+  const appName = typeof plan.appName === 'string' && plan.appName.trim()
+    ? plan.appName.trim()
+    : 'App';
+  const description = typeof plan.description === 'string' && plan.description.trim()
+    ? plan.description.trim()
+    : intent;
+
+  if (!Array.isArray(plan.sections) || plan.sections.length === 0) {
+    plan.sections = buildLandingFallbackSections(description, appName);
+    onLog('[SimpleGeneration] Landing sections missing — injected fallback section plan');
+  }
+
+  return plan;
+}
+
+export function buildSectionCompositionFiles(planSections: SectionSpec[]): Record<string, string> {
+  const uniqueTemplates = [...new Set(planSections.map((section) => section.template))];
+  const sectionImports = uniqueTemplates
+    .map((template) => `import { ${template} } from '@/components/sections/${template}';`)
+    .join('\n');
+  const sectionJsx = planSections
+    .map((section) => `      <${section.template} {...${JSON.stringify(section.props)}} />`)
+    .join('\n');
+
+  const files: Record<string, string> = {
+    '/App.tsx': [
+      sectionImports,
+      '',
+      'export default function App() {',
+      '  return (',
+      '    <>',
+      sectionJsx,
+      '    </>',
+      '  );',
+      '}',
+      '',
+    ].join('\n'),
+  };
+
+  for (const template of uniqueTemplates) {
+    const source = SECTION_SOURCE_MAP[template];
+    if (source) {
+      files[`/components/sections/${template}.tsx`] = source;
+    }
+  }
+
+  return files;
+}
+
 function buildDefaultPlan(mode: GenerationMode, intent: string): Record<string, unknown> {
   if (mode === 'landing') {
     return {
       appName: 'App',
       description: intent,
       theme: 'dark-slate',
+      designIntent: { mood: 'corporate', contrast: 'medium', radius: 'soft' },
+      sections: buildLandingFallbackSections(intent, 'App'),
       targetUser: 'General user',
       layout: { type: 'single', navigation: 'none' },
       pages: [{ path: '/', name: 'App', file: 'App.tsx', purpose: intent, isMainScreen: true, keyElements: [] }],
@@ -2764,7 +3114,17 @@ async function callLLM(
 
         const resp = await llmFetchStream(endpoint, headers, body, mergedSignal);
         const noop = () => {};
-        return await readStream(resp, onStream ?? noop);
+        // Determine soft limit for overflow detection (before ×1.3 buffer)
+        const agentKey = slot === 'build' ? 'agent_build' : slot === 'fix' ? 'agent_fix' : 'agent_primary';
+        const stageKey = slot === 'build' ? 'coder_app' : slot === 'fix' ? 'autofix' : 'clarifier';
+        const softLimit = maxTokensOverride
+          ? Math.round(maxTokensOverride / (1 + 0.30))
+          : ConfigService.getSoftMaxTokens(agentKey, stageKey);
+        return await readStream(resp, onStream ?? noop, {
+          modelId:   modelId,
+          stage:     stageKey,
+          softLimit,
+        });
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === 'AbortError') {
           // Distinguish timeout from user stop
@@ -3133,6 +3493,39 @@ export function buildNewCoderSystemPrompt(input: {
   }
   if (input.envPrompt) {
     prompt += '\n\n' + input.envPrompt;
+  }
+
+  const planSections = Array.isArray(input.plan.sections)
+    ? input.plan.sections as SectionSpec[]
+    : [];
+  if (planSections.length > 0) {
+    prompt += `\n\nSECTION COMPOSITION MODE (HARD CONSTRAINT):
+You are composing a landing page from plan.sections.
+
+STRICT RULES:
+1. App.tsx must import every used section from '@/components/sections/<TemplateName>'.
+2. App.tsx JSX may contain ONLY a fragment and direct <TemplateName {...props} /> calls.
+3. Do NOT write raw layout markup in App.tsx: no <section>, <main>, <div>, <h1>, <p>, <nav>, or other HTML tags.
+4. Each section template must stay in its own file under components/sections/.
+5. If plan.sections is present, prefer section composition over inventing custom landing markup.
+
+WRONG:
+export default function App() {
+  return <main><section><h1>...</h1></section></main>;
+}
+
+CORRECT:
+import { HeroLamp } from '@/components/sections/HeroLamp';
+import { FAQ } from '@/components/sections/FAQ';
+
+export default function App() {
+  return (
+    <>
+      <HeroLamp {...{"title":"Example"}} />
+      <FAQ {...{"items":[]}} />
+    </>
+  );
+}`;
   }
 
   return prompt;
@@ -5405,8 +5798,11 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           redesignIntent: config.redesignIntent,
           preferredArtistLayer: config.artistLayer,
           supportPrompt: config.designSystemPrompt,
-        },
+          },
       );
+    if (mode === 'landing') {
+      plan = ensureLandingSectionsPlan(plan, config.intent, config.onLog);
+    }
     config.onLog(`[SimpleGeneration] Plan: ${JSON.stringify(plan).slice(0, 200)}`);
     console.log('[SimpleGeneration] Architect plan:', plan);
     trace.setDesignSummary(summarizeArtistLayerForTrace((plan as { artistLayer?: ArtistLayerSpec }).artistLayer));
@@ -5434,112 +5830,116 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     await new Promise<void>(r => setTimeout(r, 0));
     config.onPlan(planSteps, (plan.appName as string) ?? '');
 
-    // ── Step 1.5: Tech Lead — plan → technical blueprint ───────────────
-    config.onLog('[SimpleGeneration] Step 1.5: Tech Lead translating plan...');
-    config.onLog(`[SimpleGeneration] Artist layer ready: ${JSON.stringify((plan as { artistLayer?: ArtistLayerSpec }).artistLayer ?? {}).slice(0, 240)}`);
-
     let technicalBlueprint: Record<string, unknown> | null = null;
-    const techLeadUserMessage = 'PRODUCT PLAN:\n' + JSON.stringify(plan, null, 2);
-    const techLeadMaxTokens = ConfigService.getMaxTokens('agent_primary', 'tech_lead');
-    const thirdStepId = thirdStepDebugId();
-    const thirdStepTimestamp = new Date().toISOString();
-    const thirdStepStatusHistory: ThirdLLMStepStatus[] = [];
-    let thirdStepRaw: string | undefined;
-    let thirdStepCleaned: string | undefined;
-    let thirdStepExtractedJson: string | undefined;
-    const buildThirdStepRecord = (
-      parseStatus: ThirdLLMStepStatus,
-      patch: Partial<ThirdLLMStepDebugRecord> = {},
-    ): ThirdLLMStepDebugRecord => ({
-      schema: 'aic-third-llm-step-v1',
-      id: thirdStepId,
-      timestamp: thirdStepTimestamp,
-      stepIdentity: 'SimpleGeneration.run.techLeadBlueprint',
-      projectId: config.projectId,
-      intentText: config.intent,
-      language: config.language,
-      generationMode: mode,
-      route: {
-        slot: config.primaryRoute.slot,
-        provider: config.primaryRoute.provider,
-        modelId: config.primaryRoute.modelId,
-        endpoint: config.primaryRoute.endpoint,
-        keySource: config.primaryRoute.keySource,
-        fallbackReason: config.primaryRoute.fallbackReason,
-        reason: config.primaryRoute.reason,
-      },
-      request: {
-        systemPrompt: TECH_LEAD_PROMPT,
-        userMessage: techLeadUserMessage,
-        temperature: 0.3,
-        maxTokens: techLeadMaxTokens,
-        stream: true,
-      },
-      injectedContext: {
-        productPlan: plan,
-      },
-      statusHistory: [...thirdStepStatusHistory],
-      parseStatus,
-      ...patch,
-    });
+    if (config.reuseSavedPlanForContinuation) {
+      config.onLog('[SimpleGeneration] Step 1.5: Tech Lead skipped — continuing from the saved project plan');
+    } else {
+      // ── Step 1.5: Tech Lead — plan → technical blueprint ───────────────
+      config.onLog('[SimpleGeneration] Step 1.5: Tech Lead translating plan...');
+      config.onLog(`[SimpleGeneration] Artist layer ready: ${JSON.stringify((plan as { artistLayer?: ArtistLayerSpec }).artistLayer ?? {}).slice(0, 240)}`);
 
-    try {
-      const techLeadRaw = await callLLM(
-        TECH_LEAD_PROMPT,
-        techLeadUserMessage,
-        'primary',
-        config.apiKey,
-        undefined,
-        config.signal,
-        techLeadMaxTokens,
-        config.primaryRoute,
-      );
-      thirdStepRaw = techLeadRaw;
-      thirdStepStatusHistory.push('raw_received');
-
-      const tbCleaned = techLeadRaw
-        .replace(/^```json?\n?/, '')
-        .replace(/\n?```$/, '')
-        .trim();
-      thirdStepCleaned = tbCleaned;
-      const extractedJsonSubstring = extractFirstJsonObject(tbCleaned);
-      thirdStepExtractedJson = extractedJsonSubstring ?? undefined;
-      thirdStepStatusHistory.push(extractedJsonSubstring ? 'json_match_found' : 'json_match_missing');
-
-      const tbParsed = JSON.parse(extractedJsonSubstring ?? tbCleaned) as Record<string, unknown>;
-      thirdStepStatusHistory.push('parsed_ok');
-      technicalBlueprint = (tbParsed?.technicalBlueprint as Record<string, unknown> | undefined) ?? null;
-      thirdStepStatusHistory.push(technicalBlueprint ? 'accepted_result_ready' : 'accepted_result_missing');
-      saveThirdLLMStepRecord(buildThirdStepRecord(
-        technicalBlueprint ? 'accepted_result_ready' : 'accepted_result_missing',
-        {
-          rawCompletionText: techLeadRaw,
-          cleanedText: tbCleaned,
-          extractedJsonSubstring: extractedJsonSubstring ?? undefined,
-          parsedJsonObject: tbParsed,
-          acceptedResult: technicalBlueprint,
+      const techLeadUserMessage = 'PRODUCT PLAN:\n' + JSON.stringify(plan, null, 2);
+      const techLeadMaxTokens = ConfigService.getMaxTokens('agent_primary', 'tech_lead');
+      const thirdStepId = thirdStepDebugId();
+      const thirdStepTimestamp = new Date().toISOString();
+      const thirdStepStatusHistory: ThirdLLMStepStatus[] = [];
+      let thirdStepRaw: string | undefined;
+      let thirdStepCleaned: string | undefined;
+      let thirdStepExtractedJson: string | undefined;
+      const buildThirdStepRecord = (
+        parseStatus: ThirdLLMStepStatus,
+        patch: Partial<ThirdLLMStepDebugRecord> = {},
+      ): ThirdLLMStepDebugRecord => ({
+        schema: 'aic-third-llm-step-v1',
+        id: thirdStepId,
+        timestamp: thirdStepTimestamp,
+        stepIdentity: 'SimpleGeneration.run.techLeadBlueprint',
+        projectId: config.projectId,
+        intentText: config.intent,
+        language: config.language,
+        generationMode: mode,
+        route: {
+          slot: config.primaryRoute.slot,
+          provider: config.primaryRoute.provider,
+          modelId: config.primaryRoute.modelId,
+          endpoint: config.primaryRoute.endpoint,
+          keySource: config.primaryRoute.keySource,
+          fallbackReason: config.primaryRoute.fallbackReason,
+          reason: config.primaryRoute.reason,
         },
-      ));
+        request: {
+          systemPrompt: TECH_LEAD_PROMPT,
+          userMessage: techLeadUserMessage,
+          temperature: 0.3,
+          maxTokens: techLeadMaxTokens,
+          stream: true,
+        },
+        injectedContext: {
+          productPlan: plan,
+        },
+        statusHistory: [...thirdStepStatusHistory],
+        parseStatus,
+        ...patch,
+      });
 
-      config.onLog('[SimpleGeneration] Technical blueprint ready');
-    } catch (error) {
-      if (isRoutingViolationError(error)) throw error;
-      const msg = error instanceof Error ? error.message : String(error);
-      const isParseFailure = thirdStepStatusHistory.includes('raw_received');
-      thirdStepStatusHistory.push(isParseFailure ? 'parsed_failed' : 'request_failed');
-      saveThirdLLMStepRecord(buildThirdStepRecord(
-        isParseFailure ? 'parsed_failed' : 'request_failed',
-        isParseFailure
-          ? {
-              rawCompletionText: thirdStepRaw,
-              cleanedText: thirdStepCleaned,
-              extractedJsonSubstring: thirdStepExtractedJson,
-              parseErrorMessage: msg,
-            }
-          : { requestErrorMessage: msg },
-      ));
-      config.onLog(`[SimpleGeneration] Tech Lead parse failed — ${msg}`);
-      console.warn('[SimpleGeneration] Tech Lead parse failed', error);
+      try {
+        const techLeadRaw = await callLLM(
+          TECH_LEAD_PROMPT,
+          techLeadUserMessage,
+          'primary',
+          config.apiKey,
+          undefined,
+          config.signal,
+          techLeadMaxTokens,
+          config.primaryRoute,
+        );
+        thirdStepRaw = techLeadRaw;
+        thirdStepStatusHistory.push('raw_received');
+
+        const tbCleaned = techLeadRaw
+          .replace(/^```json?\n?/, '')
+          .replace(/\n?```$/, '')
+          .trim();
+        thirdStepCleaned = tbCleaned;
+        const extractedJsonSubstring = extractFirstJsonObject(tbCleaned);
+        thirdStepExtractedJson = extractedJsonSubstring ?? undefined;
+        thirdStepStatusHistory.push(extractedJsonSubstring ? 'json_match_found' : 'json_match_missing');
+
+        const tbParsed = JSON.parse(extractedJsonSubstring ?? tbCleaned) as Record<string, unknown>;
+        thirdStepStatusHistory.push('parsed_ok');
+        technicalBlueprint = (tbParsed?.technicalBlueprint as Record<string, unknown> | undefined) ?? null;
+        thirdStepStatusHistory.push(technicalBlueprint ? 'accepted_result_ready' : 'accepted_result_missing');
+        saveThirdLLMStepRecord(buildThirdStepRecord(
+          technicalBlueprint ? 'accepted_result_ready' : 'accepted_result_missing',
+          {
+            rawCompletionText: techLeadRaw,
+            cleanedText: tbCleaned,
+            extractedJsonSubstring: extractedJsonSubstring ?? undefined,
+            parsedJsonObject: tbParsed,
+            acceptedResult: technicalBlueprint,
+          },
+        ));
+
+        config.onLog('[SimpleGeneration] Technical blueprint ready');
+      } catch (error) {
+        if (isRoutingViolationError(error)) throw error;
+        const msg = error instanceof Error ? error.message : String(error);
+        const isParseFailure = thirdStepStatusHistory.includes('raw_received');
+        thirdStepStatusHistory.push(isParseFailure ? 'parsed_failed' : 'request_failed');
+        saveThirdLLMStepRecord(buildThirdStepRecord(
+          isParseFailure ? 'parsed_failed' : 'request_failed',
+          isParseFailure
+            ? {
+                rawCompletionText: thirdStepRaw,
+                cleanedText: thirdStepCleaned,
+                extractedJsonSubstring: thirdStepExtractedJson,
+                parseErrorMessage: msg,
+              }
+            : { requestErrorMessage: msg },
+        ));
+        config.onLog(`[SimpleGeneration] Tech Lead parse failed — ${msg}`);
+        console.warn('[SimpleGeneration] Tech Lead parse failed', error);
+      }
     }
 
     // ── Blueprint confirmation flow ──────────────────────────────────────
@@ -5639,7 +6039,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
 
     // ── Apply theme from Architect plan ───────────────────────────────────
     const themeName = (plan.theme as string) || 'dark-slate';
-    const validThemes = ['dark-slate', 'trust', 'warm', 'neon', 'bloom'];
+    const validThemes = ['dark-slate', 'trust', 'warm', 'neon'];
     const selectedTheme = validThemes.includes(themeName) ? themeName : 'dark-slate';
 
     let themedIndexCss: string | null = null;
@@ -6141,6 +6541,20 @@ Generate the complete application for: ${config.intent}`;
         llmFiles['/App.tsx'] = buildFallbackAppFromRoutes(routePages, mode);
         config.onLog('[SimpleGeneration] Landing: fallback App.tsx generated');
       }
+    }
+
+    // ── Sections assembly: override App.tsx with template-composed content ──
+    // When plan.sections is defined, it wins over any LLM-generated App.tsx.
+    // Empty sections array means the Architect forgot to return sections → hard error.
+    const planSections = plan.sections as SectionSpec[] | undefined;
+    if (planSections !== undefined) {
+      if (!planSections.length) {
+        throw new Error('Architect did not return sections');
+      }
+      Object.assign(llmFiles, buildSectionCompositionFiles(planSections));
+      config.onLog(
+        `[SimpleGeneration] Sections assembled: ${planSections.length} templates → App.tsx + ${[...new Set(planSections.map((section) => section.template))].length} section file(s)`,
+      );
     }
 
     // ── Enforce shadcn: validate + auto-fix ─────────────────────
