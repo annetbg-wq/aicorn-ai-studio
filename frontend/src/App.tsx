@@ -335,11 +335,11 @@ export default function App() {
     studio.launchWithPlan(plan, intent, source);
   }, [studio, handleOpenInCodeStudio]);
 
-  const handleSendTrendIdeaToChat = React.useCallback(async (_idea: TrendNicheIdea, founderBrief: string) => {
+  const handleSendTrendIdeaToChat = React.useCallback(async (idea: TrendNicheIdea, founderBrief: string) => {
     setView('engine');
     try {
       await studio.startTrendIdeaDraftSession('chat');
-      studio.setChatContext(founderBrief, 'trend-niche');
+      studio.setChatContext(founderBrief, 'trend-niche', idea.appName);
       studio.onSend();
     } catch (error: unknown) {
       studio.addSystemMessage(`⚠️ Failed to open isolated trend draft: ${(error as Error)?.message ?? String(error)}`);

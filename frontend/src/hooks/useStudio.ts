@@ -214,6 +214,8 @@ export interface PendingBlueprintPlan {
   architectKickoff?: PendingArchitectKickoffSelection | null;
 }
 
+type GeneratedPlanPreview = Awaited<ReturnType<typeof GenerationPipeline.generatePlan>>;
+
 export function scheduleKickoffFastStart(input: {
   pendingPlan: PendingBlueprintPlan | null;
   confirmPlan: () => void;
@@ -470,6 +472,8 @@ const repositoryMetaToProjectMeta = (
 const MAX_REVISIONS = 5;
 const LINEAGE_RESET_REQUEST_RE =
   /(full redesign|rebuild|start over|overhaul|new structure|new navigation|new ia|re-architect|build from scratch|redo everything|remake completely|сделай всё заново|начни заново|с нуля|полностью переделай|перестрой всё)/i;
+const CONTINUATION_REQUEST_RE =
+  /^\s*(?:continue|resume|keep going|go on|carry on|proceed|continue working|продолжай|продолжить|продолжим|дальше|продолжай работу)\s*[.!?…]*\s*$/i;
 
 type LineageStatus = 'current' | 'behind' | 'historical';
 
@@ -515,6 +519,46 @@ function addRevision(
 
 function shouldStartNewLineage(intent: string, existingFileCount: number): boolean {
   return existingFileCount > 0 && LINEAGE_RESET_REQUEST_RE.test(intent);
+}
+
+function isExplicitContinuationPrompt(intent: string): boolean {
+  return CONTINUATION_REQUEST_RE.test(intent.trim());
+}
+
+function buildContinuationPlanPreview(plan: ProjectPlan, fallbackIntent: string): GeneratedPlanPreview {
+  const record = plan as Record<string, unknown>;
+  const appName =
+    typeof record.appName === 'string' && record.appName.trim()
+      ? record.appName.trim()
+      : 'Current Project';
+  const pages = Array.isArray(record.pages) ? record.pages : [];
+  const steps = Array.isArray(record.steps) && record.steps.length > 0
+    ? record.steps
+    : [
+        { id: 'think', label: 'Review the interrupted task' },
+        { id: 'architect', label: 'Reuse the saved project plan' },
+        { id: 'code', label: 'Continue implementation' },
+        { id: 'theme', label: 'Preserve the current product direction' },
+        { id: 'save', label: 'Prepare the next result' },
+      ];
+  const summary =
+    typeof record.summary === 'string' && record.summary.trim()
+      ? record.summary.trim()
+      : typeof record.description === 'string' && record.description.trim()
+        ? record.description.trim()
+        : `Continue working on ${appName}.`;
+  const assumptions = Array.isArray(record.assumptions)
+    ? record.assumptions.filter((item): item is string => typeof item === 'string')
+    : [];
+
+  return {
+    ...(plan as unknown as GeneratedPlanPreview),
+    appName,
+    summary: summary || fallbackIntent.trim() || `Continue working on ${appName}.`,
+    pages,
+    steps,
+    assumptions,
+  };
 }
 
 function buildLineageId(rootMessageId: string): string {
@@ -828,7 +872,16 @@ interface PendingProjectSaveMeta {
   previewReady: boolean;
 }
 
-type ProjectPersistenceState = 'none' | 'unknown' | 'exists' | 'missing' | 'draft';
+/**
+ * Canonical project lifecycle states:
+ *   none         — no project or draft active (blank slate / idea mode)
+ *   draft        — draft session active, generation in progress or paused
+ *   preview-ready — generation complete, preview mounted, awaiting explicit Save
+ *   exists        — persisted saved project loaded
+ *   unknown       — id found in localStorage but not yet verified against storage
+ *   missing       — id found but project data is gone (stale reference)
+ */
+type ProjectPersistenceState = 'none' | 'unknown' | 'exists' | 'missing' | 'draft' | 'preview-ready';
 
 const LEGACY_CHAT_HISTORY_KEY = 'CHAT_HISTORY';
 const DRAFT_CHAT_KEY_PREFIX = 'AIC_DRAFT_CHAT_';
@@ -1313,8 +1366,9 @@ export const useStudio = () => {
     plan: ProjectPlan | null | undefined,
     intent: string,
     source: ComposerContextSource = 'weekly-feed',
+    titleOverride?: string,
   ) => {
-    const appName = (plan?.appName ?? '').trim();
+    const appName = (titleOverride ?? plan?.appName ?? '').trim();
     const title = appName || intent.slice(0, 64) || 'Imported context';
     const summaryParts: string[] = [];
     if (plan?.description) summaryParts.push(String(plan.description));
@@ -1392,8 +1446,9 @@ export const useStudio = () => {
   const setChatContext = useCallback((
     brief: string,
     source: ComposerContextSource = 'manual',
+    appName?: string,
   ) => {
-    addComposerContextFromPlan(null, brief, source);
+    addComposerContextFromPlan(null, brief, source, appName);
   }, [addComposerContextFromPlan]);
 
   // ── projects ──────────────────────────────────────────────────────────────
@@ -1482,6 +1537,28 @@ export const useStudio = () => {
   const addSystemMessage = useCallback((content: string) => {
     chatAppend({ role: 'assistant', content });
   }, [chatAppend]);
+
+  // ── Token overflow notification ───────────────────────────────────────────
+  // Listens for agent-token-overflow events emitted by readStream in SimpleGeneration.ts.
+  // Shows a system message in chat so the user knows a step used the overflow buffer.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { modelId, stage, completionTokens, softLimit } = (e as CustomEvent).detail ?? {};
+      const model   = (modelId as string ?? 'unknown').split('/').pop() ?? 'unknown';
+      const tokens  = completionTokens as number ?? 0;
+      const soft    = softLimit as number ?? 0;
+      const overBy  = soft > 0 ? Math.round(((tokens - soft) / soft) * 100) : 0;
+      addSystemMessage(
+        `⚠️ **Token overflow on step "${stage ?? 'unknown'}"** — ` +
+        `model \`${model}\` used ${tokens.toLocaleString()} tokens` +
+        (soft > 0 ? ` (budget: ${soft.toLocaleString()}, over by ~${overBy}%)` : '') +
+        `. The 30% overflow buffer covered this. ` +
+        `If this happens frequently, increase **maxTokens** for this stage in Settings → Agent Config.`,
+      );
+    };
+    window.addEventListener('agent-token-overflow', handler);
+    return () => window.removeEventListener('agent-token-overflow', handler);
+  }, [addSystemMessage]);
 
   const scrollRef          = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -1863,6 +1940,39 @@ export const useStudio = () => {
     return commitPendingProjectSave('manual-after-preview');
   }, [addLog, commitPendingProjectSave, pendingProjectSaveMeta?.previewReady, previewLifecycle]);
 
+  const rejectPendingProjectSave = useCallback(() => {
+    const pending = pendingProjectSaveRef.current;
+    if (!pending) return false;
+
+    pendingProjectSaveRef.current = null;
+    pendingSavePromptShownRef.current = false;
+    setPendingProjectSaveMeta(null);
+    // Revert from preview-ready back to draft — user chose not to save this preview.
+    setProjectPersistenceState('draft');
+
+    addLog(`[Project] Pending save explicitly rejected: ${pending.projectTitle}`);
+
+    if (_draftSessionIdRef.current) {
+      draftArtifactJournal.appendRecord(_draftSessionIdRef.current, {
+        stepType: 'project_save_rejected',
+        projectId: null,
+        acceptedFiles: Object.keys(pending.finalFiles),
+        status: 'ok',
+        metadata: {
+          projectTitle: pending.projectTitle,
+        },
+      });
+    }
+
+    chatAppend({
+      role: 'assistant',
+      content: 'Черновик отклонён и не добавлен в Projects. Он остаётся только в текущей сессии.',
+      timestamp: Date.now(),
+    });
+
+    return true;
+  }, [addLog, chatAppend]);
+
   useEffect(() => {
     if (isGenerating) return;
     if (!pendingProjectSaveRef.current) return;
@@ -1883,7 +1993,7 @@ export const useStudio = () => {
   useEffect(() => {
     // Hard isolation: never persist chat into a global key shared by projects/drafts.
     localStorage.removeItem(LEGACY_CHAT_HISTORY_KEY);
-    if (projectPersistenceState === 'draft' && currentProjectId) {
+    if ((projectPersistenceState === 'draft' || projectPersistenceState === 'preview-ready') && currentProjectId) {
       const draftChatKey = getDraftChatStorageKey(currentProjectId);
       const payload = JSON.stringify(messages);
       try {
@@ -2169,7 +2279,12 @@ export const useStudio = () => {
     localStorage.removeItem('CURRENT_PROJECT_ID');
     localStorage.removeItem('aic-current-project');
     Orchestrator.resetSession();
-    await revisionManager.createEmptyCandidate();
+    try {
+      await revisionManager.createEmptyCandidate();
+    } catch (e: unknown) {
+      // Non-fatal: blank-slate preview is cosmetic. Generation still proceeds.
+      addLog(`[Project] Empty candidate compile failed (preview unavailable): ${(e as Error)?.message ?? String(e)}`, 'warn');
+    }
     // Create a draft session for the next generation run.
     // No persisted project is created here — a project is created only after
     // explicit Save following a successful preview (commitPendingProjectSave).
@@ -2860,15 +2975,16 @@ export const useStudio = () => {
       )
         ? composerContextItemsSnapshot[0].source
         : packagedLaunchContext?.source ?? generationSourceSnapshot;
-    const prebuiltPlanFromContext = activeProjectContextSnapshot?.plan
-      ?? (
-        composerContextItemsSnapshot.length === 1
-          ? composerContextItemsSnapshot[0].plan
-          : undefined
-      )
-      ?? packagedLaunchContext?.plan;
     const autoStartPackagedTrendBuild =
-      effectiveSource === 'trend-niche' && !!prebuiltPlanFromContext;
+      effectiveSource === 'trend-niche' && !!(
+        activeProjectContextSnapshot?.plan
+        ?? (
+          composerContextItemsSnapshot.length === 1
+            ? composerContextItemsSnapshot[0].plan
+            : undefined
+        )
+        ?? packagedLaunchContext?.plan
+      );
     const generationStartMs = Date.now();
     const generationLogs: string[] = [];
     const generationErrors: string[] = [];
@@ -2923,6 +3039,25 @@ export const useStudio = () => {
     const existingCodeCount = projectFiles.length;
     const restartLineageRequested = shouldStartNewLineage(userPrompt, existingCodeCount);
     const effectiveExistingCodeCount = restartLineageRequested ? 0 : existingCodeCount;
+    const savedContinuationPlan =
+      !restartLineageRequested
+      && effectiveExistingCodeCount > 0
+      && projectPersistenceState === 'exists'
+      && isExplicitContinuationPrompt(userPrompt)
+      && storedProjectForTrust?.plan
+        ? storedProjectForTrust.plan as ProjectPlan
+        : null;
+    const continuationPlanPreview = savedContinuationPlan
+      ? buildContinuationPlanPreview(savedContinuationPlan, userPrompt)
+      : null;
+    const prebuiltPlanFromContext = savedContinuationPlan
+      ?? activeProjectContextSnapshot?.plan
+      ?? (
+        composerContextItemsSnapshot.length === 1
+          ? composerContextItemsSnapshot[0].plan
+          : undefined
+      )
+      ?? packagedLaunchContext?.plan;
     const runStartsNewLineage = effectiveExistingCodeCount === 0 || !currentActiveLineageId;
     let runLineageId = currentActiveLineageId;
     let runLineageRootMessageId = currentLineageRootMessageId;
@@ -2963,21 +3098,26 @@ export const useStudio = () => {
     // Resolve planRoute here so generatePlan uses canonical routing (not ConfigService fallback).
     // planRoute always uses 'primary' slot — autoRoute escalation only affects the main coder,
     // not the plan-generation call which always runs on the primary slot semantically.
-    const planRoute = resolveStandardRoute('primary', { onLog: addLog });
-    let plan: Awaited<ReturnType<typeof GenerationPipeline.generatePlan>>;
-    try {
-      plan = await GenerationPipeline.generatePlan({
-        intent:   userPrompt,
-        userLang,
-        apiKey:   planRoute.apiKey,
-        route:    planRoute,
-        projectId: runProjectId,
-        signal:   controller.signal,
-      });
-    } catch (planErr) {
-      // Remove optimistic card so UI doesn't show a stuck skeleton.
-      dispatch({ type: 'REMOVE_BY_ID', id: optimisticPlanMsgId });
-      throw planErr;
+    let plan: GeneratedPlanPreview;
+    if (continuationPlanPreview) {
+      plan = continuationPlanPreview;
+      addLog('[Continue] Existing project continuation detected — reusing the saved project plan');
+    } else {
+      const planRoute = resolveStandardRoute('primary', { onLog: addLog });
+      try {
+        plan = await GenerationPipeline.generatePlan({
+          intent:   userPrompt,
+          userLang,
+          apiKey:   planRoute.apiKey,
+          route:    planRoute,
+          projectId: runProjectId,
+          signal:   controller.signal,
+        });
+      } catch (planErr) {
+        // Remove optimistic card so UI doesn't show a stuck skeleton.
+        dispatch({ type: 'REMOVE_BY_ID', id: optimisticPlanMsgId });
+        throw planErr;
+      }
     }
     console.log('[planner] plan generated, dispatching', plan);
 
@@ -3086,12 +3226,14 @@ export const useStudio = () => {
       // Vision analysis is now handled inside GenerationPipeline.run() via config.attachments.
 
       // Classify idea for design system
-      const classification = devAgentActive
+      const classification = devAgentActive || savedContinuationPlan
         ? fallbackClassify(baseIntent)
         : await classifyAndStore(baseIntent, effectiveApiKey);
 
       if (devAgentActive) {
         addLog(`[handleSend] ${devAgentProvider} dev agent active: skipped OpenRouter classification`);
+      } else if (savedContinuationPlan) {
+        addLog('[Continue] Reusing saved project plan — skipped remote design re-classification');
       }
       const designPrompt = buildDesignSystemPrompt({
         category: classification.category,
@@ -3194,6 +3336,7 @@ export const useStudio = () => {
           : 'architect_guided',
         attachments: capturedAttachments,
         prebuiltPlan: prebuiltPlanFromContext,
+        reuseSavedPlanForContinuation: !!savedContinuationPlan,
         onStream: (streamText) => {
           // Update streamingCode on the plan card (replaces old last-message overwrite)
           startTransition(() => {
@@ -3601,9 +3744,11 @@ export const useStudio = () => {
         userPrompt: userPrompt?.slice(0, 50),
       });
       const ideaTitle =
-        effectiveSource !== 'chat'
-          ? userPrompt.split(':')[0]?.trim()?.slice(0, 80)
-          : '';
+        effectiveSource === 'trend-niche'
+          ? (composerContextItemsSnapshot[0]?.title ?? '').slice(0, 80)
+          : effectiveSource !== 'chat'
+            ? userPrompt.split(':')[0]?.trim()?.slice(0, 80)
+            : '';
       const projectTitle = getCanonicalProjectName(
         {
           name:
@@ -3661,6 +3806,9 @@ export const useStudio = () => {
           projectTitle,
           previewReady: false,
         });
+        // Transition to preview-ready: generation is done, preview is mounting.
+        // Project is NOT yet persisted — explicit Save is the only path to Projects.
+        setProjectPersistenceState('preview-ready');
         pendingSavePromptShownRef.current = false;
         addLog(`[Project] Save ready to request after preview (${projectTitle})`);
         packagedLaunchContextRef.current = null;
@@ -3770,17 +3918,16 @@ export const useStudio = () => {
     // Ideas from the feed must always start in a fresh empty project so the
     // coder sees existingCodeCount === 0 and generates the full app from
     // scratch instead of producing an incremental patch against stale files.
-    if (source === 'trend-niche') {
-      await startTrendIdeaDraftSession('build');
-    } else if (source === 'weekly-feed' || source === 'niche') {
-      await createNewProject();
+    // autoSaveCurrentProject: false — idea entry must NOT write to Projects.
+    if (source === 'trend-niche' || source === 'weekly-feed' || source === 'niche') {
+      await createNewProject({ autoSaveCurrentProject: false });
     }
 
     addComposerContextFromPlan(plan, intent, mappedSource);
     addSystemMessage(
       `🧩 Context added: **${plan.appName || 'Imported idea'}**. Review and press Send to generate with this context pack.`,
     );
-  }, [addComposerContextFromPlan, addSystemMessage, createNewProject, startTrendIdeaDraftSession]);
+  }, [addComposerContextFromPlan, addSystemMessage, createNewProject]);
 
   const onSettings = useCallback(() => setShowSettings(true), []);
 
@@ -4080,6 +4227,8 @@ export const useStudio = () => {
         name: meta.name,
       })),
       getCurrentProjectId: () => localStorage.getItem('CURRENT_PROJECT_ID'),
+      getProjectPersistenceState: () => projectPersistenceState,
+      getDraftSessionId: () => _draftSessionIdRef.current ?? localStorage.getItem('AIC_DRAFT_SESSION_ID'),
       loadProjectById: async (id: string) => {
         if (!id) throw new Error('loadProjectById requires a project id');
         await loadProjectRef.current({ id });
@@ -4300,6 +4449,7 @@ export const useStudio = () => {
     previewReady,
     pendingProjectSave: pendingProjectSaveMeta,
     savePendingProject,
+    rejectPendingProjectSave,
     // kickoff lifecycle — explicit phase for genesis builds
     kickoffPhase,
     // blueprint confirmation
@@ -4341,6 +4491,7 @@ export const useStudio = () => {
     createNewProject, createProject, switchProject, loadProject, restoreMessageRevision, restoreBlueprintLineage, deleteProject, refreshProjects, stopGeneration,
     handleSend, launchWithPlan, publishProject, classifyAndStore,
     savePendingProject,
+    rejectPendingProjectSave,
     onSettings, setShowSettings,
     addFigmaAccount, removeFigmaAccount, refreshFigmaAccounts, validateFigmaLink,
     setEngineApiKey, setEngineModelId, setAgentConfig,
