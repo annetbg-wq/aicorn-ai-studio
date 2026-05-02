@@ -1884,6 +1884,17 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                 return <FallbackPlanCard key={m.id} m={m} onConfirmPlan={onConfirmPlan} isDark={isDark} textColor={textColor} />;
               }
 
+              if (m.type === 'progress') {
+                return (
+                  <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
+                    <TypingDots />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#6366f1' }}>
+                      {typeof m.content === 'string' ? m.content : ''}
+                    </span>
+                  </div>
+                );
+              }
+
               return (
                 <div key={m.id} className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
                   style={{ animation: 'fadeSlideIn 0.2s ease both' }}>
@@ -1910,6 +1921,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       t={t}
                     />
                   ) : (
+                    <>
                     <div className="relative max-w-[92%]">
                       <div className="allow-copy px-3.5 py-2.5 rounded-2xl text-[14px] leading-relaxed"
                         style={{
@@ -1969,9 +1981,28 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                         </button>
                       )}
                     </div>
+                    {(m as any).retryable && !isUser && (
+                      <button
+                        onClick={onSend}
+                        style={{
+                          marginTop: 6,
+                          padding: '5px 12px',
+                          borderRadius: 8,
+                          border: '1px solid rgba(99,102,241,0.4)',
+                          background: 'rgba(99,102,241,0.1)',
+                          color: '#6366f1',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ↺ Повторить
+                      </button>
+                    )}
+                    </>
                   )}
-                </div>
-              );
+              </div>
+            );
             })}
             <div className="h-2" />
           </div>

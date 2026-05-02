@@ -28,7 +28,8 @@ export type ChatMessageType =
   | 'generation-report'
   | 'clarification'
   | 'error'
-  | 'info';
+  | 'info'
+  | 'progress';
 
 export interface ChatMessage {
   id: string;
@@ -191,7 +192,7 @@ export function chatReducer(state: ChatMessage[], action: ChatAction): ChatMessa
 
     case 'PATCH_LAST': {
       // Skip blueprint/generation-plan/system cards — only patch real user/assistant turns.
-      const SYSTEM_TYPES = new Set(['generation-plan', 'blueprint', 'system']);
+      const SYSTEM_TYPES = new Set(['generation-plan', 'blueprint', 'system', 'progress']);
       const idx = [...state].reverse().findIndex(
         msg =>
           !SYSTEM_TYPES.has(msg.type ?? '') &&

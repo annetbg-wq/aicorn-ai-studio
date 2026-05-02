@@ -20,6 +20,7 @@ import {
   loadCachedTrendNiches,
   loadTrendIdeaBank,
   loadTrendNicheInterests,
+  makeDefaultTrendModel,
   markTrendIdeaSentToChat,
   removeTrendIdeaFromBank,
   saveTrendIdeaToBank,
@@ -134,7 +135,7 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
 }) => {
   const { googleAccessToken } = useAuth();
   const labels = labelsFor(appLanguage);
-  const [model, setModel] = React.useState<TrendNichesModel | null>(() => loadCachedTrendNiches());
+  const [model, setModel] = React.useState<TrendNichesModel | null>(() => loadCachedTrendNiches() ?? makeDefaultTrendModel());
   const [bank, setBank] = React.useState<TrendIdeaBankItem[]>(() => loadTrendIdeaBank());
   const [selectedInterest, setSelectedInterest] = React.useState<TrendNicheInterest | null>(() => loadTrendNicheInterests()[0] ?? null);
   const [loading, setLoading] = React.useState(false);
