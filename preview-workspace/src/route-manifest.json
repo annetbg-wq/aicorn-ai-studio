@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "layout": "tabs",
+  "layout": "none",
   "routes": [
     {
       "path": "/",
-      "component": "Page1",
+      "component": "Home",
       "filePath": "pages/Home.tsx",
-      "title": "Page1",
+      "title": "Home",
       "isHome": true,
-      "isProtected": true
+      "isProtected": false
     },
     {
       "path": "/settings",
