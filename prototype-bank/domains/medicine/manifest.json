@@ -1,0 +1,12 @@
+{
+  "id": "medicine",
+  "type": "domain",
+  "name": "Medicine",
+  "entities": ["Patient", "Doctor", "Appointment", "Diagnosis", "Prescription"],
+  "roles": ["patient", "doctor", "admin"],
+  "typicalFlows": ["Запись на приём", "Просмотр истории болезни", "Получение результатов анализов", "Видеоконсультация"],
+  "restrictions": ["Никаких ярких агрессивных цветов в основном UI", "Всегда показывать дисклеймер о профессиональной консультации", "Данные пациентов — только с подтверждением согласия"],
+  "uiPatterns": ["Карточки с иконками медицинских специальностей", "Временная шкала для истории лечения", "Прогресс-индикаторы", "Цветовое кодирование статусов (зелёный/жёлтый/красный)"],
+  "recommendedDesign": "trust-medical",
+  "recommendedArchetypes": ["dashboard-workspace", "scanner-app"]
+}

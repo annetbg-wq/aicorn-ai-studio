@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import fs from 'fs'
+import fsp from 'fs/promises'
 import { execSync } from 'child_process'
 import { generateManifest } from './src/scripts/generateManifest'
 import { resolvePreviewBridgePath } from './src/shared/previewBridgePaths'
@@ -17,6 +18,40 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    {
+      name: 'prototype-bank-server',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          const match = req.url?.match(/^\/__prototype_bank\/([^/]+)\/files$/);
+          if (!match) return next();
+
+          const archetypeId = match[1];
+          const bankPath = path.resolve(__dirname, '../prototype-bank/archetypes', archetypeId, 'files');
+
+          try {
+            const files: Record<string, string> = {};
+            const walkDir = async (dir: string, base: string) => {
+              const entries = await fsp.readdir(dir, { withFileTypes: true });
+              for (const entry of entries) {
+                const full = path.join(dir, entry.name);
+                const rel  = path.join(base, entry.name).replace(/\\/g, '/');
+                if (entry.isDirectory()) {
+                  await walkDir(full, rel);
+                } else if (/\.(tsx?|css)$/.test(entry.name)) {
+                  files[rel] = await fsp.readFile(full, 'utf-8');
+                }
+              }
+            };
+            await walkDir(bankPath, '');
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify(files));
+          } catch {
+            res.statusCode = 404;
+            res.end('{}');
+          }
+        });
+      },
+    },
     {
       name: 'manifest',
       buildStart()     { generateManifest(); },

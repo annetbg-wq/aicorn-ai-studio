@@ -1,0 +1,10 @@
+{
+  "id": "notifications",
+  "type": "module",
+  "name": "Notifications",
+  "description": "In-app уведомления и push-нотификации",
+  "adds": ["NotificationCenter компонент", "NotificationItem компонент", "usePushNotifications hook"],
+  "routes": ["/notifications"],
+  "entities": ["Notification"],
+  "dependencies": []
+}

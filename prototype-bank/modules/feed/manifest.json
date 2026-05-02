@@ -1,0 +1,10 @@
+{
+  "id": "feed",
+  "type": "module",
+  "name": "Feed",
+  "description": "Лента контента с фильтрами и бесконечной прокруткой",
+  "adds": ["FeedList компонент", "FeedCard компонент", "FeedFilters компонент"],
+  "routes": ["/feed"],
+  "entities": ["FeedItem", "Category"],
+  "dependencies": []
+}

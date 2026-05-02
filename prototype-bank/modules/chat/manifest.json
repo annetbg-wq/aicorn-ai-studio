@@ -1,0 +1,10 @@
+{
+  "id": "chat",
+  "type": "module",
+  "name": "Chat",
+  "description": "Чат интерфейс с историей сообщений",
+  "adds": ["ChatView компонент", "MessageBubble компонент", "ChatInput компонент"],
+  "routes": ["/chat"],
+  "entities": ["Message", "Conversation"],
+  "dependencies": []
+}

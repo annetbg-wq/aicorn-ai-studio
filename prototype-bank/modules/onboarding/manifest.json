@@ -1,0 +1,10 @@
+{
+  "id": "onboarding",
+  "type": "module",
+  "name": "Onboarding",
+  "description": "3-шаговый онбординг с выбором параметров пользователем",
+  "adds": ["OnboardingWizard компонент", "OnboardingStep компонент"],
+  "routes": ["/onboarding"],
+  "entities": ["UserPreferences"],
+  "dependencies": []
+}

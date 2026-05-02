@@ -1,0 +1,50 @@
+{
+  "id": "core",
+  "type": "core",
+  "name": "Core Layer",
+  "description": "Обязательный фундамент каждого приложения. Всегда присутствует.",
+  "alwaysIncluded": true,
+  "components": {
+    "onboarding": {
+      "description": "3-шаговый онбординг при первом запуске",
+      "trigger": "localStorage 'onboarding_complete' !== 'true'",
+      "steps": ["Приветствие + ценностное предложение", "Выбор предпочтений пользователя", "Создание профиля или пропуск"],
+      "completionEvent": "window.dispatchEvent(new CustomEvent('onboarding-complete'))",
+      "storageKey": "onboarding_complete"
+    },
+    "paywall": {
+      "description": "Монетизация после N бесплатных действий",
+      "trigger": "usageCount >= FREE_LIMIT && !isPremium",
+      "plans": [
+        {"id": "basic", "price": "$4.99/mo", "features": ["core features"]},
+        {"id": "pro", "price": "$9.99/mo", "features": ["all features"]},
+        {"id": "premium", "price": "$19.99/mo", "features": ["everything + priority"]}
+      ],
+      "storageKey": "is_premium",
+      "freeLimit": 3
+    },
+    "auth": {
+      "description": "Google OAuth через Supabase",
+      "provider": "google",
+      "optional": true,
+      "note": "Авторизация необязательна для базового использования"
+    },
+    "account": {
+      "description": "Настройки аккаунта и профиля",
+      "sections": ["Профиль (имя, аватар)", "Подписка (текущий план, управление)", "Язык и регион", "Уведомления", "Данные (экспорт, удаление аккаунта)"],
+      "route": "/account"
+    },
+    "i18n": {
+      "description": "Мультиязычность ru/en",
+      "defaultLanguage": "ru",
+      "supportedLanguages": ["ru", "en"],
+      "detectionOrder": ["localStorage 'app_language'", "navigator.language", "default: ru"]
+    }
+  },
+  "routes": ["/onboarding", "/account", "/paywall"],
+  "storageKeys": ["onboarding_complete", "is_premium", "usage_count", "app_language", "user_profile"],
+  "navigationGuards": [
+    "/ → /onboarding если onboarding_complete !== true",
+    "/premium-feature → /paywall если !isPremium && usageCount >= FREE_LIMIT"
+  ]
+}

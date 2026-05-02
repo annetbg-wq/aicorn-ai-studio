@@ -1,0 +1,11 @@
+{
+  "id": "fintech-visual",
+  "type": "domain-visual-pack",
+  "domain": "fintech",
+  "name": "Fintech Visuals",
+  "imageStyle": "abstract financial, data visualization",
+  "unsplashKeywords": ["finance", "investment", "chart", "money", "bank"],
+  "avatarStyle": "business professional",
+  "iconSets": ["trending-up", "dollar-sign", "credit-card", "pie-chart", "bar-chart"],
+  "animations": ["number counting animations", "chart draw-in animation"]
+}

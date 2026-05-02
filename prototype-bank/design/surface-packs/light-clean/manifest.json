@@ -1,0 +1,21 @@
+{
+  "id": "light-clean",
+  "type": "surface-pack",
+  "name": "Light Clean",
+  "description": "Чистый светлый интерфейс с минимализмом и воздухом",
+  "colors": {
+    "background": "#f9fafb",
+    "surface": "#ffffff",
+    "surfaceAlt": "#f3f4f6",
+    "border": "rgba(0,0,0,0.08)",
+    "text": "#111827",
+    "textMuted": "#6b7280",
+    "accent": "#7c3aed",
+    "accentFg": "#ffffff",
+    "success": "#16a34a",
+    "warning": "#d97706",
+    "danger": "#dc2626"
+  },
+  "mood": "calm",
+  "suitableDomains": ["wellness", "medicine", "social"]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "superapp-shell",
+  "type": "archetype",
+  "name": "Superapp Shell",
+  "description": "Мобильное супер-приложение с несколькими разделами и богатым home-экраном",
+  "whenToUse": ["Многофункциональное мобильное приложение", "Продукт с 3-5 основными разделами", "Super-app с разными функциями"],
+  "includes": ["Home с featured контентом", "Explore/Discovery раздел", "Профиль пользователя", "TopBar с поиском", "BottomNav с 4 разделами"],
+  "forbids": [],
+  "routes": ["/", "/home", "/explore", "/profile", "/settings"],
+  "entities": ["User", "Content", "Category"],
+  "requiredModules": ["profile"],
+  "optionalModules": ["auth", "feed", "search", "notifications"],
+  "navigation": "bottom-tabs"
+}

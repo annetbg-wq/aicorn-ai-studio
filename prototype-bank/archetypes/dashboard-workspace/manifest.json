@@ -1,0 +1,21 @@
+{
+  "id": "dashboard-workspace",
+  "type": "archetype",
+  "name": "Dashboard Workspace",
+  "description": "Рабочий дашборд с метриками, аналитикой и управлением",
+  "whenToUse": ["B2B инструмент", "Аналитическая панель", "Трекер задач/продаж", "Административная панель"],
+  "includes": ["KPI карточки с метриками", "Графики и аналитика", "Боковое меню (Sidebar)", "Таблицы данных", "Экран детальной аналитики"],
+  "forbids": ["Bottom navigation", "Карточный feed-лейаут"],
+  "routes": ["/", "/dashboard", "/analytics", "/settings"],
+  "entities": ["Metric", "Report", "Task", "User"],
+  "requiredModules": ["analytics"],
+  "optionalModules": ["auth", "notifications", "settings"],
+  "navigation": "sidebar",
+  "seedDataExample": {
+    "metrics": [
+      {"id": "1", "label": "Выручка", "value": 142500, "change": 12.5, "trend": "up"},
+      {"id": "2", "label": "Пользователи", "value": 3840, "change": 8.2, "trend": "up"},
+      {"id": "3", "label": "Конверсия", "value": 4.7, "change": -0.3, "trend": "down"}
+    ]
+  }
+}

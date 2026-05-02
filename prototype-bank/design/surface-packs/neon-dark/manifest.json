@@ -1,0 +1,21 @@
+{
+  "id": "neon-dark",
+  "type": "surface-pack",
+  "name": "Neon Dark",
+  "description": "Тёмный интерфейс с яркими неоновыми акцентами для энергичных продуктов",
+  "colors": {
+    "background": "#030712",
+    "surface": "#0a0a1a",
+    "surfaceAlt": "#0f0f24",
+    "border": "rgba(139,92,246,0.15)",
+    "text": "#f1f5f9",
+    "textMuted": "#64748b",
+    "accent": "#8b5cf6",
+    "accentFg": "#ffffff",
+    "success": "#10b981",
+    "warning": "#f59e0b",
+    "danger": "#ef4444"
+  },
+  "mood": "playful",
+  "suitableDomains": ["gaming", "ai-tools"]
+}

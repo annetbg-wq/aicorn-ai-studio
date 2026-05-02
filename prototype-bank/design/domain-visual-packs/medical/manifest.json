@@ -1,0 +1,11 @@
+{
+  "id": "medical-visual",
+  "type": "domain-visual-pack",
+  "domain": "medicine",
+  "name": "Medical Visuals",
+  "imageStyle": "clean, professional, healthcare",
+  "unsplashKeywords": ["doctor", "healthcare", "medical", "hospital", "wellness"],
+  "avatarStyle": "professional headshot, doctor portrait",
+  "iconSets": ["heart", "activity", "stethoscope", "pill", "calendar"],
+  "animations": ["smooth transitions only", "no sudden movements"]
+}

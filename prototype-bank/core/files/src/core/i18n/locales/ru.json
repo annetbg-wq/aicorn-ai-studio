@@ -1,0 +1,19 @@
+{
+  "onboarding.welcome": "Добро пожаловать!",
+  "onboarding.next": "Продолжить",
+  "onboarding.skip": "Пропустить",
+  "onboarding.start": "Начать",
+  "paywall.title": "Перейти на Premium",
+  "paywall.upgrade": "Обновить",
+  "paywall.monthly": "в месяц",
+  "account.title": "Аккаунт",
+  "account.profile": "Профиль",
+  "account.subscription": "Подписка",
+  "account.language": "Язык",
+  "account.logout": "Выйти",
+  "account.deleteAccount": "Удалить аккаунт",
+  "common.save": "Сохранить",
+  "common.cancel": "Отмена",
+  "common.back": "Назад",
+  "common.continue": "Продолжить"
+}

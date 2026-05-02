@@ -1,0 +1,12 @@
+{
+  "id": "gaming",
+  "type": "domain",
+  "name": "Gaming",
+  "entities": ["Player", "Game", "Score", "Achievement", "Leaderboard"],
+  "roles": ["player"],
+  "typicalFlows": ["Начать игру/сессию", "Просмотр таблицы лидеров", "Открытие достижений", "Просмотр статистики"],
+  "restrictions": [],
+  "uiPatterns": ["Яркие неоновые акценты", "Анимации и переходы", "XP прогресс-бары", "Аватары игроков", "Значки и трофеи"],
+  "recommendedDesign": "neon-dark",
+  "recommendedArchetypes": ["superapp-shell", "consumer-feed"]
+}

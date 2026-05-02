@@ -1,0 +1,21 @@
+{
+  "id": "trust-medical",
+  "type": "surface-pack",
+  "name": "Trust Medical",
+  "description": "Доверительный медицинский интерфейс с синими тонами",
+  "colors": {
+    "background": "#f0f9ff",
+    "surface": "#ffffff",
+    "surfaceAlt": "#e0f2fe",
+    "border": "rgba(14,165,233,0.15)",
+    "text": "#0c4a6e",
+    "textMuted": "#0369a1",
+    "accent": "#0284c7",
+    "accentFg": "#ffffff",
+    "success": "#059669",
+    "warning": "#d97706",
+    "danger": "#dc2626"
+  },
+  "mood": "corporate",
+  "suitableDomains": ["medicine"]
+}

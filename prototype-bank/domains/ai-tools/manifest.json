@@ -1,0 +1,12 @@
+{
+  "id": "ai-tools",
+  "type": "domain",
+  "name": "AI Tools",
+  "entities": ["Prompt", "Result", "Template", "History", "Collection"],
+  "roles": ["user"],
+  "typicalFlows": ["Ввод запроса и получение результата", "Выбор из шаблонов", "Сохранение в коллекцию", "История запросов"],
+  "restrictions": ["Всегда показывать анимированный индикатор при генерации", "Не показывать технические ID моделей пользователю"],
+  "uiPatterns": ["Textarea с плейсхолдером-примером", "Карточки шаблонов с категориями", "Анимация потоковой генерации", "Кнопки копирования результатов"],
+  "recommendedDesign": "dark-premium",
+  "recommendedArchetypes": ["assistant-chat", "scanner-app"]
+}

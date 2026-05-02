@@ -1,0 +1,12 @@
+{
+  "id": "wellness",
+  "type": "domain",
+  "name": "Wellness",
+  "entities": ["Session", "Habit", "Progress", "Goal", "Mood"],
+  "roles": ["user"],
+  "typicalFlows": ["Начать медитацию/тренировку", "Трекинг привычек", "Просмотр прогресса за период", "Добавить запись настроения"],
+  "restrictions": [],
+  "uiPatterns": ["Спокойные пастельные или приглушённые градиенты", "Прогресс-кольца и streak-счётчики", "Мотивирующие цитаты", "Тёплые иллюстрации"],
+  "recommendedDesign": "light-clean",
+  "recommendedArchetypes": ["consumer-feed", "superapp-shell"]
+}

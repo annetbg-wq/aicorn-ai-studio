@@ -1,0 +1,20 @@
+{
+  "id": "scanner-app",
+  "type": "archetype",
+  "name": "Scanner App",
+  "description": "Сканер/анализатор с историей результатов и детальными отчётами",
+  "whenToUse": ["Сканирование документов/штрихкодов", "Диагностика и анализ", "Медицинские измерения", "Проверка/валидация данных"],
+  "includes": ["Главный экран сканирования", "Страница результатов анализа", "История сканирований", "Детальный просмотр результата"],
+  "forbids": [],
+  "routes": ["/", "/scan", "/result/:id", "/history"],
+  "entities": ["Scan", "Result", "HistoryItem"],
+  "requiredModules": [],
+  "optionalModules": ["auth", "billing", "notifications"],
+  "navigation": "bottom-tabs",
+  "seedDataExample": {
+    "history": [
+      {"id": "1", "type": "QR Code", "result": "https://example.com", "date": "2026-04-26T10:30:00Z", "status": "success"},
+      {"id": "2", "type": "Barcode", "result": "4607000400879", "date": "2026-04-25T15:45:00Z", "status": "success"}
+    ]
+  }
+}

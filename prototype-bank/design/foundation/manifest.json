@@ -1,0 +1,19 @@
+{
+  "id": "foundation",
+  "type": "design-foundation",
+  "name": "Design Foundation",
+  "description": "Базовые токены дизайна: типографика, сетка, радиусы, тени",
+  "tokens": {
+    "fontFamily": "Inter, system-ui, sans-serif",
+    "baseFontSize": "16px",
+    "gridColumns": 4,
+    "gridGutter": "16px",
+    "borderRadiusSm": "8px",
+    "borderRadiusMd": "12px",
+    "borderRadiusLg": "16px",
+    "shadowSm": "0 1px 3px rgba(0,0,0,0.12)",
+    "shadowMd": "0 4px 16px rgba(0,0,0,0.16)",
+    "transitionFast": "150ms ease",
+    "transitionBase": "250ms ease"
+  }
+}

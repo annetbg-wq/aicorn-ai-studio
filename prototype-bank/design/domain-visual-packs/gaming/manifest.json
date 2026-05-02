@@ -1,0 +1,11 @@
+{
+  "id": "gaming-visual",
+  "type": "domain-visual-pack",
+  "domain": "gaming",
+  "name": "Gaming Visuals",
+  "imageStyle": "action, dynamic, bright colors",
+  "unsplashKeywords": ["gaming", "esports", "controller", "neon", "competition"],
+  "avatarStyle": "gaming avatar, character portrait",
+  "iconSets": ["trophy", "zap", "star", "target", "crown"],
+  "animations": ["scale on hover", "glow effect on achievement", "pulse on countdown"]
+}

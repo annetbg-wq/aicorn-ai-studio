@@ -1,0 +1,19 @@
+{
+  "id": "assistant-chat",
+  "type": "archetype",
+  "name": "Assistant Chat",
+  "description": "Чат с AI-ассистентом, историей диалогов и настройками",
+  "whenToUse": ["AI-инструмент или чат-бот", "Консультант или советник", "Генератор контента", "Диалоговый интерфейс"],
+  "includes": ["Интерфейс чата с потоковым ответом", "История диалогов", "Настройки ассистента", "Пустое состояние с подсказками"],
+  "forbids": [],
+  "routes": ["/", "/chat", "/history", "/settings"],
+  "entities": ["Message", "Conversation", "AssistantConfig"],
+  "requiredModules": ["chat"],
+  "optionalModules": ["auth", "billing"],
+  "navigation": "bottom-tabs",
+  "seedDataExample": {
+    "conversations": [
+      {"id": "1", "title": "Бизнес-план", "lastMessage": "Хорошо, вот структура...", "date": "2026-04-26"}
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "fintech",
+  "type": "domain",
+  "name": "Fintech",
+  "entities": ["Account", "Transaction", "Budget", "Goal", "Card"],
+  "roles": ["user", "admin"],
+  "typicalFlows": ["Перевод средств", "История транзакций", "Управление бюджетом", "Накопительные цели"],
+  "restrictions": ["Всегда показывать реальные суммы в seed data (не round numbers)", "Цветовое разделение доходов (+green) и расходов (-red)", "Маскировка чувствительных данных (карта: ****1234)"],
+  "uiPatterns": ["Баланс крупным шрифтом на главном экране", "Список транзакций с иконками категорий", "Кольцевые/столбчатые графики бюджета", "Прогресс-бары накоплений"],
+  "recommendedDesign": "dark-premium",
+  "recommendedArchetypes": ["dashboard-workspace"]
+}
