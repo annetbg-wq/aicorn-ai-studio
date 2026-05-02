@@ -1,22 +1,46 @@
 {
   "version": 1,
-  "layout": "none",
+  "layout": "tabs",
   "routes": [
     {
       "path": "/",
-      "component": "Home",
+      "component": "Page1",
       "filePath": "pages/Home.tsx",
-      "title": "Home",
+      "title": "Page1",
       "isHome": true,
-      "isProtected": false
+      "isProtected": true
     },
     {
-      "path": "/settings",
-      "component": "Settings",
-      "filePath": "pages/Settings.tsx",
-      "title": "Settings",
+      "path": "/event/:id",
+      "component": "Page2",
+      "filePath": "pages/EventDetails.tsx",
+      "title": "Page2",
       "isHome": false,
-      "isProtected": false
+      "isProtected": true
+    },
+    {
+      "path": "/create-event",
+      "component": "Page3",
+      "filePath": "pages/CreateEvent.tsx",
+      "title": "Page3",
+      "isHome": false,
+      "isProtected": true
+    },
+    {
+      "path": "/my-events",
+      "component": "Page4",
+      "filePath": "pages/MyEvents.tsx",
+      "title": "Page4",
+      "isHome": false,
+      "isProtected": true
+    },
+    {
+      "path": "/account",
+      "component": "Page5",
+      "filePath": "pages/AccountSettings.tsx",
+      "title": "Page5",
+      "isHome": false,
+      "isProtected": true
     }
   ]
 }
