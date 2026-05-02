@@ -938,6 +938,22 @@ const GenerationReportCard: React.FC<{
             {lineageStatusLabel}
           </span>
         ) : null}
+        {onRestoreVersion && lineageStatus && lineageStatus !== 'current' && (
+          <button
+            onClick={() => onRestoreVersion(messageId)}
+            title={t('restoreVersion')}
+            style={{
+              marginLeft: lineageStatusLabel ? 6 : 'auto',
+              padding: '3px 9px', borderRadius: 999, border: 'none',
+              background: 'rgba(59,130,246,0.12)', color: '#60a5fa',
+              fontSize: 10, fontWeight: 700, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 4,
+              flexShrink: 0,
+            }}
+          >
+            <RotateCcw size={9} /> {t('restoreVersion')}
+          </button>
+        )}
       </div>
       <div style={{ fontSize: 11, color: subText, marginBottom: 7 }}>
         {report.theme !== 'default' ? `Theme: ${report.theme} Â· ` : ''}
@@ -1795,6 +1811,7 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
       <style>{`
         @keyframes spin  { to { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes fadeInUp { from { opacity:0; transform:translateX(-50%) translateY(8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
       `}</style>
     </div>
   );
@@ -1826,9 +1843,26 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   const [copiedIdx, setCopiedIdx]             = useState<string | null>(null);
   const [isDragging, setIsDragging]           = useState(false);
   const [isDraggingInput, setIsDraggingInput] = useState(false);
+  const [reactions, setReactions]             = useState<Record<string, 'up' | 'down'>>({});
+  const [undoToast, setUndoToast]             = useState<string | null>(null);
+  const undoToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef  = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleUndo = React.useCallback(() => {
+    onUndo();
+    setUndoToast('↩ Restored previous version');
+    if (undoToastTimer.current) clearTimeout(undoToastTimer.current);
+    undoToastTimer.current = setTimeout(() => setUndoToast(null), 2800);
+  }, [onUndo]);
+
+  const handleRedo = React.useCallback(() => {
+    onRedo();
+    setUndoToast('↪ Redo applied');
+    if (undoToastTimer.current) clearTimeout(undoToastTimer.current);
+    undoToastTimer.current = setTimeout(() => setUndoToast(null), 2800);
+  }, [onRedo]);
 
   /** Resize image to max 1920px wide and return JPEG data-URI (~85% quality). */
   const resizeImage = (file: File): Promise<string> =>
@@ -2022,6 +2056,22 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
         onDragLeave={() => setIsDragging(false)}
         onDrop={e => { e.preventDefault(); setIsDragging(false); handleFileSelect(e.dataTransfer.files); }}
       >
+        {undoToast && (
+          <div style={{
+            position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 30, whiteSpace: 'nowrap',
+            padding: '7px 16px', borderRadius: 999,
+            background: isDark ? 'rgba(30,41,59,0.95)' : 'rgba(255,255,255,0.97)',
+            border: `1px solid ${borderColor}`,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.18)',
+            fontSize: 12, fontWeight: 600, color: textColor,
+            display: 'flex', alignItems: 'center', gap: 8,
+            pointerEvents: 'none',
+            animation: 'fadeInUp 0.18s ease',
+          }}>
+            {undoToast}
+          </div>
+        )}
         {isDragging && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 pointer-events-none"
             style={{ background: 'rgba(59,130,246,0.07)', border: '2px dashed rgba(59,130,246,0.4)', borderRadius: 8, margin: 8 }}>
@@ -2190,8 +2240,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                               setTimeout(() => setCopiedIdx(c => c === msgId ? null : c), 2000);
                             }, active: copiedIdx === (m as any).id, activeEl: <span style={{ fontSize: 9, color: '#4ade80' }}>✓</span> },
                             { icon: <RefreshCw size={10} />, title: 'Regenerate', action: () => onSend() },
-                            { icon: <ThumbsUp size={10} />, title: 'Good response', action: () => {} },
-                            { icon: <ThumbsDown size={10} />, title: 'Bad response', action: () => {} },
+                            { icon: <ThumbsUp size={10} />, title: 'Good response', action: () => setReactions(prev => { const next = {...prev}; const id = (m as any).id; if (next[id] === 'up') delete next[id]; else next[id] = 'up'; return next; }), active: reactions[(m as any).id] === 'up', activeEl: <ThumbsUp size={10} style={{ color: '#4ade80' }} /> },
+                            { icon: <ThumbsDown size={10} />, title: 'Bad response', action: () => setReactions(prev => { const next = {...prev}; const id = (m as any).id; if (next[id] === 'down') delete next[id]; else next[id] = 'down'; return next; }), active: reactions[(m as any).id] === 'down', activeEl: <ThumbsDown size={10} style={{ color: '#f87171' }} /> },
                           ].map(({ icon, title, action, active, activeEl }) => (
                             <button key={title} onClick={action} title={title}
                               style={{
@@ -2333,12 +2383,12 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
           <div style={{ width: 1, height: 14, background: borderColor, flexShrink: 0, margin: '0 1px' }} />
 
           {/* 4 â€” Undo / Redo */}
-          <button onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)"
+          <button onClick={handleUndo} disabled={!canUndo} title="Undo (Ctrl+Z)"
             className="flex items-center justify-center rounded-lg transition-all hover:bg-blue-500/10 disabled:opacity-20 disabled:cursor-not-allowed shrink-0"
             style={{ color: canUndo ? '#60a5fa' : subText, width: 26, height: 26 }}>
             <Undo2 size={11} />
           </button>
-          <button onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)"
+          <button onClick={handleRedo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)"
             className="flex items-center justify-center rounded-lg transition-all hover:bg-blue-500/10 disabled:opacity-20 disabled:cursor-not-allowed shrink-0"
             style={{ color: canRedo ? '#60a5fa' : subText, width: 26, height: 26 }}>
             <Redo2 size={11} />
@@ -2641,12 +2691,12 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               )}
             </div>
             <div className="flex items-center gap-1">
-              <button onClick={onUndo} disabled={!canUndo} title="Undo"
+              <button onClick={handleUndo} disabled={!canUndo} title="Undo"
                 className="p-1.5 rounded-lg hover:bg-white/5 transition-all disabled:opacity-20 disabled:cursor-not-allowed"
                 style={{ color: canUndo ? '#60a5fa' : subText }}>
                 <Undo2 size={14} />
               </button>
-              <button onClick={onRedo} disabled={!canRedo} title="Redo"
+              <button onClick={handleRedo} disabled={!canRedo} title="Redo"
                 className="p-1.5 rounded-lg hover:bg-white/5 transition-all disabled:opacity-20 disabled:cursor-not-allowed"
                 style={{ color: canRedo ? '#60a5fa' : subText }}>
                 <Redo2 size={14} />
