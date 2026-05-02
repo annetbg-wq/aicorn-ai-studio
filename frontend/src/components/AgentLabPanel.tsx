@@ -18,7 +18,6 @@ import { supabase } from '../lib/supabase';
 import { SandpackView } from './SandpackPreview';
 import { StudioTerminal, type LogEntry } from './StudioTerminal';
 import { ModelEfficiencyPanel } from './ModelEfficiencyPanel';
-import { ModelEfficiencyPanel } from './ModelEfficiencyPanel';
 
 type FileMap = Record<string, string>;
 
