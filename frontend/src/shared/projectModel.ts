@@ -1162,6 +1162,8 @@ export interface GenerationReport {
   lineageRootMessageId?: string;
   visualQuality?: VisualQualitySummary;
   visualPolish?:  VisualPolishSummary;
+  /** Unified-style diff strings for modified files (keyed by filename) */
+  fileDiffs?: Record<string, string>;
 }
 
 // ─── GenerationResult ─────────────────────────────────────────────────────────

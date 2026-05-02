@@ -367,6 +367,43 @@ export function recoverKickoffApprovalFailure(
   return decision;
 }
 
+/** Builds a simplified unified-style diff string (lines prefixed with +/-/ ) */
+function buildLineDiff(before: string, after: string): string {
+  const a = before.split('\n');
+  const b = after.split('\n');
+  const result: string[] = [];
+  const maxCtx = 3;
+  // Very simple LCS-free diff: compare line by line with a small window look-ahead
+  let ai = 0, bi = 0;
+  while (ai < a.length || bi < b.length) {
+    if (ai < a.length && bi < b.length && a[ai] === b[bi]) {
+      result.push(' ' + a[ai]);
+      ai++; bi++;
+    } else {
+      // Collect changed block
+      const aBlock: string[] = [];
+      const bBlock: string[] = [];
+      let found = false;
+      for (let w = 1; w <= maxCtx + 1; w++) {
+        if (ai + w < a.length && bi < b.length && a[ai + w] === b[bi]) {
+          for (let k = 0; k < w; k++) aBlock.push('-' + a[ai + k]);
+          found = true; ai += w; break;
+        }
+        if (bi + w < b.length && ai < a.length && a[ai] === b[bi + w]) {
+          for (let k = 0; k < w; k++) bBlock.push('+' + b[bi + k]);
+          found = true; bi += w; break;
+        }
+      }
+      if (!found) {
+        if (ai < a.length) { aBlock.push('-' + a[ai]); ai++; }
+        if (bi < b.length) { bBlock.push('+' + b[bi]); bi++; }
+      }
+      result.push(...aBlock, ...bBlock);
+    }
+  }
+  return result.join('\n');
+}
+
 export function buildGenerationReport(input: {
   result: Pick<GenerationResult, 'operations' | 'planTheme' | 'visualQualitySummary' | 'visualPolishSummary'>;
   filesSnapshot: FileMap;
@@ -398,6 +435,14 @@ export function buildGenerationReport(input: {
     duration: Math.round((Date.now() - input.startMs) / 1000),
     visualQuality: input.result.visualQualitySummary,
     visualPolish: input.result.visualPolishSummary,
+    fileDiffs: isEditMode
+      ? Object.fromEntries(
+          touchedNames
+            .filter(f => !!input.filesSnapshot[f] && !!input.finalFiles[f])
+            .map(f => [f, buildLineDiff(input.filesSnapshot[f] ?? '', input.finalFiles[f] ?? '')])
+            .filter(([, d]) => d.length > 0),
+        )
+      : undefined,
   };
 }
 
