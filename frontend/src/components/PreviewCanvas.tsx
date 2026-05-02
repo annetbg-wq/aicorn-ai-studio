@@ -2036,14 +2036,16 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                 {phaseLabel}
               </div>
 
+                {/* Progress card — bottom-left corner */}
                 <div style={{
+                  position: 'absolute', bottom: 16, left: 16,
                   width: 280,
                   borderRadius: 12,
-                border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
-                background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.65)',
-                backdropFilter: 'blur(6px)',
-                padding: '12px 12px 10px',
-              }}>
+                  border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
+                  background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.65)',
+                  backdropFilter: 'blur(6px)',
+                  padding: '12px 12px 10px',
+                }}>
                 <div style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   marginBottom: 8,
@@ -2083,12 +2085,13 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                   }} />
                   </div>
                 </div>
+                {/* Live reasoning — bottom-right corner */}
                 {hasReasoningTrace && activeReasoningStep && (
                   <div
                     data-testid="preview-reasoning-summary"
                     style={{
+                      position: 'absolute', bottom: 16, right: 16,
                       width: 320,
-                      marginTop: 10,
                       borderRadius: 12,
                       border: isDark ? '1px solid rgba(251,146,60,0.35)' : '1px solid rgba(234,88,12,0.28)',
                       background: isDark ? 'rgba(17,24,39,0.55)' : 'rgba(255,255,255,0.82)',
