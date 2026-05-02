@@ -1,65 +1,47 @@
 import { useEffect, useState } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Dialog } from '@/components/ui/dialog';
 
-interface UserProfile {
-  sleepQuality: string;
-  sleepHours: number;
-}
-
-export default function Home() {
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+const Home = () => {
   const [recommendations, setRecommendations] = useState<string[]>([]);
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const profile = localStorage.getItem('user_profile');
-    if (profile) {
-      setUserProfile(JSON.parse(profile));
-    } else {
-      setShowOnboarding(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (userProfile) {
-      // Fetch recommendations based on userProfile
+    // Simulate fetching recommendations
+    setTimeout(() => {
       setRecommendations([
-        'Увеличьте время сна до 7-8 часов.',
-        'Избегайте кофеина перед сном.',
-        'Создайте рутину перед сном.'
+        'Улучшите качество сна, избегая экранов перед сном.',
+        'Регулярно занимайтесь физической активностью.',
+        'Создайте комфортную атмосферу для сна.',
       ]);
-    }
-  }, [userProfile]);
+      setLoading(false);
+    }, 1000);
+  }, []);
 
   return (
     <div className='max-w-md mx-auto min-h-screen p-4'>
-      <h1 className='text-2xl font-bold'>Улучшите свой сон</h1>
-      {recommendations.length > 0 ? (
+      <h1 className='text-2xl font-bold mb-4'>Рекомендации по сну</h1>
+      {loading ? (
+        <p>Загрузка...</p>
+      ) : recommendations.length > 0 ? (
         recommendations.map((rec, index) => (
-          <Card key={index} className='my-2'>
-            {rec}
+          <Card key={index} className='mb-4'>
+            <CardHeader>
+              <CardTitle>Рекомендация {index + 1}</CardTitle>
+            </CardHeader>
+            <CardContent>{rec}</CardContent>
           </Card>
         ))
       ) : (
         <div className='flex flex-col items-center justify-center py-16 text-muted-foreground'>
           <span className='text-4xl mb-3'>📋</span>
-          <p className='text-sm font-medium'>Добавьте записи о сне, чтобы получить рекомендации.</p>
+          <p className='text-sm font-medium'>Ничего не найдено</p>
+          <p className='text-xs mt-1'>Добавьте свои рекомендации для начала</p>
         </div>
       )}
-      <Dialog open={showOnboarding} onOpenChange={setShowOnboarding}>
-        <Dialog.Trigger asChild>
-          <Button>Начать</Button>
-        </Dialog.Trigger>
-        <Dialog.Content>
-          <Dialog.Title>Онбординг</Dialog.Title>
-          <Dialog.Description>
-            Пожалуйста, заполните информацию о вашем сне.
-          </Dialog.Description>
-          {/* Onboarding form goes here */}
-        </Dialog.Content>
-      </Dialog>
+      <Button className='mt-4'>Добавить рекомендацию</Button>
     </div>
   );
-}
+};
+
+export default Home;
