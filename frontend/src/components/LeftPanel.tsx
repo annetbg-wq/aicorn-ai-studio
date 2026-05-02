@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -888,8 +888,9 @@ const GenerationReportCard: React.FC<{
   isDark: boolean;
   textColor: string;
   subText: string;
+  iterationIndex?: number;
   t: (key: string) => string;
-}> = ({ messageId, report, content, generationTrust, branchReality, restoreAvailable = false, lineageStatus, onRestoreVersion, isDark, textColor, subText, t }) => {
+}> = ({ messageId, report, content, generationTrust, branchReality, restoreAvailable = false, lineageStatus, onRestoreVersion, isDark, textColor, subText, iterationIndex, t }) => {
   const isNew = report.mode === 'NEW';
   const allFiles = isNew
     ? report.filesCreated
@@ -914,6 +915,16 @@ const GenerationReportCard: React.FC<{
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
         <span style={{ fontSize: 11, fontWeight: 700 }}>{isNew ? 'OK' : 'EDIT'}</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{content}</span>
+        {iterationIndex !== undefined && (
+          <span style={{
+            marginLeft: 8, fontSize: 10, fontWeight: 700,
+            padding: '1px 7px', borderRadius: 10,
+            background: report.mode === 'NEW' ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.15)',
+            color: report.mode === 'NEW' ? '#818cf8' : '#4ade80',
+          }}>
+            {report.mode === 'NEW' ? 'v1' : `Edit ${iterationIndex}`}
+          </span>
+        )}
         {lineageStatusLabel ? (
           <span style={{
             marginLeft: 'auto',
@@ -1064,22 +1075,23 @@ const ClarificationCard: React.FC<{
   isDark: boolean;
   textColor: string;
   subText: string;
-}> = ({ questions, isDark, textColor, subText }) => {
+  onAnswerAndBuild?: (answers: string) => void;
+  onSkip?: () => void;
+}> = ({ questions, isDark, textColor, subText, onAnswerAndBuild, onSkip }) => {
+  const [answers, setAnswers] = useState('');
+  const [submitted, setSubmitted] = useState(false);
   const accent = isDark ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.07)';
   const border = isDark ? 'rgba(139,92,246,0.22)' : 'rgba(139,92,246,0.18)';
+  if (submitted) return (
+    <div style={{ fontSize: 12, color: subText, padding: '8px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ color: '#22c55e' }}>&#x2713;</span> {String.fromCodePoint(0x041E,0x0442,0x0432,0x0435,0x0442,0x044B,0x0020,0x0443,0x0447,0x0442,0x0435,0x043D,0x044B,0x0020,0x0432,0x0020,0x0433,0x0435,0x043D,0x0435,0x0440,0x0430,0x0446,0x0438,0x0438)}
+    </div>
+  );
   return (
-    <div className="max-w-[92%]" style={{
-      background: accent,
-      border: `1px solid ${border}`,
-      borderRadius: 12,
-      padding: '11px 14px',
-      userSelect: 'text',
-    }}>
+    <div className="max-w-[92%]" style={{ background: accent, border: `1px solid ${border}`, borderRadius: 12, padding: '11px 14px', userSelect: 'text' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-        <span style={{ fontSize: 14 }}>ðŸ¤”</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>
-          A couple of questions before I start:
-        </span>
+        <span style={{ fontSize: 14 }}>&#x1F914;</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{String.fromCodePoint(0x0423,0x0442,0x043E,0x0447,0x043D,0x044E,0x0020,0x043F,0x0435,0x0440,0x0435,0x0434,0x0020,0x0441,0x0442,0x0430,0x0440,0x0442,0x043E,0x043C,0x003A)}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {questions.map((q, i) => (
@@ -1089,12 +1101,48 @@ const ClarificationCard: React.FC<{
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 8, fontSize: 11, color: subText }}>
-        Just type your answer below â†“
-      </div>
+      {onAnswerAndBuild && (
+        <>
+          <textarea
+            value={answers}
+            onChange={e => setAnswers(e.target.value)}
+            placeholder={String.fromCodePoint(0x0412,0x0430,0x0448,0x0438,0x0020,0x043E,0x0442,0x0432,0x0435,0x0442,0x044B,0x002E,0x002E,0x002E)}
+            rows={2}
+            style={{
+              marginTop: 10, width: '100%', resize: 'vertical',
+              padding: '7px 10px', borderRadius: 8, fontSize: 12, lineHeight: 1.5,
+              background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
+              color: textColor, outline: 'none', boxSizing: 'border-box' as const,
+            }}
+          />
+          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => { if (answers.trim()) { setSubmitted(true); onAnswerAndBuild(answers); } }}
+              disabled={!answers.trim()}
+              style={{
+                padding: '6px 14px', borderRadius: 8, border: 'none',
+                cursor: answers.trim() ? 'pointer' : 'not-allowed',
+                background: answers.trim() ? '#8b5cf6' : 'rgba(139,92,246,0.3)',
+                color: '#fff', fontSize: 12, fontWeight: 600,
+              }}
+            >{String.fromCodePoint(0x041E,0x0442,0x0432,0x0435,0x0442,0x0438,0x0442,0x044C,0x0020,0x0438,0x0020,0x0441,0x0442,0x0440,0x043E,0x0438,0x0442,0x044C,0x0020,0x2192)}</button>
+            {onSkip && (
+              <button
+                onClick={onSkip}
+                style={{
+                  padding: '6px 14px', borderRadius: 8,
+                  border: `1px solid ${border}`,
+                  background: 'transparent', color: subText, fontSize: 12, cursor: 'pointer',
+                }}
+              >{String.fromCodePoint(0x041F,0x0440,0x043E,0x043F,0x0443,0x0441,0x0442,0x0438,0x0442,0x044C)}</button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
-};
+};;
 
 const THEME_COLORS: Record<string, string> = {
   'dark-slate': '#475569',
@@ -1132,14 +1180,18 @@ interface BlueprintCardProps {
   onConfirmPlan: (plan: object) => void;
   selectKickoffScope: (optionId: KickoffBuildScopeId) => void;
   onClarifyPlan: (messageId: string) => void;
+  onSubmitClarification?: (text: string) => void;
   cancelPlan: () => void;
   onRestoreLineage?: (messageId: string) => void;
   t: (key: string) => string;
 }
 
 const BlueprintCard: React.FC<BlueprintCardProps> = ({
-  m, pendingPlan, isPending, kickoffPhase, isDark, textColor, subText, borderColor, onConfirmPlan, selectKickoffScope, onClarifyPlan, cancelPlan, onRestoreLineage, t,
+  m, pendingPlan, isPending, kickoffPhase, isDark, textColor, subText, borderColor, onConfirmPlan, selectKickoffScope, onClarifyPlan, onSubmitClarification, cancelPlan, onRestoreLineage, t,
 }) => {
+  const [editOpen, setEditOpen] = useState(false);
+  const [editText, setEditText] = useState('');
+
   // Visibility guard — keeps fiber in the tree but renders nothing.
   // This prevents the insertBefore crash that occurs when a node is removed
   // by REMOVE_BY_TYPE while a sibling is being inserted simultaneously.
@@ -1278,6 +1330,28 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
         </details>
       )}
 
+      {isAwaitingKickoffConfirmation && (pendingPlan as any)?.architectKickoff?.plan?.implementationSteps?.length > 0 && (
+        <details style={{ margin: '0 16px 12px', borderRadius: 8, border: `1px solid ${borderColor}`, overflow: 'hidden' }}>
+          <summary style={{
+            padding: '8px 12px', fontSize: 11, fontWeight: 600, color: subText,
+            cursor: 'pointer', background: 'rgba(99,102,241,0.05)', userSelect: 'none' as const,
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            {'📋 Plan steps ('}{(pendingPlan as any).architectKickoff.plan.implementationSteps.filter((s: any) => s.scope === 'first_pass').length}{' in scope)'}
+          </summary>
+          <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {((pendingPlan as any).architectKickoff.plan.implementationSteps as Array<{ id: string; title: string; scope: string }>)
+              .filter(s => s.scope === 'first_pass')
+              .map((step, i) => (
+                <div key={step.id} style={{ display: 'flex', gap: 8, fontSize: 11, color: subText }}>
+                  <span style={{ color: '#6366f1', fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                  <span style={{ color: textColor }}>{step.title}</span>
+                </div>
+              ))}
+          </div>
+        </details>
+      )}
+
       {isAwaitingKickoffConfirmation && kickoffOptions.length > 0 && (
         <div style={{
           margin: '0 16px 12px',
@@ -1321,39 +1395,67 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
       )}
 
       {isAwaitingKickoffConfirmation && (
-        <div
-          data-testid="generation-plan-card"
-          style={{ padding: '12px 16px', borderTop: `1px solid ${borderColor}`, display: 'flex', gap: 8 }}
-        >
-          <button
-            data-testid="confirm-plan-btn"
-            onClick={() => onConfirmPlan(m.pendingPlan || m.technicalBlueprint)}
-            style={{
-              flex: 1, padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
-              background: '#6366f1', border: 'none', color: '#fff',
-              fontSize: 13, fontWeight: 600,
-            }}
-          >
-            Start build
-          </button>
-          <button
-            data-testid="clarify-plan-btn"
-            onClick={() => onClarifyPlan(String(m.id ?? ''))}
-            style={{
-              padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
-              background: 'transparent', border: `1px solid ${borderColor}`,
-              color: subText, fontSize: 13,
-            }}
-          >
-            {kickoffOptions.length > 0 ? 'Revise plan' : 'Уточнить'}
-          </button>
-          <button onClick={cancelPlan} style={{
-            padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
-            background: 'transparent', border: `1px solid ${borderColor}`,
-            color: subText, fontSize: 13,
-          }}>
-            Cancel
-          </button>
+        <div data-testid="generation-plan-card"
+          style={{ padding: '12px 16px', borderTop: `1px solid ${borderColor}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {editOpen ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <textarea
+                autoFocus
+                value={editText}
+                onChange={e => setEditText(e.target.value)}
+                placeholder="Describe changes to the plan..."
+                rows={3}
+                style={{
+                  width: '100%', resize: 'vertical', padding: '8px 12px', borderRadius: 8,
+                  fontSize: 12, lineHeight: 1.5,
+                  background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.14)'}`,
+                  color: textColor, outline: 'none', boxSizing: 'border-box' as const,
+                }}
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => { if (editText.trim() && onSubmitClarification) { onSubmitClarification(editText); setEditOpen(false); } }}
+                  disabled={!editText.trim()}
+                  style={{
+                    flex: 1, padding: '8px 16px', borderRadius: 8, cursor: editText.trim() ? 'pointer' : 'not-allowed',
+                    background: editText.trim() ? 'rgba(99,102,241,0.8)' : 'rgba(99,102,241,0.3)',
+                    border: 'none', color: '#fff', fontSize: 13, fontWeight: 600,
+                  }}
+                >Update plan and rebuild</button>
+                <button onClick={() => setEditOpen(false)} style={{
+                  padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
+                  background: 'transparent', border: `1px solid ${borderColor}`, color: subText, fontSize: 12,
+                }}>&#x2715;</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                data-testid="confirm-plan-btn"
+                onClick={() => onConfirmPlan(m.pendingPlan || m.technicalBlueprint)}
+                style={{
+                  flex: 1, padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
+                  background: '#6366f1', border: 'none', color: '#fff',
+                  fontSize: 13, fontWeight: 600,
+                }}
+              >Start build</button>
+              <button
+                data-testid="clarify-plan-btn"
+                onClick={() => setEditOpen(true)}
+                style={{
+                  padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
+                  background: 'transparent', border: `1px solid ${borderColor}`,
+                  color: subText, fontSize: 13,
+                }}
+              >&#x270F;&#xFE0F; Edit plan</button>
+              <button onClick={cancelPlan} style={{
+                padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
+                background: 'transparent', border: `1px solid ${borderColor}`,
+                color: subText, fontSize: 13,
+              }}>&#x2715;</button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1890,6 +1992,16 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   }, [attachMenuOpen]);
 
   const hasMessages = messages.length > 0;
+  const reportIterationMap = useMemo(() => {
+    const map = new Map<string, number>();
+    let count = 0;
+    for (const msg of messages) {
+      if (msg.type === 'generation-report' && msg.report) {
+        map.set(msg.id, ++count);
+      }
+    }
+    return map;
+  }, [messages]);
   const appendToInput = (snippet: string) => {
     const next = input.trim() ? `${input}\n${snippet}` : snippet;
     setInput(next);
@@ -1963,6 +2075,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       onConfirmPlan={onConfirmPlan}
                       selectKickoffScope={selectKickoffScope}
                       onClarifyPlan={onClarifyPlan}
+                      onSubmitClarification={onSubmitClarification}
                       cancelPlan={cancelPlan}
                       onRestoreLineage={onRestoreBlueprintLineage}
                       t={t}
@@ -1993,6 +2106,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}
+                      onAnswerAndBuild={onSubmitClarification}
+                      onSkip={() => { /* user skips - build will proceed from BlueprintCard */ }}
                     />
                   ) : isReport && m.report ? (
                     <GenerationReportCard
@@ -2007,6 +2122,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}
+                      iterationIndex={reportIterationMap.get(m.id)}
                       t={t}
                     />
                   ) : (
