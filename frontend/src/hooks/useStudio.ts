@@ -3366,6 +3366,16 @@ export const useStudio = () => {
               timestamp: Date.now(),
             });
           }
+          const highImpactQs = architectPlan.openQuestions.filter(q => q.impact === 'high');
+          if (highImpactQs.length > 0 && !controller.signal.aborted) {
+            chatAppend({
+              role:      'assistant' as const,
+              type:      'clarification' as const,
+              questions: highImpactQs.map(q => q.title),
+              content:   '',
+              timestamp: Date.now() + 2,
+            });
+          }
         } catch (architectErr) {
           addLog(`[Architect] Pre-build analysis failed: ${(architectErr as Error)?.message ?? String(architectErr)} — continuing without`);
         }
