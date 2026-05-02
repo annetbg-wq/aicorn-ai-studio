@@ -1,0 +1,19 @@
+{
+  "onboarding.welcome": "Welcome!",
+  "onboarding.next": "Continue",
+  "onboarding.skip": "Skip",
+  "onboarding.start": "Get Started",
+  "paywall.title": "Go Premium",
+  "paywall.upgrade": "Upgrade",
+  "paywall.monthly": "per month",
+  "account.title": "Account",
+  "account.profile": "Profile",
+  "account.subscription": "Subscription",
+  "account.language": "Language",
+  "account.logout": "Sign Out",
+  "account.deleteAccount": "Delete Account",
+  "common.save": "Save",
+  "common.cancel": "Cancel",
+  "common.back": "Back",
+  "common.continue": "Continue"
+}

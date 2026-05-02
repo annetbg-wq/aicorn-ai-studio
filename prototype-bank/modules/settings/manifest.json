@@ -1,0 +1,10 @@
+{
+  "id": "settings",
+  "type": "module",
+  "name": "Settings",
+  "description": "Настройки приложения и профиля",
+  "adds": ["SettingsPage компонент", "SettingsSection компонент", "ToggleSetting компонент"],
+  "routes": ["/settings"],
+  "entities": ["AppSettings"],
+  "dependencies": []
+}

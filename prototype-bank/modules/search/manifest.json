@@ -1,0 +1,10 @@
+{
+  "id": "search",
+  "type": "module",
+  "name": "Search & Filter",
+  "description": "Поиск и фильтрация контента",
+  "adds": ["SearchBar компонент", "FilterPanel компонент", "useSearch hook"],
+  "routes": [],
+  "entities": [],
+  "dependencies": []
+}

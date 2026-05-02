@@ -1,0 +1,10 @@
+{
+  "id": "billing",
+  "type": "module",
+  "name": "Billing / Paywall",
+  "description": "Paywall с тремя тарифами и управлением подпиской",
+  "adds": ["PaywallModal компонент", "PricingCard компонент", "useSubscription hook"],
+  "routes": ["/pricing"],
+  "entities": ["Plan", "Subscription"],
+  "dependencies": []
+}

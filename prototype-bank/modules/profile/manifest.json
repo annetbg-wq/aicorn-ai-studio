@@ -1,0 +1,10 @@
+{
+  "id": "profile",
+  "type": "module",
+  "name": "User Profile",
+  "description": "Профиль пользователя с настройками и статистикой",
+  "adds": ["ProfilePage компонент", "AvatarUpload компонент", "ProfileStats компонент"],
+  "routes": ["/profile"],
+  "entities": ["UserProfile"],
+  "dependencies": []
+}

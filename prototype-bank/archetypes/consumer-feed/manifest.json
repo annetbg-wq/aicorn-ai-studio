@@ -1,0 +1,19 @@
+{
+  "id": "consumer-feed",
+  "type": "archetype",
+  "name": "Consumer Feed",
+  "description": "Лента контента с карточками, фильтрами и детальным просмотром",
+  "whenToUse": ["Приложение с лентой событий/постов/товаров", "Социальный продукт", "Новостной агрегатор", "Маркетплейс с карточками"],
+  "includes": ["Главная лента с бесконечной прокруткой", "Фильтры и категории", "Детальный экран элемента", "Bottom navigation"],
+  "forbids": ["Sidebar navigation (используй BottomNav)", "Таблицы и grid-дашборды"],
+  "routes": ["/", "/feed", "/detail/:id", "/profile"],
+  "entities": ["FeedItem", "Category", "User"],
+  "requiredModules": ["feed", "profile"],
+  "optionalModules": ["auth", "search", "notifications"],
+  "navigation": "bottom-tabs",
+  "seedDataExample": {
+    "items": [
+      {"id": "1", "title": "Пример заголовка", "category": "Категория", "date": "2026-04-26"}
+    ]
+  }
+}

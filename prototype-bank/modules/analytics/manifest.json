@@ -1,0 +1,10 @@
+{
+  "id": "analytics",
+  "type": "module",
+  "name": "Analytics",
+  "description": "Графики и метрики через recharts",
+  "adds": ["LineChart компонент", "BarChart компонент", "KPICard компонент", "MetricsSummary компонент"],
+  "routes": ["/analytics"],
+  "entities": ["Metric", "DataPoint"],
+  "dependencies": ["recharts"]
+}

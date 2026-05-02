@@ -1,0 +1,10 @@
+{
+  "id": "auth",
+  "type": "module",
+  "name": "Authentication",
+  "description": "Google OAuth + email/password через Supabase",
+  "adds": ["AuthModal компонент", "useAuth hook", "AuthProvider", "Защита роутов (PrivateRoute)"],
+  "routes": ["/login", "/signup"],
+  "entities": ["User", "Session"],
+  "dependencies": ["@supabase/supabase-js"]
+}

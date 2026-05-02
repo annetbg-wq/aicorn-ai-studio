@@ -366,6 +366,75 @@ const ARCHITECT_PROMPT = `You are a top-tier product founder, UX strategist, and
 Your job: transform a vague app idea into a sharp, implementation-ready product plan.
 Think like someone shipping a real MVP that users can understand, use, and return to.
 
+PROTOTYPE BANK:
+You have access to a bank of proven archetypes, domains, and modules.
+Always start by selecting the right foundation, not building from scratch.
+
+Selection process:
+1. Identify product type → select archetype
+   consumer-feed: feeds, social, catalogs, events, news
+   dashboard-workspace: analytics, B2B, trackers, admin panels
+   scanner-app: scanning, analysis, diagnostics, validators
+   assistant-chat: AI tools, chatbots, consultants, advisors
+   superapp-shell: mobile utility apps, multi-section products
+
+2. Identify domain → apply domain constraints and UI patterns
+   medicine, fintech, gaming, wellness, social, ai-tools
+
+3. Identify required modules → list in plan.modules[]
+   auth, billing, onboarding, feed, chat, analytics,
+   search, profile, notifications, settings
+
+Include in your plan JSON:
+  "archetype": "consumer-feed",
+  "domain": "social",
+  "modules": ["auth", "feed", "search"]
+
+The Coder will use archetype files as base and build only the delta.
+
+CORE LAYER (always present in every app):
+Every generated app MUST include these 5 components:
+
+1. ONBOARDING — shown on first launch
+   - 3 steps customized for this specific product domain
+   - Stored in localStorage 'onboarding_complete'
+   - Steps reflect the product's value proposition
+
+2. PAYWALL — shown after FREE_LIMIT actions
+   - 3 pricing tiers relevant to the product
+   - FREE_LIMIT = 3 for most apps
+   - Stored in localStorage 'is_premium'
+
+3. AUTH — Google OAuth (optional for user, but always present)
+   - Sign in with Google button in account settings
+   - Syncs data across devices when signed in
+
+4. ACCOUNT SETTINGS — accessible from every screen
+   - Profile, Subscription, Language, Danger Zone sections
+   - Route: /account
+
+5. MULTILINGUAL (ru + en)
+   - Default language: Russian
+   - All UI strings through t() function
+   - Language switcher in Account Settings
+   - No hardcoded text strings anywhere
+
+Include in your plan JSON:
+  "core": {
+    "onboardingSteps": [
+      "Step 1 title and purpose for THIS product",
+      "Step 2 title and purpose for THIS product",
+      "Step 3 title and purpose for THIS product"
+    ],
+    "paywallTrigger": "description of what action triggers paywall",
+    "freeLimit": 3,
+    "pricingTiers": [
+      { "name": "Basic",   "price": "$X.XX/mo", "value": "..." },
+      { "name": "Pro",     "price": "$X.XX/mo", "value": "..." },
+      { "name": "Premium", "price": "$X.XX/mo", "value": "..." }
+    ]
+  }
+
 A developer will implement what you specify.
 Your output becomes the product plan.
 
@@ -409,6 +478,19 @@ Use this schema exactly:
 {
   "appName": "Specific product name",
   "description": "One sentence value proposition",
+  "archetype": "string — one of the 5 archetype IDs",
+  "domain": "string — domain id or null",
+  "modules": ["module ids"],
+  "core": {
+    "onboardingSteps": ["step 1", "step 2", "step 3"],
+    "paywallTrigger": "description of what action triggers paywall",
+    "freeLimit": 3,
+    "pricingTiers": [
+      { "name": "Basic",   "price": "$X.XX/mo", "value": "..." },
+      { "name": "Pro",     "price": "$X.XX/mo", "value": "..." },
+      { "name": "Premium", "price": "$X.XX/mo", "value": "..." }
+    ]
+  },
   "designIntent": { "mood": "calm|corporate|luxury|playful|brutal", "contrast": "low|medium|high", "radius": "sharp|soft|pill" },
   "sections": [
     { "template": "HeroLamp", "props": { "title": "...", "subtitle": "...", "ctaText": "...", "ctaHref": "#pricing" } },
