@@ -2304,7 +2304,7 @@ function dedupeTrendIdeas(
   return result;
 }
 
-function makeDefaultTrendModel(): TrendNichesModel {
+export function makeDefaultTrendModel(): TrendNichesModel {
   const seen = new Set<string>();
   return {
     daily: dedupeTrendIdeas(DEFAULT_TREND_NICHES.daily.map(cloneTrendIdea), seen),

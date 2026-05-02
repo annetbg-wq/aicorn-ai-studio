@@ -907,6 +907,8 @@ function isSessionOnlyProjectMessage(message: ChatMessage): boolean {
     return true;
   }
 
+  if (message.type === 'progress') return true;
+
   if (message.role === 'assistant' && message.content === '...') {
     return true;
   }
@@ -3098,6 +3100,16 @@ export const useStudio = () => {
       generationTrust,
     } });
 
+    // ── Phase progress message — updated as generation phases advance ──────────
+    const progressMsgId = `progress-${optimisticPlanMsgId}`;
+    dispatch({ type: 'APPEND', payload: {
+      id:        progressMsgId,
+      role:      'assistant' as const,
+      type:      'progress' as const,
+      content:   '🏗️ Анализирую задачу...',
+      timestamp: Date.now() + 1,
+    } });
+
     // ── Generate plan — replace optimistic card with real plan data ───────────
     // Resolve planRoute here so generatePlan uses canonical routing (not ConfigService fallback).
     // planRoute always uses 'primary' slot — autoRoute escalation only affects the main coder,
@@ -3376,9 +3388,10 @@ export const useStudio = () => {
                 setKickoffPhase('building');
                 addLog('[Kickoff] kickoff_build_in_progress');
               }
+              chatUpdate(progressMsgId, { content: '🏗️ Проектирую архитектуру...' });
             }
-            if (event.phase === 'code')   { updateStep('architect', 'done'); updateStep('code', 'active'); updatePlan({ progress: 40 }); }
-            if (event.phase === 'verify') { updateStep('code', 'done'); updateStep('theme', 'active'); updatePlan({ progress: 80 }); }
+            if (event.phase === 'code')   { updateStep('architect', 'done'); updateStep('code', 'active'); updatePlan({ progress: 40 }); chatUpdate(progressMsgId, { content: '⚡ Пишу код...' }); }
+            if (event.phase === 'verify') { updateStep('code', 'done'); updateStep('theme', 'active'); updatePlan({ progress: 80 }); chatUpdate(progressMsgId, { content: '🔍 Проверяю качество...' }); }
             if (event.phase === 'idle')   { updateStep('theme', 'done'); updateStep('save', 'done'); updatePlan({ progress: 100, buildStatus: 'building' }); }
           });
         },
@@ -3891,6 +3904,7 @@ export const useStudio = () => {
       setCurrentPhase('');
       setPreviewLifecycle('failed');
     } finally {
+      dispatch({ type: 'REMOVE_BY_ID', id: progressMsgId });
       abortControllerRef.current = null;
       abortDispositionRef.current = null;
       setIsGenerating(false);
