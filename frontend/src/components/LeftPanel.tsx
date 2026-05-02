@@ -139,6 +139,8 @@ interface LeftPanelProps {
   selectKickoffScope?:     (optionId: KickoffBuildScopeId) => void;
   onClarifyPlan?:          (messageId: string) => void;
   onSubmitClarification?:  (text: string) => void;
+  onAnswerClarification?:  (answer: string) => void;
+  onChooseSurface?:        (surface: 'landing' | 'app' | 'superapp') => void;
 }
 
 // â”€â”€ i18n labels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1086,6 +1088,58 @@ const GenerationReportCard: React.FC<{
   );
 };
 
+const SurfaceChoiceCard: React.FC<{
+  message: { id: string; selectedSurface?: string; [key: string]: any };
+  isDark: boolean;
+  textColor: string;
+  subText: string;
+  onChooseSurface?: (surface: 'landing' | 'app' | 'superapp') => void;
+}> = ({ message, isDark, textColor, onChooseSurface }) => {
+  const surfaces: Array<{ value: 'landing' | 'app' | 'superapp'; label: string }> = [
+    { value: 'app',      label: '📱 Мобильное приложение' },
+    { value: 'landing',  label: '🌐 Веб-страница' },
+    { value: 'superapp', label: '⚡ Супер-апп' },
+  ];
+  const selected = message.selectedSurface as string | undefined;
+  const accent = isDark ? 'rgba(99,102,241,0.1)' : 'rgba(99,102,241,0.07)';
+  const border = isDark ? 'rgba(99,102,241,0.25)' : 'rgba(99,102,241,0.2)';
+  if (selected) {
+    const found = surfaces.find(s => s.value === selected);
+    return (
+      <div style={{ background: accent, border: `1px solid ${border}`, borderRadius: 12, padding: '11px 14px' }}>
+        <div style={{ fontSize: 12, color: textColor }}>
+          <span style={{ color: '#22c55e' }}>✓</span>{' '}
+          {found?.label ?? selected}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ background: accent, border: `1px solid ${border}`, borderRadius: 12, padding: '14px 16px' }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: textColor, marginBottom: 12 }}>
+        Что строим?
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {surfaces.map(({ value, label }) => (
+          <button
+            key={value}
+            onClick={() => onChooseSurface?.(value)}
+            style={{
+              flex: 1, minWidth: 100, padding: '10px 8px',
+              borderRadius: 8, cursor: 'pointer',
+              border: `1px solid ${isDark ? 'rgba(99,102,241,0.35)' : 'rgba(99,102,241,0.3)'}`,
+              background: isDark ? 'rgba(99,102,241,0.08)' : 'rgba(99,102,241,0.05)',
+              color: textColor, fontSize: 12, fontWeight: 500,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const ClarificationCard: React.FC<{
   questions: string[];
   isDark: boolean;
@@ -1833,6 +1887,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   kickoffPhase = 'idle' as KickoffPhase,
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
   onConfirmPlan = () => confirmPlan(), selectKickoffScope = () => {}, onClarifyPlan = () => {}, onSubmitClarification = () => {},
+  onAnswerClarification,
+  onChooseSurface,
 }) => {
   const normalizedLanguage = normalizeAppLanguage(appLanguage);
   const lang = LABELS[normalizedLanguage] ?? LABELS['en'];
@@ -2147,6 +2203,19 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                 );
               }
 
+              if (m.type === 'surface-choice') {
+                return (
+                  <SurfaceChoiceCard
+                    key={m.id}
+                    message={m as any}
+                    isDark={isDark}
+                    textColor={textColor}
+                    subText={subText}
+                    onChooseSurface={onChooseSurface}
+                  />
+                );
+              }
+
               return (
                 <div key={m.id} className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
                   style={{ animation: 'fadeSlideIn 0.2s ease both' }}>
@@ -2156,8 +2225,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}
-                      onAnswerAndBuild={onSubmitClarification}
-                      onSkip={() => { /* user skips - build will proceed from BlueprintCard */ }}
+                      onAnswerAndBuild={onAnswerClarification ?? onSubmitClarification}
+                      onSkip={() => { onAnswerClarification?.(''); }}
                     />
                   ) : isReport && m.report ? (
                     <GenerationReportCard

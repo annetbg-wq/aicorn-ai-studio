@@ -162,6 +162,8 @@ export interface EngineWorkspaceProps {
   selectKickoffScope?: (optionId: 'core' | 'core_backend' | 'core_backend_ai') => void;
   onClarifyPlan?:    (messageId: string) => void;
   onSubmitClarification?: (text: string) => void;
+  onAnswerClarification?: (answer: string) => void;
+  onChooseSurface?:  (surface: 'landing' | 'app' | 'superapp') => void;
 
   // ── State machine ─────────────────────────────────────────────
   studioPhase?:      string;
@@ -193,6 +195,8 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
   kickoffPhase = 'idle' as import('../../hooks/useStudio').KickoffPhase,
   pendingPlan = null, confirmPlan = () => {}, cancelPlan = () => {},
   onConfirmPlan = () => confirmPlan(), selectKickoffScope = () => {}, onClarifyPlan = () => {}, onSubmitClarification = () => {},
+  onAnswerClarification,
+  onChooseSurface,
   studioPhase,
   studioError = null,
   previewLifecycle,
@@ -374,6 +378,8 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             selectKickoffScope={selectKickoffScope}
             onClarifyPlan={onClarifyPlan}
             onSubmitClarification={onSubmitClarification}
+            onAnswerClarification={onAnswerClarification}
+            onChooseSurface={onChooseSurface}
           />
           </ChatErrorBoundary>
           <PreviewCanvas

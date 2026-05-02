@@ -27,6 +27,7 @@ export type ChatMessageType =
   | 'blueprint'
   | 'generation-report'
   | 'clarification'
+  | 'surface-choice'
   | 'error'
   | 'info'
   | 'progress';
