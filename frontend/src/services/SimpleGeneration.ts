@@ -993,19 +993,40 @@ PREMIUM VISUAL STANDARDS — every screen must look like a $200/month SaaS produ
     - Tables with no hover states or striping
     - Forms with labels below inputs
 
-DESIGN SYSTEM (CSS variables — theme is applied via index.css):
-  bg-background / text-foreground       → main surfaces
-  bg-card / text-card-foreground        → card surfaces
-  bg-primary / text-primary-foreground  → primary buttons/actions
-  bg-secondary / text-secondary-foreground → secondary elements
-  bg-muted / text-muted-foreground      → subdued elements, placeholders
-  bg-accent / text-accent-foreground    → highlights, hover states
-  bg-destructive                        → danger/delete actions
-  border-border                         → all borders
-  ring-ring                             → focus rings
+DESIGN SYSTEM — MANDATORY:
+  This project has a Premium Design System. You MUST use it.
+
+  Import premium components from these paths:
+    import { PremiumCard, PremiumCardHeader, PremiumCardTitle,
+             PremiumCardContent } from '@/components/ui/premium-card';
+    import { PremiumButton }      from '@/components/ui/premium-button';
+    import { PremiumChip }        from '@/components/ui/premium-chip';
+    import { PremiumInput }       from '@/components/ui/premium-input';
+
+  RULES:
+  - NEVER use plain shadcn Card — always PremiumCard
+  - NEVER use plain shadcn Button — always PremiumButton
+  - Use CSS variables: --pm-canvas, --pm-surface, --pm-ink, --pm-muted
+  - Every screen has a defined background: style={{ background: 'var(--pm-canvas)' }}
+  - Typography: headings use var(--pm-ink), secondary text uses var(--pm-muted)
+  - Spacing: consistent 16px/24px gaps, never cramped
+
+  The design direction from Architect's plan.designDirection is your visual brief.
+  Match it precisely.
+
+  CSS tokens reference (all resolve to hsl(var(--pm-*))):
+  --pm-canvas        → page / app background
+  --pm-surface       → card / panel background (white)
+  --pm-surface-soft  → subtle grouped bands
+  --pm-ink           → primary text and strong actions
+  --pm-muted         → secondary / helper text
+  --pm-line          → default borders
+  --pm-line-strong   → hover / active borders
+  --pm-brand         → cyan brand accent
+  --pm-success/warning/rose/violet → semantic accents
 
   NEVER use raw Tailwind colors (bg-blue-600, text-gray-400).
-  ALWAYS use design tokens (bg-primary, text-muted-foreground).
+  ALWAYS use design tokens (--pm-* vars or bg-primary, text-muted-foreground).
 
 BANNED:
   - Do NOT generate files in components/ui/ — they already exist
@@ -3552,6 +3573,7 @@ export function buildNewCoderSystemPrompt(input: {
     + (artistLayerFocusBlock ? '\n\n' + artistLayerFocusBlock : '')
     + '\n\nPRODUCT PLAN (SOURCE OF TRUTH):\n'
     + JSON.stringify(input.plan, null, 2)
+    + '\n\nDESIGN DIRECTION: ' + ((input.plan.designDirection as string) ?? (input.plan as { artistLayer?: { designDirection?: { visualArchetype?: string } } }).artistLayer?.designDirection?.visualArchetype ?? 'premium dark mobile')
     + (input.technicalBlueprint
         ? '\n\nTECHNICAL BLUEPRINT (IMPLEMENTATION GUIDE):\n'
           + JSON.stringify(input.technicalBlueprint, null, 2)

@@ -29,3 +29,26 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
 }
+
+/* ─── Premium Design System tokens ──────────────────────────────────── */
+:root {
+  --pm-canvas:        0 0% 97%;
+  --pm-surface:       0 0% 100%;
+  --pm-surface-soft:  220 14% 96%;
+  --pm-surface-tint:  199 89% 95%;
+  --pm-ink:           222 47% 11%;
+  --pm-muted:         215 16% 47%;
+  --pm-muted-soft:    215 20% 65%;
+  --pm-line:          220 13% 91%;
+  --pm-line-strong:   215 20% 65%;
+  --pm-brand:         199 89% 47%;
+  --pm-success:       142 71% 45%;
+  --pm-warning:        38 92% 50%;
+  --pm-rose:          347 77% 50%;
+  --pm-violet:        262 83% 58%;
+}
+
+.premium-focus-ring:focus-visible {
+  outline: 2px solid hsl(var(--pm-brand));
+  outline-offset: 2px;
+}
