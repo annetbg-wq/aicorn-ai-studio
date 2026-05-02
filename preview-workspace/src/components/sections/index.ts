@@ -1,0 +1,13 @@
+export { HeroLamp } from './HeroLamp';
+export { BentoGrid } from './BentoGrid';
+export type { BentoItem } from './BentoGrid';
+export { Marquee } from './Marquee';
+export { PricingSection } from './PricingSection';
+export type { PricingTier } from './PricingSection';
+export { CTA } from './CTA';
+export { FAQ } from './FAQ';
+export type { FaqItem } from './FAQ';
+export { Logos } from './Logos';
+export type { LogoItem } from './Logos';
+export { Footer } from './Footer';
+export type { FooterLink, FooterSection } from './Footer';

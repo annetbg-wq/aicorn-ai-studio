@@ -1,32 +1,29 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Calendar, HeartHandshake, Settings } from 'lucide-react';
-
-const tabs = [
-  { to: '/', label: 'Home', icon: Home },
-  { to: '/events', label: 'Events', icon: Calendar },
-  { to: '/requests', label: 'Requests', icon: HeartHandshake },
-  { to: '/settings', label: 'Settings', icon: Settings },
-];
+import { Home, Settings } from 'lucide-react';
 
 export default function BottomNav() {
+  const navItems = [
+    { path: '/', icon: Home, label: 'Главная' },
+    { path: '/settings', icon: Settings, label: 'Настройки' }
+  ];
+
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-background border-t border-border">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200">
       <div className="flex justify-around items-center h-16 px-2">
-        {tabs.map(({ to, label, icon: Icon }) => (
+        {navItems.map((item) => (
           <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
+            key={item.path}
+            to={item.path}
             className={({ isActive }) =>
-              `flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors duration-150 ${
+              `flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg transition-colors ${
                 isActive
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'text-amber-600'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
               }`
             }
           >
-            <Icon className="h-5 w-5" />
-            <span className="text-[10px] font-medium">{label}</span>
+            <item.icon className="w-5 h-5" />
+            <span className="text-[10px] font-medium">{item.label}</span>
           </NavLink>
         ))}
       </div>

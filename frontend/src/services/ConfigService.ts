@@ -111,6 +111,32 @@ const SLOT_TO_AGENT_KEY: Record<AgentSlot, string | null> = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+type StoredAgentConfigRecord = Record<string, unknown>;
+
+function getStoredAgentConfig(agentId: string): StoredAgentConfigRecord | null {
+  const raw = get(`AGENT_CONFIG_${agentId}`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as StoredAgentConfigRecord;
+  } catch {
+    return null;
+  }
+}
+
+function getStoredAgentProvider(agentId: string): ApiProvider {
+  const raw = getStoredAgentConfig(agentId);
+  const provider = raw?.provider;
+  return typeof provider === 'string'
+    ? (provider as ApiProvider)
+    : (AGENT_DEFAULTS[agentId]?.provider ?? 'openrouter');
+}
+
+function getLegacyInlineAgentKey(agentId: string): string {
+  const raw = getStoredAgentConfig(agentId);
+  const apiKey = raw?.apiKey;
+  return typeof apiKey === 'string' ? apiKey.trim() : '';
+}
+
 function get(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
 }
@@ -118,6 +144,11 @@ function get(key: string): string | null {
 function set(key: string, value: string): void {
   try { localStorage.setItem(key, value); } catch { /* storage full / blocked */ }
 }
+
+// ── Overflow budget constant ──────────────────────────────────────────────────
+// Pre-authorised safety buffer: hard limit sent to API = soft limit × (1 + OVERFLOW_FACTOR).
+// 30% covers ~95% of natural over-budget cases for code generation without wasting money.
+const OVERFLOW_FACTOR = 0.30;
 
 // ── Service ──────────────────────────────────────────────────────────────────
 
@@ -215,14 +246,57 @@ export const ConfigService = {
   getKeyForAgent(agentSlot: AgentSlot): string {
     const agentKey = SLOT_TO_AGENT_KEY[agentSlot];
     if (!agentKey) return this.getProviderKey('openrouter');
-    const raw = get(`AGENT_CONFIG_${agentKey}`);
-    let provider = 'openrouter';
-    if (raw) {
-      try { const cfg = JSON.parse(raw) as Partial<AgentConfig>; provider = cfg.provider ?? 'openrouter'; } catch { /* ignore */ }
-    } else {
-      provider = AGENT_DEFAULTS[agentKey]?.provider ?? 'openrouter';
+    const legacyInlineKey = getLegacyInlineAgentKey(agentKey);
+    if (legacyInlineKey) return legacyInlineKey;
+
+    const provider = getStoredAgentProvider(agentKey);
+    return provider === 'openrouter'
+      ? (this.getProviderKey(provider) || this.getApiKey())
+      : this.getProviderKey(provider);
+  },
+
+  getKeyResolutionForAgent(agentSlot: AgentSlot): {
+    agentKey: string | null;
+    provider: ApiProvider;
+    key: string;
+    keySource: string;
+    usesLegacyInlineKey: boolean;
+  } {
+    const agentKey = SLOT_TO_AGENT_KEY[agentSlot];
+    if (!agentKey) {
+      const key = this.getProviderKey('openrouter') || this.getApiKey();
+      return {
+        agentKey: null,
+        provider: 'openrouter',
+        key,
+        keySource: 'global.openrouter',
+        usesLegacyInlineKey: false,
+      };
     }
-    return this.getProviderKey(provider);
+
+    const provider = getStoredAgentProvider(agentKey);
+    const legacyInlineKey = getLegacyInlineAgentKey(agentKey);
+    if (legacyInlineKey) {
+      return {
+        agentKey,
+        provider,
+        key: legacyInlineKey,
+        keySource: `${agentKey}.${provider} (legacy-inline-apiKey)`,
+        usesLegacyInlineKey: true,
+      };
+    }
+
+    const providerKey = provider === 'openrouter'
+      ? (this.getProviderKey(provider) || this.getApiKey())
+      : this.getProviderKey(provider);
+
+    return {
+      agentKey,
+      provider,
+      key: providerKey,
+      keySource: `${agentKey}.${provider}`,
+      usesLegacyInlineKey: false,
+    };
   },
 
   /**
@@ -290,9 +364,8 @@ export const ConfigService = {
 
   resolveModel(slot: AgentSlot): string {
     const agentKey = SLOT_TO_AGENT_KEY[slot];
-    const slotDefaultModel = agentKey ? (AGENT_DEFAULTS[agentKey]?.modelId ?? '') : '';
 
-    // a) slot-specific stored config
+    // a) slot-specific stored config (user-set via Settings UI)
     if (agentKey) {
       const raw = get(`AGENT_CONFIG_${agentKey}`);
       if (raw) {
@@ -301,7 +374,6 @@ export const ConfigService = {
           if (typeof cfg?.modelId === 'string' && cfg.modelId.trim()) return cfg.modelId;
         } catch { /* ignore */ }
       }
-      if (slotDefaultModel) return slotDefaultModel;
     }
 
     // b) primary agent stored config
@@ -318,45 +390,57 @@ export const ConfigService = {
     const selectedModel = get(K.MODEL);
     if (selectedModel) return selectedModel;
 
-    return DEFAULT_GENERAL_MODEL_ID;
+    // No model configured by the user yet — return empty string.
+    // Callers must handle '' and prompt the user to configure a model in Settings.
+    return '';
   },
 
   // ── Agent configs (5-agent system) ───────────────────────────────────────
 
   getAgentConfig(agentId: string): AgentConfig {
     const raw = get(`AGENT_CONFIG_${agentId}`);
-    const def = AGENT_DEFAULTS[agentId] ?? { provider: 'openrouter' as ApiProvider, modelId: '' };
+    // No model defaults — only provider fallback so the slot is always usable.
+    const def: AgentConfig = { provider: (AGENT_DEFAULTS[agentId]?.provider ?? 'openrouter'), modelId: '' };
 
     if (!raw) return { ...def };
 
     let parsed: Record<string, unknown>;
     try { parsed = JSON.parse(raw) as Record<string, unknown>; } catch { return { ...def }; }
+    const returnParsed: Record<string, unknown> = { ...parsed };
 
     // ── Migration: move legacy apiKey → global PROVIDER_KEYS ────────────────
     if (parsed['apiKey'] && typeof parsed['apiKey'] === 'string') {
       const provider = (parsed['provider'] as string | undefined) ?? 'openrouter';
       const storageKey = PROVIDER_KEYS[provider] ?? PROVIDER_KEYS['openrouter'];
-      if (storageKey && !get(storageKey)) {
-        set(storageKey, parsed['apiKey']);
+      if (storageKey && !get(storageKey)?.trim()) {
+        const legacyKey = parsed['apiKey'].trim();
+        if (legacyKey) {
+          set(storageKey, legacyKey);
+        }
+        delete parsed['apiKey'];
+        // Persist cleaned config only when the legacy key was safely promoted.
+        set(`AGENT_CONFIG_${agentId}`, JSON.stringify(parsed));
       }
-      delete parsed['apiKey'];
-      // Persist cleaned config
-      set(`AGENT_CONFIG_${agentId}`, JSON.stringify(parsed));
+      delete returnParsed['apiKey'];
     }
 
     // ── Migration: move legacy fallback2ApiKey → global PROVIDER_KEYS ───────
     if (parsed['fallback2ApiKey'] && typeof parsed['fallback2ApiKey'] === 'string') {
       const f2Label = parsed['fallback2Provider'] as string | undefined;
       const mappedProvider = f2Label ? (LABEL_TO_PROVIDER[f2Label] ?? f2Label.toLowerCase()) : null;
-      if (mappedProvider && PROVIDER_KEYS[mappedProvider] && !get(PROVIDER_KEYS[mappedProvider])) {
-        set(PROVIDER_KEYS[mappedProvider], parsed['fallback2ApiKey']);
+      if (mappedProvider && PROVIDER_KEYS[mappedProvider] && !get(PROVIDER_KEYS[mappedProvider])?.trim()) {
+        const legacyKey = parsed['fallback2ApiKey'].trim();
+        if (legacyKey) {
+          set(PROVIDER_KEYS[mappedProvider], legacyKey);
+        }
+        delete parsed['fallback2ApiKey'];
+        // Persist cleaned config only when the legacy key was safely promoted.
+        set(`AGENT_CONFIG_${agentId}`, JSON.stringify(parsed));
       }
-      delete parsed['fallback2ApiKey'];
-      // Persist cleaned config
-      set(`AGENT_CONFIG_${agentId}`, JSON.stringify(parsed));
+      delete returnParsed['fallback2ApiKey'];
     }
 
-    return { ...def, ...parsed } as AgentConfig;
+    return { ...def, ...returnParsed } as AgentConfig;
   },
 
   setAgentConfig(agentId: string, config: AgentConfig): void {
@@ -373,7 +457,49 @@ export const ConfigService = {
   //   These defaults match the values in backend/agent-config.json so that
   //   a fresh install without a config file still behaves identically.
 
+  // ── Overflow factor ──────────────────────────────────────────────────────
+  //   API hard limit = configured soft limit × (1 + OVERFLOW_FACTOR).
+  //   This pre-authorises a safety buffer so a single step never gets cut
+  //   mid-generation. The soft limit is what the user configured (or default).
+  //   The hard limit is what we actually send to the LLM API.
+
   getMaxTokens(agentId: string, stage: string): number {
+    const DEFAULTS: Record<string, Record<string, number>> = {
+      agent_primary: {
+        clarifier:          6000,
+        architect_landing:  8000,
+        architect_app:     12000,
+        architect_superapp:16000,
+        tech_lead:         10000,
+      },
+      agent_build: {
+        coder_landing:  8000,
+        coder_app:     16000,
+        coder_superapp:32000,
+      },
+      agent_fix: {
+        autofix: 4000,
+      },
+    };
+
+    const raw = get(`AGENT_CONFIG_${agentId}`);
+    if (raw) {
+      try {
+        const cfg = JSON.parse(raw) as Partial<AgentConfig>;
+        const stageVal = cfg.maxTokens?.[stage];
+        if (typeof stageVal === 'number' && stageVal > 0) {
+          // Return hard limit = soft limit × (1 + overflow factor)
+          return Math.ceil(stageVal * (1 + OVERFLOW_FACTOR));
+        }
+      } catch { /* ignore */ }
+    }
+
+    const soft = DEFAULTS[agentId]?.[stage] ?? 4000;
+    return Math.ceil(soft * (1 + OVERFLOW_FACTOR));
+  },
+
+  /** Soft (configured) limit — for display and analytics, without overflow buffer. */
+  getSoftMaxTokens(agentId: string, stage: string): number {
     const DEFAULTS: Record<string, Record<string, number>> = {
       agent_primary: {
         clarifier:          6000,

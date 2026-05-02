@@ -1,0 +1,17 @@
+[functions.llm-proxy]
+verify_jwt = false
+
+[functions.figma-proxy]
+verify_jwt = false
+
+[functions.share-snapshot]
+verify_jwt = false
+
+[functions.sql-console]
+verify_jwt = true
+
+[functions.idea-cron]
+verify_jwt = false
+
+[functions.cleanup-agent-sessions]
+verify_jwt = true

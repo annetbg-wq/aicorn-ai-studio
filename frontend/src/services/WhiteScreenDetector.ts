@@ -280,6 +280,21 @@ function isRuntimeErrorScreen(metrics: DOMMetrics): boolean {
 }
 
 function inspectIframeRenderSurface(iframe: HTMLIFrameElement | null): ImmediateRenderSurfaceResult {
+  // If the iframe is not visible in the parent page (preview panel hidden, user on
+  // dashboard, etc.), DOM measurements inside it are unreliable — skip the gate.
+  if (iframe) {
+    const rect = iframe.getBoundingClientRect();
+    if (rect.height === 0 || rect.width === 0) {
+      return {
+        healthy: true,
+        failureReason: null,
+        probeReason: null,
+        message: 'Preview render surface skipped — iframe not visible in layout',
+        metrics: null,
+      };
+    }
+  }
+
   const metrics = collectIframeMetrics(iframe);
   if (!metrics) {
     return {
@@ -730,6 +745,16 @@ export function probeIframe(
     // Send the probe request to the iframe
     const iframe = findPreviewIframe(buildId);
     if (iframe?.contentWindow) {
+      // If the iframe itself is not visible (preview panel hidden / on dashboard),
+      // DOM measurements inside it are unreliable — treat as inconclusive.
+      const iframeRect = iframe.getBoundingClientRect();
+      if (iframeRect.height === 0 || iframeRect.width === 0) {
+        previewLog('white_screen_probe_skipped_hidden', { buildId });
+        clearTimeout(timer);
+        window.removeEventListener('message', onMessage);
+        settle(null);
+        return;
+      }
       iframe.contentWindow.postMessage(
         { type: 'white-screen-check', buildId },
         STUDIO_ORIGIN,

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "layout": "tabs",
+  "routes": [
+    {
+      "path": "/",
+      "component": "Page1",
+      "filePath": "pages/Home.tsx",
+      "title": "Page1",
+      "isHome": true,
+      "isProtected": true
+    },
+    {
+      "path": "/settings",
+      "component": "Settings",
+      "filePath": "pages/Settings.tsx",
+      "title": "Settings",
+      "isHome": false,
+      "isProtected": false
+    }
+  ]
+}

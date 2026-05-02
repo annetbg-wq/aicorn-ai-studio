@@ -623,6 +623,19 @@ export class RevisionManager {
     }
 
     const previousActiveRevisionId = this.activeRevisionId;
+    // Give React.lazy() chunks up to 600 ms to load before the surface check.
+    // Apps with eager routes pass immediately; lazy-route apps need one or two
+    // async chunk fetches that complete well within this window.
+    {
+      const SETTLE_MS = 600;
+      const POLL_MS = 80;
+      const deadline = Date.now() + SETTLE_MS;
+      while (Date.now() < deadline) {
+        const probe = inspectPreviewRenderSurface(revisionId);
+        if (probe.healthy) break;
+        await new Promise(r => setTimeout(r, POLL_MS));
+      }
+    }
     const immediateSurface = inspectPreviewRenderSurface(revisionId);
     if (!immediateSurface.healthy) {
       previewLog('promote_blocked_white_screen', {
@@ -1107,17 +1120,30 @@ async function triggerCompile(
   buildId: string,
   files: Record<string, string>,
 ): Promise<void> {
-  const res = await fetch(`/api/preview/${buildId}/compile`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ files }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api/preview/${buildId}/compile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files }),
+    });
+  } catch (networkErr: any) {
+    throw new Error(
+      `Backend server is unreachable. Make sure the backend is running (npm run dev:backend). ` +
+      `Network error: ${networkErr?.message ?? String(networkErr)}`,
+    );
+  }
 
   let body: { success: boolean; error?: string } | null = null;
-  try { body = await res.json(); } catch { /* ignore parse errors */ }
+  try { body = await res.json(); } catch { /* non-JSON response — backend likely down or proxy error */ }
 
   if (!res.ok || body?.success === false) {
-    throw new Error(body?.error ?? `Compile request failed (HTTP ${res.status})`);
+    const detail = body?.error
+      ?? (res.status === 500 && !body
+        ? `Backend server returned an unexpected response (HTTP ${res.status}). ` +
+          `Ensure the backend is running (npm run dev:backend).`
+        : `Compile request failed (HTTP ${res.status})`);
+    throw new Error(detail);
   }
 }
 

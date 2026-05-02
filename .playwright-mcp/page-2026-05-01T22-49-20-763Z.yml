@@ -1,0 +1,55 @@
+- generic [ref=e28]:
+  - complementary [ref=e29]:
+    - generic [ref=e30]:
+      - generic [ref=e31]: PM
+      - generic [ref=e32]: PM Agent
+    - navigation [ref=e33]:
+      - link "Проекты" [ref=e34] [cursor=pointer]:
+        - /url: /
+        - img [ref=e36]
+        - text: Проекты
+      - link "Портфолио" [ref=e38] [cursor=pointer]:
+        - /url: /portfolio
+        - img [ref=e39]
+        - text: Портфолио
+      - link "Коннекторы" [ref=e42] [cursor=pointer]:
+        - /url: /connectors
+        - img [ref=e43]
+        - text: Коннекторы
+      - link "Настройки LLM" [ref=e45] [cursor=pointer]:
+        - /url: /settings/llm
+        - img [ref=e46]
+        - text: Настройки LLM
+      - link "Помощь" [ref=e47] [cursor=pointer]:
+        - /url: /help
+        - img [ref=e48]
+        - text: Помощь
+    - generic [ref=e51]:
+      - generic [ref=e52]:
+        - generic [ref=e53]:
+          - button "light" [ref=e54]:
+            - img [ref=e55]
+          - button "dark" [ref=e61]:
+            - img [ref=e62]
+          - button "system" [ref=e64]:
+            - img [ref=e65]
+        - button "ru" [ref=e67]:
+          - img [ref=e68]
+          - generic [ref=e72]: ru
+      - generic [ref=e74]:
+        - generic [ref=e75]:
+          - paragraph [ref=e76]: admin
+          - generic [ref=e77]: admin
+        - generic [ref=e78]:
+          - button "Уведомления" [ref=e80]:
+            - img [ref=e81]
+          - button "Выйти" [ref=e84]:
+            - img [ref=e85]
+  - main [ref=e89]:
+    - generic [ref=e90]:
+      - generic [ref=e91]:
+        - heading "Проекты" [level=1] [ref=e92]
+        - generic [ref=e94]:
+          - button "+ Новый проект" [ref=e95]
+          - button "Обновить" [ref=e96]
+      - paragraph [ref=e100]: Загрузка…

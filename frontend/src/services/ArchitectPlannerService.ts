@@ -988,9 +988,45 @@ function buildOpenQuestions(
   return questions.slice(0, 3);
 }
 
+// ─── Template catalog types ───────────────────────────────────────────────────
+
+export type TemplateName =
+  | 'HeroLamp'
+  | 'BentoGrid'
+  | 'Marquee'
+  | 'PricingSection'
+  | 'CTA'
+  | 'FAQ'
+  | 'Logos'
+  | 'Footer';
+
+export type SectionSpec = {
+  template: TemplateName;
+  props: Record<string, unknown>;
+};
+
 // ─── LLM analysis ─────────────────────────────────────────────────────────────
 
-const ARCHITECT_SYSTEM_PROMPT = `You are a product architect. Your job is to analyze a product idea and output a minimal, structured JSON plan.
+const TEMPLATE_CATALOG = `
+TEMPLATE CATALOG (use ONLY these templates for sections):
+  HeroLamp      — first screen hero. props: title, subtitle, ctaText, ctaHref
+  BentoGrid     — features/benefits grid. props: items: [{title, description, icon?}]
+  Marquee       — scrolling testimonials or logos. props: items: string[]
+  PricingSection — pricing tiers. props: tiers: [{name, price, features[]}]
+  CTA           — call-to-action end section. props: title, subtitle, primaryText, secondaryText
+  FAQ           — frequently asked questions. props: items: [{question, answer}]
+  Logos         — trust logos. props: items: [{name, src?}]
+  Footer        — always last. props: brand, sections: [{title, links[]}]
+
+CATALOG RULES:
+1. Always start with HeroLamp.
+2. Always end with Footer.
+3. Never invent template names outside this catalog.
+4. Fill props with real content — no lorem ipsum.
+5. designIntent controls visual style only (mood, contrast, radius); it does not change section structure.
+`.trim();
+
+const ARCHITECT_SYSTEM_PROMPT = `You are a UI architect. Your job is to analyze a product idea and output a structured JSON plan including section composition and visual design intent.
 
 Return ONLY valid JSON matching this schema (no prose, no markdown fences):
 
@@ -1000,7 +1036,12 @@ Return ONLY valid JSON matching this schema (no prose, no markdown fences):
   "firstPassCapabilities": ["backend","auth","ai_chat","analytics","map","storage","scanner"],
   "deferredCapabilities": ["payments","notifications","admin"],
   "implementationOrder": ["step one title","step two title","step three title"],
-  "openQuestions": ["question only if truly blocking and high-leverage — max 2"]
+  "openQuestions": ["question only if truly blocking and high-leverage — max 2"],
+  "designIntent": { "mood": "calm|corporate|luxury|playful|brutal", "contrast": "low|medium|high", "radius": "sharp|soft|pill" },
+  "sections": [
+    { "template": "HeroLamp", "props": { "title": "...", "subtitle": "...", "ctaText": "...", "ctaHref": "#pricing" } },
+    { "template": "Footer", "props": { "brand": "..." } }
+  ]
 }
 
 Rules:
@@ -1008,7 +1049,9 @@ Rules:
 - deferredCapabilities: real features the user asked for, but not needed in the first pass
 - implementationOrder: 3–5 steps, in order, each a short imperative phrase
 - openQuestions: 0–2 questions maximum; only if the answer materially changes architecture
-- NEVER ask about tech stack, colors, or obvious choices. Never include clarifying questions about things you can infer.`;
+- NEVER ask about tech stack, colors, or obvious choices. Never include clarifying questions about things you can infer.
+
+${TEMPLATE_CATALOG}`;
 
 type ArchitectLLMAnalysisResult = {
   productType?: ProductMode;

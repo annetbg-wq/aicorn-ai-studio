@@ -2,44 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
 :root {
-  --background: 240 10% 4%;
-  --foreground: 210 40% 98%;
-
-  --card: 240 6% 10%;
-  --card-foreground: 210 40% 98%;
-
-  --primary: 199 89% 48%;
-  --primary-foreground: 222 47% 11%;
-
-  --secondary: 240 4% 16%;
-  --secondary-foreground: 210 40% 98%;
-
-  --muted: 240 4% 16%;
-  --muted-foreground: 215 20% 65%;
-
-  --accent: 240 4% 16%;
-  --accent-foreground: 210 40% 98%;
-
-  --destructive: 0 72% 51%;
-  --destructive-foreground: 210 40% 98%;
-
-  --border: 240 4% 16%;
-  --input: 240 4% 16%;
-  --ring: 199 89% 48%;
-
-  --radius: 0.75rem;
-}
-
-}
-
-@layer base {
-  * { @apply border-border; }
-  body { @apply bg-background text-foreground; }
+  --background:          180 6% 4%;
+  --foreground:          180 9% 96%;
+  --card:                180 6% 10%;
+  --card-foreground:     180 9% 96%;
+  --popover:             180 6% 10%;
+  --popover-foreground:  180 9% 96%;
+  --primary:             180 60% 65%;
+  --primary-foreground:  0 0% 4%;
+  --secondary:           180 15% 20%;
+  --secondary-foreground:180 9% 96%;
+  --muted:               180 9% 19%;
+  --muted-foreground:    180 6% 76%;
+  --accent:              180 18% 19%;
+  --accent-foreground:   180 9% 96%;
+  --destructive:         0 84% 60%;
+  --destructive-foreground:0 0% 98%;
+  --border:              180 9% 16%;
+  --input:               180 9% 16%;
+  --ring:                180 60% 65%;
+  --radius:              0.5rem;
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
 }

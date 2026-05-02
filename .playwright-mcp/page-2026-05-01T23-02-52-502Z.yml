@@ -1,0 +1,128 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Agent Lab" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Analytics" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+        - button "Quality" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Code Studio" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+        - button "Terminal" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "DB Console" [ref=e70] [cursor=pointer]:
+          - img [ref=e71]
+        - button "Cloud & Backend — Coming Soon" [ref=e76]:
+          - img [ref=e77]
+        - button "Packaging & Ship — Coming Soon" [ref=e80]:
+          - img [ref=e81]
+        - button "Growth & Marketing — Coming Soon" [ref=e87]:
+          - img [ref=e88]
+    - generic [ref=e561]:
+      - generic [ref=e562]:
+        - generic [ref=e563]:
+          - generic [ref=e564]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e565] [cursor=pointer]:
+            - img [ref=e566]
+            - text: New Project
+          - generic [ref=e568]: New Project
+          - generic [ref=e569]: /
+          - img [ref=e570]
+          - generic [ref=e574]: main
+          - generic [ref=e575]: ·
+          - img [ref=e576]
+          - generic [ref=e578]: "snap #0"
+        - generic [ref=e580]: Not backed up
+        - generic [ref=e581]:
+          - generic [ref=e582]:
+            - 'button "Theme: dark" [ref=e583] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e584] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e585] [cursor=pointer]'
+          - button "Settings" [ref=e586] [cursor=pointer]:
+            - img [ref=e587]
+          - button "D dev.local@aic-studio.test" [ref=e590] [cursor=pointer]:
+            - generic [ref=e591]: D
+            - generic [ref=e592]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e593] [cursor=pointer]:
+            - img [ref=e594]
+            - text: Backup to Cloud
+      - generic [ref=e597]:
+        - generic [ref=e599]:
+          - generic [ref=e601]:
+            - img [ref=e602]
+            - generic [ref=e607]: AIC-RG Studio
+            - generic [ref=e608]: Опишите идею ниже или выберите в сайдбаре
+          - generic [ref=e609]:
+            - generic [ref=e610]:
+              - button "AUTO" [ref=e611]
+              - button "APP" [ref=e612]
+              - button "PAGE" [ref=e613]
+              - button "SUPER" [ref=e614]
+              - button "ALL" [ref=e615]
+              - button "История" [ref=e617]:
+                - img [ref=e618]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e623]:
+                - img [ref=e624]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e627]:
+                - img [ref=e628]
+            - generic [ref=e631]:
+              - button "Attach / tools" [ref=e633]:
+                - img [ref=e634]
+              - textbox "Что строим сегодня?" [ref=e635]
+              - button [disabled] [ref=e636]:
+                - img [ref=e637]
+        - generic [ref=e640]:
+          - generic [ref=e641]:
+            - generic [ref=e642]:
+              - button "Preview" [ref=e643] [cursor=pointer]
+              - button "Reasoning" [ref=e644] [cursor=pointer]
+              - button "Code" [ref=e645] [cursor=pointer]
+              - button "Design" [ref=e646] [cursor=pointer]
+              - button "Analytics" [ref=e647] [cursor=pointer]
+              - button "Security" [ref=e648] [cursor=pointer]
+              - button "Cloud" [ref=e649] [cursor=pointer]
+            - generic [ref=e650]:
+              - button "Select" [ref=e651] [cursor=pointer]:
+                - img [ref=e652]
+                - text: Select
+              - generic [ref=e654]:
+                - button "Desktop Chrome" [ref=e655] [cursor=pointer]:
+                  - img [ref=e656]
+                - button "iPhone 16 Pro Max" [ref=e658] [cursor=pointer]:
+                  - img [ref=e659]
+                - button "Pixel 9 Pro" [ref=e661] [cursor=pointer]:
+                  - img [ref=e662]
+                - button "iPad Pro 13" [ref=e664] [cursor=pointer]:
+                  - img [ref=e665]
+              - button "Export" [ref=e667] [cursor=pointer]:
+                - img [ref=e668]
+                - text: Export
+              - button "Share" [ref=e671] [cursor=pointer]:
+                - img [ref=e672]
+                - text: Share
+          - generic [ref=e680]:
+            - generic [ref=e681]:
+              - button [ref=e682] [cursor=pointer]:
+                - img [ref=e683]
+              - generic [ref=e686] [cursor=pointer]: 48%
+              - button [ref=e687] [cursor=pointer]:
+                - img [ref=e688]
+              - button [ref=e692] [cursor=pointer]:
+                - img [ref=e693]
+            - iframe [ref=e702]:
+              - generic [active] [ref=f3e1]: Build not found

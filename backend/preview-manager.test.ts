@@ -2,6 +2,7 @@ import path from 'path';
 import { describe, expect, it } from 'vitest';
 import {
   resolvePreviewSrcPath,
+  resolveSectionTemplatePaths,
   sanitizeCompileFiles,
 } from './preview-manager';
 
@@ -32,5 +33,12 @@ describe('preview-manager path hardening', () => {
     );
 
     expect(Object.keys(files)).toEqual(['App.tsx', 'components/Button.tsx']);
+  });
+
+  it('resolves section template source and preview destination paths', () => {
+    const paths = resolveSectionTemplatePaths(path.resolve('c:/ai_studio/preview-workspace'));
+
+    expect(paths.templatesSrc.toLowerCase()).toBe(path.resolve('c:/ai_studio/frontend/src/templates/components').toLowerCase());
+    expect(paths.sectionsDest.toLowerCase()).toBe(path.resolve('c:/ai_studio/preview-workspace/src/components/sections').toLowerCase());
   });
 });

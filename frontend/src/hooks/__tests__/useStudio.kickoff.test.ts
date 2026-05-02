@@ -35,6 +35,14 @@ const generationRunGate = vi.hoisted(() => ({
 }));
 
 const TEST_PROJECT_ID = vi.hoisted(() => '11111111-1111-4111-8111-111111111111');
+const resolveStandardRouteMock = vi.hoisted(() => vi.fn((slot: string) => ({
+  slot,
+  provider: 'test',
+  modelId: `${slot}-model`,
+  apiKey: 'test-key',
+  endpoint: `https://example.com/${slot}`,
+  keySource: `${slot}.key`,
+})));
 
 vi.mock('../../services/SimpleGeneration', async () => {
   const actual = await vi.importActual<typeof import('../../services/SimpleGeneration')>(
@@ -112,12 +120,7 @@ vi.mock('../../services/ConfigService', () => ({
 }));
 
 vi.mock('../../services/buildAgentRouting', () => ({
-  resolveStandardRoute: (slot: string) => ({
-    slot,
-    provider: 'test',
-    modelId: `${slot}-model`,
-    apiKey: 'test-key',
-  }),
+  resolveStandardRoute: resolveStandardRouteMock,
 }));
 
 vi.mock('../../services/ProjectManager', () => ({
@@ -192,6 +195,17 @@ afterEach(() => {
   previewController.reset();
   vi.restoreAllMocks();
   vi.clearAllMocks();
+  resolveStandardRouteMock.mockImplementation((slot: string) => ({
+    slot,
+    provider: 'test',
+    modelId: `${slot}-model`,
+    apiKey: 'test-key',
+    endpoint: `https://example.com/${slot}`,
+    keySource: `${slot}.key`,
+  }));
+  vi.mocked(ProjectStorage.getProject).mockImplementation(() => null);
+  vi.mocked(ProjectStorage.projectDataExists).mockImplementation(() => false);
+  vi.mocked(ProjectRepository.getProject).mockResolvedValue(null);
   vi.useRealTimers();
 });
 
@@ -716,6 +730,116 @@ describe('Kickoff approval without architectKickoff (non-genesis / re-run path)'
     expect(result.approvedPlan).toEqual(originalPlan);
     expect(result.kickoffSnapshotId).toBeNull();
     expect(prepareSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('Existing-project explicit continuation', () => {
+  it('reuses the saved project plan for "Продолжай" and skips primary re-planning', async () => {
+    const savedPlan = {
+      appName: 'Resume Project',
+      description: 'Continue the interrupted implementation',
+      theme: 'dark-slate',
+      pages: [{ name: 'Home', path: '/', file: 'src/pages/Home.tsx' }],
+    };
+    const storedProject = {
+      id: TEST_PROJECT_ID,
+      name: 'Resume Project',
+      description: 'Existing project',
+      theme: 'dark-slate',
+      files: {
+        'src/App.tsx': 'export default function App() { return <main>Resume</main>; }',
+      },
+      chatHistory: [],
+      createdAt: '2026-04-18T12:00:00.000Z',
+      updatedAt: '2026-04-18T12:00:00.000Z',
+      version: 1,
+      plan: savedPlan,
+      activeBranchId: 'main',
+      branches: {
+        main: {
+          id: 'main',
+          projectId: TEST_PROJECT_ID,
+          name: 'main',
+          isDefault: true,
+          createdAt: '2026-04-18T12:00:00.000Z',
+          updatedAt: '2026-04-18T12:00:00.000Z',
+          files: {
+            'src/App.tsx': 'export default function App() { return <main>Resume</main>; }',
+          },
+          chatHistory: [],
+          revisions: [],
+          architecture: null as any,
+        },
+      },
+    } as any;
+
+    let latestStudio: StudioHook | null = null;
+    let capturedRunConfig: any = null;
+
+    localStorage.setItem('CURRENT_PROJECT_ID', TEST_PROJECT_ID);
+
+    vi.mocked(ProjectStorage.projectDataExists).mockImplementation((id: string) => id === TEST_PROJECT_ID);
+    vi.mocked(ProjectStorage.getProject).mockImplementation((id: string) => (
+      id === TEST_PROJECT_ID ? storedProject : null
+    ));
+    vi.mocked(ProjectRepository.getProject).mockResolvedValue(storedProject);
+    resolveStandardRouteMock.mockImplementation((slot: string) => ({
+      slot,
+      provider: 'openrouter',
+      modelId: `${slot}-model`,
+      apiKey: slot === 'build' ? 'valid-build-key' : 'stale-primary-key',
+      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+      keySource: `${slot}.key`,
+    }));
+    generationPipelineMock.generatePlan.mockRejectedValue(new Error('generatePlan should be skipped'));
+    generationPipelineMock.run.mockImplementation(async (config: any) => {
+      capturedRunConfig = config;
+      emitKickoffPlanReady(config);
+      await config.waitForConfirmation(savedPlan);
+      return {
+        status: 'cancelled',
+        message: 'cancelled',
+        operations: [],
+        graph: { files: [] },
+        plan: savedPlan,
+        planTheme: 'dark-slate',
+        qualitySummary: { severity: 'none' },
+      };
+    });
+
+    render(React.createElement(StudioLifecycleHarness, {
+      onRender: (studio) => {
+        latestStudio = studio;
+      },
+    }));
+
+    await waitFor(() => expect(latestStudio).not.toBeNull());
+
+    act(() => {
+      latestStudio!.setInput('Продолжай');
+    });
+
+    await act(async () => {
+      void latestStudio!.handleSend();
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.pendingPlan?.plan).toEqual(savedPlan);
+    });
+
+    expect(generationPipelineMock.generatePlan).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await latestStudio!.confirmPlan();
+    });
+
+    await waitFor(() => {
+      expect(capturedRunConfig).not.toBeNull();
+    });
+
+    expect(capturedRunConfig.prebuiltPlan).toBe(savedPlan);
+    expect(capturedRunConfig.buildRoute.apiKey).toBe('valid-build-key');
+    expect(capturedRunConfig.primaryRoute.apiKey).toBe('stale-primary-key');
   });
 });
 
@@ -1847,6 +1971,64 @@ describe('Draft persistence guard', () => {
     expect(Array.isArray(saveArg?.chatHistory)).toBe(true);
     expect(saveArg?.chatHistory?.some((message: any) => message.type === 'blueprint')).toBe(true);
     expect(saveArg?.chatHistory?.some((message: any) => message.type === 'generation-report')).toBe(true);
+  }, 10_000);
+
+  it('clears the pending save only after explicit reject without persisting the project', async () => {
+    configureCompletedKickoffGeneration();
+
+    let latestStudio: StudioHook | null = null;
+
+    render(React.createElement(StudioLifecycleHarness, {
+      onRender: (studio) => {
+        latestStudio = studio;
+      },
+    }));
+
+    await waitFor(() => expect(latestStudio).not.toBeNull());
+
+    act(() => {
+      latestStudio!.setInput('build a simple todo app');
+    });
+
+    await waitFor(() => expect(latestStudio!.input).toBe('build a simple todo app'));
+
+    await act(async () => {
+      void latestStudio!.handleSend();
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.pendingPlan?.architectKickoff?.selectedOptionId).toBe('core');
+      expect(latestStudio!.kickoffPhase).toBe('awaiting_confirmation');
+    });
+
+    await act(async () => {
+      await latestStudio!.confirmPlan();
+    });
+
+    await waitFor(() => {
+      expect(generationRunGate.release).toBeTypeOf('function');
+    });
+
+    await act(async () => {
+      generationRunGate.release?.();
+    });
+
+    act(() => {
+      previewController.notifyReady('test-build', 'unit-test');
+    });
+
+    await waitFor(() => {
+      expect(latestStudio!.pendingProjectSave?.previewReady).toBe(true);
+    });
+
+    await act(async () => {
+      expect(latestStudio!.rejectPendingProjectSave()).toBe(true);
+    });
+
+    expect(latestStudio!.pendingProjectSave).toBeNull();
+    expect(latestStudio!.savePendingProject()).toBe(false);
+    expect(vi.mocked(ProjectStorage.saveProject)).not.toHaveBeenCalled();
+    expect(vi.mocked(ProjectRepository.saveProject)).not.toHaveBeenCalled();
   }, 10_000);
 });
 

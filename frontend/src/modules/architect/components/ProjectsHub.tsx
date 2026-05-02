@@ -30,6 +30,7 @@ import { ProjectExportService }  from '../../../services/ProjectExportService';
 export interface StudioProject {
   id: string;
   title: string;
+  name?: string;   // alias for title in some contexts
   description?: string;
   status?: 'active' | 'archived';
   createdAt?: string | number;
@@ -44,6 +45,7 @@ interface ProjectsHubProps {
   onLoadProject: (project: StudioProject) => void;
   onNavigateEngine: () => void;
   projectFiles?: Record<string, string>;
+  onViewDetails?: (project: StudioProject) => void;
 }
 
 const SHADCN_ITEMS = [
@@ -203,6 +205,7 @@ interface ProjectCardProps {
   theme: 'dark' | 'medium' | 'light';
   c: ReturnType<typeof useTheme>;
   onOpen: () => void;
+  onViewDetails?: () => void;
   onRename: (id: string, newTitle: string) => void;
   onDuplicate: (id: string) => void;
   onArchive: (id: string) => void;
@@ -212,12 +215,12 @@ interface ProjectCardProps {
 }
 
 const ProjectCard: React.FC<ProjectCardProps> = ({
-  project, isActive, c, onOpen,
+  project, isActive, c, onOpen, onViewDetails,
   onRename, onDuplicate, onArchive, onExport, onDelete, activeStats,
 }) => {
   const [menuOpen,   setMenuOpen]   = useState(false);
   const [renaming,   setRenaming]   = useState(false);
-  const [renameVal,  setRenameVal]  = useState(project.title);
+  const [renameVal,  setRenameVal]  = useState(project.title || (project as any).name || '');
   const [hovered,    setHovered]    = useState(false);
   const renameRef = useRef<HTMLInputElement>(null);
 
@@ -225,7 +228,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
 
   const commitRename = () => {
     const v = renameVal.trim();
-    if (v && v !== project.title) onRename(project.id, v);
+    if (v && v !== (project.title || (project as any).name)) onRename(project.id, v);
     setRenaming(false);
   };
 
@@ -267,7 +270,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
             flex: 1, fontSize: 13, fontWeight: 700, color: isActive ? c.accent : c.txt,
             lineHeight: 1.3, wordBreak: 'break-word',
           }}>
-            {project.title}
+            {project.title || (project as any).name || 'Untitled'}
           </span>
         )}
 
@@ -326,7 +329,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
       {/* ── Primary action buttons ── */}
       <div style={{ display: 'flex', gap: 6, paddingLeft: 22, marginBottom: 10 }}>
         <button
-          onClick={onOpen}
+          onClick={() => onViewDetails ? onViewDetails() : onOpen()}
           style={{
             flex: 1, padding: '7px 0', borderRadius: 9,
             border: `1px solid ${c.accentBr}`, background: c.accentBg,
@@ -334,7 +337,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
           }}
         >
-          <Play size={11} fill={c.accent} stroke="none" /> Open
+          <Play size={11} fill={c.accent} stroke="none" /> Просмотр
         </button>
         <button
           onClick={onOpen}
@@ -345,7 +348,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
           }}
         >
-          <FolderOpen size={11} /> Continue
+          <FolderOpen size={11} /> В Студию
         </button>
       </div>
 
@@ -408,7 +411,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
 
 // ── Main component ────────────────────────────────────────────────────────────
 export const ProjectsHub: React.FC<ProjectsHubProps> = ({
-  theme, projects, currentProjectId, onLoadProject, onNavigateEngine, projectFiles = {},
+  theme, projects, currentProjectId, onLoadProject, onNavigateEngine, projectFiles = {}, onViewDetails,
 }) => {
   const c = useTheme(theme);
 
@@ -502,7 +505,7 @@ export const ProjectsHub: React.FC<ProjectsHubProps> = ({
   };
 
   const filtered = localProjects.filter(p => {
-    const matchSearch = (p.title ?? '').toLowerCase().includes(search.toLowerCase());
+    const matchSearch = (p.title || (p as any).name || '').toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterState === 'all'
       ? true
       : filterState === 'active'
@@ -603,6 +606,7 @@ export const ProjectsHub: React.FC<ProjectsHubProps> = ({
               theme={theme}
               c={c}
               onOpen={() => handleOpen(p)}
+              onViewDetails={onViewDetails ? () => onViewDetails(p) : undefined}
               onRename={handleRename}
               onDuplicate={handleDuplicate}
               onArchive={handleArchive}

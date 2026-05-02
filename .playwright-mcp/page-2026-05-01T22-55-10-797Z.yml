@@ -1,0 +1,252 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Agent Lab" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Analytics" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+        - button "Quality" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Code Studio" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+        - button "Terminal" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "DB Console" [ref=e70] [cursor=pointer]:
+          - img [ref=e71]
+        - button "Cloud & Backend — Coming Soon" [ref=e76]:
+          - img [ref=e77]
+        - button "Packaging & Ship — Coming Soon" [ref=e80]:
+          - img [ref=e81]
+        - button "Growth & Marketing — Coming Soon" [ref=e87]:
+          - img [ref=e88]
+    - generic [ref=e266]:
+      - generic [ref=e267]:
+        - generic [ref=e268]:
+          - img [ref=e270]
+          - heading "Трендовые ниши" [level=1] [ref=e273]
+        - button "Домой" [ref=e274] [cursor=pointer]:
+          - img [ref=e275]
+          - text: Домой
+      - generic [ref=e278]:
+        - generic [ref=e280]: Рыночная аналитика
+        - generic [ref=e282]:
+          - heading "Трендовые ниши" [level=2] [ref=e284]
+          - button "Обновить" [ref=e516] [cursor=pointer]:
+            - img [ref=e517]
+            - text: Обновить
+        - generic [ref=e288]:
+          - generic [ref=e289]:
+            - generic [ref=e290]:
+              - img [ref=e291]
+              - text: Интерес
+            - button "Игры" [ref=e294] [cursor=pointer]
+            - button "Медицина" [ref=e295] [cursor=pointer]
+            - button "Финтех" [ref=e296] [cursor=pointer]
+            - button "Здоровье" [ref=e297] [cursor=pointer]
+            - button "Соцсервисы" [ref=e298] [cursor=pointer]
+            - button "Продуктивность" [ref=e299] [cursor=pointer]
+            - button "Обучение" [ref=e300] [cursor=pointer]
+            - button "Коммерция" [ref=e301] [cursor=pointer]
+            - button "ИИ" [ref=e302] [cursor=pointer]
+            - button "Инструменты разработки" [ref=e303] [cursor=pointer]
+          - generic [ref=e304]: Выбери один интерес — после этого подборки дня, недели и месяца будут заново сгенерированы под него.
+          - generic [ref=e305]: В диалог — обсудить идею с архитектором в чате. В работу — сразу упаковать идею и передать в код.
+        - generic [ref=e306]:
+          - generic [ref=e307]:
+            - heading "Идеи дня" [level=3] [ref=e310]
+            - generic [ref=e311]:
+              - generic [ref=e312]:
+                - generic [ref=e313]:
+                  - generic [ref=e314]:
+                    - generic [ref=e315]: Коуч по восстановление сна
+                    - generic [ref=e316]:
+                      - generic [ref=e317]: Здоровье
+                      - generic [ref=e318]: Медицина
+                      - generic [ref=e319]: ИИ
+                  - button "Сохранить идею" [ref=e320] [cursor=pointer]:
+                    - img [ref=e321]
+                - generic [ref=e323]: Mobile-first приложение, где взрослые, у которых постоянно сбивается режим сна следуют вечерним подсказкам, morning check-in и ритуалам восстановления в коротких ежедневных сессиях, чтобы просыпаться стабильнее и с большим запасом энергии.
+                - generic [ref=e324]: Пользователям нужны продукты, которые дают видимый ежедневный прогресс в теме "восстановление сна", а не еще один пассивный контентный каталог или разрозненные рутины.
+                - generic [ref=e325]:
+                  - button "В диалог" [active] [ref=e326] [cursor=pointer]:
+                    - img [ref=e327]
+                    - text: В диалог
+                  - button "В работу" [ref=e330] [cursor=pointer]:
+                    - img [ref=e331]
+                    - text: В работу
+              - generic [ref=e333]:
+                - generic [ref=e334]:
+                  - generic [ref=e335]:
+                    - generic [ref=e336]: Коуч по восстановление после стресса
+                    - generic [ref=e337]:
+                      - generic [ref=e338]: Здоровье
+                      - generic [ref=e339]: Медицина
+                      - generic [ref=e340]: ИИ
+                  - button "Сохранить идею" [ref=e341] [cursor=pointer]:
+                    - img [ref=e342]
+                - generic [ref=e344]: Mobile-first приложение, где занятые специалисты с постоянным нервным напряжением проходят короткие breathwork-сессии, телесные reset-практики и рефлексию по состоянию в коротких ежедневных сессиях, чтобы быстрее восстанавливаться, а не жить в фоновом выгорании.
+                - generic [ref=e345]: Пользователям нужны продукты, которые дают видимый ежедневный прогресс в теме "восстановление после стресса", а не еще один пассивный контентный каталог или разрозненные рутины.
+                - generic [ref=e346]:
+                  - button "В диалог" [ref=e347] [cursor=pointer]:
+                    - img [ref=e348]
+                    - text: В диалог
+                  - button "В работу" [ref=e351] [cursor=pointer]:
+                    - img [ref=e352]
+                    - text: В работу
+              - generic [ref=e354]:
+                - generic [ref=e355]:
+                  - generic [ref=e356]:
+                    - generic [ref=e357]: Коуч по стабильное питание
+                    - generic [ref=e358]:
+                      - generic [ref=e359]: Здоровье
+                      - generic [ref=e360]: Медицина
+                      - generic [ref=e361]: ИИ
+                  - button "Сохранить идею" [ref=e362] [cursor=pointer]:
+                    - img [ref=e363]
+                - generic [ref=e365]: Mobile-first приложение, где люди, которые хотят питаться лучше без жестких диет планируют простые приемы пищи, фиксируют трение и держат реалистичный ритм в коротких ежедневных сессиях, чтобы видеть устойчивый прогресс без постоянного чувства срыва.
+                - generic [ref=e366]: Пользователям нужны продукты, которые дают видимый ежедневный прогресс в теме "стабильное питание", а не еще один пассивный контентный каталог или разрозненные рутины.
+                - generic [ref=e367]:
+                  - button "В диалог" [ref=e368] [cursor=pointer]:
+                    - img [ref=e369]
+                    - text: В диалог
+                  - button "В работу" [ref=e372] [cursor=pointer]:
+                    - img [ref=e373]
+                    - text: В работу
+          - generic [ref=e375]:
+            - heading "Идеи недели" [level=3] [ref=e378]
+            - generic [ref=e379]:
+              - generic [ref=e522]:
+                - generic [ref=e523]:
+                  - generic [ref=e524]:
+                    - generic [ref=e525]: Ежедневный отдых
+                    - generic [ref=e527]: Здоровье
+                  - button "Сохранить идею" [ref=e528] [cursor=pointer]:
+                    - img [ref=e529]
+                - generic [ref=e531]: Приложение для создания и поддержания привычки к ежедневным практикам отдыха и медитации.
+                - generic [ref=e532]: Растущее желание людей заботиться о своем психическом здоровье и избегать выгорания.
+                - generic [ref=e533]:
+                  - button "В диалог" [ref=e534] [cursor=pointer]:
+                    - img [ref=e535]
+                    - text: В диалог
+                  - button "В работу" [ref=e538] [cursor=pointer]:
+                    - img [ref=e539]
+                    - text: В работу
+              - generic [ref=e541]:
+                - generic [ref=e542]:
+                  - generic [ref=e543]:
+                    - generic [ref=e544]: Питательный следователь
+                    - generic [ref=e546]: Здоровье
+                  - button "Сохранить идею" [ref=e547] [cursor=pointer]:
+                    - img [ref=e548]
+                - generic [ref=e550]: Приложение для планирования и отслеживания питания с фокусом на создаваемых привычках.
+                - generic [ref=e551]: Увеличение осведомленности о правильном питании и желании вести здоровый образ жизни.
+                - generic [ref=e552]:
+                  - button "В диалог" [ref=e553] [cursor=pointer]:
+                    - img [ref=e554]
+                    - text: В диалог
+                  - button "В работу" [ref=e557] [cursor=pointer]:
+                    - img [ref=e558]
+                    - text: В работу
+              - generic [ref=e560]:
+                - generic [ref=e561]:
+                  - generic [ref=e562]:
+                    - generic [ref=e563]: Сонный трекер
+                    - generic [ref=e565]: Здоровье
+                  - button "Сохранить идею" [ref=e566] [cursor=pointer]:
+                    - img [ref=e567]
+                - generic [ref=e569]: Приложение для отслеживания качеств сна и формирования привычек для лучшего отдыха.
+                - generic [ref=e570]: Рост осведомленности о важности качественного сна в повседневной жизни.
+                - generic [ref=e571]:
+                  - button "В диалог" [ref=e572] [cursor=pointer]:
+                    - img [ref=e573]
+                    - text: В диалог
+                  - button "В работу" [ref=e576] [cursor=pointer]:
+                    - img [ref=e577]
+                    - text: В работу
+          - generic [ref=e443]:
+            - heading "Идеи месяца" [level=3] [ref=e446]
+            - generic [ref=e447]:
+              - generic [ref=e579]:
+                - generic [ref=e580]:
+                  - generic [ref=e581]:
+                    - generic [ref=e582]: Сонный Компас
+                    - generic [ref=e584]: Здоровье
+                  - button "Сохранить идею" [ref=e585] [cursor=pointer]:
+                    - img [ref=e586]
+                - generic [ref=e588]: Помогает улучшить качество сна через персонализированные рекомендации и трекинг.
+                - generic [ref=e589]: Увеличение интереса к улучшению сна в условиях стресса.
+                - generic [ref=e590]:
+                  - button "В диалог" [ref=e591] [cursor=pointer]:
+                    - img [ref=e592]
+                    - text: В диалог
+                  - button "В работу" [ref=e595] [cursor=pointer]:
+                    - img [ref=e596]
+                    - text: В работу
+              - generic [ref=e598]:
+                - generic [ref=e599]:
+                  - generic [ref=e600]:
+                    - generic [ref=e601]: СтрессКонтроль
+                    - generic [ref=e603]: Здоровье
+                  - button "Сохранить идею" [ref=e604] [cursor=pointer]:
+                    - img [ref=e605]
+                - generic [ref=e607]: Платформа для управления стрессом с практическими упражнениями и отслеживанием прогресса.
+                - generic [ref=e608]: Растущее понимание важности управления стрессом в современной жизни.
+                - generic [ref=e609]:
+                  - button "В диалог" [ref=e610] [cursor=pointer]:
+                    - img [ref=e611]
+                    - text: В диалог
+                  - button "В работу" [ref=e614] [cursor=pointer]:
+                    - img [ref=e615]
+                    - text: В работу
+              - generic [ref=e617]:
+                - generic [ref=e618]:
+                  - generic [ref=e619]:
+                    - generic [ref=e620]: Питание Просто
+                    - generic [ref=e622]: Здоровье
+                  - button "Сохранить идею" [ref=e623] [cursor=pointer]:
+                    - img [ref=e624]
+                - generic [ref=e626]: Помогает пользователям соблюдать правила сбалансированного питания, формируя полезные привычки.
+                - generic [ref=e627]: Увеличение интереса к здоровому питанию и сбалансированному образу жизни.
+                - generic [ref=e628]:
+                  - button "В диалог" [ref=e629] [cursor=pointer]:
+                    - img [ref=e630]
+                    - text: В диалог
+                  - button "В работу" [ref=e633] [cursor=pointer]:
+                    - img [ref=e634]
+                    - text: В работу
+          - generic [ref=e511]:
+            - heading "Банк идей" [level=3] [ref=e514]
+            - generic [ref=e515]: Сохраненных идей пока нет
+        - generic [ref=e637]:
+          - generic [ref=e638]:
+            - generic [ref=e639]:
+              - generic [ref=e640]: Краткое описание идеи
+              - generic [ref=e641]: Коуч по восстановление сна
+            - button [ref=e642] [cursor=pointer]:
+              - img [ref=e643]
+          - generic [ref=e646]:
+            - generic [ref=e647]:
+              - generic [ref=e648]: Mobile-first приложение, где взрослые, у которых постоянно сбивается режим сна следуют вечерним подсказкам, morning check-in и ритуалам восстановления в коротких ежедневных сессиях, чтобы просыпаться стабильнее и с большим запасом энергии.
+              - generic [ref=e649]: взрослые, у которых постоянно сбивается режим сна
+            - generic [ref=e650]:
+              - generic [ref=e651]: Комментарий пользователя
+              - textbox "Комментарий пользователя" [ref=e652]:
+                - /placeholder: Необязательный контекст, ограничение или founder note
+          - generic [ref=e653]:
+            - button "Отмена" [ref=e654] [cursor=pointer]
+            - button "Отправить brief" [ref=e655] [cursor=pointer]:
+              - img [ref=e656]
+              - text: Отправить brief

@@ -254,6 +254,28 @@ describe('PreviewCanvas workspace truth', () => {
     expect(copied).not.toContain('private reasoning');
   });
 
+  it('keeps project save actions visible after preview becomes ready until the user decides', () => {
+    const onSavePendingProject = vi.fn();
+    const onRejectPendingProjectSave = vi.fn();
+
+    render(
+      <PreviewCanvas
+        {...baseProps}
+        pendingProjectSave={{ projectTitle: 'Draft Project', previewReady: true }}
+        previewLifecycle="materializing"
+        onSavePendingProject={onSavePendingProject}
+        onRejectPendingProjectSave={onRejectPendingProjectSave}
+      />,
+    );
+
+    expect(screen.getByTestId('save-project-cta')).toBeInTheDocument();
+    expect(screen.getByText('Save project')).toBeInTheDocument();
+    expect(screen.getByText('Reject')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('reject-project-cta'));
+    expect(onRejectPendingProjectSave).toHaveBeenCalledTimes(1);
+  });
+
   it('builds stable scoped analytics row identities without duplicate current/archive rows', () => {
     const trace = finishTrace({
       projectId: 'project-a',
