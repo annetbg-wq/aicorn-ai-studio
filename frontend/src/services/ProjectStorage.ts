@@ -21,7 +21,7 @@ import {
 export interface ProjectRevision {
   id:           string;    // crypto.randomUUID()
   prompt:       string;    // prompt for this iteration
-  source:       'chat' | 'weekly-feed' | 'niche' | 'trend-niche';
+  source:       'chat' | 'weekly-feed' | 'niche' | 'trend-niche' | 'agent-upgrade';
   files:        Record<string, string>;  // full file snapshot
   createdAt:    string;    // ISO
   modelId?:     string;
