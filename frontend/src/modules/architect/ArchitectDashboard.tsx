@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Layers } from 'lucide-react';
 import { ProjectRepository, type ProjectRecord } from '../../services/ProjectRepository';
 import { ProjectStorage } from '../../services/ProjectStorage';
+import type { ProjectRevision } from '../../services/ProjectStorage';
 import { getArchitectCopy } from './architectureViewModel';
 import { ProjectsHub, type StudioProject } from './components/ProjectsHub';
 import { BranchArchitectureScreen } from './components/BranchArchitectureScreen';
+import { llmFetchStream } from '../../services/LLMProxy';
+import { ConfigService } from '../../services/ConfigService';
 
 interface ArchitectDashboardProps {
   theme: 'dark' | 'medium' | 'light';
@@ -65,13 +68,29 @@ const ProjectDetailPanel: React.FC<{
   theme: ReturnType<typeof useTheme>;
   onOpenInStudio: () => void;
   onBack: () => void;
-}> = ({ project, theme: c, onOpenInStudio, onBack }) => {
+  onProjectSaved?: (updated: any) => void;
+}> = ({ project, theme: c, onOpenInStudio, onBack, onProjectSaved }) => {
   const [changeReqOpen, setChangeReqOpen] = useState(false);
   const [changeText, setChangeText]       = useState('');
   const [bugOpen, setBugOpen]             = useState(false);
   const [bugText, setBugText]             = useState('');
-  const [activeTab, setActiveTab]         = useState<'overview' | 'files' | 'history'>('overview');
+  const [activeTab, setActiveTab]         = useState<'overview' | 'files' | 'history' | 'upgrade'>('overview');
   const [copiedField, setCopiedField]     = useState<string | null>(null);
+
+  // ── Upgrade state ─────────────────────────────────────────────
+  const [upgradeTask,   setUpgradeTask]   = useState('');
+  const [upgradeModel,  setUpgradeModel]  = useState(() =>
+    ConfigService.getEngineModel() || ConfigService.getModel() || 'anthropic/claude-sonnet-4-5'
+  );
+  const [upgradeStatus, setUpgradeStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [upgradeStream, setUpgradeStream] = useState('');
+  const [upgradeDiff,   setUpgradeDiff]   = useState<{
+    added: string[];
+    modified: string[];
+    newFiles: Record<string, string>;
+  } | null>(null);
+  const [upgradeError,  setUpgradeError]  = useState('');
+  const upgradeAbortRef = useRef<AbortController | null>(null);
 
   const copyText = (text: string, field: string) => {
     navigator.clipboard.writeText(text).catch(() => {});
@@ -84,6 +103,149 @@ const ProjectDetailPanel: React.FC<{
 
   const formatDate = (iso: string) =>
     new Date(iso).toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  function parseUpgradeFiles(text: string): Record<string, string> {
+    const files: Record<string, string> = {};
+    const re = /<!--FILE:([^>]+)-->([\s\S]*?)<!--\/FILE-->/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const name = m[1].trim().replace(/^[./]+/, '');
+      const body = m[2].trim().replace(/^```[\w]*\n?/gm, '').replace(/```\s*$/gm, '').trim();
+      if (name && body) files[name] = body;
+    }
+    return files;
+  }
+
+  const runUpgrade = async () => {
+    const apiKey = ConfigService.getKeyForAgent('primary') || ConfigService.getApiKey();
+    if (!apiKey) {
+      setUpgradeError('Нет API ключа. Настройте его в Settings → Engine.');
+      setUpgradeStatus('error');
+      return;
+    }
+    setUpgradeStatus('running');
+    setUpgradeStream('');
+    setUpgradeDiff(null);
+    setUpgradeError('');
+
+    const MAX_FILE_CHARS = 3000;
+    const fileContext = Object.entries(project.files ?? {})
+      .map(([path, content]) =>
+        `<!--FILE:${path}-->\n${(content as string).slice(0, MAX_FILE_CHARS)}\n<!--/FILE-->`)
+      .join('\n\n');
+
+    const prompt = `You are an expert React/TypeScript developer. Upgrade this existing project.
+
+TASK: ${upgradeTask}
+
+CURRENT PROJECT FILES:
+${fileContext}
+
+INSTRUCTIONS:
+- Return ONLY the files you are changing or creating.
+- Use EXACTLY this format for each file (no exceptions):
+<!--FILE:/path/to/file.tsx-->
+[complete file content here]
+<!--/FILE-->
+- Include the COMPLETE file content (not just diffs or snippets).
+- Do NOT return files that don't need changes.
+- Preserve existing code patterns, imports, and component structure where not touched.`;
+
+    const ctrl = new AbortController();
+    upgradeAbortRef.current = ctrl;
+
+    let fullText = '';
+    try {
+      const resp = await llmFetchStream(
+        'https://openrouter.ai/api/v1/chat/completions',
+        { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'HTTP-Referer': window.location.origin },
+        JSON.stringify({
+          model: upgradeModel,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+          max_tokens: 16000,
+          stream: true,
+        }),
+        ctrl.signal,
+      );
+
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const clean = line.replace(/^data: /, '').trim();
+          if (!clean || clean === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(clean) as { choices?: Array<{ delta?: { content?: string } }> };
+            const chunk = parsed.choices?.[0]?.delta?.content ?? '';
+            if (chunk) { fullText += chunk; setUpgradeStream(fullText); }
+          } catch { /* skip */ }
+        }
+      }
+
+      const newFiles = parseUpgradeFiles(fullText);
+      if (Object.keys(newFiles).length === 0) {
+        setUpgradeError('Агент не вернул файлы в правильном формате. Попробуйте ещё раз или уточните задачу.');
+        setUpgradeStatus('error');
+        return;
+      }
+      const original = project.files ?? {};
+      const added    = Object.keys(newFiles).filter(f => !original[f]);
+      const modified = Object.keys(newFiles).filter(f => original[f] && original[f] !== newFiles[f]);
+      setUpgradeDiff({ added, modified, newFiles });
+      setUpgradeStatus('done');
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        setUpgradeStatus('idle');
+      } else {
+        setUpgradeError(e instanceof Error ? e.message : String(e));
+        setUpgradeStatus('error');
+      }
+    }
+  };
+
+  const acceptUpgrade = () => {
+    if (!upgradeDiff) return;
+    const mergedFiles = { ...(project.files ?? {}), ...upgradeDiff.newFiles };
+    const revision: ProjectRevision = {
+      id: crypto.randomUUID(),
+      prompt: upgradeTask,
+      source: 'agent-upgrade',
+      files: { ...(project.files ?? {}) },
+      createdAt: new Date().toISOString(),
+      modelId: upgradeModel,
+      isBookmarked: false,
+    };
+    const revisions = [revision, ...(project.revisions ?? [])].slice(0, 10);
+    const updated = { ...project, files: mergedFiles, updatedAt: new Date().toISOString(), revisions };
+    ProjectStorage.saveProject(updated);
+    onProjectSaved?.(updated);
+    setUpgradeStatus('idle');
+    setUpgradeDiff(null);
+    setUpgradeStream('');
+    setUpgradeTask('');
+  };
+
+  const rollbackToRevision = (rev: ProjectRevision) => {
+    const rollbackRevision: ProjectRevision = {
+      id: crypto.randomUUID(),
+      prompt: `↩ Откат к: "${rev.prompt.slice(0, 60)}"`,
+      source: 'agent-upgrade',
+      files: { ...(project.files ?? {}) },
+      createdAt: new Date().toISOString(),
+      isBookmarked: false,
+    };
+    const revisions = [rollbackRevision, ...(project.revisions ?? [])].slice(0, 10);
+    const updated = { ...project, files: rev.files, updatedAt: new Date().toISOString(), revisions };
+    ProjectStorage.saveProject(updated);
+    onProjectSaved?.(updated);
+  };
 
   const TabBtn: React.FC<{ id: typeof activeTab; label: string }> = ({ id, label }) => (
     <button onClick={() => setActiveTab(id)} style={{
@@ -282,6 +444,7 @@ const ProjectDetailPanel: React.FC<{
         <TabBtn id="overview" label="Промт" />
         <TabBtn id="files"    label={`Файлы (${fileList.length})`} />
         <TabBtn id="history"  label={`Версии (${revisions.length})`} />
+        <TabBtn id="upgrade"  label="🤖 Агент" />
       </div>
 
       {/* Overview tab */}
@@ -366,19 +529,249 @@ const ProjectDetailPanel: React.FC<{
                     background: idx === 0 ? c.accentBg : 'rgba(148,163,184,0.1)',
                     color: idx === 0 ? c.accent : c.sub,
                   }}>
-                    {idx === 0 ? 'последняя' : `v${revisions.length - idx}`}
+                    {idx === 0 ? 'текущая' : `v${revisions.length - idx}`}
                   </span>
+                  {rev.source === 'agent-upgrade' && (
+                    <span style={{
+                      fontSize: 10, padding: '1px 7px', borderRadius: 10,
+                      background: 'rgba(167,139,250,0.1)', color: c.accent,
+                    }}>🤖 агент</span>
+                  )}
                   <span style={{ fontSize: 12, color: c.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {rev.prompt?.slice(0, 80)}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: c.sub, display: 'flex', gap: 10 }}>
-                  <span>{formatDate(rev.createdAt)}</span>
-                  {rev.durationMs && <span>{Math.round(rev.durationMs / 1000)}с</span>}
-                  {rev.pagesCount > 0 && <span>{rev.pagesCount} страниц</span>}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 11, color: c.sub, display: 'flex', gap: 10 }}>
+                    <span>{formatDate(rev.createdAt)}</span>
+                    {rev.durationMs && <span>{Math.round(rev.durationMs / 1000)}с</span>}
+                    {rev.pagesCount > 0 && <span>{rev.pagesCount} страниц</span>}
+                    {rev.modelId && <span style={{ fontFamily: 'monospace' }}>{rev.modelId.split('/').pop()}</span>}
+                  </div>
+                  {idx > 0 && (
+                    <button
+                      onClick={() => rollbackToRevision(rev)}
+                      title="Откатить проект к этой версии"
+                      style={{
+                        padding: '3px 10px', borderRadius: 7, fontSize: 10, fontWeight: 600,
+                        background: 'rgba(167,139,250,0.08)', border: `1px solid ${c.accentBorder}`,
+                        color: c.accent, cursor: 'pointer',
+                      }}
+                    >
+                      ↩ Откатить
+                    </button>
+                  )}
                 </div>
               </div>
             ))
+          )}
+        </div>
+      )}
+
+      {/* Upgrade tab */}
+      {activeTab === 'upgrade' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Task input */}
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: c.text, marginBottom: 8 }}>
+              Задача для агента
+            </div>
+            <textarea
+              value={upgradeTask}
+              onChange={e => setUpgradeTask(e.target.value)}
+              disabled={upgradeStatus === 'running'}
+              placeholder="Например: Добавь авторизацию через Supabase, Переделай дизайн главной страницы в glassmorphism, Добавь тёмную тему, Оптимизируй производительность..."
+              rows={5}
+              style={{
+                width: '100%', resize: 'vertical', padding: '10px 12px', borderRadius: 10,
+                background: c.isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                border: `1px solid ${c.accentBorder}`,
+                color: c.text, fontSize: 13, lineHeight: 1.6, outline: 'none',
+                boxSizing: 'border-box' as const,
+                opacity: upgradeStatus === 'running' ? 0.6 : 1,
+              }}
+            />
+          </div>
+
+          {/* Model selector */}
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: c.sub, marginBottom: 6 }}>
+              Модель
+            </div>
+            <input
+              list="upgrade-models"
+              value={upgradeModel}
+              onChange={e => setUpgradeModel(e.target.value)}
+              disabled={upgradeStatus === 'running'}
+              placeholder="anthropic/claude-sonnet-4-5"
+              style={{
+                width: '100%', padding: '8px 12px', borderRadius: 8,
+                background: c.isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                border: `1px solid ${c.border}`, color: c.text, fontSize: 12,
+                outline: 'none', boxSizing: 'border-box' as const,
+              }}
+            />
+            <datalist id="upgrade-models">
+              {[
+                'anthropic/claude-sonnet-4-5',
+                'anthropic/claude-opus-4',
+                'anthropic/claude-3-5-sonnet',
+                'openai/gpt-4o',
+                'openai/gpt-4.1',
+                'google/gemini-2.0-flash',
+                'google/gemini-2.5-pro',
+                'deepseek/deepseek-r1',
+                'deepseek/deepseek-v3',
+                'mistralai/mistral-large',
+                'x-ai/grok-3',
+              ].map(m => <option key={m} value={m} />)}
+            </datalist>
+            <div style={{ fontSize: 10, color: c.sub, marginTop: 4 }}>
+              Введите любой ID модели OpenRouter или выберите из списка
+            </div>
+          </div>
+
+          {/* Run / Cancel buttons */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {upgradeStatus !== 'running' ? (
+              <button
+                disabled={!upgradeTask.trim() || !upgradeModel.trim()}
+                onClick={() => { void runUpgrade(); }}
+                style={{
+                  padding: '10px 24px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  background: (upgradeTask.trim() && upgradeModel.trim()) ? `linear-gradient(135deg, ${c.accent}, #8b5cf6)` : 'rgba(167,139,250,0.2)',
+                  color: '#fff', border: 'none',
+                  cursor: (upgradeTask.trim() && upgradeModel.trim()) ? 'pointer' : 'not-allowed',
+                  boxShadow: (upgradeTask.trim() && upgradeModel.trim()) ? `0 4px 20px ${c.accentBg}` : 'none',
+                  transition: 'all 0.2s',
+                }}
+              >
+                🚀 Запустить агента
+              </button>
+            ) : (
+              <button
+                onClick={() => { upgradeAbortRef.current?.abort(); }}
+                style={{
+                  padding: '10px 24px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  background: 'rgba(239,68,68,0.15)', color: '#f87171',
+                  border: '1px solid rgba(239,68,68,0.3)', cursor: 'pointer',
+                }}
+              >
+                ⏹ Остановить
+              </button>
+            )}
+          </div>
+
+          {/* Error */}
+          {upgradeStatus === 'error' && upgradeError && (
+            <div style={{
+              padding: '12px 14px', borderRadius: 10,
+              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+              fontSize: 12, color: '#f87171',
+            }}>
+              ❌ {upgradeError}
+            </div>
+          )}
+
+          {/* Live stream output */}
+          {(upgradeStatus === 'running' || (upgradeStatus === 'done' && upgradeDiff)) && upgradeStream && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: c.sub, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {upgradeStatus === 'running' ? (
+                  <>
+                    <span style={{
+                      display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
+                      background: c.accent, animation: 'pulse 1s infinite',
+                    }} />
+                    Агент работает...
+                  </>
+                ) : '✅ Готово — вывод агента'}
+              </div>
+              <pre style={{
+                fontSize: 11, lineHeight: 1.5, maxHeight: 260, overflowY: 'auto',
+                background: c.isDark ? '#0a0a0f' : '#f8f8f8',
+                border: `1px solid ${c.border}`, borderRadius: 10,
+                padding: '12px 14px', margin: 0,
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                color: c.isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)',
+              }}>
+                {upgradeStream.slice(-2000)}
+              </pre>
+            </div>
+          )}
+
+          {/* Diff summary + Accept/Reject */}
+          {upgradeStatus === 'done' && upgradeDiff && (
+            <div style={{
+              padding: '16px', borderRadius: 12,
+              background: c.isDark ? 'rgba(34,197,94,0.06)' : 'rgba(34,197,94,0.04)',
+              border: '1px solid rgba(34,197,94,0.2)',
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#4ade80', marginBottom: 12 }}>
+                ✅ Агент завершил работу
+              </div>
+
+              {/* Stats */}
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                {upgradeDiff.modified.length > 0 && (
+                  <div style={{
+                    padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                    background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)',
+                    color: '#fbbf24',
+                  }}>
+                    ✏️ Изменено: {upgradeDiff.modified.length} файл{upgradeDiff.modified.length > 1 ? 'а' : ''}
+                  </div>
+                )}
+                {upgradeDiff.added.length > 0 && (
+                  <div style={{
+                    padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                    background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)',
+                    color: '#4ade80',
+                  }}>
+                    ➕ Добавлено: {upgradeDiff.added.length} файл{upgradeDiff.added.length > 1 ? 'а' : ''}
+                  </div>
+                )}
+              </div>
+
+              {/* File list */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 14 }}>
+                {[...upgradeDiff.added.map(f => ({ f, type: 'added' as const })),
+                  ...upgradeDiff.modified.map(f => ({ f, type: 'modified' as const }))
+                ].map(({ f, type }) => (
+                  <div key={f} style={{
+                    display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
+                    color: type === 'added' ? '#4ade80' : '#fbbf24',
+                    fontFamily: 'monospace',
+                  }}>
+                    <span>{type === 'added' ? '➕' : '✏️'}</span>
+                    <span>{f}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Accept / Reject */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={acceptUpgrade}
+                  style={{
+                    padding: '9px 20px', borderRadius: 9, fontSize: 12, fontWeight: 700,
+                    background: '#16a34a', color: '#fff', border: 'none', cursor: 'pointer',
+                  }}
+                >
+                  ✅ Принять изменения
+                </button>
+                <button
+                  onClick={() => { setUpgradeStatus('idle'); setUpgradeDiff(null); setUpgradeStream(''); }}
+                  style={{
+                    padding: '9px 16px', borderRadius: 9, fontSize: 12, fontWeight: 600,
+                    background: 'transparent', border: '1px solid rgba(239,68,68,0.3)',
+                    color: '#f87171', cursor: 'pointer',
+                  }}
+                >
+                  ✕ Отклонить
+                </button>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -511,6 +904,7 @@ const ArchitectDashboard: React.FC<ArchitectDashboardProps> = ({
               theme={colors}
               onOpenInStudio={() => { onLoadProject(detailProject); onNavigateEngine(); }}
               onBack={() => setDetailProject(null)}
+              onProjectSaved={(updated) => setDetailProject(updated)}
             />
           ) : loading ? (
             <StatePanel title={copy.loading} body={copy.loadingBody} theme={colors} />
