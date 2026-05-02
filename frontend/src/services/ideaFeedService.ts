@@ -509,14 +509,24 @@ export async function runIdeaModelPrompt(
     }
   }
 
+  const IDEA_PACKAGING_TIMEOUT_MS = 60_000;
+
   if (!text.trim()) {
     try {
-      text = await GeminiService.generate({
-        prompt,
-        googleAccessToken,
-        maxTokens: 6000,
-        onLog: (msg) => console.log(msg),
-      });
+      text = await Promise.race([
+        GeminiService.generate({
+          prompt,
+          googleAccessToken,
+          maxTokens: 6000,
+          onLog: (msg) => console.log(msg),
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Idea packaging timed out after 60s. Check your API key in Settings.')),
+            IDEA_PACKAGING_TIMEOUT_MS,
+          ),
+        ),
+      ]);
     } catch (fallbackErr) {
       const fallbackMessage = (fallbackErr as Error)?.message ?? String(fallbackErr);
       if (bridgeFailureReason) {

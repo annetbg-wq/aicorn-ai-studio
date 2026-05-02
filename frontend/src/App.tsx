@@ -568,6 +568,8 @@ export default function App() {
               onConfirmPlan={studio.onConfirmPlan}
               onClarifyPlan={studio.onClarifyPlan}
               onSubmitClarification={studio.onSubmitClarification}
+              onAnswerClarification={studio.answerClarification}
+              onChooseSurface={studio.chooseSurface}
               studioPhase={studio.studioPhase}
               studioError={studio.studioError}
               previewLifecycle={studio.previewLifecycle}

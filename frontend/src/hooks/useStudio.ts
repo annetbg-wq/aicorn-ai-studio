@@ -1048,6 +1048,18 @@ export const useStudio = () => {
   const [pendingAdmission, setPendingAdmission] = useState<AdmissionDecision | null>(null);
   const admissionResolverRef = useRef<((approved: boolean) => void) | null>(null);
 
+  // Clarification wait — resolver set when clarification card is shown,
+  // resolved when user submits their answer via answerClarification().
+  const clarificationResolverRef = useRef<((answer: string) => void) | null>(null);
+
+  // Surface choice — resolver set when surface-choice card is shown,
+  // resolved when user picks a surface type via chooseSurface().
+  const surfaceChoiceResolverRef = useRef<((surface: 'landing' | 'app' | 'superapp') => void) | null>(null);
+
+  // Tracks whether generationMode was explicitly set by the user or plan context.
+  // When false, the surface-choice dialog appears before each genesis generation.
+  const modeSetByUserRef = useRef(false);
+
   // ── files ─────────────────────────────────────────────────────────────────
   // On startup always restore from the last *stable* snapshot to avoid showing
   // a broken candidate that was in-flight when the tab was closed.
@@ -1479,6 +1491,7 @@ export const useStudio = () => {
       if (plan.pages.length >= 8) setGenerationMode('superapp');
       else if (plan.pages.length <= 1) setGenerationMode('landing');
       else setGenerationMode('app');
+      modeSetByUserRef.current = true; // plan specifies surface, no need to ask
     }
 
     if (inputRef.current.trim().length === 0) {
@@ -2321,6 +2334,9 @@ export const useStudio = () => {
     clearLogs();
     clearAttachments();
     clearComposerContextItems();
+    modeSetByUserRef.current = false;
+    clarificationResolverRef.current = null;
+    surfaceChoiceResolverRef.current = null;
     setPreviewBlockedReason(null);
     setPreviewUrl('');
     setPreviewReady(false);
@@ -2999,9 +3015,10 @@ export const useStudio = () => {
           }),
         ].join('\n\n')
       : '';
-    const generationModeLabel =
-      generationMode === 'landing' ? 'Landing page'
-      : generationMode === 'superapp' ? 'Super app'
+    let resolvedGenerationMode = generationMode;
+    let generationModeLabel =
+      resolvedGenerationMode === 'landing' ? 'Landing page'
+      : resolvedGenerationMode === 'superapp' ? 'Super app'
       : 'Application';
     const languageLabelMap: Record<string, string> = {
       ru: 'Russian',
@@ -3011,12 +3028,12 @@ export const useStudio = () => {
       fr: 'French',
       zh: 'Chinese',
     };
-    const buildPreferencesText = [
+    let buildPreferencesText = [
       'BUILD PREFERENCES (user-selected defaults):',
       `- Project type: ${generationModeLabel}`,
       `- Interface language: ${languageLabelMap[appLanguage] ?? appLanguage}`,
     ].join('\n');
-    const baseIntent = [
+    let baseIntent = [
       userPrompt || (hasComposerContext ? 'Continue with selected context pack.' : ''),
       buildPreferencesText,
       contextPackText,
@@ -3095,6 +3112,42 @@ export const useStudio = () => {
     const existingCodeCount = projectFiles.length;
     const restartLineageRequested = shouldStartNewLineage(userPrompt, existingCodeCount);
     const effectiveExistingCodeCount = restartLineageRequested ? 0 : existingCodeCount;
+
+    // ── Surface choice — ask before genesis when mode was not set explicitly ──
+    if (effectiveExistingCodeCount === 0 && !modeSetByUserRef.current) {
+      const surfaceMsgId = createMessageId();
+      chatAppend({
+        id:        surfaceMsgId,
+        role:      'assistant' as const,
+        type:      'surface-choice' as const,
+        content:   '',
+        timestamp: Date.now(),
+      });
+      const chosen = await waitForSurfaceChoice(controller.signal);
+      if (controller.signal.aborted || chosen === null) {
+        setIsGenerating(false);
+        return;
+      }
+      resolvedGenerationMode = chosen;
+      setGenerationMode(chosen);
+      modeSetByUserRef.current = true;
+      chatUpdate(surfaceMsgId, { selectedSurface: chosen });
+      generationModeLabel = resolvedGenerationMode === 'landing' ? 'Landing page'
+        : resolvedGenerationMode === 'superapp' ? 'Super app'
+        : 'Application';
+      buildPreferencesText = [
+        'BUILD PREFERENCES (user-selected defaults):',
+        `- Project type: ${generationModeLabel}`,
+        `- Interface language: ${languageLabelMap[appLanguage] ?? appLanguage}`,
+      ].join('\n');
+      baseIntent = [
+        userPrompt || (hasComposerContext ? 'Continue with selected context pack.' : ''),
+        buildPreferencesText,
+        contextPackText,
+        attachmentContextText,
+      ].filter(Boolean).join('\n\n');
+    }
+
     const savedContinuationPlan =
       !restartLineageRequested
       && effectiveExistingCodeCount > 0
@@ -3126,7 +3179,7 @@ export const useStudio = () => {
         trustLanguage,
         {
           requestIntent: userPrompt,
-          generationMode,
+          generationMode: resolvedGenerationMode,
         },
       ),
       trustLanguage,
@@ -3282,6 +3335,8 @@ export const useStudio = () => {
       });
     }
 
+    let finalIntent = baseIntent;
+
     try {
       let optimisticFiles: FileMap | null = null;
       const filesSnapshot = { ...files };
@@ -3380,6 +3435,12 @@ export const useStudio = () => {
               content:   '',
               timestamp: Date.now() + 2,
             });
+            // Block generation until user answers (or aborts)
+            const clarAnswer = await waitForClarification(controller.signal);
+            if (controller.signal.aborted) { setIsGenerating(false); return; }
+            if (clarAnswer.trim()) {
+              finalIntent += '\n\nUser clarification answers: ' + clarAnswer;
+            }
           }
         } catch (architectErr) {
           addLog(`[Architect] Pre-build analysis failed: ${(architectErr as Error)?.message ?? String(architectErr)} — continuing without`);
@@ -3406,7 +3467,7 @@ export const useStudio = () => {
         // This prevents the model from generating broken multi-page output
         // on the very first request when there's no context to ground on.
         singlePageSafeMode: effectiveExistingCodeCount === 0,
-        generationMode,
+        generationMode: resolvedGenerationMode,
         visualPolishMode: generationTrust.mode === 'fast_prototype'
           ? 'fast_prototype'
           : 'architect_guided',
@@ -3595,7 +3656,7 @@ export const useStudio = () => {
 
       let result;
       try {
-        result = await runOnce(baseIntent);
+        result = await runOnce(finalIntent);
       } catch (firstErr: any) {
         const firstErrMsg = String(firstErr?.message ?? '');
         const isTimeout = /timed out|timeout/i.test(firstErrMsg);
@@ -3768,7 +3829,7 @@ export const useStudio = () => {
             trustLanguage,
             {
               requestIntent: userPrompt,
-              generationMode,
+              generationMode: resolvedGenerationMode,
             },
           )?.reality.ui ?? null;
           const reportMessageId = createMessageId();
@@ -4106,6 +4167,43 @@ export const useStudio = () => {
     commandBus.dispatch({ type: 'REQUEST_PLAN_REVISION', payload: text });
   }, []);
 
+  // Resolves the waitForClarification promise in the active pipeline run.
+  const answerClarification = useCallback((answer: string) => {
+    clarificationResolverRef.current?.(answer);
+    clarificationResolverRef.current = null;
+  }, []);
+
+  const waitForClarification = useCallback((signal: AbortSignal): Promise<string> => {
+    return new Promise<string>((resolve) => {
+      if (signal.aborted) { resolve(''); return; }
+      const onAbort = () => { clarificationResolverRef.current = null; resolve(''); };
+      signal.addEventListener('abort', onAbort, { once: true });
+      clarificationResolverRef.current = (answer: string) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(answer);
+      };
+    });
+  }, []);
+
+  // Resolves the waitForSurfaceChoice promise in the active pipeline run.
+  const chooseSurface = useCallback((surface: 'landing' | 'app' | 'superapp') => {
+    surfaceChoiceResolverRef.current?.(surface);
+    surfaceChoiceResolverRef.current = null;
+    modeSetByUserRef.current = true;
+  }, []);
+
+  const waitForSurfaceChoice = useCallback((signal: AbortSignal): Promise<'landing' | 'app' | 'superapp' | null> => {
+    return new Promise((resolve) => {
+      if (signal.aborted) { resolve(null); return; }
+      const onAbort = () => { surfaceChoiceResolverRef.current = null; resolve(null); };
+      signal.addEventListener('abort', onAbort, { once: true });
+      surfaceChoiceResolverRef.current = (surface) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(surface);
+      };
+    });
+  }, []);
+
   // Opens clarification flow from plan cards that do not have inline textarea.
   const onClarifyPlan = useCallback((_messageId: string) => {
     setInput(prev => (prev && prev.trim().length > 0 ? prev : 'Уточнение по плану: '));
@@ -4369,6 +4467,11 @@ export const useStudio = () => {
         admissionResolverRef.current(false);
         admissionResolverRef.current = null;
       }
+      if (clarificationResolverRef.current) {
+        clarificationResolverRef.current('');
+        clarificationResolverRef.current = null;
+      }
+      surfaceChoiceResolverRef.current = null;
     };
   }, []);
 
@@ -4532,6 +4635,7 @@ export const useStudio = () => {
     kickoffPhase,
     // blueprint confirmation
     pendingPlan, confirmPlan, cancelPlan, onConfirmPlan, onClarifyPlan, onSubmitClarification, selectKickoffScope,
+    answerClarification, chooseSurface,
     // diff review
     pendingDiff, approveDiff, rejectDiff,
     // edit admission
@@ -4577,7 +4681,7 @@ export const useStudio = () => {
     saveFigmaProject, loadFigmaProject, deleteFigmaProject, markFigmaProjectSynced, clearFigmaSync,
     setAppLanguage, setFigmaLink, setTargetMarket, setAuditStrictness,
     confirmPlan, cancelPlan, selectKickoffScope,
-    onConfirmPlan, onClarifyPlan, onSubmitClarification,
+    onConfirmPlan, onClarifyPlan, onSubmitClarification, answerClarification, chooseSurface,
     approveDiff, rejectDiff,
     confirmAdmission, denyAdmission,
   ]);
