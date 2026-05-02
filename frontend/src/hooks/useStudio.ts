@@ -2852,7 +2852,12 @@ export const useStudio = () => {
     const composerContextItemsSnapshot = composerContextItemsRef.current;
     const activeProjectContextSnapshot = activeProjectContextRef.current;
     const generationSourceSnapshot = generationSourceRef.current;
-    if ((effectiveInput.trim().length === 0 && composerContextItemsSnapshot.length === 0 && attachments.length === 0) || isGenerating) return;
+    // Use abortControllerRef to detect a truly active generation: after
+    // launchWithPlan() calls createNewProject() → abortActiveGeneration(), the
+    // controller is cleared synchronously even though the `isGenerating` React
+    // state hasn't re-rendered yet. Checking the ref avoids the stale-closure
+    // false-positive that would block the "В работу" auto-send flow.
+    if ((effectiveInput.trim().length === 0 && composerContextItemsSnapshot.length === 0 && attachments.length === 0) || (isGenerating && !!abortControllerRef.current)) return;
 
     const liveGenerationCanary =
       typeof window !== 'undefined' &&
