@@ -584,7 +584,7 @@ export default function App() {
                style={{ animation: 'viewFadeIn 0.28s ease' }}>
             <ArchitectDashboard
               theme={studio.theme}
-              projects={(studio.projects ?? []) as any[]}
+              projects={(studio.projects ?? []).map((p: any) => ({ ...p, title: p.name ?? p.title ?? 'Untitled' })) as any[]}
               currentProjectId={studio.currentProjectId ?? null}
               onLoadProject={handleLoadProject}
               onNavigateEngine={() => setView('engine')}

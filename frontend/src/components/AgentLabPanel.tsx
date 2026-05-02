@@ -17,6 +17,8 @@ import { STUDIO_MODULES } from '../config/studioModules';
 import { supabase } from '../lib/supabase';
 import { SandpackView } from './SandpackPreview';
 import { StudioTerminal, type LogEntry } from './StudioTerminal';
+import { ModelEfficiencyPanel } from './ModelEfficiencyPanel';
+import { ModelEfficiencyPanel } from './ModelEfficiencyPanel';
 
 type FileMap = Record<string, string>;
 
@@ -128,6 +130,7 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
   const [chatLogs,      setChatLogs]      = useState<Record<string, ChatMessage[]>>({});
   const [liveStream,    setLiveStream]    = useState('');
   const [consoleInput,  setConsoleInput]  = useState('');
+  const [showEfficiency, setShowEfficiency] = useState(false);
   const [clarAnswers,   setClarAnswers]   = useState<string[]>([]);
   const [showReport,    setShowReport]    = useState(false);
   const [showRefineBox, setShowRefineBox] = useState(false);
@@ -1187,6 +1190,23 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
                 : <>🗑️ Очистить завершённые</>}
             </button>
           )}
+        </div>
+
+        {/* ── Model Efficiency ── */}
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+          <button
+            onClick={() => setShowEfficiency(p => !p)}
+            style={{
+              width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+              padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 6,
+              color: '#6b7280', fontSize: 12, fontWeight: 600,
+            }}
+          >
+            <span style={{ fontSize: 14 }}>📊</span>
+            Model Efficiency
+            <span style={{ marginLeft: 'auto', fontSize: 10 }}>{showEfficiency ? '▲' : '▼'}</span>
+          </button>
+          {showEfficiency && <ModelEfficiencyPanel />}
         </div>
       </div>
 

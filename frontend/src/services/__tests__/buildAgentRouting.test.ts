@@ -203,6 +203,22 @@ describe('resolveStandardRoute', () => {
     expect(route.provider).toBe('openrouter');
   });
 
+  it('prefers legacy inline agent apiKey over stale global provider key for openrouter routes', () => {
+    localStorage.setItem('OPENROUTER_API_KEY', 'or-stale-global-key');
+    localStorage.setItem('AGENT_CONFIG_agent_primary', JSON.stringify({
+      provider: 'openrouter',
+      modelId: 'openai/gpt-4o-mini',
+      apiKey: 'or-legacy-inline-key',
+    }));
+
+    const route = resolveStandardRoute('primary');
+
+    expect(route.provider).toBe('openrouter');
+    expect(route.apiKey).toBe('or-legacy-inline-key');
+    expect(route.keySource).toContain('legacy-inline-apiKey');
+    expect(localStorage.getItem('AGENT_CONFIG_agent_primary')).toContain('"apiKey":"or-legacy-inline-key"');
+  });
+
   // 9. Logs are emitted when onLog is provided
   it('emits log entries when onLog callback is provided', () => {
     setAgentConfigRaw('agent_build', 'openrouter', 'test-model');

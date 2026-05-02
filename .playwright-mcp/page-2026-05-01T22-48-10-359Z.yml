@@ -1,0 +1,30 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]: PM
+    - generic [ref=e7]:
+      - heading "PM Agent" [level=1] [ref=e8]
+      - paragraph [ref=e9]: Агент управления проектами
+  - generic [ref=e10]:
+    - heading "Войти" [level=2] [ref=e11]
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - generic [ref=e14]: Email
+        - generic [ref=e15]:
+          - img
+          - textbox "Email" [active] [ref=e16]:
+            - /placeholder: Введите email или логин
+      - generic [ref=e17]:
+        - generic [ref=e18]: Пароль
+        - generic [ref=e19]:
+          - img
+          - textbox "Пароль" [ref=e20]:
+            - /placeholder: ••••••••
+      - button "Войти" [disabled] [ref=e21]:
+        - text: Войти
+        - img [ref=e22]
+  - link "Войти через Google" [ref=e25] [cursor=pointer]:
+    - /url: /api/auth/google
+  - paragraph [ref=e26]:
+    - text: Нет аккаунта?
+    - link "Создать" [ref=e27] [cursor=pointer]:
+      - /url: /register

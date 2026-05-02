@@ -4,7 +4,7 @@ import {
   Eye, Code2, Palette, BarChart2, Shield,
   Share2, Copy, Check, GitBranch, GitCommit, CheckCircle,
   FilePlus, Trash2, ZoomIn, ZoomOut, Maximize2, Download,
-  MousePointer2, Save,
+  MousePointer2, Save, X,
 } from 'lucide-react';
 import { visualEditBridge, type VisualEditMode, type SelectedElement } from '../services/VisualEditBridge';
 import type { FileMap } from '../hooks/useStudio';
@@ -1381,6 +1381,7 @@ interface PreviewCanvasProps {
   persistedProjectExists?: boolean;
   pendingProjectSave?: { projectTitle: string; previewReady: boolean } | null;
   onSavePendingProject?: () => void;
+  onRejectPendingProjectSave?: () => void;
   // Stable-revision tracking
   currentSnapshotId?:   string | null;
   markSnapshotStable?:  (snapshotId: string) => void;
@@ -1412,6 +1413,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   persistedProjectExists,
   pendingProjectSave = null,
   onSavePendingProject,
+  onRejectPendingProjectSave,
   currentSnapshotId, markSnapshotStable, currentProjectId,
   isAutoFixing = false,
   isGenerating = false,
@@ -1550,7 +1552,9 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
 
   // Callback ref: attach bridge when the preview iframe mounts, detach on unmount.
   // Using useCallback (stable deps = []) so React never tears down the ref binding.
+  const iframeElRef = useRef<HTMLIFrameElement | null>(null);
   const previewIframeRef = useCallback((el: HTMLIFrameElement | null) => {
+    iframeElRef.current = el;
     if (el) visualEditBridge.attach(el);
     else     visualEditBridge.detach();
   }, []);
@@ -1594,9 +1598,12 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
     previewLifecycle === 'preview-ready' ||
     previewLifecycle === 'degraded';
   const previewSaveLabels = (appLanguage || 'en').toLowerCase().startsWith('ru')
-    ? { ready: 'Превью готово', save: 'Сохранить проект', draft: 'Draft не попал в Projects' }
-    : { ready: 'Preview ready', save: 'Save project', draft: 'Draft is not in Projects' };
-  const showSaveProjectCta = !!pendingProjectSave && isPreviewReady && !!onSavePendingProject;
+    ? { ready: 'Превью готово', save: 'Сохранить проект', reject: 'Отклонить', draft: 'Draft не попал в Projects' }
+    : { ready: 'Preview ready', save: 'Save project', reject: 'Reject', draft: 'Draft is not in Projects' };
+  const pendingProjectDecisionReady = !!pendingProjectSave && (pendingProjectSave.previewReady || isPreviewReady);
+  const showSaveProjectCta =
+    pendingProjectDecisionReady &&
+    (!!onSavePendingProject || !!onRejectPendingProjectSave);
   const [hasPreviewReady, setHasPreviewReady] = useState(false);
   useEffect(() => {
     setHasPreviewReady(false);
@@ -1690,7 +1697,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   const reasoningOutcomeSummary = visibleReasoningTrace ? getReasoningOutcomeSummary(visibleReasoningTrace) : null;
   const previewFrame = shouldRenderIframe ? (
     <ZoomableCanvas
-      draggable={false}
+      draggable={true}
       initZoom={0.55}
       autoFit={{
         w: (DEVICE_SPECS[device as DevKey] ?? DEVICE_SPECS.desktop).outerW,
@@ -1770,6 +1777,29 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                     color: device===d.id ? th.tabOn : th.tabDim,
                   }}>
                   {d.icon}
+                </button>
+              ))}
+            </div>
+          )}
+          {tab === 'preview' && (
+            <div data-zoom-controls style={{
+              display: 'flex', alignItems: 'center', gap: 2,
+              background: 'rgba(255,255,255,0.04)', borderRadius: 8,
+              padding: '3px 4px', border: `1px solid ${th.border}`,
+            }}>
+              {[
+                { title: 'Scroll to top',    icon: '↑', action: () => { try { iframeElRef.current?.contentWindow?.scrollTo({ top: 0, behavior: 'smooth' }); } catch {} } },
+                { title: 'Scroll to bottom', icon: '↓', action: () => { try { const cw = iframeElRef.current?.contentWindow; if (cw) cw.scrollTo({ top: (cw.document?.body?.scrollHeight ?? 9999), behavior: 'smooth' }); } catch {} } },
+                { title: 'Scroll to left',   icon: '←', action: () => { try { iframeElRef.current?.contentWindow?.scrollTo({ left: 0, behavior: 'smooth' }); } catch {} } },
+                { title: 'Copy source HTML', icon: '⎘', action: () => { try { const html = iframeElRef.current?.contentDocument?.documentElement?.outerHTML ?? ''; if (html) navigator.clipboard.writeText(html).catch(() => {}); } catch {} } },
+              ].map(btn => (
+                <button key={btn.title} onClick={btn.action} title={btn.title}
+                  style={{
+                    width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    borderRadius: 6, border: 'none', background: 'none',
+                    color: th.tabDim, cursor: 'pointer', fontSize: 14, lineHeight: 1,
+                  }}>
+                  {btn.icon}
                 </button>
               ))}
             </div>
@@ -1880,30 +1910,60 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
               </div>
             </div>
           </div>
-          <button
-            onClick={onSavePendingProject}
-            style={{
-              height: 48,
-              minWidth: 220,
-              borderRadius: 10,
-              border: '1px solid rgba(22,163,74,0.45)',
-              background: '#16a34a',
-              color: '#ffffff',
-              fontSize: 15,
-              fontWeight: 900,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 7,
-              justifyContent: 'center',
-              padding: '0 18px',
-              cursor: 'pointer',
-              boxShadow: '0 10px 24px rgba(22,163,74,0.28)',
-              flexShrink: 0,
-            }}
-          >
-            <Save size={16} />
-            {previewSaveLabels.save}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            {onRejectPendingProjectSave && (
+              <button
+                data-testid="reject-project-cta"
+                onClick={onRejectPendingProjectSave}
+                style={{
+                  height: 48,
+                  minWidth: 160,
+                  borderRadius: 10,
+                  border: `1px solid ${isDark ? 'rgba(248,250,252,0.18)' : 'rgba(15,23,42,0.18)'}`,
+                  background: isDark ? 'rgba(15,23,42,0.28)' : 'rgba(255,255,255,0.72)',
+                  color: isDark ? 'rgba(226,232,240,0.96)' : '#0f172a',
+                  fontSize: 14,
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  justifyContent: 'center',
+                  padding: '0 18px',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                <X size={16} />
+                {previewSaveLabels.reject}
+              </button>
+            )}
+            {onSavePendingProject && (
+              <button
+                onClick={onSavePendingProject}
+                style={{
+                  height: 48,
+                  minWidth: 220,
+                  borderRadius: 10,
+                  border: '1px solid rgba(22,163,74,0.45)',
+                  background: '#16a34a',
+                  color: '#ffffff',
+                  fontSize: 15,
+                  fontWeight: 900,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  justifyContent: 'center',
+                  padding: '0 18px',
+                  cursor: 'pointer',
+                  boxShadow: '0 10px 24px rgba(22,163,74,0.28)',
+                  flexShrink: 0,
+                }}
+              >
+                <Save size={16} />
+                {previewSaveLabels.save}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

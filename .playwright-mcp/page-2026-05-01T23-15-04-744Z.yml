@@ -1,0 +1,224 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [active] [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Agent Lab" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Analytics" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+        - button "Quality" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Code Studio" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+        - button "Terminal" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "DB Console" [ref=e70] [cursor=pointer]:
+          - img [ref=e71]
+        - button "Cloud & Backend — Coming Soon" [ref=e76]:
+          - img [ref=e77]
+        - button "Packaging & Ship — Coming Soon" [ref=e80]:
+          - img [ref=e81]
+        - button "Growth & Marketing — Coming Soon" [ref=e87]:
+          - img [ref=e88]
+      - generic: Трендовые ниши
+    - generic [ref=e95]:
+      - generic [ref=e96]:
+        - generic [ref=e97]:
+          - img [ref=e99]
+          - heading "Трендовые ниши" [level=1] [ref=e102]
+        - button "Домой" [ref=e103] [cursor=pointer]:
+          - img [ref=e104]
+          - text: Домой
+      - generic [ref=e107]:
+        - generic [ref=e109]: Рыночная аналитика
+        - generic [ref=e111]:
+          - heading "Трендовые ниши" [level=2] [ref=e113]
+          - button "Обновить" [ref=e114] [cursor=pointer]:
+            - img [ref=e115]
+            - text: Обновить
+        - generic [ref=e120]:
+          - generic [ref=e121]:
+            - generic [ref=e122]:
+              - img [ref=e123]
+              - text: Интерес
+            - button "Игры" [ref=e126] [cursor=pointer]
+            - button "Медицина" [ref=e127] [cursor=pointer]
+            - button "Финтех" [ref=e128] [cursor=pointer]
+            - button "Здоровье" [ref=e129] [cursor=pointer]
+            - button "Соцсервисы" [ref=e130] [cursor=pointer]
+            - button "Продуктивность" [ref=e131] [cursor=pointer]
+            - button "Обучение" [ref=e132] [cursor=pointer]
+            - button "Коммерция" [ref=e133] [cursor=pointer]
+            - button "ИИ" [ref=e134] [cursor=pointer]
+            - button "Инструменты разработки" [ref=e135] [cursor=pointer]
+          - generic [ref=e136]: Выбери один интерес — после этого подборки дня, недели и месяца будут заново сгенерированы под него.
+          - generic [ref=e137]: В диалог — обсудить идею с архитектором в чате. В работу — сразу упаковать идею и передать в код.
+        - generic [ref=e138]:
+          - generic [ref=e139]:
+            - heading "Идеи дня" [level=3] [ref=e142]
+            - generic [ref=e143]:
+              - generic [ref=e144]:
+                - generic [ref=e145]:
+                  - generic [ref=e146]:
+                    - generic [ref=e147]: Сон и восстановление
+                    - generic [ref=e149]: Здоровье
+                  - button "Сохранить идею" [ref=e150] [cursor=pointer]:
+                    - img [ref=e151]
+                - generic [ref=e153]: Персонализированные рекомендации для улучшения качества сна и восстановления.
+                - generic [ref=e154]: С учетом роста интереса к качественному сну, вызванного стрессом и изменением образа жизни.
+                - generic [ref=e155]:
+                  - button "В диалог" [ref=e156] [cursor=pointer]:
+                    - img [ref=e157]
+                    - text: В диалог
+                  - button "В работу" [ref=e160] [cursor=pointer]:
+                    - img [ref=e161]
+                    - text: В работу
+              - generic [ref=e163]:
+                - generic [ref=e164]:
+                  - generic [ref=e165]:
+                    - generic [ref=e166]: Управление стрессом
+                    - generic [ref=e168]: Здоровье
+                  - button "Сохранить идею" [ref=e169] [cursor=pointer]:
+                    - img [ref=e170]
+                - generic [ref=e172]: Индивидуальные программы по снижению стресса и улучшению психического здоровья.
+                - generic [ref=e173]: В условиях роста стресса на рабочем месте и возросшего интереса к психическому здоровью.
+                - generic [ref=e174]:
+                  - button "В диалог" [ref=e175] [cursor=pointer]:
+                    - img [ref=e176]
+                    - text: В диалог
+                  - button "В работу" [ref=e179] [cursor=pointer]:
+                    - img [ref=e180]
+                    - text: В работу
+              - generic [ref=e182]:
+                - generic [ref=e183]:
+                  - generic [ref=e184]:
+                    - generic [ref=e185]: Режим питания
+                    - generic [ref=e187]: Здоровье
+                  - button "Сохранить идею" [ref=e188] [cursor=pointer]:
+                    - img [ref=e189]
+                - generic [ref=e191]: Настройка режимов питания для достижения личных целей здоровья.
+                - generic [ref=e192]: Увеличение интереса к здоровому питанию среди людей, стремящихся улучшить свое здоровье.
+                - generic [ref=e193]:
+                  - button "В диалог" [ref=e194] [cursor=pointer]:
+                    - img [ref=e195]
+                    - text: В диалог
+                  - button "В работу" [ref=e198] [cursor=pointer]:
+                    - img [ref=e199]
+                    - text: В работу
+          - generic [ref=e201]:
+            - heading "Идеи недели" [level=3] [ref=e204]
+            - generic [ref=e205]:
+              - generic [ref=e206]:
+                - generic [ref=e207]:
+                  - generic [ref=e208]:
+                    - generic [ref=e209]: Сон в порядке
+                    - generic [ref=e211]: Здоровье
+                  - button "Сохранить идею" [ref=e212] [cursor=pointer]:
+                    - img [ref=e213]
+                - generic [ref=e215]: Приложение для улучшения качества сна и формирования здоровых привычек.
+                - generic [ref=e216]: Увеличение проблем со сном из-за стресса и уменьшения физической активности.
+                - generic [ref=e217]:
+                  - button "В диалог" [ref=e218] [cursor=pointer]:
+                    - img [ref=e219]
+                    - text: В диалог
+                  - button "В работу" [ref=e222] [cursor=pointer]:
+                    - img [ref=e223]
+                    - text: В работу
+              - generic [ref=e225]:
+                - generic [ref=e226]:
+                  - generic [ref=e227]:
+                    - generic [ref=e228]: Стресс-менеджер
+                    - generic [ref=e230]: Здоровье
+                  - button "Сохранить идею" [ref=e231] [cursor=pointer]:
+                    - img [ref=e232]
+                - generic [ref=e234]: Приложение для ежедневного контроля уровня стресса и применения техник релаксации.
+                - generic [ref=e235]: Повышение уровня стресса из-за меняющейся рабочей обстановки и неопределенности.
+                - generic [ref=e236]:
+                  - button "В диалог" [ref=e237] [cursor=pointer]:
+                    - img [ref=e238]
+                    - text: В диалог
+                  - button "В работу" [ref=e241] [cursor=pointer]:
+                    - img [ref=e242]
+                    - text: В работу
+              - generic [ref=e244]:
+                - generic [ref=e245]:
+                  - generic [ref=e246]:
+                    - generic [ref=e247]: Питайся правильно
+                    - generic [ref=e249]: Здоровье
+                  - button "Сохранить идею" [ref=e250] [cursor=pointer]:
+                    - img [ref=e251]
+                - generic [ref=e253]: Интерактивный планировщик питания с фокусом на создание здоровых привычек.
+                - generic [ref=e254]: Рост интереса к здоровому питанию и недостаток времени для планирования.
+                - generic [ref=e255]:
+                  - button "В диалог" [ref=e256] [cursor=pointer]:
+                    - img [ref=e257]
+                    - text: В диалог
+                  - button "В работу" [ref=e260] [cursor=pointer]:
+                    - img [ref=e261]
+                    - text: В работу
+          - generic [ref=e263]:
+            - heading "Идеи месяца" [level=3] [ref=e266]
+            - generic [ref=e267]:
+              - generic [ref=e268]:
+                - generic [ref=e269]:
+                  - generic [ref=e270]:
+                    - generic [ref=e271]: Баланс Сна
+                    - generic [ref=e273]: Здоровье
+                  - button "Сохранить идею" [ref=e274] [cursor=pointer]:
+                    - img [ref=e275]
+                - generic [ref=e277]: Индивидуальный план улучшения сна, основанный на привычках пользователя.
+                - generic [ref=e278]: Рост интереса к улучшению сна и борьбе с бессонницей среди людей, работающих удаленно.
+                - generic [ref=e279]:
+                  - button "В диалог" [ref=e280] [cursor=pointer]:
+                    - img [ref=e281]
+                    - text: В диалог
+                  - button "В работу" [ref=e284] [cursor=pointer]:
+                    - img [ref=e285]
+                    - text: В работу
+              - generic [ref=e287]:
+                - generic [ref=e288]:
+                  - generic [ref=e289]:
+                    - generic [ref=e290]: Шаг к Здоровью
+                    - generic [ref=e292]: Здоровье
+                  - button "Сохранить идею" [ref=e293] [cursor=pointer]:
+                    - img [ref=e294]
+                - generic [ref=e296]: Планировщик и трекер активности для достижения фитнес-целей.
+                - generic [ref=e297]: Рост осознания необходимости регулярных физических упражнений и активного образа жизни.
+                - generic [ref=e298]:
+                  - button "В диалог" [ref=e299] [cursor=pointer]:
+                    - img [ref=e300]
+                    - text: В диалог
+                  - button "В работу" [ref=e303] [cursor=pointer]:
+                    - img [ref=e304]
+                    - text: В работу
+              - generic [ref=e306]:
+                - generic [ref=e307]:
+                  - generic [ref=e308]:
+                    - generic [ref=e309]: Управляй Стрессом
+                    - generic [ref=e311]: Здоровье
+                  - button "Сохранить идею" [ref=e312] [cursor=pointer]:
+                    - img [ref=e313]
+                - generic [ref=e315]: Приложение для контроля стресса и настройки ежедневной практики благодарности.
+                - generic [ref=e316]: Постоянный рост потребности в управлении стрессом среди работников офисов.
+                - generic [ref=e317]:
+                  - button "В диалог" [ref=e318] [cursor=pointer]:
+                    - img [ref=e319]
+                    - text: В диалог
+                  - button "В работу" [ref=e322] [cursor=pointer]:
+                    - img [ref=e323]
+                    - text: В работу
+          - generic [ref=e325]:
+            - heading "Банк идей" [level=3] [ref=e328]
+            - generic [ref=e329]: Сохраненных идей пока нет

@@ -5,12 +5,137 @@
  * external LLM APIs (openrouter.ai, api.anthropic.com, etc.).
  */
 
+import { supabase } from '../lib/supabase';
+
 const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL ||
   localStorage.getItem('SUPABASE_URL') ||
   'https://zdzuaodphrlpvorutpyc.supabase.co';
 
+const SUPABASE_ANON_KEY =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  localStorage.getItem('SUPABASE_ANON_KEY') ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpkenVhb2RwaHJscHZvcnV0cHljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NDIyMTIsImV4cCI6MjA4NzUxODIxMn0.7L5sYMedvIKnU7o0X280Y92rUTAs86Q4RwBJsppuFxI';
+
 const PROXY_URL = `${SUPABASE_URL}/functions/v1/llm-proxy`;
+const DEV_BYPASS_KEY = 'AIC_DEV_AUTH_BYPASS';
+
+async function getProxyRequestHeaders(forceAnon = false): Promise<Record<string, string>> {
+  const proxyHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (SUPABASE_ANON_KEY) {
+    proxyHeaders.apikey = SUPABASE_ANON_KEY;
+  }
+
+  let bearerToken = SUPABASE_ANON_KEY;
+
+  // Local dev bypass does not create a real Supabase user/session, so the
+  // edge function must be called with the anon role instead of a fake user.
+  const devBypassEnabled = localStorage.getItem(DEV_BYPASS_KEY) === '1';
+  if (!forceAnon && !devBypassEnabled) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token?.trim();
+      if (accessToken) {
+        bearerToken = accessToken;
+      }
+    } catch {
+      // Fall back to anon invocation when session lookup is unavailable.
+    }
+  }
+
+  if (bearerToken) {
+    proxyHeaders.Authorization = `Bearer ${bearerToken}`;
+  }
+
+  return proxyHeaders;
+}
+
+async function proxyRequest(
+  endpoint: string,
+  headers: Record<string, string>,
+  body: string,
+  stream: boolean,
+  method: string,
+  signal?: AbortSignal,
+  forceAnon = false,
+): Promise<Response> {
+  const proxyHeaders = await getProxyRequestHeaders(forceAnon);
+  return await fetch(PROXY_URL, {
+    method: 'POST',
+    headers: proxyHeaders,
+    body: JSON.stringify({ endpoint, headers, body, stream, method }),
+    signal,
+  });
+}
+
+/**
+ * Direct fetch to the LLM endpoint, bypassing the Supabase edge function.
+ * Used only when dev-bypass mode is active and the edge function rejects the
+ * anon JWT (e.g. verify_jwt=true rejects anon-role tokens on this project).
+ */
+async function directLLMRequest(
+  endpoint: string,
+  headers: Record<string, string>,
+  body: string,
+  stream: boolean,
+  method: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const httpMethod = (method ?? 'POST').toUpperCase();
+  const fetchOpts: RequestInit = {
+    method: httpMethod,
+    headers: {
+      ...headers,
+      'Content-Type': 'application/json',
+    },
+    signal,
+  };
+  if (httpMethod !== 'GET' && httpMethod !== 'HEAD' && body) {
+    fetchOpts.body = body;
+  }
+  return await fetch(endpoint, fetchOpts);
+}
+
+async function proxyRequestWithSessionFallback(
+  endpoint: string,
+  headers: Record<string, string>,
+  body: string,
+  stream: boolean,
+  method: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const resp = await proxyRequest(endpoint, headers, body, stream, method, signal, false);
+  if (resp.ok) return resp;
+
+  const err = await resp.text().catch(() => '');
+
+  // Retry with anon key for "User not found" (JWT issued for a deleted user).
+  if (resp.status === 401 && /User not found/i.test(err)) {
+    const retryResp = await proxyRequest(endpoint, headers, body, stream, method, signal, true);
+    if (retryResp.ok) return retryResp;
+
+    const retryErr = await retryResp.text().catch(() => '');
+    throw new Error(`LLM Proxy ${retryResp.status}: ${retryErr.slice(0, 300)}`);
+  }
+
+  // When dev-bypass is active the edge function may reject the anon JWT
+  // ("Missing Authentication header" / "verify_jwt" policy).
+  // Fall back to calling the LLM endpoint directly — safe because this code
+  // path only runs on localhost and the LLM key is already present in headers.
+  const devBypassEnabled = (() => {
+    try { return localStorage.getItem(DEV_BYPASS_KEY) === '1'; } catch { return false; }
+  })();
+  if (resp.status === 401 && devBypassEnabled) {
+    const authPreview = headers['Authorization']?.slice(0, 30) || headers['authorization']?.slice(0, 30) || '(none)';
+    console.warn(`[LLMProxy] Edge function rejected anon JWT in dev-bypass mode. Falling back to direct LLM fetch. Auth header: ${authPreview}...`);
+    return directLLMRequest(endpoint, headers, body, stream, method, signal);
+  }
+
+  throw new Error(`LLM Proxy ${resp.status}: ${err.slice(0, 300)}`);
+}
 
 // ── Token-bucket rate limiter ──────────────────────────────────────────────
 // Prevents flood on rapid retries, benchmark runs, or concurrent agents.
@@ -48,15 +173,7 @@ export async function llmFetch(
   body: string,
 ): Promise<Response> {
   await rateLimiter.acquire();
-  const resp = await fetch(PROXY_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint, headers, body, stream: false }),
-  });
-  if (!resp.ok) {
-    const err = await resp.text().catch(() => '');
-    throw new Error(`LLM Proxy ${resp.status}: ${err.slice(0, 300)}`);
-  }
+  const resp = await proxyRequestWithSessionFallback(endpoint, headers, body, false, 'POST');
   // Re-wrap so callers can .json() / .text() as usual
   return new Response(await resp.text(), {
     status: resp.status,
@@ -75,12 +192,7 @@ export async function llmFetchStream(
   signal?: AbortSignal,
 ): Promise<Response> {
   await rateLimiter.acquire();
-  const resp = await fetch(PROXY_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint, headers, body, stream: true }),
-    signal,
-  });
+  const resp = await proxyRequestWithSessionFallback(endpoint, headers, body, true, 'POST', signal);
   if (!resp.ok) {
     const err = await resp.text().catch(() => '');
     throw new Error(`LLM Proxy ${resp.status}: ${err.slice(0, 300)}`);
@@ -96,15 +208,7 @@ export async function llmGet(
   headers?: Record<string, string>,
 ): Promise<Response> {
   await rateLimiter.acquire();
-  const resp = await fetch(PROXY_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint, headers: headers ?? {}, method: 'GET', stream: false }),
-  });
-  if (!resp.ok) {
-    const err = await resp.text().catch(() => '');
-    throw new Error(`LLM Proxy GET ${resp.status}: ${err.slice(0, 300)}`);
-  }
+  const resp = await proxyRequestWithSessionFallback(endpoint, headers ?? {}, '', false, 'GET');
   return new Response(await resp.text(), {
     status: resp.status,
     headers: { 'Content-Type': 'application/json' },

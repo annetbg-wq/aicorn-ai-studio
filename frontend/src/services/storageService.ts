@@ -65,6 +65,7 @@ const syncMetaKey     = (id: string) => `CLOUD_SYNC_${id}`;
 export const storageService = {
   // State
   _available: false,
+  _projectTableAvailable: false,
   _listeners: new Set<(available: boolean) => void>(),
   _timers:    new Map<string, ReturnType<typeof setTimeout>>(),
 
@@ -87,6 +88,18 @@ export const storageService = {
       } else {
         storageService._available = true;
         console.log('[StorageService] Connected to Supabase ✓');
+        // Check user_projects table separately — migration may not have run yet.
+        const { error: tblError } = await _sb
+          .from('user_projects')
+          .select('id')
+          .limit(1);
+        if (tblError && (tblError.code === 'PGRST116' || String(tblError.message).includes('406') || String(tblError.code) === '406')) {
+          console.warn('[StorageService] user_projects table unavailable (migration not applied?) — project cloud sync disabled.');
+          storageService._projectTableAvailable = false;
+        } else {
+          storageService._projectTableAvailable = !tblError;
+          if (tblError) console.warn('[StorageService] user_projects check error:', tblError.message);
+        }
       }
     } catch (err: any) {
       console.error('[StorageService] Init exception:', err?.message ?? err);
@@ -207,7 +220,7 @@ export const storageService = {
   saveProject(id: string, name: string, files: FileMap): void {
     console.log('[StorageService] saveProject called:', id, Object.keys(files).length, 'files');
     if (!id || Object.keys(files).length === 0) return;
-    if (!storageService._available) {
+    if (!storageService._available || !storageService._projectTableAvailable) {
       console.warn('[StorageService] saveProject skipped — Supabase not available (_available=false)');
       return;
     }
@@ -302,7 +315,7 @@ export const storageService = {
     const empty: CloudProjectCheck = {
       isNewer: false, cloudFiles: null, cloudVersion: 0, cloudSyncAt: null,
     };
-    if (!storageService._available || !projectId) return empty;
+    if (!storageService._available || !storageService._projectTableAvailable || !projectId) return empty;
 
     // Guard: Supabase user_projects.id is UUID — skip non-UUID IDs
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

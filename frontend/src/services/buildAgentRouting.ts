@@ -78,11 +78,14 @@ export function resolveStandardRoute(
 ): AgentExecutionRoute {
   const { onLog } = opts ?? {};
 
-  const agentKey       = SLOT_AGENT_KEY[slot];
-  const cfg            = ConfigService.getAgentConfig(agentKey);
-  const modelId        = ConfigService.resolveModel(slot);
-  const rawProvider    = (cfg.provider ?? 'openrouter') as ApiProvider;
-  const realORKey      = ConfigService.getApiKey();
+  const agentKey              = SLOT_AGENT_KEY[slot];
+  const cfg                   = ConfigService.getAgentConfig(agentKey);
+  const modelId               = ConfigService.resolveModel(slot);
+  const keyResolution         = ConfigService.getKeyResolutionForAgent(slot);
+  const rawProvider           = (cfg.provider ?? keyResolution.provider ?? 'openrouter') as ApiProvider;
+  const configuredKey         = keyResolution.key;
+  const configuredKeySource   = keyResolution.keySource;
+  const fallbackOpenRouterKey = ConfigService.getProviderApiKey('openrouter');
 
   // Rule 3: Anthropic → OpenRouter fallback (streaming incompatibility)
   if (rawProvider === 'anthropic') {
@@ -95,14 +98,12 @@ export function resolveStandardRoute(
       provider:       'openrouter',
       modelId,
       endpoint,
-      apiKey:         realORKey,
+      apiKey:         fallbackOpenRouterKey,
       keySource:      `${agentKey}.openrouter (anthropic-streaming-fallback)`,
       reason,
       fallbackReason: 'anthropic_streaming_fallback',
     };
   }
-
-  const configuredKey = ConfigService.getProviderKey(rawProvider);
 
   // Rule 2: missing provider key → OpenRouter fallback
   if (!configuredKey && rawProvider !== 'openrouter') {
@@ -115,7 +116,7 @@ export function resolveStandardRoute(
       provider:       'openrouter',
       modelId,
       endpoint,
-      apiKey:         realORKey,
+      apiKey:         fallbackOpenRouterKey,
       keySource:      `${agentKey}.openrouter (missing-provider-key-fallback)`,
       reason,
       fallbackReason: 'missing_provider_key_fallback',
@@ -124,7 +125,7 @@ export function resolveStandardRoute(
 
   // Rule 1: use configured provider (OpenRouter prefers agent key, falls back to global key)
   const resolvedKey = rawProvider === 'openrouter'
-    ? (configuredKey || realORKey)
+    ? (configuredKey || fallbackOpenRouterKey)
     : configuredKey;
   const endpoint    = endpointForProvider(rawProvider);
   const keyTail     = resolvedKey ? `...${resolvedKey.slice(-6)}` : '(none)';
@@ -138,7 +139,7 @@ export function resolveStandardRoute(
     modelId,
     endpoint,
     apiKey:    resolvedKey,
-    keySource: `${agentKey}.${rawProvider}`,
+    keySource: configuredKeySource,
     reason,
   };
 }

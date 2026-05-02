@@ -35,7 +35,9 @@
       "mcp__playwright__browser_evaluate",
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
       "mcp__playwright__browser_navigate",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(npm list *)",
+      "mcp__playwright__browser_tabs"
     ],
     "additionalDirectories": [
       "c:\\ai_studio\\supabase\\functions",

@@ -1,0 +1,97 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [active] [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Agent Lab" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Analytics" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+        - button "Quality" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Code Studio" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+        - button "Terminal" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "DB Console" [ref=e70] [cursor=pointer]:
+          - img [ref=e71]
+        - button "Cloud & Backend — Coming Soon" [ref=e76]:
+          - img [ref=e77]
+        - button "Packaging & Ship — Coming Soon" [ref=e80]:
+          - img [ref=e81]
+        - button "Growth & Marketing — Coming Soon" [ref=e87]:
+          - img [ref=e88]
+    - generic [ref=e977]:
+      - generic [ref=e978]:
+        - heading "Projects" [level=1] [ref=e979]:
+          - img [ref=e980]
+          - text: Projects
+        - generic [ref=e982]:
+          - img [ref=e983]
+          - textbox "Search projects..." [ref=e986]
+      - generic [ref=e987]:
+        - tablist [ref=e988]:
+          - tab "Overview" [selected] [ref=e989]:
+            - img [ref=e990]
+            - text: Overview
+          - tab "History" [ref=e992]:
+            - img [ref=e993]
+            - text: History
+          - tab "Revisions" [ref=e996]:
+            - img [ref=e997]
+            - text: Revisions
+        - tabpanel "Overview" [ref=e1001]:
+          - generic [ref=e1002]:
+            - generic [ref=e1003] [cursor=pointer]:
+              - img [ref=e1004]
+              - generic [ref=e1005]: New Project
+            - generic [ref=e1006] [cursor=pointer]:
+              - generic [ref=e1009]:
+                - generic [ref=e1010]:
+                  - heading "Сон и восстановление" [level=3] [ref=e1011]
+                  - generic [ref=e1012]: v1
+                - paragraph [ref=e1013]: just now
+              - generic [ref=e1014]:
+                - generic [ref=e1017]: warm
+                - generic [ref=e1018]:
+                  - button [ref=e1019]:
+                    - img
+                  - button [ref=e1020]:
+                    - img
+            - generic [ref=e1021] [cursor=pointer]:
+              - generic [ref=e1024]:
+                - generic [ref=e1025]:
+                  - heading "Untitled" [level=3] [ref=e1026]
+                  - generic [ref=e1027]: v72
+                - paragraph [ref=e1028]: 16m ago
+              - generic [ref=e1029]:
+                - generic [ref=e1032]: dark-slate
+                - generic [ref=e1033]:
+                  - button [ref=e1034]:
+                    - img
+                  - button [ref=e1035]:
+                    - img
+            - generic [ref=e1036] [cursor=pointer]:
+              - generic [ref=e1039]:
+                - generic [ref=e1040]:
+                  - heading "Founder-ready brief для продуктового архитектора Название" [level=3] [ref=e1041]
+                  - generic [ref=e1042]: v1
+                - paragraph [ref=e1043]: 26m ago
+              - generic [ref=e1044]:
+                - generic [ref=e1047]: dark-slate
+                - generic [ref=e1048]:
+                  - button [ref=e1049]:
+                    - img
+                  - button [ref=e1050]:
+                    - img

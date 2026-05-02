@@ -96,6 +96,7 @@ export interface EngineWorkspaceProps {
   onRestoreBlueprintLineage?: (messageId: string) => void;
   onDeleteProject:   (id: string) => void;
   onSavePendingProject?: () => void;
+  onRejectPendingProjectSave?: () => void;
   onSettings:        () => void;
   setTheme:          (t: 'dark' | 'medium' | 'light') => void;
 
@@ -177,7 +178,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
   theme, themes, cloudAvailable, onShare, onDeploy, onCollab,
   projects, currentProjectId, chatThreadKey, persistedProjectExists: persistedProjectExistsProp, pendingProjectSave, totalVersions, currentVersion, lastStableVersion,
   messages, input, setInput, onSend, onStop, isGenerating, progress, currentPhase, scrollRef,
-  onNewProject, onLoadProject, onRestoreMessageRevision, onRestoreBlueprintLineage, onDeleteProject, onSavePendingProject, onSettings, setTheme,
+  onNewProject, onLoadProject, onRestoreMessageRevision, onRestoreBlueprintLineage, onDeleteProject, onSavePendingProject, onRejectPendingProjectSave, onSettings, setTheme,
   snapshots, currentSnapshotId, onRestoreSnapshot, markSnapshotStable,
   canUndo, canRedo, onUndo, onRedo,
   fullContextMode, setFullContextMode, autoRoute, setAutoRoute, generationMode, setGenerationMode, appLanguage,
@@ -394,6 +395,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             persistedProjectExists={persistedProjectExists}
             pendingProjectSave={pendingProjectSave}
             onSavePendingProject={onSavePendingProject}
+            onRejectPendingProjectSave={onRejectPendingProjectSave}
             onShare={onShare}
             onDownloadProject={handleDownloadProject}
             onExportReactNative={Object.keys(files).length > 0 ? handleExportReactNative : undefined}
