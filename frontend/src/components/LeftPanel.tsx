@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { KickoffBuildScopeId } from '../services/ArchitectPlannerService';
 import type { BranchRealityUiSummary } from '../services/BranchArchitectureOrchestrationService';
 import { normalizeAppLanguage } from '../shared/appLanguage';
@@ -13,7 +15,7 @@ import {
   Plus, Link2, Camera, Sparkles,
   Paperclip, History,
   X, Clock, RotateCcw, GitBranch,
-  Undo2, Redo2, Square, Copy,
+  Undo2, Redo2, Square, Copy, RefreshCw, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import type { Snapshot, Attachment, ComposerContextItem, KickoffPhase } from '../hooks/useStudio';
 // ProjectsList removed â€” see ProjectsScreen
@@ -785,6 +787,86 @@ const FallbackPlanCard = ({
   );
 };
 
+// ── CodeBlock ─────────────────────────────────────────────────────────────────
+// Replaces bare <code> blocks inside ReactMarkdown with syntax-highlighted view.
+const CodeBlock: React.FC<{ language: string; code: string; isDark: boolean }> = ({ language, code, isDark }) => {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(code).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+  return (
+    <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', margin: '6px 0', fontSize: 12 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '4px 10px',
+        background: isDark ? '#1e2330' : '#f3f4f6',
+        borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)'}`,
+      }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: isDark ? '#94a3b8' : '#6b7280', letterSpacing: '0.05em' }}>
+          {language || 'code'}
+        </span>
+        <button onClick={copy} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: isDark ? '#94a3b8' : '#6b7280', display: 'flex', alignItems: 'center', gap: 4, fontSize: 10 }}>
+          {copied ? <span style={{ color: '#4ade80' }}>✓ copied</span> : <><Copy size={10} /> copy</>}
+        </button>
+      </div>
+      <SyntaxHighlighter
+        language={language || 'text'}
+        style={isDark ? oneDark : oneLight}
+        customStyle={{ margin: 0, borderRadius: 0, fontSize: 12, lineHeight: 1.5 }}
+        showLineNumbers={code.split('\n').length > 5}
+        wrapLongLines
+      >
+        {code}
+      </SyntaxHighlighter>
+    </div>
+  );
+};
+
+// ── FileDiffBlock ─────────────────────────────────────────────────────────────
+// Renders a minimal unified-diff view from a diff string (lines starting +/-).
+const FileDiffBlock: React.FC<{ filename: string; diffText: string; isDark: boolean }> = ({ filename, diffText, isDark }) => {
+  const [open, setOpen] = useState(false);
+  const lines = diffText.split('\n');
+  const added   = lines.filter(l => l.startsWith('+')).length;
+  const removed = lines.filter(l => l.startsWith('-')).length;
+  return (
+    <div style={{ border: `1px solid ${isDark ? 'rgba(99,102,241,0.25)' : 'rgba(99,102,241,0.18)'}`, borderRadius: 8, overflow: 'hidden', margin: '4px 0', fontSize: 11 }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        width: '100%', textAlign: 'left', padding: '6px 10px', border: 'none', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: isDark ? 'rgba(30,35,50,0.6)' : 'rgba(248,250,252,0.9)',
+        color: isDark ? '#cbd5e1' : '#374151',
+      }}>
+        <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{filename}</span>
+        <span style={{ color: '#4ade80', fontSize: 10, fontWeight: 700 }}>+{added}</span>
+        <span style={{ color: '#f87171', fontSize: 10, fontWeight: 700 }}>−{removed}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: isDark ? '#64748b' : '#9ca3af' }}>{open ? '▲ hide' : '▼ diff'}</span>
+      </button>
+      {open && (
+        <div style={{ maxHeight: 260, overflowY: 'auto', background: isDark ? '#0f1117' : '#fff' }}>
+          {lines.map((line, i) => (
+            <div key={i} style={{
+              padding: '1px 10px',
+              fontFamily: 'monospace',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+              fontSize: 11,
+              background: line.startsWith('+') ? (isDark ? 'rgba(16,185,129,0.13)' : 'rgba(16,185,129,0.09)') :
+                          line.startsWith('-') ? (isDark ? 'rgba(239,68,68,0.13)' : 'rgba(239,68,68,0.09)') :
+                          'transparent',
+              color: line.startsWith('+') ? '#4ade80' : line.startsWith('-') ? '#f87171' : (isDark ? '#94a3b8' : '#6b7280'),
+            }}>
+              {line || ' '}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const TypingDots = () => (
   <div className="flex items-center gap-1 px-1 py-0.5">
     {[0, 1, 2].map(i => (
@@ -869,6 +951,13 @@ const GenerationReportCard: React.FC<{
           </div>
         )}
       </div>
+      {report.fileDiffs && Object.keys(report.fileDiffs).length > 0 && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {Object.entries(report.fileDiffs).slice(0, 5).map(([fname, diff]) => (
+            <FileDiffBlock key={fname} filename={fname} diffText={diff} isDark={isDark} />
+          ))}
+        </div>
+      )}
       <GenerationTrustBanner trust={generationTrust} isDark={isDark} textColor={textColor} />
       <VisualQualityBanner
         summary={report.visualQuality}
@@ -1955,30 +2044,53 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                                 </div>
                               )}
                               <div className={`allow-copy prose prose-sm max-w-none ${isDark ? 'prose-invert' : 'prose-slate'}`}>
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    code({ node, className, children, ...props }: any) {
+                                      const match = /language-(\w+)/.exec(className || '');
+                                      const isBlock = !props.inline && (match || String(children).includes('\n'));
+                                      if (isBlock) {
+                                        return <CodeBlock language={match?.[1] ?? ''} code={String(children).replace(/\n$/, '')} isDark={isDark} />;
+                                      }
+                                      return <code className={className} style={{ background: isDark ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.07)', borderRadius: 4, padding: '1px 5px', fontFamily: 'monospace', fontSize: '0.875em' }} {...props}>{children}</code>;
+                                    },
+                                  }}
+                                >
+                                  {textContent}
+                                </ReactMarkdown>
                               </div>
                             </>
                           );
                         })()}
                       </div>
                       {!isUser && !isTyping && (
-                        <button
-                          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-1 rounded-md transition-all"
-                          style={{
-                            color: subText,
-                            background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)',
-                          }}
-                          onClick={() => {
-                            navigator.clipboard.writeText(m.content as string).catch(() => {});
-                            const msgId = (m as any).id as string;
-                            setCopiedIdx(msgId);
-                            setTimeout(() => setCopiedIdx(c => c === msgId ? null : c), 2000);
-                          }}
-                          title="Copy response">
-                          {copiedIdx === (m as any).id
-                            ? <span style={{ fontSize: 10, color: '#4ade80' }}>✓</span>
-                            : <Copy size={11} />}
-                        </button>
+                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex gap-0.5 transition-all">
+                          {[
+                            { icon: <Copy size={10} />, title: 'Copy', action: () => {
+                              navigator.clipboard.writeText(typeof m.content === 'string' ? m.content : '').catch(() => {});
+                              const msgId = (m as any).id as string;
+                              setCopiedIdx(msgId);
+                              setTimeout(() => setCopiedIdx(c => c === msgId ? null : c), 2000);
+                            }, active: copiedIdx === (m as any).id, activeEl: <span style={{ fontSize: 9, color: '#4ade80' }}>✓</span> },
+                            { icon: <RefreshCw size={10} />, title: 'Regenerate', action: () => onSend() },
+                            { icon: <ThumbsUp size={10} />, title: 'Good response', action: () => {} },
+                            { icon: <ThumbsDown size={10} />, title: 'Bad response', action: () => {} },
+                          ].map(({ icon, title, action, active, activeEl }) => (
+                            <button key={title} onClick={action} title={title}
+                              style={{
+                                padding: '3px 5px',
+                                borderRadius: 6,
+                                border: 'none',
+                                background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                                color: subText,
+                                cursor: 'pointer',
+                                display: 'flex', alignItems: 'center',
+                              }}>
+                              {active && activeEl ? activeEl : icon}
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
                     {(m as any).retryable && !isUser && (
