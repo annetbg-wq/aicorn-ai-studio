@@ -107,7 +107,24 @@ async function proxyRequestWithSessionFallback(
   method: string,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const resp = await proxyRequest(endpoint, headers, body, stream, method, signal, false);
+  const devBypassEnabled = (() => {
+    try { return localStorage.getItem(DEV_BYPASS_KEY) === '1'; } catch { return false; }
+  })();
+
+  // In dev-bypass mode go directly to the LLM — avoids Supabase edge function
+  // timeouts (QUIC/150 s limit) on long generation requests.
+  if (devBypassEnabled) {
+    return directLLMRequest(endpoint, headers, body, stream, method, signal);
+  }
+
+  let resp: Response;
+  try {
+    resp = await proxyRequest(endpoint, headers, body, stream, method, signal, false);
+  } catch (networkErr: unknown) {
+    const msg = networkErr instanceof Error ? networkErr.message : String(networkErr);
+    throw new Error(`LLM Proxy network error: ${msg}`);
+  }
+
   if (resp.ok) return resp;
 
   const err = await resp.text().catch(() => '');
@@ -119,19 +136,6 @@ async function proxyRequestWithSessionFallback(
 
     const retryErr = await retryResp.text().catch(() => '');
     throw new Error(`LLM Proxy ${retryResp.status}: ${retryErr.slice(0, 300)}`);
-  }
-
-  // When dev-bypass is active the edge function may reject the anon JWT
-  // ("Missing Authentication header" / "verify_jwt" policy).
-  // Fall back to calling the LLM endpoint directly — safe because this code
-  // path only runs on localhost and the LLM key is already present in headers.
-  const devBypassEnabled = (() => {
-    try { return localStorage.getItem(DEV_BYPASS_KEY) === '1'; } catch { return false; }
-  })();
-  if (resp.status === 401 && devBypassEnabled) {
-    const authPreview = headers['Authorization']?.slice(0, 30) || headers['authorization']?.slice(0, 30) || '(none)';
-    console.warn(`[LLMProxy] Edge function rejected anon JWT in dev-bypass mode. Falling back to direct LLM fetch. Auth header: ${authPreview}...`);
-    return directLLMRequest(endpoint, headers, body, stream, method, signal);
   }
 
   throw new Error(`LLM Proxy ${resp.status}: ${err.slice(0, 300)}`);
