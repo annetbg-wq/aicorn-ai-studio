@@ -49,6 +49,16 @@ const LOADING_INDICATOR_SELECTORS = [
   '[class*="Skeleton"]',
 ];
 
+const SEMANTIC_SURFACE_SELECTOR = [
+  'main', 'section', 'article', 'nav', 'header', 'footer', 'aside', 'form',
+  '[role="main"]', '[role="region"]', '[role="dialog"]', '[data-testid]',
+].join(',');
+
+const INTERACTIVE_SURFACE_SELECTOR = [
+  'button', 'a[href]', 'input', 'select', 'textarea',
+  '[role="button"]', '[role="link"]', '[role="tab"]', '[role="menuitem"]',
+].join(',');
+
 window.addEventListener('message', (e) => {
   const d = e.data;
   if (!d || typeof d !== 'object' || d.type !== 'white-screen-check') return;
@@ -68,6 +78,9 @@ window.addEventListener('message', (e) => {
     bodyInnerTextLength: (body?.innerText ?? '').length,
     hasLoadingIndicator,
     rootTextHead: rootText.slice(0, 200),
+    semanticElementCount: root ? root.querySelectorAll(SEMANTIC_SURFACE_SELECTOR).length : 0,
+    interactiveElementCount: root ? root.querySelectorAll(INTERACTIVE_SURFACE_SELECTOR).length : 0,
+    visualElementCount: root ? root.querySelectorAll('svg,canvas,img,picture,video').length : 0,
   };
 
   try {
