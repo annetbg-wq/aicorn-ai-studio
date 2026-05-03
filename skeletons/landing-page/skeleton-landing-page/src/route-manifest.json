@@ -1,0 +1,65 @@
+{
+  "skeletonId": "landing-page",
+  "label": "Landing Page",
+  "version": "0.2.0",
+  "navigation": "anchor-scroll",
+  "shell": "Single-page scroll: Nav + sections + Footer",
+  "sections": [
+    { "id": "top", "component": "Hero" },
+    { "id": "social-proof", "component": "SocialProof" },
+    { "id": "features", "component": "Features" },
+    { "id": "how", "component": "HowItWorks" },
+    { "id": "pricing", "component": "Pricing" },
+    { "id": "faq", "component": "FAQ" },
+    { "id": "cta", "component": "FinalCTA" },
+    { "id": "footer", "component": "Footer" }
+  ],
+  "providedComponents": [
+    "ErrorBoundary",
+    "Nav",
+    "sections/Hero",
+    "sections/SocialProof",
+    "sections/Features",
+    "sections/HowItWorks",
+    "sections/Pricing",
+    "sections/FAQ",
+    "sections/FinalCTA",
+    "sections/Footer"
+  ],
+  "uiPrimitives": [
+    "Avatar",
+    "Badge",
+    "Button",
+    "Card",
+    "Dialog",
+    "Input",
+    "Progress",
+    "Select",
+    "Sheet",
+    "Skeleton",
+    "Tabs"
+  ],
+  "designTokens": [
+    "--pm-canvas",
+    "--pm-surface",
+    "--pm-surface-soft",
+    "--pm-ink",
+    "--pm-muted",
+    "--pm-line",
+    "--pm-brand",
+    "--pm-on-brand",
+    "--pm-success",
+    "--pm-warning",
+    "--pm-rose",
+    "--pm-violet",
+    "--pm-overlay"
+  ],
+  "config": {
+    "appIdentity": "src/config/app.ts",
+    "content": "src/data/content.ts (all marketing copy lives here)"
+  },
+  "placeholders": {
+    "appName": "AppName — defined in src/config/app.ts → APP_CONFIG.name",
+    "productMarkers": "/* PRODUCT: ... */ — copy and domain rewrites"
+  }
+}

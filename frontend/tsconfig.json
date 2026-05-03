@@ -19,6 +19,6 @@
     }
   },
   "include": ["src"],
-  "exclude": ["src/scripts", "src/generated"],
+  "exclude": ["src/scripts", "src/generated", "src/skeletons"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

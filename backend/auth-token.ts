@@ -1253,6 +1253,87 @@ app.put('/agent-config/reset', (_req, res) => {
 });
 
 
+// ── POST /api/skeleton/install — copies skeleton src/ into preview-workspace/src/ ──
+app.post('/api/skeleton/install', (req, res) => {
+  const { skeletonId } = req.body as { skeletonId?: string };
+  if (!skeletonId || typeof skeletonId !== 'string') {
+    return res.status(400).json({ error: 'skeletonId required' });
+  }
+
+  const skeletonsRoot = path.join(process.cwd(), 'skeletons');
+  const previewWorkspaceSrc = path.join(process.cwd(), 'preview-workspace', 'src');
+
+  // skeleton dir name follows convention: skeleton-<id>
+  const skeletonSrc = path.join(skeletonsRoot, skeletonId, `skeleton-${skeletonId}`, 'src');
+  if (!fs.existsSync(skeletonSrc)) {
+    return res.status(404).json({ error: `Skeleton not found: ${skeletonId}`, path: skeletonSrc });
+  }
+
+  try {
+    // Recursively copy skeleton src/ → preview-workspace/src/
+    copyDirSync(skeletonSrc, previewWorkspaceSrc);
+    const copiedFiles = walkDir(skeletonSrc).map(f =>
+      f.replace(skeletonSrc + path.sep, '').replace(/\\/g, '/')
+    );
+    console.log(`[skeleton] Installed ${skeletonId}: ${copiedFiles.length} files`);
+    res.json({ status: 'installed', skeletonId, files: copiedFiles });
+  } catch (err) {
+    console.error('[skeleton] Install failed:', err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+function copyDirSync(src: string, dest: string): void {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirSync(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+function walkDir(dir: string): string[] {
+  const results: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...walkDir(full));
+    } else {
+      results.push(full);
+    }
+  }
+  return results;
+}
+// ── GET /pending-import — serves project data to inject into localStorage ─────
+app.get('/pending-import', (_req, res) => {
+  const importFile = path.join(process.cwd(), 'public', 'speakeasy_import.json');
+  if (!fs.existsSync(importFile)) {
+    return res.status(404).json({ status: 'none' });
+  }
+  try {
+    const raw = fs.readFileSync(importFile, 'utf8');
+    const data = JSON.parse(raw);
+    res.json({ status: 'pending', ...data });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── DELETE /pending-import — clears the import file after successful import ───
+app.delete('/pending-import', (_req, res) => {
+  const importFile = path.join(process.cwd(), 'public', 'speakeasy_import.json');
+  try {
+    if (fs.existsSync(importFile)) fs.unlinkSync(importFile);
+    res.json({ status: 'cleared' });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 export function startServer(port = PORT) {
   // Bind to loopback only — this server is a local dev helper and must not
   // be reachable from the network. All routes assume a trusted local caller.
@@ -1266,3 +1347,4 @@ export function startServer(port = PORT) {
 if (process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test') {
   startServer();
 }
+
