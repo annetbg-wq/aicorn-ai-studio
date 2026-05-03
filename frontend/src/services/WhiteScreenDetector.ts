@@ -281,10 +281,22 @@ function isRuntimeErrorScreen(metrics: DOMMetrics): boolean {
 
 function inspectIframeRenderSurface(iframe: HTMLIFrameElement | null): ImmediateRenderSurfaceResult {
   // If the iframe is not visible in the parent page (preview panel hidden, user on
-  // dashboard, etc.), DOM measurements inside it are unreliable — skip the gate.
+  // dashboard, etc.), layout-based measurements are unreliable. We still do a
+  // content-only read to catch runtime error screens regardless of visibility.
   if (iframe) {
     const rect = iframe.getBoundingClientRect();
     if (rect.height === 0 || rect.width === 0) {
+      const hiddenMetrics = collectIframeMetrics(iframe);
+      if (hiddenMetrics && isRuntimeErrorScreen(hiddenMetrics)) {
+        const failure = describeRenderFailure('runtime-error-screen');
+        return {
+          healthy: false,
+          failureReason: failure.failureReason,
+          probeReason: 'runtime-error-screen',
+          message: failure.message,
+          metrics: hiddenMetrics,
+        };
+      }
       return {
         healthy: true,
         failureReason: null,
@@ -345,6 +357,17 @@ function inspectIframeRenderSurface(iframe: HTMLIFrameElement | null): Immediate
       healthy: false,
       failureReason: failure.failureReason,
       probeReason: 'minimal-content',
+      message: failure.message,
+      metrics,
+    };
+  }
+
+  if (isRuntimeErrorScreen(metrics)) {
+    const failure = describeRenderFailure('runtime-error-screen');
+    return {
+      healthy: false,
+      failureReason: failure.failureReason,
+      probeReason: 'runtime-error-screen',
       message: failure.message,
       metrics,
     };
@@ -746,9 +769,18 @@ export function probeIframe(
     const iframe = findPreviewIframe(buildId);
     if (iframe?.contentWindow) {
       // If the iframe itself is not visible (preview panel hidden / on dashboard),
-      // DOM measurements inside it are unreliable — treat as inconclusive.
+      // layout measurements inside it are unreliable. We still do a content-only
+      // read via direct DOM access to catch runtime error screens.
       const iframeRect = iframe.getBoundingClientRect();
       if (iframeRect.height === 0 || iframeRect.width === 0) {
+        const hiddenMetrics = collectIframeMetrics(iframe);
+        if (hiddenMetrics && isRuntimeErrorScreen(hiddenMetrics)) {
+          previewLog('white_screen_probe_hidden_runtime_error', { buildId });
+          clearTimeout(timer);
+          window.removeEventListener('message', onMessage);
+          settle({ healthy: false, reason: 'runtime-error-screen', buildId, metrics: hiddenMetrics });
+          return;
+        }
         previewLog('white_screen_probe_skipped_hidden', { buildId });
         clearTimeout(timer);
         window.removeEventListener('message', onMessage);

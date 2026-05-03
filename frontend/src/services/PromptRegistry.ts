@@ -233,6 +233,12 @@ IMPORTANT FOR MULTI-FILE:
 - App.tsx: import them with relative imports, e.g. import { Button } from './Button'
 - File order does not matter for React/TSX module loading; every file must explicitly export/import what it uses
 
+⛔ NEVER use React.lazy() for page components.
+   React.lazy() requires default exports; named exports cause "failed to load" white-screen errors.
+   Always use DIRECT static imports:
+     ✅ import { Dashboard } from './pages/Dashboard';
+     ❌ const Dashboard = React.lazy(() => import('./pages/Dashboard')); // BANNED
+
 ══════════════════════════════════════════════════════
   MULTI-SCREEN APPS
 ══════════════════════════════════════════════════════
