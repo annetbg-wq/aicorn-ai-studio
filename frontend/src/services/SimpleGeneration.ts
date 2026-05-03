@@ -104,6 +104,7 @@ import {
   type FinalLivePreviewCheckResult,
 } from './WhiteScreenDetector';
 import { SECTION_SOURCE_MAP } from '../templates/sectionSourceRegistry';
+import { selectSkeleton, buildSkeletonPromptBlock, type SkeletonId } from './SkeletonRegistry';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -3562,6 +3563,7 @@ export function buildNewCoderSystemPrompt(input: {
   designSystemPrompt?: string;
   memoryContext?: string;
   envPrompt?: string;
+  skeletonBlock?: string;
 }): string {
   const artistLayerFocusBlock = buildNewModeArtistLayerFocusBlock(input.plan);
   let prompt = SYSTEM_PROMPT
@@ -3602,6 +3604,12 @@ export function buildNewCoderSystemPrompt(input: {
   const planSections = Array.isArray(input.plan.sections)
     ? input.plan.sections as SectionSpec[]
     : [];
+
+  // Inject skeleton context block (comes before section composition, if any)
+  if (input.skeletonBlock) {
+    prompt += '\n\n' + input.skeletonBlock;
+  }
+
   if (planSections.length > 0) {
     prompt += `\n\nSECTION COMPOSITION MODE (HARD CONSTRAINT):
 You are composing a landing page from plan.sections.
@@ -6177,6 +6185,25 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     config.onPhase({ phase: 'code', progress: 40 });
     config.onLog('[SimpleGeneration] Step 2: Coder generating...');
 
+    // ── Install skeleton base layer before generating ─────────────────────
+    const planArchetype = (plan.archetype as string | undefined) ?? '';
+    const planTags = Array.isArray(plan.modules)
+      ? (plan.modules as string[])
+      : [];
+    const selectedSkeletonId: SkeletonId = selectSkeleton(planArchetype, planTags);
+    let skeletonBlock = '';
+    try {
+      await fetch('http://127.0.0.1:3000/api/skeleton/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skeletonId: selectedSkeletonId }),
+      });
+      skeletonBlock = buildSkeletonPromptBlock(selectedSkeletonId);
+      config.onLog(`[SimpleGeneration] Skeleton installed: ${selectedSkeletonId}`);
+    } catch (e) {
+      config.onLog(`[SimpleGeneration] Skeleton install failed (non-fatal): ${String(e)}`);
+    }
+
     const coderSystemPrompt = buildNewCoderSystemPrompt({
       mode,
       plan,
@@ -6185,6 +6212,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       designSystemPrompt: config.designSystemPrompt,
       memoryContext,
       envPrompt,
+      skeletonBlock: skeletonBlock || undefined,
     });
     if (branchGuidancePrompt) {
       config.onLog('[SimpleGeneration] NEW branch architecture guidance injected');
