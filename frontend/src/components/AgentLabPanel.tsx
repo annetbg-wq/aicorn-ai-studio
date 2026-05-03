@@ -9,7 +9,7 @@ import {
   Loader2, FileText, Zap, PlayCircle, Send, Terminal, Bot,
 } from 'lucide-react';
 import { AgentLoopService, estimateBudget } from '../services/AgentLoopService';
-import type { AgentSession, AgentSessionStatus, TokenBudget } from '../services/AgentLoopService';
+import type { AgentSession, AgentSessionStatus, TokenBudget, ClarifyQuestion } from '../services/AgentLoopService';
 import type { AgentConfig } from '../services/ConfigService';
 import { ConfigService } from '../services/ConfigService';
 import { BenchmarkGate, type GateVerdict } from '../services/benchmark/BenchmarkGate';
@@ -131,6 +131,8 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
   const [consoleInput,  setConsoleInput]  = useState('');
   const [showEfficiency, setShowEfficiency] = useState(false);
   const [clarAnswers,   setClarAnswers]   = useState<string[]>([]);
+  const [clarCountdown, setClarCountdown] = useState<number>(60);
+  const clarTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showReport,    setShowReport]    = useState(false);
   const [showRefineBox, setShowRefineBox] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -272,6 +274,42 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
+  // ── Clarification auto-select timer (60s → pick best option) ─────────────
+  useEffect(() => {
+    if (!selectedSession || selectedSession.status !== 'needs_clarification') {
+      if (clarTimerRef.current) { clearInterval(clarTimerRef.current); clarTimerRef.current = null; }
+      setClarCountdown(60);
+      return;
+    }
+    const qs = getClarQuestions(selectedSession);
+    if (!qs.length) return;
+
+    setClarCountdown(60);
+    // Pre-select best (first) option for each question
+    setClarAnswers(qs.map(q => q.options[0] ?? ''));
+
+    clarTimerRef.current = setInterval(() => {
+      setClarCountdown(prev => {
+        if (prev <= 1) {
+          if (clarTimerRef.current) { clearInterval(clarTimerRef.current); clarTimerRef.current = null; }
+          // Auto-submit with best options
+          const bestAnswers = qs.map(q => q.options[0] ?? '').filter(a => a.trim());
+          if (bestAnswers.length > 0 && selectedSession.id) {
+            pushChat(selectedSession.id, '⏱', `Авто-выбор: ${bestAnswers.join(' | ')}`, false);
+            void handleAnswerClarifications(selectedSession.id, bestAnswers);
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (clarTimerRef.current) { clearInterval(clarTimerRef.current); clarTimerRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, selectedSession?.status]);
+
   // ── Pre-fill task from initialTask prop ───────────────────────────────────
   useEffect(() => {
     if (initialTask) setTaskDescription(initialTask);
@@ -344,15 +382,17 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  function getClarQuestions(s: AgentSession): string[] {
-    let qs: string[] = s.clarify_questions ?? [];
-    if (!qs.length && s.status === 'needs_clarification' && s.review_report) {
+  function getClarQuestions(s: AgentSession): ClarifyQuestion[] {
+    let raw: unknown[] = (s.clarify_questions as unknown[]) ?? [];
+    if (!raw.length && s.status === 'needs_clarification' && s.review_report) {
       try {
         const r = JSON.parse(s.review_report);
-        if (r.clarification_questions) qs = r.clarification_questions;
+        if (r.clarification_questions) raw = r.clarification_questions;
       } catch { /* ignore */ }
     }
-    return qs;
+    return raw.map(q =>
+      typeof q === 'string' ? { text: q, options: [] } : (q as ClarifyQuestion),
+    );
   }
 
   function pushChat(sessionId: string, icon: string, text: string, isUser = false) {
@@ -1337,26 +1377,71 @@ export const AgentLabPanel: React.FC<AgentLabPanelProps> = ({
                 {/* needs_clarification */}
                 {sess.status === 'needs_clarification' && clarQs.length > 0 && (
                   <div style={{ marginTop: 8, padding: '12px 14px', borderRadius: 12, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.18)' }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', marginBottom: 10 }}>❓ Уточняющие вопросы</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>❓ Уточняющие вопросы</div>
+                      <div style={{
+                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                        background: clarCountdown <= 10 ? 'rgba(248,113,113,0.15)' : 'rgba(245,158,11,0.12)',
+                        color: clarCountdown <= 10 ? '#f87171' : '#f59e0b',
+                      }}>
+                        ⏱ {clarCountdown}с → авто
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 10 }}>
                       {clarQs.map((q, idx) => (
                         <div key={idx}>
-                          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>{idx + 1}. {q}</div>
-                          <input
-                            type="text"
-                            value={clarAnswers[idx] ?? ''}
-                            onChange={e => { const a = [...clarAnswers]; a[idx] = e.target.value; setClarAnswers(a); }}
-                            placeholder="Ответ…"
-                            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, background: '#111114', border: '1px solid rgba(255,255,255,0.07)', color: '#fff', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
-                          />
+                          <div style={{ fontSize: 12, color: '#ddd', marginBottom: 6, fontWeight: 600 }}>{idx + 1}. {q.text}</div>
+                          {q.options.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                              {q.options.map((opt, oi) => {
+                                const isSelected = clarAnswers[idx] === opt;
+                                const isBest = oi === 0;
+                                return (
+                                  <button
+                                    key={oi}
+                                    onClick={() => {
+                                      const a = [...clarAnswers];
+                                      a[idx] = opt;
+                                      setClarAnswers(a);
+                                    }}
+                                    style={{
+                                      textAlign: 'left', padding: '7px 11px', borderRadius: 8,
+                                      border: isSelected ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.08)',
+                                      background: isSelected ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)',
+                                      color: isSelected ? '#fbbf24' : isBest ? '#e5e7eb' : '#9ca3af',
+                                      fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+                                      transition: 'all 0.15s',
+                                    }}
+                                  >
+                                    <span style={{
+                                      width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+                                      border: isSelected ? '4px solid #f59e0b' : '1.5px solid rgba(255,255,255,0.2)',
+                                      background: isSelected ? '#f59e0b' : 'transparent',
+                                    }} />
+                                    {opt}
+                                    {isBest && !isSelected && <span style={{ marginLeft: 'auto', fontSize: 9, color: '#6b7280', flexShrink: 0 }}>рекомендуется</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              value={clarAnswers[idx] ?? ''}
+                              onChange={e => { const a = [...clarAnswers]; a[idx] = e.target.value; setClarAnswers(a); }}
+                              placeholder="Ваш ответ…"
+                              style={{ width: '100%', padding: '7px 10px', borderRadius: 8, background: '#111114', border: '1px solid rgba(255,255,255,0.07)', color: '#fff', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
+                            />
+                          )}
                         </div>
                       ))}
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
                         onClick={() => {
-                          pushChat(sess.id, '👤', clarAnswers.filter(a => a.trim()).join(' | '), true);
-                          void handleAnswerClarifications(sess.id, clarAnswers.filter(a => a.trim()));
+                          const answers = clarAnswers.filter(a => a.trim());
+                          pushChat(sess.id, '👤', answers.join(' | '), true);
+                          void handleAnswerClarifications(sess.id, answers);
                         }}
                         disabled={loading || clarAnswers.every(a => !a.trim())}
                         style={{ ...btn('#60a5fa', 'rgba(96,165,250,0.18)'), flex: 1, opacity: loading ? 0.6 : 1 }}

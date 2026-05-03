@@ -107,6 +107,11 @@ export interface QAReport {
   };
 }
 
+export interface ClarifyQuestion {
+  text:    string;
+  options: string[];
+}
+
 export interface AgentSession {
   id:                string;
   block_name:        string;
@@ -119,8 +124,8 @@ export interface AgentSession {
   qa_report:         QAReport | null;
   review_report:     string | null;
   spec_result:       AgentSpec | null;       // persisted SpecAgent output (phase cache)
-  clarify_questions: string[] | null;        // ClarifyAgent questions
-  clarify_answers:   string[] | null;        // user answers
+  clarify_questions: ClarifyQuestion[] | null; // ClarifyAgent questions (with options)
+  clarify_answers:   string[] | null;          // user answers (selected option texts)
   created_at:        string;
   updated_at:        string;
 }
@@ -609,8 +614,15 @@ export class AgentLoopService {
     const totalCost = inputCost + outputCost;
     console.log(`[COST:Clarify] in:${clarifyRaw.inputTokens} out:${clarifyRaw.outputTokens} = $${totalCost.toFixed(4)}`);
     metricsService.record({ phase: 'clarify', model: specModelId, durationMs: Date.now() - _t0Clarify, inputTokens: clarifyRaw.inputTokens, outputTokens: clarifyRaw.outputTokens, cost: totalCost, blockName });
-    const clarify = parseJSON<{ questions: string[] }>(clarifyRaw.text);
-    const questions = clarify?.questions ?? [];
+    const clarify = parseJSON<{ questions: (ClarifyQuestion | string)[] }>(clarifyRaw.text);
+    const rawQuestions = clarify?.questions ?? [];
+
+    // Normalize: convert plain strings (legacy/fallback) to ClarifyQuestion format
+    const questions: ClarifyQuestion[] = rawQuestions.map(q =>
+      typeof q === 'string'
+        ? { text: q, options: [] }
+        : q,
+    );
 
     if (questions.length > 0) {
       onStatus('needs_clarification', JSON.stringify(questions));
@@ -618,8 +630,8 @@ export class AgentLoopService {
         .from('agent_sessions')
         .update({
           spec,
-          spec_result:       spec,       // ensure phase cache is set
-          clarify_questions: questions,  // persist for restart
+          spec_result:       spec,
+          clarify_questions: questions,
           status:            'needs_clarification',
           review_report:     JSON.stringify({ clarification_questions: questions }),
           updated_at:        new Date().toISOString(),
