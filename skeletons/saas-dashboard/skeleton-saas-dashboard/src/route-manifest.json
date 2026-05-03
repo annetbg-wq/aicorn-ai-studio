@@ -1,0 +1,68 @@
+{
+  "skeletonId": "saas-dashboard",
+  "label": "SaaS Dashboard",
+  "version": "0.2.0",
+  "navigation": "sidebar",
+  "shell": "Sidebar + TopBar around routed content",
+  "routes": [
+    { "path": "/", "page": "src/pages/Dashboard.tsx", "guard": "none" },
+    { "path": "/data", "page": "src/pages/DataView.tsx", "guard": "none" },
+    { "path": "/settings", "page": "src/pages/Settings.tsx", "guard": "none" }
+  ],
+  "sidebar": [
+    { "to": "/", "label": "Dashboard", "group": "Workspace" },
+    { "to": "/data", "label": "Data", "group": "Workspace" },
+    { "to": "/settings", "label": "Settings", "group": "Account" }
+  ],
+  "providedComponents": [
+    "ErrorBoundary",
+    "LoadingScreen",
+    "EmptyState",
+    "Sidebar",
+    "TopBar",
+    "KPICard",
+    "Sparkline",
+    "DataTable",
+    "OnboardingChecklist"
+  ],
+  "providedHooks": ["useApp", "useLocalStorage", "useTheme", "useTable"],
+  "uiPrimitives": [
+    "Avatar",
+    "Badge",
+    "Button",
+    "Card",
+    "Dialog",
+    "Input",
+    "Progress",
+    "Select",
+    "Sheet",
+    "Skeleton",
+    "Tabs"
+  ],
+  "designTokens": [
+    "--pm-canvas",
+    "--pm-surface",
+    "--pm-surface-soft",
+    "--pm-ink",
+    "--pm-muted",
+    "--pm-line",
+    "--pm-brand",
+    "--pm-on-brand",
+    "--pm-success",
+    "--pm-warning",
+    "--pm-rose",
+    "--pm-violet",
+    "--pm-overlay"
+  ],
+  "config": {
+    "appIdentity": "src/config/app.ts",
+    "routes": "src/config/routes.ts",
+    "navigation": "src/config/navigation.ts",
+    "theme": "src/config/theme.ts"
+  },
+  "placeholders": {
+    "appName": "AppName — defined in src/config/app.ts → APP_CONFIG.name",
+    "productMarkers": "/* PRODUCT: ... */ — copy and domain rewrites",
+    "seedMarkers": "// SEED: ... — replace with real data source"
+  }
+}

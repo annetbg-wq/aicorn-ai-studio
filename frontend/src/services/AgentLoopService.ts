@@ -14,6 +14,7 @@ import { ScannerService } from './ScannerService';
 import { metricsService, enrichError } from './MetricsService';
 import { promptRegistry } from './PromptRegistry';
 import { llmFetchStream } from './LLMProxy';
+import { selectSkeleton, buildSkeletonPromptBlock } from './SkeletonRegistry';
 
 // ── Prompt Cache ───────────────────────────────────────────────────────────────
 
@@ -93,6 +94,9 @@ export interface AgentSpec {
     create: string[];
     modify: string[];
   };
+  /** Skeleton selection hints */
+  appType?: string;
+  tags?:    string[];
 }
 
 export interface QAReport {
@@ -780,8 +784,26 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
       onProgress(10 + iter * 14);
 
       // ── BuildAgent ───────────────────────────────────────────────────────
+      // ── Install skeleton before first BuildAgent iteration ─────────────
+      if (iter === startFromIteration) {
+        const skId = selectSkeleton(spec.appType, spec.tags ?? []);
+        try {
+          await fetch('http://127.0.0.1:3000/api/skeleton/install', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skeletonId: skId }),
+          });
+          console.log('[BuildAgent] Skeleton installed:', skId);
+        } catch (e) {
+          console.warn('[BuildAgent] Skeleton install failed (non-fatal):', e);
+        }
+      }
 
       const buildPrompt = promptRegistry.getPrompt('build')
+        .replace('{{SKELETON_BLOCK}}', (() => {
+          const skId = selectSkeleton(spec.appType, spec.tags ?? []);
+          return buildSkeletonPromptBlock(skId);
+        })())
         .replace('{{PROTECTED_FILES_BLOCK}}', protectedFiles.length > 0
           ? `\nЗАЩИЩЁННЫЕ ФАЙЛЫ — ЗАПРЕЩЕНО ИЗМЕНЯТЬ:\n${protectedFiles.map(f => `- ${f}`).join('\n')}\n`
           : '')
@@ -1320,3 +1342,6 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
     return ids.length;
   }
 }
+
+
+
