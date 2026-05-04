@@ -329,6 +329,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             input={input}
             setInput={setInput}
             onSend={onSend}
+            onRetry={onRetry}
             onStop={onStop}
             isGenerating={isGenerating}
             progress={progress}

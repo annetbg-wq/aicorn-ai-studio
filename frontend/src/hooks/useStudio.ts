@@ -1059,6 +1059,7 @@ export const useStudio = () => {
   // Tracks whether generationMode was explicitly set by the user or plan context.
   // When false, the surface-choice dialog appears before each genesis generation.
   const modeSetByUserRef = useRef(false);
+  const lastGenerationPromptRef = useRef('');
 
   // ── files ─────────────────────────────────────────────────────────────────
   // On startup always restore from the last *stable* snapshot to avoid showing
@@ -1489,7 +1490,6 @@ export const useStudio = () => {
 
     if (plan?.pages?.length) {
       if (plan.pages.length >= 8) setGenerationMode('superapp');
-      else if (plan.pages.length <= 1) setGenerationMode('landing');
       else setGenerationMode('app');
       modeSetByUserRef.current = true; // plan specifies surface, no need to ask
     }
@@ -3015,11 +3015,11 @@ export const useStudio = () => {
           }),
         ].join('\n\n')
       : '';
-    let resolvedGenerationMode = generationMode;
-    let generationModeLabel =
-      resolvedGenerationMode === 'landing' ? 'Landing page'
-      : resolvedGenerationMode === 'superapp' ? 'Super app'
-      : 'Application';
+    let resolvedGenerationMode: 'app' | 'superapp' = generationMode === 'superapp' ? 'superapp' : 'app';
+    if (generationMode === 'landing') {
+      setGenerationMode('app');
+    }
+    let generationModeLabel = resolvedGenerationMode === 'superapp' ? 'Super app' : 'Application';
     const languageLabelMap: Record<string, string> = {
       ru: 'Russian',
       en: 'English',
@@ -3128,13 +3128,11 @@ export const useStudio = () => {
         setIsGenerating(false);
         return;
       }
-      resolvedGenerationMode = chosen;
-      setGenerationMode(chosen);
+      resolvedGenerationMode = chosen === 'superapp' ? 'superapp' : 'app';
+      setGenerationMode(resolvedGenerationMode);
       modeSetByUserRef.current = true;
-      chatUpdate(surfaceMsgId, { selectedSurface: chosen });
-      generationModeLabel = resolvedGenerationMode === 'landing' ? 'Landing page'
-        : resolvedGenerationMode === 'superapp' ? 'Super app'
-        : 'Application';
+      chatUpdate(surfaceMsgId, { selectedSurface: resolvedGenerationMode });
+      generationModeLabel = resolvedGenerationMode === 'superapp' ? 'Super app' : 'Application';
       buildPreferencesText = [
         'BUILD PREFERENCES (user-selected defaults):',
         `- Project type: ${generationModeLabel}`,
@@ -3147,6 +3145,7 @@ export const useStudio = () => {
         attachmentContextText,
       ].filter(Boolean).join('\n\n');
     }
+    lastGenerationPromptRef.current = baseIntent || userPrompt || 'Continue the last generation.';
 
     const savedContinuationPlan =
       !restartLineageRequested
@@ -4036,6 +4035,19 @@ export const useStudio = () => {
   const _sendRef = useRef(_sendImpl);
   _sendRef.current = _sendImpl;
   const handleSend = useCallback(() => _sendRef.current(), []);
+  const handleRetry = useCallback(() => {
+    const retryPrompt = lastGenerationPromptRef.current.trim();
+    consecutiveErrors.current = 0;
+    networkRetryCountRef.current = 0;
+    if (abortControllerRef.current) {
+      abortActiveGeneration('context-switch');
+    }
+    if (retryPrompt) {
+      _sendRef.current(retryPrompt);
+      return;
+    }
+    setInput('Продолжи генерацию и исправь последнюю ошибку.');
+  }, [abortActiveGeneration, setInput]);
 
   // ── launchWithPlan ────────────────────────────────────────────────────────
   // Unified UX: external idea sources enrich chat context; generation starts
@@ -4187,7 +4199,8 @@ export const useStudio = () => {
 
   // Resolves the waitForSurfaceChoice promise in the active pipeline run.
   const chooseSurface = useCallback((surface: 'landing' | 'app' | 'superapp') => {
-    surfaceChoiceResolverRef.current?.(surface);
+    const normalizedSurface = surface === 'landing' ? 'app' : surface;
+    surfaceChoiceResolverRef.current?.(normalizedSurface);
     surfaceChoiceResolverRef.current = null;
     modeSetByUserRef.current = true;
   }, []);
@@ -4557,6 +4570,7 @@ export const useStudio = () => {
     composerContextItems, activeProjectContext, addComposerContextFromPlan, setChatContext, removeComposerContextItem, clearComposerContextItems,
     startTrendIdeaDraftSession,
     handleSend,
+    onRetry: handleRetry,
     onSend: handleSend,
     launchWithPlan,
     stopGeneration,
@@ -4671,7 +4685,7 @@ export const useStudio = () => {
     addComposerContextFromPlan, setChatContext, removeComposerContextItem, clearComposerContextItems,
     startTrendIdeaDraftSession,
     createNewProject, createProject, switchProject, loadProject, restoreMessageRevision, restoreBlueprintLineage, deleteProject, refreshProjects, stopGeneration,
-    handleSend, launchWithPlan, publishProject, classifyAndStore,
+    handleSend, handleRetry, launchWithPlan, publishProject, classifyAndStore,
     savePendingProject,
     rejectPendingProjectSave,
     onSettings, setShowSettings,
