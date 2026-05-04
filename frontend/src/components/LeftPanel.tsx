@@ -69,6 +69,7 @@ interface LeftPanelProps {
   input: string;
   setInput: (v: string) => void;
   onSend: () => void;
+  onRetry?: () => void;
   onStop: () => void;
   isGenerating: boolean;
   progress: number;
@@ -1095,9 +1096,8 @@ const SurfaceChoiceCard: React.FC<{
   subText: string;
   onChooseSurface?: (surface: 'landing' | 'app' | 'superapp') => void;
 }> = ({ message, isDark, textColor, onChooseSurface }) => {
-  const surfaces: Array<{ value: 'landing' | 'app' | 'superapp'; label: string }> = [
-    { value: 'app',      label: '📱 Мобильное приложение' },
-    { value: 'landing',  label: '🌐 Веб-страница' },
+  const surfaces: Array<{ value: 'app' | 'superapp'; label: string }> = [
+    { value: 'app',      label: '🌐 Веб-приложение' },
     { value: 'superapp', label: '⚡ Супер-апп' },
   ];
   const selected = message.selectedSurface as string | undefined;
@@ -1872,7 +1872,7 @@ const GenerationPlanCard: React.FC<GenerationPlanCardProps> = ({
 };
 
 export const LeftPanel: React.FC<LeftPanelProps> = ({
-  messages, input, setInput, onSend, onStop, isGenerating, progress, currentPhase, scrollRef,
+  messages, input, setInput, onSend, onRetry, onStop, isGenerating, progress, currentPhase, scrollRef,
   projects, currentProjectId, onNewProject, onLoadProject, onRestoreMessageRevision, onRestoreBlueprintLineage, onDeleteProject,
   onSettings, setTheme, currentTheme,
   snapshots, currentSnapshotId, currentVersion, onRestoreSnapshot,
@@ -2308,7 +2308,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                               setCopiedIdx(msgId);
                               setTimeout(() => setCopiedIdx(c => c === msgId ? null : c), 2000);
                             }, active: copiedIdx === (m as any).id, activeEl: <span style={{ fontSize: 9, color: '#4ade80' }}>✓</span> },
-                            { icon: <RefreshCw size={10} />, title: 'Regenerate', action: () => onSend() },
+                            { icon: <RefreshCw size={10} />, title: 'Regenerate', action: () => (onRetry ?? onSend)() },
                             { icon: <ThumbsUp size={10} />, title: 'Good response', action: () => setReactions(prev => { const next = {...prev}; const id = (m as any).id; if (next[id] === 'up') delete next[id]; else next[id] = 'up'; return next; }), active: reactions[(m as any).id] === 'up', activeEl: <ThumbsUp size={10} style={{ color: '#4ade80' }} /> },
                             { icon: <ThumbsDown size={10} />, title: 'Bad response', action: () => setReactions(prev => { const next = {...prev}; const id = (m as any).id; if (next[id] === 'down') delete next[id]; else next[id] = 'down'; return next; }), active: reactions[(m as any).id] === 'down', activeEl: <ThumbsDown size={10} style={{ color: '#f87171' }} /> },
                           ].map(({ icon, title, action, active, activeEl }) => (
@@ -2330,7 +2330,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                     </div>
                     {(m as any).retryable && !isUser && (
                       <button
-                        onClick={onSend}
+                        onClick={onRetry ?? onSend}
                         style={{
                           marginTop: 6,
                           padding: '5px 12px',
@@ -2397,11 +2397,11 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
             AUTO
           </button>
 
-          {/* 2 â€” Generation mode toggle: App / Landing / Superapp */}
-          {(['app', 'landing', 'superapp'] as const).map(m => (
+          {/* 2 â€” Generation mode toggle: App / Superapp */}
+          {(['app', 'superapp'] as const).map(m => (
             <button key={m}
               onClick={() => setGenerationMode(m)}
-              title={m === 'app' ? 'Full app with multiple pages' : m === 'landing' ? 'Single-page landing' : 'Super app (complex multi-module)'}
+              title={m === 'app' ? 'Full app path with the app token budget' : 'Super app (complex multi-module)'}
               className="flex items-center gap-0.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all shrink-0"
               style={{
                 padding: '4px 7px',
@@ -2410,7 +2410,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                 border:    `1px solid ${generationMode === m ? 'rgba(139,92,246,0.3)' : 'rgba(255,255,255,0.06)'}`,
                 transition: 'all 0.2s',
               }}>
-              {m === 'app' ? 'APP' : m === 'landing' ? 'PAGE' : 'SUPER'}
+              {m === 'app' ? 'APP' : 'SUPER'}
             </button>
           ))}
 

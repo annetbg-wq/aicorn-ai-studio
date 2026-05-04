@@ -5694,9 +5694,9 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     const mode: GenerationMode = config.generationMode ?? 'app';
     config.onLog(`[SimpleGeneration] Generation mode: ${mode}`);
 
-    const coderTokens = mode === 'landing'
-      ? ConfigService.getMaxTokens('agent_build', 'coder_landing')
-      : mode === 'superapp'
+    // Web-page requests still build on the app pipeline because skeleton-backed
+    // generation needs the larger app token budget and retry surface.
+    const coderTokens = mode === 'superapp'
         ? ConfigService.getMaxTokens('agent_build', 'coder_superapp')
         : ConfigService.getMaxTokens('agent_build', 'coder_app');
 
@@ -6848,7 +6848,10 @@ Return ONLY a JSON artifact in this exact shape:
         const keyBare = normalizedStub;
         // Only add stub if no file already covers this import
         if (!llmFiles[keySlash] && !llmFiles[keyBare] && !llmFiles[normalizedStub]) {
-          llmFiles[keySlash] = `export default function ${componentName}() { return null; }\n`;
+          const isPlainTsModule = /\.ts$/i.test(normalizedStub) && !/\.tsx$/i.test(normalizedStub);
+          llmFiles[keySlash] = isPlainTsModule
+            ? 'const stubModule = {};\nexport default stubModule;\n'
+            : `export default function ${componentName}() { return null; }\n`;
           config.onLog(`[ImportValidator] ✓ Pre-generated stub: ${normalizedStub}`);
         }
       }

@@ -554,7 +554,7 @@ export default function App() {
               addLog={studio.addLog}
               isAutoFixing={studio.isAutoFixing ?? false}
               onRollback={studio.rollbackToStable}
-              onRetry={studio.onSend}
+              onRetry={studio.onRetry}
               attachments={studio.attachments}
               addAttachment={studio.addAttachment}
               removeAttachment={studio.removeAttachment}

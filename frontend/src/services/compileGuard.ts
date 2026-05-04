@@ -94,6 +94,17 @@ function extractFileFromError(msg: string): string | null {
   return match ? match[1] : null;
 }
 
+function isRouteFallbackTarget(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/').replace(/^src\//, '');
+  if (!/\.(tsx|jsx)$/i.test(normalized)) return false;
+  return (
+    normalized === 'App.tsx' ||
+    normalized.startsWith('pages/') ||
+    normalized.includes('/pages/') ||
+    !normalized.includes('/')
+  );
+}
+
 
 /**
  * Build a fix prompt from compile errors and attempt to fix via LLM.
@@ -548,7 +559,11 @@ export async function compileWithRetry(config: CompileLoopConfig): Promise<Compi
   const errorText = lastErrors.join('\n');
   const brokenFile = extractFileFromError(errorText);
 
-  if (brokenFile) {
+  if (brokenFile && !isRouteFallbackTarget(brokenFile)) {
+    stopReason = 'partial_ship_blocked_for_non_route_file';
+    config.onLog(`[CompileGuard] Partial ship blocked for non-route file: ${brokenFile}`);
+    logRepairDecision(config, 'stop', stopReason);
+  } else if (brokenFile) {
     const currentFiles = revisionManager.getRevisionFiles(config.revId) ?? {};
     const currentPaths = Object.keys(currentFiles);
     if (!currentPaths.includes(brokenFile) && config.recheckAdmission) {

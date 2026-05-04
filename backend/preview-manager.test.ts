@@ -1,6 +1,7 @@
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 import {
+  getPreservedPreviewDirs,
   resolvePreviewSrcPath,
   resolveSectionTemplatePaths,
   sanitizeCompileFiles,
@@ -40,5 +41,11 @@ describe('preview-manager path hardening', () => {
 
     expect(paths.templatesSrc.toLowerCase()).toBe(path.resolve('c:/ai_studio/frontend/src/templates/components').toLowerCase());
     expect(paths.sectionsDest.toLowerCase()).toBe(path.resolve('c:/ai_studio/preview-workspace/src/components/sections').toLowerCase());
+  });
+
+  it('preserves skeleton infrastructure directories during compile cleanup', () => {
+    expect(getPreservedPreviewDirs()).toEqual(
+      expect.arrayContaining(['components', 'config', 'context', 'hooks', 'lib', 'themes']),
+    );
   });
 });

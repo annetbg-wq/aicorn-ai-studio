@@ -37,6 +37,11 @@ const BUILDS_WORKSPACE = path.resolve(__dirname, '..', 'builds');
 
 /** Maximum compiled builds to keep on disk (LRU). */
 const MAX_BUILDS = 20;
+const PRESERVED_PREVIEW_DIRS = ['components', 'config', 'context', 'lib', 'themes', 'hooks'];
+
+export function getPreservedPreviewDirs(): string[] {
+  return [...PRESERVED_PREVIEW_DIRS];
+}
 
 export function resolveSectionTemplatePaths(previewWorkspace: string = PREVIEW_WORKSPACE): {
   templatesSrc: string;
@@ -236,8 +241,9 @@ async function ensureShadcnComponents(workspaceRoot: string): Promise<void> {
  *
  * Owns workspace cleanup: clears user-generated files before writing new build
  * files so stale files from previous builds cannot contaminate the Vite
- * compilation. Template directories (components/, lib/, themes/, hooks/) and
- * permanent fixtures (main.tsx, index.css, vite-env.d.ts) are preserved.
+ * compilation. Template/skeleton directories (components/, config/, context/,
+ * lib/, themes/, hooks/) and permanent fixtures (main.tsx, index.css,
+ * vite-env.d.ts) are preserved.
  *
  * This replaces the legacy /__clear_preview Vite dev-server endpoint that the
  * frontend previously called before NEW-mode generation. The backend now owns
@@ -256,7 +262,7 @@ async function compileBuild(
   // 0. Clear user-generated files from the shared source workspace.
   //    Serialised via compileQueue — no concurrent writes possible here.
   const KEEP_FILES = new Set(['main.tsx', 'index.css', 'vite-env.d.ts', '__build_id.ts']);
-  const KEEP_DIRS  = new Set(['components', 'lib', 'themes', 'hooks']);
+  const KEEP_DIRS  = new Set(PRESERVED_PREVIEW_DIRS);
   try {
     const items = await fsPromises.readdir(srcDir, { withFileTypes: true });
     for (const item of items) {

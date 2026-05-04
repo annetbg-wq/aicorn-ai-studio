@@ -291,6 +291,34 @@ describe('compileGuard bounded repair loop', () => {
     expect(result.minimumViableCandidate).toBe(false);
   });
 
+  it('never writes JSX route fallback into non-route TypeScript infrastructure files', async () => {
+    getRevisionFiles.mockReturnValue({
+      'hooks/useTheme.ts': 'export function useTheme() { return { resolved: "light" as const }; }',
+    });
+
+    const { compileWithRetry } = await import('../compileGuard');
+    const logs: string[] = [];
+
+    const result = await compileWithRetry({
+      revId: 'rev-hook-infra',
+      apiKey: 'test',
+      onLog: (msg) => logs.push(msg),
+      initialFailureErrors: [
+        'vite build exited 1: Could not load C:/ai_studio/preview-workspace/src/config/theme (imported by src/hooks/useTheme.ts)',
+      ],
+      callFix: async () => '',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.stopReason).toBe('partial_ship_blocked_for_non_route_file');
+    expect(writeCandidateFile).not.toHaveBeenCalledWith(
+      'rev-hook-infra',
+      '/hooks/useTheme.ts',
+      expect.stringContaining('className='),
+    );
+    expect(logs.some(msg => msg.includes('Partial ship blocked for non-route file: hooks/useTheme.ts'))).toBe(true);
+  });
+
   it('does not widen the candidate file set without admission approval', async () => {
     getRevisionFiles.mockReturnValue({ 'App.tsx': 'export default function App() { return null; }' });
     compileCandidate.mockResolvedValueOnce({
