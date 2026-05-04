@@ -158,6 +158,8 @@ beforeEach(() => {
   cancelPendingCheck();
   cancelPostPromotionWatch();
   calledUrls = [];
+  vi.mocked(llmFetchStream).mockReset();
+  vi.mocked(llmFetchStream).mockResolvedValue(makeStreamingResponse('{"technicalBlueprint":{}}'));
 
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     calledUrls.push(String(url));

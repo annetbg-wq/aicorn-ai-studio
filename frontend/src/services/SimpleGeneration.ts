@@ -71,7 +71,6 @@ import { metricsService } from './MetricsService';
 import { revisionManager, PREVIEW_BOOTSTRAP_MARKER } from './RevisionManager';
 import { previewController, previewLog, setTimelineContext } from './PreviewController';
 import { commandBus } from './studioCommandBus';
-import { getLocalDevAgentProvider, syncLocalDevAgentMode } from './devAgentMode';
 import { buildFileDiff } from '../components/DiffPreview';
 import type { FileDiff } from '../components/DiffPreview';
 import { generationTracer } from './GenerationTracer';
@@ -104,7 +103,12 @@ import {
   type FinalLivePreviewCheckResult,
 } from './WhiteScreenDetector';
 import { SECTION_SOURCE_MAP } from '../templates/sectionSourceRegistry';
-import { selectSkeleton, buildSkeletonPromptBlock, type SkeletonId } from './SkeletonRegistry';
+import {
+  selectSkeleton,
+  buildSkeletonPromptBlock,
+  isProtectedSkeletonFile,
+  type SkeletonId,
+} from './SkeletonRegistry';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -880,7 +884,7 @@ RULES FOR JSON ARTIFACT:
 - Escape quotes inside content with \\"
 - "path" is relative to src/: "src/App.tsx", "src/pages/Dashboard.tsx"
 - "entry" is the main file that mounts the app (usually "src/App.tsx")
-- Include ALL files: pages, components, hooks, contexts, data
+- Include ALL files: pages, components, hooks, contexts, data, unless a SKELETON ALREADY INSTALLED block narrows the required output to delta files
 - Do NOT include index.css, lib/utils.ts, or components/ui/* — they exist already
 - Output ONLY the JSON artifact. No explanation before or after.
 
@@ -1908,7 +1912,6 @@ interface FourthLLMStepDebugRecord {
     actualModelId?: string;
     actualEndpoint?: string;
     transport?: CallLLMResolvedRequestMetadata['transport'];
-    devAgentProvider?: CallLLMResolvedRequestMetadata['devAgentProvider'];
     timeoutMs?: number;
   };
   request: {
@@ -3025,15 +3028,11 @@ interface CallLLMResolvedRequestMetadata {
   actualProvider: string;
   actualModelId: string;
   actualEndpoint: string;
-  transport: 'llmFetchStream' | 'dev_agent_bridge';
-  devAgentProvider?: ReturnType<typeof getLocalDevAgentProvider>;
+  transport: 'llmFetchStream';
   timeoutMs: number;
-  bridgeFallbackActivated?: boolean;
-  bridgeFallbackReason?: string;
 }
 
 const LLM_TIMEOUT_MS = 240_000; // 240 s timeout budget per standard LLM call
-const CLAUDE_MAX_TIMEOUT_MS = 300_000; // 300 s budget for Claude Max bridge responses
 
 async function callLLM(
   systemPrompt: string,
@@ -3099,38 +3098,17 @@ async function callLLM(
     'HTTP-Referer': window.location.origin,
   };
 
-  let devAgentProvider = getLocalDevAgentProvider();
-  let devAgentModeProbeFailed = false;
-  try {
-    const modeResp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/dev-agent-mode`);
-    if (modeResp.ok) {
-      devAgentProvider = syncLocalDevAgentMode(await modeResp.json());
-    }
-  } catch {
-    devAgentModeProbeFailed = true;
-  }
-  const devAgentActive = devAgentProvider !== 'off' && !devAgentModeProbeFailed;
-  if (devAgentProvider !== 'off' && devAgentModeProbeFailed) {
-    const fallbackMessage = `[callLLM] Dev-agent mode probe failed (${devAgentProvider}) — using standard ${configuredProvider}/${modelId} flow`;
-    opts?.onLog?.(fallbackMessage);
-    if (!opts?.onLog) console.warn(fallbackMessage);
-  }
-  const timeoutMs = devAgentActive ? CLAUDE_MAX_TIMEOUT_MS : LLM_TIMEOUT_MS;
+  const timeoutMs = LLM_TIMEOUT_MS;
   opts?.onResolvedRequest?.({
     slot,
     configuredProvider,
     configuredModelId: modelId,
     configuredEndpoint: endpoint,
     configuredKeySource,
-    actualProvider: devAgentActive ? 'local-dev-agent' : configuredProvider,
-    actualModelId: devAgentActive
-      ? (devAgentProvider === 'codex' ? 'gpt-5.1-codex' : 'claude-sonnet-4-6')
-      : modelId,
-    actualEndpoint: devAgentActive
-      ? `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/chat`
-      : endpoint,
-    transport: devAgentActive ? 'dev_agent_bridge' : 'llmFetchStream',
-    devAgentProvider: devAgentActive ? devAgentProvider : undefined,
+    actualProvider: configuredProvider,
+    actualModelId: modelId,
+    actualEndpoint: endpoint,
+    transport: 'llmFetchStream',
     timeoutMs,
   });
 
@@ -3147,75 +3125,10 @@ async function callLLM(
   // AbortError (user stop) is not retried.
   const MAX_RETRIES = 3;
   let lastError: unknown;
-  let useDevAgentBridge = devAgentActive;
   try {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         if (mergedSignal.aborted) throw new DOMException('Aborted', 'AbortError');
-        // ── Claude Max override (admin only) ─────────────────
-        if (useDevAgentBridge) {
-          try {
-            // Собираем промпт из messages в текст
-            const promptParts: string[] = [];
-            for (const msg of messages) {
-              const role = msg.role === 'assistant' ? 'Assistant' : 'User';
-              const content = typeof msg.content === 'string'
-                ? msg.content
-                : (msg.content as Array<{type:string;text?:string}>)
-                    .filter(b => b.type === 'text')
-                    .map(b => b.text ?? '')
-                    .join('\n');
-              if (content.trim()) promptParts.push(`[${role}]\n${content}`);
-            }
-            const prompt = promptParts.join('\n\n');
-
-            const bridgeResp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/chat`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              signal: mergedSignal ?? undefined,
-              body: JSON.stringify({
-                message: prompt,
-                model: devAgentProvider === 'codex' ? 'gpt-5.1-codex' : 'claude-sonnet-4-6',
-              }),
-            });
-
-            if (!bridgeResp.ok) {
-              const err = await bridgeResp.text();
-              throw new Error(`Dev agent bridge ${bridgeResp.status}: ${err.slice(0, 200)}`);
-            }
-
-            const bridgeData = await bridgeResp.json();
-            const result = bridgeData.content?.[0]?.text ?? '';
-            if (!result.trim()) {
-              throw new Error('Dev agent bridge returned empty output');
-            }
-            if (onStream) onStream(result);
-            return result;
-          } catch (err) {
-            if (err instanceof DOMException && err.name === 'AbortError') throw err;
-            const bridgeErrorMessage = String((err as Error)?.message ?? err);
-            const fallbackMessage = `[callLLM] ${devAgentProvider} bridge unavailable (${bridgeErrorMessage}) — falling back to standard ${configuredProvider}/${modelId}`;
-            opts?.onLog?.(fallbackMessage);
-            if (!opts?.onLog) console.warn(fallbackMessage);
-            useDevAgentBridge = false;
-            opts?.onResolvedRequest?.({
-              slot,
-              configuredProvider,
-              configuredModelId: modelId,
-              configuredEndpoint: endpoint,
-              configuredKeySource,
-              actualProvider: configuredProvider,
-              actualModelId: modelId,
-              actualEndpoint: endpoint,
-              transport: 'llmFetchStream',
-              timeoutMs,
-              bridgeFallbackActivated: true,
-              bridgeFallbackReason: bridgeErrorMessage,
-            });
-          }
-        }
-        // ── End Claude Max override ───────────────────────────
-
         const resp = await llmFetchStream(endpoint, headers, body, mergedSignal);
         const noop = () => {};
         // Determine soft limit for overflow detection (before ×1.3 buffer)
@@ -3233,9 +3146,6 @@ async function callLLM(
         if (err instanceof DOMException && err.name === 'AbortError') {
           // Distinguish timeout from user stop
           if (signal?.aborted) throw err; // user initiated
-          if (useDevAgentBridge) {
-            throw new Error(`Local ${devAgentProvider} bridge timed out after ${Math.round(timeoutMs / 1000)}s. Try a shorter prompt or rerun.`);
-          }
           throw new Error('Generation timed out. Automatic retry was attempted. Please retry once more or switch model.');
         }
         lastError = err;
@@ -6198,7 +6108,10 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ skeletonId: selectedSkeletonId }),
       });
-      skeletonBlock = buildSkeletonPromptBlock(selectedSkeletonId);
+      skeletonBlock = buildSkeletonPromptBlock(selectedSkeletonId, {
+        plan,
+        technicalBlueprint,
+      });
       config.onLog(`[SimpleGeneration] Skeleton installed: ${selectedSkeletonId}`);
     } catch (e) {
       config.onLog(`[SimpleGeneration] Skeleton install failed (non-fatal): ${String(e)}`);
@@ -6259,7 +6172,6 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         actualModelId: fourthStepResolvedRoute?.actualModelId,
         actualEndpoint: fourthStepResolvedRoute?.actualEndpoint,
         transport: fourthStepResolvedRoute?.transport,
-        devAgentProvider: fourthStepResolvedRoute?.devAgentProvider,
         timeoutMs: fourthStepResolvedRoute?.timeoutMs,
       },
       request: {
@@ -6687,6 +6599,13 @@ Generate the complete application for: ${config.intent}`;
       config.onLog(
         `[SimpleGeneration] Sections assembled: ${planSections.length} templates → App.tsx + ${[...new Set(planSections.map((section) => section.template))].length} section file(s)`,
       );
+    }
+
+    for (const filePath of Object.keys(llmFiles)) {
+      if (isProtectedSkeletonFile(selectedSkeletonId, filePath)) {
+        delete llmFiles[filePath];
+        config.onLog(`[SimpleGeneration] Skeleton protected file skipped: ${filePath}`);
+      }
     }
 
     // ── Enforce shadcn: validate + auto-fix ─────────────────────

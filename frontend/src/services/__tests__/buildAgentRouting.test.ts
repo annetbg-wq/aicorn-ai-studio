@@ -392,7 +392,7 @@ describe('Dual-routing regression guard: generatePlan requires canonical route',
     }
   });
 
-  it('generatePlan falls back to canonical standard route when dev-agent bridge returns 500', async () => {
+  it('generatePlan uses canonical standard route without dev-agent bridge proxy', async () => {
     localStorage.setItem('superadmin_dev_agent_provider', 'codex');
     const { SimpleGeneration } = await import('../SimpleGeneration');
     const route: AgentExecutionRoute = {
@@ -415,12 +415,7 @@ describe('Dual-routing regression guard: generatePlan requires canonical route',
     llmProxyMock.llmFetchStream.mockResolvedValue(makeStreamingResponse(planJson));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const originalFetch = globalThis.fetch;
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ provider: 'codex' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }))
-      .mockResolvedValueOnce(new Response('bridge failure', { status: 500 }));
+    const fetchMock = vi.fn();
     globalThis.fetch = fetchMock;
 
     try {
@@ -433,7 +428,7 @@ describe('Dual-routing regression guard: generatePlan requires canonical route',
 
       expect(plan.appName).toBe('Bridge fallback planner');
       expect(plan.summary).toBe('Fallback stayed inside standard flow.');
-      expect(String(fetchMock.mock.calls[1]?.[0] ?? '')).toContain('/chat');
+      expect(fetchMock).not.toHaveBeenCalled();
       expect(llmProxyMock.llmFetchStream).toHaveBeenCalledWith(
         route.endpoint,
         expect.objectContaining({
@@ -442,7 +437,7 @@ describe('Dual-routing regression guard: generatePlan requires canonical route',
         expect.stringContaining(`"model":"${route.modelId}"`),
         expect.any(AbortSignal),
       );
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('bridge unavailable'));
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('bridge unavailable'));
     } finally {
       globalThis.fetch = originalFetch;
     }
