@@ -1,0 +1,49 @@
+{
+  "id": "productivity-tool",
+  "workingGroups": [
+    { "label": "core", "paths": ["src/App.tsx", "src/main.tsx", "src/index.css", "src/route-manifest.json"] },
+    { "label": "config", "paths": ["src/config/app.ts", "src/config/routes.ts", "src/config/navigation.ts", "src/config/theme.ts"] },
+    { "label": "layout", "paths": ["src/components/Sidebar.tsx", "src/components/TopBar.tsx"] },
+    { "label": "patterns", "paths": ["src/components/KanbanBoard.tsx", "src/components/ListView.tsx", "src/components/ItemCard.tsx", "src/components/ItemDetailSheet.tsx", "src/components/CommandPalette.tsx"] },
+    { "label": "states", "paths": ["src/components/ErrorBoundary.tsx", "src/components/LoadingScreen.tsx", "src/components/EmptyState.tsx"] },
+    { "label": "ui", "paths": ["src/components/ui/*"] },
+    { "label": "hooks", "paths": ["src/hooks/useLocalStorage.ts", "src/hooks/useTheme.ts", "src/hooks/useKeyboard.ts", "src/hooks/useCommandPalette.ts"] },
+    { "label": "runtime", "paths": ["src/context/AppContext.tsx", "src/lib/cn.ts"] }
+  ],
+  "protectedFiles": [
+    "src/main.tsx",
+    "src/index.css",
+    "src/lib/**",
+    "src/context/AppContext.tsx",
+    "src/hooks/useLocalStorage.ts",
+    "src/hooks/useTheme.ts",
+    "src/hooks/useKeyboard.ts",
+    "src/hooks/useCommandPalette.ts",
+    "src/components/ui/**",
+    "src/components/Sidebar.tsx",
+    "src/components/TopBar.tsx",
+    "src/components/ErrorBoundary.tsx",
+    "src/components/LoadingScreen.tsx",
+    "src/components/EmptyState.tsx",
+    "src/components/KanbanBoard.tsx",
+    "src/components/ListView.tsx",
+    "src/components/ItemCard.tsx",
+    "src/components/ItemDetailSheet.tsx",
+    "src/components/CommandPalette.tsx"
+  ],
+  "editableFiles": [
+    "src/config/app.ts",
+    "src/config/routes.ts",
+    "src/config/navigation.ts",
+    "src/data/types.ts",
+    "src/data/seed.ts",
+    "src/pages/Workspace.tsx"
+  ],
+  "deltaFiles": [
+    "src/config/app.ts",
+    "src/config/navigation.ts",
+    "src/data/types.ts",
+    "src/data/seed.ts",
+    "src/pages/Workspace.tsx"
+  ]
+}

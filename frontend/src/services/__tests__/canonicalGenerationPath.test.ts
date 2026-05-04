@@ -92,6 +92,26 @@ const SIMPLE_ARTIFACT = JSON.stringify({
   },
 });
 
+const PROTECTED_SKELETON_ARTIFACT = JSON.stringify({
+  artifact: {
+    entry: 'src/App.tsx',
+    files: [{
+      path:    'src/components/ui/Button.tsx',
+      content: 'export function Button() { return <button />; }',
+    }],
+  },
+});
+
+const DELTA_ONLY_ARTIFACT = JSON.stringify({
+  artifact: {
+    entry: 'src/App.tsx',
+    files: [{
+      path:    'src/pages/Home.tsx',
+      content: 'export default function Home() { return <main>Delta only</main>; }',
+    }],
+  },
+});
+
 const FENCED_STEP4_ARTIFACT_WITHOUT_CLOSING_FENCE = [
   '```json',
   JSON.stringify({
@@ -144,6 +164,13 @@ function queueRunToCompileWithStep4Artifact(step4Artifact: string) {
   vi.mocked(llmFetchStream)
     .mockResolvedValueOnce(makeStreamingResponse('{"technicalBlueprint":{"stack":["react"]}}'))
     .mockResolvedValueOnce(makeStreamingResponse(step4Artifact));
+}
+
+function queueRunToCompileWithProtectedRetry() {
+  vi.mocked(llmFetchStream)
+    .mockResolvedValueOnce(makeStreamingResponse('{"technicalBlueprint":{"stack":["react"]}}'))
+    .mockResolvedValueOnce(makeStreamingResponse(PROTECTED_SKELETON_ARTIFACT))
+    .mockResolvedValueOnce(makeStreamingResponse(DELTA_ONLY_ARTIFACT));
 }
 
 // ── Setup / teardown ───────────────────────────────────────────────────────
@@ -383,6 +410,28 @@ describe('Session 14.1 — canonical pipeline reached after bridge excision', ()
     ]);
     expect(record.acceptedResult.files[0].content).not.toContain('"artifact"');
     expect(record.rawCompletionText).toBe(FENCED_STEP4_ARTIFACT_WITHOUT_CLOSING_FENCE);
+  });
+
+  test('retries when coder returns protected skeleton files and materializes only delta files', async () => {
+    queueRunToCompileWithProtectedRetry();
+    const materializeSpy = vi.spyOn(revisionManager, 'materializeCandidateFiles').mockResolvedValue({ writtenCount: 2 });
+    vi.spyOn(revisionManager, 'compileCandidate').mockResolvedValue({ success: true, _compiled: true });
+    vi.spyOn(WhiteScreenDetectorModule, 'runFinalLivePreviewCheck').mockResolvedValue({
+      buildId: 'test-build', status: 'passed', reason: null,
+      message: 'ok', controllerStatus: 'ready', controllerRevisionId: 'test-build',
+      immediateBlank: false, probeOutcome: 'healthy', probeReason: null,
+    });
+    vi.spyOn(revisionManager, 'promote').mockResolvedValue(undefined);
+
+    const result = await SimpleGeneration.run(makeConfig({
+      waitForConfirmation: async () => true,
+    }));
+
+    expect(result.status).toBe('complete');
+    expect(llmFetchStream).toHaveBeenCalledTimes(3);
+    const materializedFiles = materializeSpy.mock.calls[0]?.[1] ?? {};
+    expect(Object.keys(materializedFiles)).not.toContain('/components/ui/Button.tsx');
+    expect(Object.keys(materializedFiles)).toContain('/pages/Home.tsx');
   });
 });
 

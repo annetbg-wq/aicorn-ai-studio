@@ -2536,6 +2536,14 @@ function toSrcKey(path: string): string {
   return p;
 }
 
+function collectProtectedArtifactPaths(artifact: ArtifactContract, skeletonId: SkeletonId): string[] {
+  return [...new Set(
+    artifact.files
+      .map(file => toSrcKey(file.path))
+      .filter(path => isProtectedSkeletonFile(skeletonId, path)),
+  )];
+}
+
 function toComponentName(raw: string, fallback = 'Page'): string {
   const words = String(raw || '')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -6479,7 +6487,103 @@ Generate the complete application for: ${config.intent}`;
       });
     }
 
-    const artifact: ArtifactContract = finalAttempt.parseResult.artifact;
+    if (finalAttempt.parseResult.artifact) {
+      const protectedPaths = collectProtectedArtifactPaths(finalAttempt.parseResult.artifact, selectedSkeletonId);
+      if (protectedPaths.length > 0) {
+        const protectedSummary = protectedPaths.slice(0, 12).join(', ');
+        config.onLog(
+          `[SimpleGeneration] ⚠ Skeleton protected files returned (${protectedSummary}) — retrying delta-only`,
+        );
+        const skeletonRetryStepId = trace.beginStep({
+          kind: 'artifact_retry',
+          summary: 'Retrying artifact generation because protected skeleton files were returned.',
+          labels: buildTraceLabels(config.buildRoute),
+          attemptNumber: 3,
+          metadata: {
+            retryReason: 'protected_skeleton_files_returned',
+            protectedPaths,
+          },
+        });
+
+        const skeletonRetryPrompt = `Your previous response returned protected skeleton files:
+${protectedPaths.map(path => `- ${path}`).join('\n')}
+
+Those files already exist and are tested. Do NOT output them.
+Regenerate the artifact with ONLY delta files for: ${config.intent}
+
+Use existing imports from '@/components/ui/', '@/components/', '@/hooks/', '@/config/'.
+Modify only editable config/data/page files or create new domain-specific delta files.
+
+Return ONLY a JSON artifact in this exact shape:
+\`\`\`json
+{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/pages/Example.tsx","content":"...complete source..."}]}}
+\`\`\``;
+
+        try {
+          const skeletonRetryRaw = await callLLM(
+            coderSystemPrompt,
+            skeletonRetryPrompt,
+            'build',
+            config.apiKey,
+            undefined,
+            config.signal,
+            coderTokens,
+            config.buildRoute,
+          );
+          const skeletonRetryAttempt = inspectArtifactAttempt(skeletonRetryRaw);
+          const retryProtectedPaths = skeletonRetryAttempt.parseResult.artifact
+            ? collectProtectedArtifactPaths(skeletonRetryAttempt.parseResult.artifact, selectedSkeletonId)
+            : [];
+
+          if (
+            skeletonRetryAttempt.parseResult.success &&
+            skeletonRetryAttempt.parseResult.artifact &&
+            !skeletonRetryAttempt.semanticIssue &&
+            retryProtectedPaths.length === 0
+          ) {
+            finalAttempt = skeletonRetryAttempt;
+            config.onLog('[SimpleGeneration] Skeleton delta-only retry accepted');
+            trace.finishStep(skeletonRetryStepId, {
+              status: 'completed',
+              summary: 'Skeleton delta-only retry produced an artifact without protected files.',
+              labels: buildTraceLabels(config.buildRoute),
+              attemptNumber: 3,
+            });
+          } else {
+            config.onLog(
+              `[SimpleGeneration] ⚠ Skeleton delta-only retry not accepted; protected filter will drop forbidden files (${retryProtectedPaths.join(', ') || 'parse/semantic issue'})`,
+            );
+            trace.finishStep(skeletonRetryStepId, {
+              status: 'warning',
+              summary: 'Skeleton delta-only retry still needs protected-file filtering.',
+              labels: buildTraceLabels(config.buildRoute),
+              attemptNumber: 3,
+              parserDecision: {
+                success: skeletonRetryAttempt.parseResult.success,
+                fallbackUsed: skeletonRetryAttempt.parseResult.fallbackUsed,
+                issueCode: retryProtectedPaths.length > 0 ? 'PROTECTED_SKELETON_FILES_RETURNED' : skeletonRetryAttempt.semanticIssue?.failClass,
+                issueSummary: retryProtectedPaths.join(', ') || (
+                  skeletonRetryAttempt.semanticIssue
+                    ? formatArtifactSemanticIssue(skeletonRetryAttempt.semanticIssue)
+                    : skeletonRetryAttempt.parseResult.error
+                ),
+              },
+            });
+          }
+        } catch (error) {
+          config.onLog(`[SimpleGeneration] ⚠ Skeleton delta-only retry failed; protected filter will continue: ${formatDebugError(error)}`);
+          trace.finishStep(skeletonRetryStepId, {
+            status: 'warning',
+            summary: 'Skeleton delta-only retry request failed; continuing with protected-file filtering.',
+            labels: buildTraceLabels(config.buildRoute),
+            attemptNumber: 3,
+            errorSummary: formatDebugError(error),
+          });
+        }
+      }
+    }
+
+    const artifact: ArtifactContract = finalAttempt.parseResult.artifact!;
     trace.appendStep({
       kind: 'reviewer_result',
       summary: `Artifact review accepted ${artifact.files.length} file${artifact.files.length === 1 ? '' : 's'} for execution.`,

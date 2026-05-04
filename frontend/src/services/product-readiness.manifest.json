@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "prod-llm-key-proxy",
+      "status": "deferred-until-product-release",
+      "area": "security",
+      "reason": "Direct browser-to-LLM calls are acceptable for dev, but expose provider API keys in devtools in production.",
+      "requiredBeforeRelease": "Move API-key-bearing LLM requests behind a thin server-side /api/llm BFF/proxy that signs or forwards requests without owning generation routing, prompts, skeleton install, deploy, or Supabase logic."
+    }
+  ]
+}

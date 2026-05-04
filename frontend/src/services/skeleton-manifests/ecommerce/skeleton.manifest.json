@@ -1,0 +1,61 @@
+{
+  "id": "ecommerce",
+  "workingGroups": [
+    { "label": "core", "paths": ["src/App.tsx", "src/main.tsx", "src/index.css", "src/route-manifest.json"] },
+    { "label": "config", "paths": ["src/config/app.ts", "src/config/routes.ts", "src/config/navigation.ts", "src/config/theme.ts"] },
+    { "label": "layout", "paths": ["src/components/BottomTabs.tsx"] },
+    { "label": "patterns", "paths": ["src/components/ProductCard.tsx", "src/components/ProductImage.tsx", "src/components/ImageGallery.tsx", "src/components/RatingStars.tsx", "src/components/ReviewItem.tsx", "src/components/FiltersSidebar.tsx"] },
+    { "label": "states", "paths": ["src/components/ErrorBoundary.tsx", "src/components/LoadingScreen.tsx", "src/components/EmptyState.tsx"] },
+    { "label": "ui", "paths": ["src/components/ui/*"] },
+    { "label": "hooks", "paths": ["src/hooks/useLocalStorage.ts", "src/hooks/useTheme.ts", "src/hooks/useCart.ts", "src/hooks/useWishlist.ts"] },
+    { "label": "runtime", "paths": ["src/context/AppContext.tsx", "src/lib/cn.ts", "src/lib/format.ts"] }
+  ],
+  "protectedFiles": [
+    "src/main.tsx",
+    "src/index.css",
+    "src/lib/**",
+    "src/context/AppContext.tsx",
+    "src/hooks/useLocalStorage.ts",
+    "src/hooks/useTheme.ts",
+    "src/hooks/useCart.ts",
+    "src/hooks/useWishlist.ts",
+    "src/components/ui/**",
+    "src/components/BottomTabs.tsx",
+    "src/components/ErrorBoundary.tsx",
+    "src/components/LoadingScreen.tsx",
+    "src/components/EmptyState.tsx",
+    "src/components/ProductCard.tsx",
+    "src/components/ProductImage.tsx",
+    "src/components/ImageGallery.tsx",
+    "src/components/RatingStars.tsx",
+    "src/components/ReviewItem.tsx",
+    "src/components/FiltersSidebar.tsx"
+  ],
+  "editableFiles": [
+    "src/config/app.ts",
+    "src/config/routes.ts",
+    "src/config/navigation.ts",
+    "src/data/types.ts",
+    "src/data/seed.ts",
+    "src/pages/Home.tsx",
+    "src/pages/Search.tsx",
+    "src/pages/ProductDetail.tsx",
+    "src/pages/Cart.tsx",
+    "src/pages/Checkout.tsx",
+    "src/pages/Wishlist.tsx",
+    "src/pages/Account.tsx"
+  ],
+  "deltaFiles": [
+    "src/config/app.ts",
+    "src/config/navigation.ts",
+    "src/data/types.ts",
+    "src/data/seed.ts",
+    "src/pages/Home.tsx",
+    "src/pages/Search.tsx",
+    "src/pages/ProductDetail.tsx",
+    "src/pages/Cart.tsx",
+    "src/pages/Checkout.tsx",
+    "src/pages/Wishlist.tsx",
+    "src/pages/Account.tsx"
+  ]
+}

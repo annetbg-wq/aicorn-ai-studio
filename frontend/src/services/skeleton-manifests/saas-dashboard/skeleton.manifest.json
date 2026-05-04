@@ -1,0 +1,51 @@
+{
+  "id": "saas-dashboard",
+  "workingGroups": [
+    { "label": "core", "paths": ["src/App.tsx", "src/main.tsx", "src/index.css", "src/route-manifest.json"] },
+    { "label": "config", "paths": ["src/config/app.ts", "src/config/routes.ts", "src/config/navigation.ts", "src/config/theme.ts"] },
+    { "label": "layout", "paths": ["src/components/Sidebar.tsx", "src/components/TopBar.tsx"] },
+    { "label": "patterns", "paths": ["src/components/KPICard.tsx", "src/components/Sparkline.tsx", "src/components/DataTable.tsx", "src/components/OnboardingChecklist.tsx"] },
+    { "label": "states", "paths": ["src/components/ErrorBoundary.tsx", "src/components/LoadingScreen.tsx", "src/components/EmptyState.tsx"] },
+    { "label": "ui", "paths": ["src/components/ui/*"] },
+    { "label": "hooks", "paths": ["src/hooks/useLocalStorage.ts", "src/hooks/useTheme.ts", "src/hooks/useTable.ts"] },
+    { "label": "runtime", "paths": ["src/context/AppContext.tsx", "src/lib/cn.ts"] }
+  ],
+  "protectedFiles": [
+    "src/main.tsx",
+    "src/index.css",
+    "src/lib/**",
+    "src/context/AppContext.tsx",
+    "src/hooks/useLocalStorage.ts",
+    "src/hooks/useTheme.ts",
+    "src/hooks/useTable.ts",
+    "src/components/ui/**",
+    "src/components/Sidebar.tsx",
+    "src/components/TopBar.tsx",
+    "src/components/ErrorBoundary.tsx",
+    "src/components/LoadingScreen.tsx",
+    "src/components/EmptyState.tsx",
+    "src/components/KPICard.tsx",
+    "src/components/Sparkline.tsx",
+    "src/components/DataTable.tsx",
+    "src/components/OnboardingChecklist.tsx"
+  ],
+  "editableFiles": [
+    "src/config/app.ts",
+    "src/config/routes.ts",
+    "src/config/navigation.ts",
+    "src/data/types.ts",
+    "src/data/seed.ts",
+    "src/pages/Dashboard.tsx",
+    "src/pages/DataView.tsx",
+    "src/pages/Settings.tsx"
+  ],
+  "deltaFiles": [
+    "src/config/app.ts",
+    "src/config/navigation.ts",
+    "src/data/types.ts",
+    "src/data/seed.ts",
+    "src/pages/Dashboard.tsx",
+    "src/pages/DataView.tsx",
+    "src/pages/Settings.tsx"
+  ]
+}
