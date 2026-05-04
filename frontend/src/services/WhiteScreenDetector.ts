@@ -701,6 +701,7 @@ const LOADING_PATTERNS = [
 ];
 
 const RUNTIME_ERROR_PATTERNS = [
+  /this page encountered an error/i,
   /must be used within/i,
   /failed to load/i,
   /cannot read propert/i,

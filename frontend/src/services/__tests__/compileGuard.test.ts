@@ -151,11 +151,11 @@ describe('compileGuard bounded repair loop', () => {
   });
 
   it('stops early when repeated failures show no progress', async () => {
-    getRevisionFiles.mockReturnValue({ 'App.tsx': 'export default function App() { return null; }' });
+    getRevisionFiles.mockReturnValue({ 'pages/Home.tsx': 'export default function Home() { return null; }' });
     compileCandidate
       .mockResolvedValueOnce({
         success: false,
-        errors: ['Failed to resolve import "./SamePanel" from "src/App.tsx"'],
+        errors: ['Failed to resolve import "./SamePanel" from "src/pages/Home.tsx"'],
       })
       .mockResolvedValueOnce({
         success: true,
@@ -178,7 +178,7 @@ describe('compileGuard bounded repair loop', () => {
       revId: 'rev-no-progress',
       apiKey: 'test',
       onLog: (msg) => logs.push(msg),
-      initialFailureErrors: ['Failed to resolve import "./SamePanel" from "src/App.tsx"'],
+      initialFailureErrors: ['Failed to resolve import "./SamePanel" from "src/pages/Home.tsx"'],
       callFix,
       recheckAdmission: vi.fn().mockResolvedValue(true),
     });
@@ -233,7 +233,7 @@ describe('compileGuard bounded repair loop', () => {
     expect(result.stopReason).toBe('repair_budget_exhausted');
     expect(result.budgetExhausted).toBe(true);
     expect(result.partialShip).toBe(false);
-    expect(result.attempts).toBe(4);
+    expect(result.attempts).toBe(3);
     expect(callFix).toHaveBeenCalledTimes(2);
     expect(logs.some(msg => msg.includes('Repair budget exhausted'))).toBe(true);
     expect(logs.some(msg => msg.includes('Final stop reason: repair_budget_exhausted'))).toBe(true);
@@ -319,8 +319,38 @@ describe('compileGuard bounded repair loop', () => {
     expect(logs.some(msg => msg.includes('Partial ship blocked for non-route file: hooks/useTheme.ts'))).toBe(true);
   });
 
+  it('does not partial-ship App.tsx into a saveable error screen', async () => {
+    getRevisionFiles.mockReturnValue({
+      'App.tsx': 'export default function App() { return <main>Broken root</main>; }',
+    });
+
+    const { compileWithRetry } = await import('../compileGuard');
+    const logs: string[] = [];
+
+    const result = await compileWithRetry({
+      revId: 'rev-root-entry',
+      apiKey: 'test',
+      onLog: (msg) => logs.push(msg),
+      initialFailureErrors: [
+        'vite build exited 1: Could not load C:/ai_studio/preview-workspace/src/contexts/UserContext (imported by src/App.tsx)',
+      ],
+      callFix: async () => '',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.partialShip).toBe(false);
+    expect(result.minimumViableCandidate).toBe(false);
+    expect(result.stopReason).toBe('partial_ship_blocked_for_non_route_file');
+    expect(writeCandidateFile).not.toHaveBeenCalledWith(
+      'rev-root-entry',
+      '/App.tsx',
+      expect.stringContaining('This page encountered an error'),
+    );
+    expect(logs.some(msg => msg.includes('Partial ship blocked for non-route file: App.tsx'))).toBe(true);
+  });
+
   it('does not widen the candidate file set without admission approval', async () => {
-    getRevisionFiles.mockReturnValue({ 'App.tsx': 'export default function App() { return null; }' });
+    getRevisionFiles.mockReturnValue({ 'pages/Home.tsx': 'export default function Home() { return null; }' });
     compileCandidate.mockResolvedValueOnce({
       success: true,
     });
@@ -332,7 +362,7 @@ describe('compileGuard bounded repair loop', () => {
       revId: 'rev-1',
       apiKey: 'test',
       onLog: () => {},
-      initialFailureErrors: ['Failed to resolve import "./NewPanel" from "src/App.tsx"'],
+      initialFailureErrors: ['Failed to resolve import "./NewPanel" from "src/pages/Home.tsx"'],
       callFix: async () => JSON.stringify({
         artifact: {
           files: [
@@ -346,7 +376,7 @@ describe('compileGuard bounded repair loop', () => {
       recheckAdmission,
     });
 
-    expect(recheckAdmission).toHaveBeenCalledWith(['App.tsx', 'NewPanel.tsx']);
+    expect(recheckAdmission).toHaveBeenCalledWith(['pages/Home.tsx', 'NewPanel.tsx']);
     expect(writeCandidateFile).not.toHaveBeenCalledWith(
       'rev-1',
       '/NewPanel.tsx',

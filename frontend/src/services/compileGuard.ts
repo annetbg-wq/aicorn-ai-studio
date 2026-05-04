@@ -97,8 +97,8 @@ function extractFileFromError(msg: string): string | null {
 function isRouteFallbackTarget(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, '/').replace(/^src\//, '');
   if (!/\.(tsx|jsx)$/i.test(normalized)) return false;
+  if (normalized === 'App.tsx') return false;
   return (
-    normalized === 'App.tsx' ||
     normalized.startsWith('pages/') ||
     normalized.includes('/pages/') ||
     !normalized.includes('/')
@@ -560,7 +560,9 @@ export async function compileWithRetry(config: CompileLoopConfig): Promise<Compi
   const brokenFile = extractFileFromError(errorText);
 
   if (brokenFile && !isRouteFallbackTarget(brokenFile)) {
-    stopReason = 'partial_ship_blocked_for_non_route_file';
+    if (stopReason === 'repair_not_started' || stopReason === 'no_fix_output') {
+      stopReason = 'partial_ship_blocked_for_non_route_file';
+    }
     config.onLog(`[CompileGuard] Partial ship blocked for non-route file: ${brokenFile}`);
     logRepairDecision(config, 'stop', stopReason);
   } else if (brokenFile) {
