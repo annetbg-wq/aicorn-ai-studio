@@ -57,6 +57,9 @@ body, html, #root {
   background-size: 24px 24px;
   color: white;
   font-family: ui-sans-serif, system-ui, sans-serif;
+  /* Allow text selection everywhere by default */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* Код в чате больше не ломает верстку */

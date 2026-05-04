@@ -1,5 +1,6 @@
 import { ConfigService } from './ConfigService';
 import { GeminiService } from './GeminiService';
+import { Orchestrator } from './Orchestrator';
 import { supabase } from '../lib/supabase';
 import {
   getLocalDevAgentProvider,
@@ -512,14 +513,51 @@ export async function runIdeaModelPrompt(
   const IDEA_PACKAGING_TIMEOUT_MS = 60_000;
 
   if (!text.trim()) {
+    // Try Gemini first (if Google token available), then fall back to the
+    // configured standard LLM provider (DeepSeek, OpenRouter, etc.)
     try {
       text = await Promise.race([
-        GeminiService.generate({
-          prompt,
-          googleAccessToken,
-          maxTokens: 6000,
-          onLog: (msg) => console.log(msg),
-        }),
+        (async () => {
+          // 1. Gemini path (requires Google token)
+          if (googleAccessToken) {
+            const geminiText = await GeminiService.generate({
+              prompt,
+              googleAccessToken,
+              maxTokens: 6000,
+              onLog: (msg) => console.log(msg),
+            }).catch(() => '');
+            if (geminiText.trim()) return geminiText;
+          }
+
+          // 2. Standard provider path (DeepSeek / OpenRouter / OpenAI / etc.)
+          const agentCfg = ConfigService.getAgentConfig('agent_primary');
+          const provider = agentCfg.provider || 'openrouter';
+          const apiKey = ConfigService.getKeyForAgent('primary') || ConfigService.getApiKey();
+          if (!apiKey) throw new Error(`No API key configured. Set your ${provider} key in Settings.`);
+
+          const endpoint = Orchestrator.getEndpoint(provider);
+          const modelId = agentCfg.modelId || ConfigService.resolveModel('primary');
+
+          const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: modelId,
+              messages: [{ role: 'user', content: prompt }],
+              max_tokens: 6000,
+              temperature: 0.7,
+            }),
+          });
+          if (!resp.ok) {
+            const err = await resp.text().catch(() => '');
+            throw new Error(`${provider} API error ${resp.status}: ${err.slice(0, 200)}`);
+          }
+          const data = await resp.json() as { choices?: Array<{ message?: { content?: string } }> };
+          return data.choices?.[0]?.message?.content ?? '';
+        })(),
         new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error('Idea packaging timed out after 60s. Check your API key in Settings.')),
