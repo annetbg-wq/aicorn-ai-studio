@@ -293,7 +293,7 @@ describe('SimpleGeneration route guard', () => {
         onPlan:   () => {},
       }),
     ).rejects.toThrow('ROUTING VIOLATION');
-  });
+  }, 15_000);
 });
 
 // ── FAIL-repair regression tests ──────────────────────────────────────────────

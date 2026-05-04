@@ -1,0 +1,51 @@
+{
+  "id": "mobile-app",
+  "workingGroups": [
+    { "label": "core", "paths": ["src/App.tsx", "src/main.tsx", "src/index.css", "src/route-manifest.json"] },
+    { "label": "config", "paths": ["src/config/app.ts", "src/config/routes.ts", "src/config/navigation.ts", "src/config/theme.ts"] },
+    { "label": "layout", "paths": ["src/components/BottomTabs.tsx"] },
+    { "label": "states", "paths": ["src/components/ErrorBoundary.tsx", "src/components/LoadingScreen.tsx", "src/components/EmptyState.tsx", "src/components/PaywallSheet.tsx"] },
+    { "label": "ui", "paths": ["src/components/ui/*"] },
+    { "label": "hooks", "paths": ["src/hooks/useLocalStorage.ts", "src/hooks/useTheme.ts"] },
+    { "label": "runtime", "paths": ["src/context/AppContext.tsx", "src/lib/cn.ts"] }
+  ],
+  "protectedFiles": [
+    "src/main.tsx",
+    "src/index.css",
+    "src/lib/**",
+    "src/context/AppContext.tsx",
+    "src/hooks/useLocalStorage.ts",
+    "src/hooks/useTheme.ts",
+    "src/components/ui/**",
+    "src/components/BottomTabs.tsx",
+    "src/components/ErrorBoundary.tsx",
+    "src/components/LoadingScreen.tsx",
+    "src/components/EmptyState.tsx",
+    "src/components/PaywallSheet.tsx"
+  ],
+  "editableFiles": [
+    "src/config/app.ts",
+    "src/config/routes.ts",
+    "src/config/navigation.ts",
+    "src/data/types.ts",
+    "src/data/seed.ts",
+    "src/pages/Onboarding.tsx",
+    "src/pages/Home.tsx",
+    "src/pages/Detail.tsx",
+    "src/pages/Create.tsx",
+    "src/pages/Progress.tsx",
+    "src/pages/Profile.tsx"
+  ],
+  "deltaFiles": [
+    "src/config/app.ts",
+    "src/config/navigation.ts",
+    "src/data/types.ts",
+    "src/data/seed.ts",
+    "src/pages/Onboarding.tsx",
+    "src/pages/Home.tsx",
+    "src/pages/Detail.tsx",
+    "src/pages/Create.tsx",
+    "src/pages/Progress.tsx",
+    "src/pages/Profile.tsx"
+  ]
+}

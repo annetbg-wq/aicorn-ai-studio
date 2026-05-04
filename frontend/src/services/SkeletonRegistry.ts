@@ -12,6 +12,13 @@
  * is sent — zero skeleton tokens hit the LLM context.
  */
 
+import ecommerceManifest from './skeleton-manifests/ecommerce/skeleton.manifest.json';
+import landingPageManifest from './skeleton-manifests/landing-page/skeleton.manifest.json';
+import mobileAppManifest from './skeleton-manifests/mobile-app/skeleton.manifest.json';
+import productivityToolManifest from './skeleton-manifests/productivity-tool/skeleton.manifest.json';
+import saasDashboardManifest from './skeleton-manifests/saas-dashboard/skeleton.manifest.json';
+import socialCommunityManifest from './skeleton-manifests/social-community/skeleton.manifest.json';
+
 export type SkeletonId =
   | 'mobile-app'
   | 'saas-dashboard'
@@ -43,6 +50,28 @@ export interface SkeletonPromptContext {
   plan?: Record<string, unknown> | null;
   technicalBlueprint?: Record<string, unknown> | null;
 }
+
+interface SkeletonManifestGroup {
+  label: string;
+  paths: string[];
+}
+
+interface SkeletonManifest {
+  id: SkeletonId;
+  workingGroups: SkeletonManifestGroup[];
+  protectedFiles: string[];
+  editableFiles: string[];
+  deltaFiles: string[];
+}
+
+const SKELETON_MANIFESTS: Record<SkeletonId, SkeletonManifest> = {
+  'mobile-app':        mobileAppManifest as SkeletonManifest,
+  'saas-dashboard':    saasDashboardManifest as SkeletonManifest,
+  'landing-page':      landingPageManifest as SkeletonManifest,
+  'social-community':  socialCommunityManifest as SkeletonManifest,
+  'productivity-tool': productivityToolManifest as SkeletonManifest,
+  ecommerce:           ecommerceManifest as SkeletonManifest,
+};
 
 export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
   'mobile-app': {
@@ -390,55 +419,54 @@ function collectBlueprintFiles(context?: SkeletonPromptContext): string[] {
 }
 
 export function getSkeletonInstalledFiles(skeletonId: SkeletonId): string[] {
-  const s = SKELETON_REGISTRY[skeletonId];
-  if (!s) return [];
+  const manifest = SKELETON_MANIFESTS[skeletonId];
+  if (!manifest) return [];
+  return uniqueSorted(manifest.workingGroups.flatMap(group => group.paths));
+}
 
-  const files = [
-    'src/App.tsx',
-    'src/main.tsx',
-    'src/index.css',
-    'src/route-manifest.json',
-    'src/lib/cn.ts',
-    'src/context/AppContext.tsx',
-    'src/config/app.ts',
-    'src/config/routes.ts',
-    'src/config/navigation.ts',
-    'src/config/theme.ts',
-    ...s.deltaFiles,
-    ...s.providedHooks
-      .filter(hook => hook !== 'useApp')
-      .map(hook => `src/hooks/${hook}.ts`),
-    ...s.providedComponents.map(component => `src/components/${component}.tsx`),
-    ...s.uiPrimitives.map(component => `src/components/ui/${component}.tsx`),
-  ];
+function globPatternToRegExp(pattern: string): RegExp {
+  const normalized = normalizeSkeletonPath(pattern);
+  let source = '';
+  for (let i = 0; i < normalized.length; i += 1) {
+    const ch = normalized[i];
+    if (ch === '*') {
+      if (normalized[i + 1] === '*') {
+        source += '.*';
+        i += 1;
+      } else {
+        source += '[^/]*';
+      }
+    } else {
+      source += ch.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  return new RegExp(`^${source}$`, 'i');
+}
 
-  return uniqueSorted(files);
+function pathMatchesPattern(path: string, pattern: string): boolean {
+  const normalizedPath = normalizeSkeletonPath(path);
+  const normalizedPattern = normalizeSkeletonPath(pattern);
+  if (!normalizedPath || !normalizedPattern) return false;
+  if (!normalizedPattern.includes('*')) {
+    return normalizedPath.toLowerCase() === normalizedPattern.toLowerCase();
+  }
+  return globPatternToRegExp(normalizedPattern).test(normalizedPath);
 }
 
 export function isProtectedSkeletonFile(skeletonId: SkeletonId, path: string): boolean {
-  const s = SKELETON_REGISTRY[skeletonId];
-  if (!s) return false;
-  const normalized = normalizeSkeletonPath(path).toLowerCase();
-  if (!normalized) return false;
-
-  if (normalized === 'src/main.tsx') return true;
-  if (normalized === 'src/index.css') return true;
-  if (normalized.startsWith('src/lib/')) return true;
-  if (normalized.startsWith('src/components/ui/')) return true;
-  if (normalized === 'src/context/appcontext.tsx') return true;
-  if (normalized === 'src/hooks/uselocalstorage.ts') return true;
-  if (normalized === 'src/hooks/usetheme.ts') return true;
-
-  const protectedComponentFiles = new Set(
-    s.providedComponents.map(component =>
-      normalizeSkeletonPath(`src/components/${component}.tsx`).toLowerCase(),
-    ),
-  );
-  return protectedComponentFiles.has(normalized);
+  const manifest = SKELETON_MANIFESTS[skeletonId];
+  if (!manifest) return false;
+  return manifest.protectedFiles.some(pattern => pathMatchesPattern(path, pattern));
 }
 
 function formatPathList(paths: string[], empty = '  - none'): string {
   return paths.length ? paths.map(path => `  - ${path}`).join('\n') : empty;
+}
+
+function formatWorkingGroups(groups: SkeletonManifestGroup[]): string {
+  return groups
+    .map(group => `- ${group.label}: ${group.paths.join(', ')}`)
+    .join('\n');
 }
 
 /**
@@ -452,6 +480,7 @@ export function buildSkeletonPromptBlock(
   const s = SKELETON_REGISTRY[skeletonId];
   if (!s || !s.available) return '';
 
+  const manifest = SKELETON_MANIFESTS[skeletonId];
   const installedFiles = getSkeletonInstalledFiles(skeletonId);
   const blueprintFiles = collectBlueprintFiles(context);
   const blueprintDeltaFiles = blueprintFiles.filter(path => !installedFiles.includes(path));
@@ -460,16 +489,22 @@ export function buildSkeletonPromptBlock(
       installedFiles.includes(path) && !isProtectedSkeletonFile(skeletonId, path),
     ),
   );
-  const mustOutputFiles = uniqueSorted([...editableSkeletonFiles, ...blueprintDeltaFiles]);
+  const manifestDeltaFiles = manifest?.deltaFiles ?? s.deltaFiles;
+  const manifestEditableFiles = manifest?.editableFiles ?? s.deltaFiles;
+  const mustOutputFiles = uniqueSorted([
+    ...manifestDeltaFiles,
+    ...editableSkeletonFiles,
+    ...blueprintDeltaFiles,
+  ]);
 
   return `
 ═══════════════════════════════════════════════════════
   SKELETON ALREADY INSTALLED: ${s.label} (${s.id})
 ═══════════════════════════════════════════════════════
 
-SKELETON ALREADY INSTALLED in the project. These files ALREADY EXIST and are WORKING
-(source: src/route-manifest.json + skeleton registry):
-${formatPathList(installedFiles)}
+SKELETON ALREADY INSTALLED in the project. These file groups ALREADY EXIST and are WORKING
+(source: skeleton.manifest.json + src/route-manifest.json):
+${manifest ? formatWorkingGroups(manifest.workingGroups) : formatPathList(installedFiles)}
 
 Navigation pattern: ${s.navigation}
 
@@ -486,7 +521,10 @@ Import paths:
 - Config: app.ts, routes.ts, navigation.ts already exist. MODIFY them when needed; do not create duplicates.
 
 PROTECTED FILES — DO NOT OUTPUT THESE FILES:
-${formatPathList(installedFiles.filter(path => isProtectedSkeletonFile(skeletonId, path)))}
+${formatPathList(manifest?.protectedFiles ?? installedFiles.filter(path => isProtectedSkeletonFile(skeletonId, path)))}
+
+EDITABLE SKELETON FILES — MODIFY IN PLACE WHEN NEEDED:
+${formatPathList(manifestEditableFiles)}
 
 YOUR TASK: Write ONLY the delta files. New pages, new components, new hooks, and
 product-specific config/data changes that the skeleton does not provide.
