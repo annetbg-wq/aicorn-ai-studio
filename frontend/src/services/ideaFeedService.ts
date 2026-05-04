@@ -536,7 +536,8 @@ export async function runIdeaModelPrompt(
           if (!apiKey) throw new Error(`No API key configured. Set your ${provider} key in Settings.`);
 
           const endpoint = Orchestrator.getEndpoint(provider);
-          const modelId = agentCfg.modelId || ConfigService.resolveModel('primary');
+          const rawModelId = agentCfg.modelId || ConfigService.resolveModel('primary');
+          const modelId = Orchestrator.normalizeModelId(rawModelId, endpoint);
 
           const resp = await fetch(endpoint, {
             method: 'POST',
