@@ -873,9 +873,31 @@ export class Orchestrator {
       case 'openai':        return 'https://api.openai.com/v1/chat/completions';
       case 'google':        return 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
       case 'deepseek':      return 'https://api.deepseek.com/v1/chat/completions';
+      case 'mistral':       return 'https://api.mistral.ai/v1/chat/completions';
+      case 'groq':          return 'https://api.groq.com/openai/v1/chat/completions';
       case 'claude-bridge': return `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/chat`;
       default:              return 'https://openrouter.ai/api/v1/chat/completions';
     }
+  }
+
+  /**
+   * Normalize model ID for the target endpoint:
+   * - Native APIs (deepseek, openai, etc.) expect bare IDs: "deepseek-v4-pro"
+   * - OpenRouter expects "provider/model": "deepseek/deepseek-v4-pro"
+   */
+  static normalizeModelId(modelId: string, endpoint: string): string {
+    const isOpenRouter = endpoint.includes('openrouter.ai');
+    if (!isOpenRouter && modelId.includes('/')) {
+      return modelId.split('/').slice(1).join('/');
+    }
+    if (isOpenRouter && !modelId.includes('/')) {
+      if      (modelId.startsWith('claude-'))   return `anthropic/${modelId}`;
+      else if (modelId.startsWith('gpt-'))      return `openai/${modelId}`;
+      else if (modelId.startsWith('gemini-'))   return `google/${modelId}`;
+      else if (modelId.startsWith('mistral-'))  return `mistralai/${modelId}`;
+      else if (modelId.startsWith('deepseek-')) return `deepseek/${modelId}`;
+    }
+    return modelId;
   }
 
   // ---- Heuristic checker ----

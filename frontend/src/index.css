@@ -62,6 +62,12 @@ body, html, #root {
   -webkit-user-select: text;
 }
 
+/* Force text selection in all text/content areas regardless of inline styles */
+p, span, div, li, td, th, h1, h2, h3, h4, h5, h6, label, pre, code, blockquote {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
 /* Код в чате больше не ломает верстку */
 pre {
   max-width: 100% !important;

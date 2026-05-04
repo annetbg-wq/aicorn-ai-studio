@@ -761,6 +761,14 @@ async function runStandardAgents(
     );
   }
 
+  // Strip "provider/" prefix for native endpoints (e.g. "deepseek/deepseek-v4-pro" → "deepseek-v4-pro")
+  const isNative = configuredProvider !== 'openrouter';
+  const effectiveModel = (() => {
+    const base = rawModel || DEFAULT_OPENROUTER_MODEL;
+    if (isNative && base.includes('/')) return base.split('/').slice(1).join('/');
+    return base;
+  })();
+
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -768,7 +776,7 @@ async function runStandardAgents(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: rawModel || DEFAULT_OPENROUTER_MODEL,
+      model: effectiveModel,
       max_tokens: 4096,
       messages: [{ role: 'user', content: prompt }],
     }),
