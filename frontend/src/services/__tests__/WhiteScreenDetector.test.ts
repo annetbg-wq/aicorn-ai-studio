@@ -69,6 +69,17 @@ function mountPreviewIframe(buildId: string, bodyText = '<main>Healthy preview c
   const iframe = document.createElement('iframe');
   iframe.setAttribute('data-testid', 'preview-iframe');
   iframe.setAttribute('data-build-id', buildId);
+  iframe.getBoundingClientRect = () => ({
+    x: 0,
+    y: 0,
+    width: 390,
+    height: 844,
+    top: 0,
+    right: 390,
+    bottom: 844,
+    left: 0,
+    toJSON: () => ({}),
+  });
   document.body.appendChild(iframe);
   const doc = iframe.contentDocument;
   if (doc?.body) {
@@ -319,6 +330,19 @@ describe('evaluateMetrics', () => {
       rootOffsetHeight: 360,
       rootTextHead: text,
       interactiveElementCount: 2,
+    }), BUILD);
+    expect(result.healthy).toBe(false);
+    expect(result.reason).toBe('runtime-error-screen');
+  });
+
+  it('detects runtime-error-screen: compileGuard page error fallback', () => {
+    const text = 'This page encountered an error vite build exited 1';
+    const result = evaluateMetrics(makeMetrics({
+      rootChildCount: 3,
+      rootInnerTextLength: text.length,
+      rootOffsetHeight: 360,
+      rootTextHead: text,
+      semanticElementCount: 1,
     }), BUILD);
     expect(result.healthy).toBe(false);
     expect(result.reason).toBe('runtime-error-screen');
