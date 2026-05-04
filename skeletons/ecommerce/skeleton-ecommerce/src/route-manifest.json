@@ -1,0 +1,81 @@
+{
+  "skeletonId": "ecommerce-marketplace",
+  "label": "E-commerce Marketplace",
+  "version": "0.2.0",
+  "navigation": "bottom-tabs",
+  "shell": "AppShell + BottomTabs (cart + wishlist count badges)",
+  "routes": [
+    { "path": "/", "page": "src/pages/Home.tsx" },
+    { "path": "/search", "page": "src/pages/Search.tsx" },
+    { "path": "/product/:productId", "page": "src/pages/ProductDetail.tsx", "params": ["productId"] },
+    { "path": "/cart", "page": "src/pages/Cart.tsx" },
+    { "path": "/checkout", "page": "src/pages/Checkout.tsx" },
+    { "path": "/wishlist", "page": "src/pages/Wishlist.tsx" },
+    { "path": "/account", "page": "src/pages/Account.tsx" }
+  ],
+  "tabs": [
+    { "to": "/", "label": "Shop" },
+    { "to": "/search", "label": "Search" },
+    { "to": "/wishlist", "label": "Saved", "badge": "wishlist" },
+    { "to": "/cart", "label": "Bag", "badge": "cart" },
+    { "to": "/account", "label": "Account" }
+  ],
+  "providedComponents": [
+    "ErrorBoundary",
+    "LoadingScreen",
+    "EmptyState",
+    "BottomTabs",
+    "ProductCard",
+    "ProductImage",
+    "ImageGallery",
+    "RatingStars",
+    "ReviewItem",
+    "FiltersSidebar"
+  ],
+  "providedHooks": [
+    "useApp",
+    "useLocalStorage",
+    "useTheme",
+    "useCart",
+    "useWishlist"
+  ],
+  "uiPrimitives": [
+    "Avatar",
+    "Badge",
+    "Button",
+    "Card",
+    "Dialog",
+    "Input",
+    "Progress",
+    "Select",
+    "Sheet",
+    "Skeleton",
+    "Tabs"
+  ],
+  "designTokens": [
+    "--pm-canvas",
+    "--pm-surface",
+    "--pm-surface-soft",
+    "--pm-ink",
+    "--pm-muted",
+    "--pm-line",
+    "--pm-brand",
+    "--pm-on-brand",
+    "--pm-success",
+    "--pm-warning",
+    "--pm-rose",
+    "--pm-violet",
+    "--pm-overlay"
+  ],
+  "config": {
+    "appIdentity": "src/config/app.ts (currency, freeShippingThreshold)",
+    "routes": "src/config/routes.ts",
+    "navigation": "src/config/navigation.ts",
+    "theme": "src/config/theme.ts"
+  },
+  "placeholders": {
+    "appName": "AppName — defined in src/config/app.ts → APP_CONFIG.name",
+    "productMarkers": "/* PRODUCT: ... */ — copy and domain rewrites",
+    "seedMarkers": "/* SEED: ... */ — replace with real data source"
+  }
+}
