@@ -1796,7 +1796,11 @@ Rules:
     const agentId = SLOT_TO_AGENT[agentSlot] ?? 'agent_primary';
     const cfg     = ConfigService.getAgentConfig(agentId);
     const apiKey  = (ConfigService.getKeyForAgent(agentSlot) || fallbackApiKey || ConfigService.getApiKey()).trim();
-    const modelId = cfg.modelId || ConfigService.resolveModel(agentSlot);
+    const primaryEndpoint = this.getEndpoint(cfg.provider);
+    const modelId = Orchestrator.normalizeModelId(
+      cfg.modelId || ConfigService.resolveModel(agentSlot),
+      primaryEndpoint,
+    );
 
     const allMessages: { role: string; content: string }[] = systemPrompt
       ? [{ role: 'system', content: systemPrompt }, ...messages]
@@ -1815,7 +1819,7 @@ Rules:
         );
       }
       return await withOrchestratorTimeout(
-        this._rawComplete(allMessages, modelId, apiKey, this.getEndpoint(cfg.provider)),
+        this._rawComplete(allMessages, modelId, apiKey, primaryEndpoint),
         `callWithFallback slot=${agentSlot} model=${modelId}`,
       );
     } catch (err: unknown) {
@@ -1827,14 +1831,16 @@ Rules:
     // ── Attempt 2: fallback1 (OpenRouter reserve) ────────────────────────────
     if (cfg.fallback1ModelId) {
       const f1Provider = (cfg.fallback1Provider as ApiProvider | undefined) ?? 'openrouter';
+      const f1Endpoint = this.getEndpoint(f1Provider);
+      const f1ModelId  = Orchestrator.normalizeModelId(cfg.fallback1ModelId, f1Endpoint);
       try {
         return await withOrchestratorTimeout(
-          this._rawComplete(allMessages, cfg.fallback1ModelId, apiKey, this.getEndpoint(f1Provider)),
-          `callWithFallback slot=${agentSlot} model=${cfg.fallback1ModelId}`,
+          this._rawComplete(allMessages, f1ModelId, apiKey, f1Endpoint),
+          `callWithFallback slot=${agentSlot} model=${f1ModelId}`,
         );
       } catch (err: unknown) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        console.warn(`[Fallback2] fallback1 (${cfg.fallback1ModelId}) failed → trying fallback2 (native API)`, lastError.message);
+        console.warn(`[Fallback2] fallback1 (${f1ModelId}) failed → trying fallback2 (native API)`, lastError.message);
       }
     }
 
@@ -1853,9 +1859,10 @@ Rules:
           const f2Endpoint = f2BaseUrl
             ? f2BaseUrl + '/chat/completions'
             : 'https://openrouter.ai/api/v1/chat/completions';
+          const f2ModelId  = Orchestrator.normalizeModelId(cfg.fallback2ModelId, f2Endpoint);
           return await withOrchestratorTimeout(
-            this._rawComplete(allMessages, cfg.fallback2ModelId, f2Key, f2Endpoint),
-            `callWithFallback slot=${agentSlot} model=${cfg.fallback2ModelId}`,
+            this._rawComplete(allMessages, f2ModelId, f2Key, f2Endpoint),
+            `callWithFallback slot=${agentSlot} model=${f2ModelId}`,
           );
         }
       } catch (err: unknown) {
