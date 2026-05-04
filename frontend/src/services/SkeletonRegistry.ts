@@ -39,6 +39,11 @@ export interface SkeletonMeta {
   available: boolean;
 }
 
+export interface SkeletonPromptContext {
+  plan?: Record<string, unknown> | null;
+  technicalBlueprint?: Record<string, unknown> | null;
+}
+
 export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
   'mobile-app': {
     id: 'mobile-app',
@@ -340,43 +345,164 @@ export function selectSkeleton(
   return 'mobile-app'; // universal default
 }
 
+function normalizeSkeletonPath(path: string): string {
+  let p = String(path || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!p) return '';
+  if (!p.startsWith('src/')) p = `src/${p}`;
+  return p.replace(/\/+/g, '/');
+}
+
+function uniqueSorted(paths: string[]): string[] {
+  return [...new Set(paths.map(normalizeSkeletonPath).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function collectStringPath(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/\.(tsx?|jsx?|json|css)$/.test(trimmed)) return null;
+  return normalizeSkeletonPath(trimmed);
+}
+
+function collectBlueprintFilesFromObject(value: unknown, out: Set<string>): void {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectBlueprintFilesFromObject(item, out);
+    return;
+  }
+
+  const obj = value as Record<string, unknown>;
+  for (const key of ['path', 'file', 'entry', 'component', 'page']) {
+    const path = collectStringPath(obj[key]);
+    if (path) out.add(path);
+  }
+  for (const nested of Object.values(obj)) {
+    if (nested && typeof nested === 'object') collectBlueprintFilesFromObject(nested, out);
+  }
+}
+
+function collectBlueprintFiles(context?: SkeletonPromptContext): string[] {
+  const out = new Set<string>();
+  collectBlueprintFilesFromObject(context?.plan, out);
+  collectBlueprintFilesFromObject(context?.technicalBlueprint, out);
+  return uniqueSorted([...out]);
+}
+
+export function getSkeletonInstalledFiles(skeletonId: SkeletonId): string[] {
+  const s = SKELETON_REGISTRY[skeletonId];
+  if (!s) return [];
+
+  const files = [
+    'src/App.tsx',
+    'src/main.tsx',
+    'src/index.css',
+    'src/route-manifest.json',
+    'src/lib/cn.ts',
+    'src/context/AppContext.tsx',
+    'src/config/app.ts',
+    'src/config/routes.ts',
+    'src/config/navigation.ts',
+    'src/config/theme.ts',
+    ...s.deltaFiles,
+    ...s.providedHooks
+      .filter(hook => hook !== 'useApp')
+      .map(hook => `src/hooks/${hook}.ts`),
+    ...s.providedComponents.map(component => `src/components/${component}.tsx`),
+    ...s.uiPrimitives.map(component => `src/components/ui/${component}.tsx`),
+  ];
+
+  return uniqueSorted(files);
+}
+
+export function isProtectedSkeletonFile(skeletonId: SkeletonId, path: string): boolean {
+  const s = SKELETON_REGISTRY[skeletonId];
+  if (!s) return false;
+  const normalized = normalizeSkeletonPath(path).toLowerCase();
+  if (!normalized) return false;
+
+  if (normalized === 'src/main.tsx') return true;
+  if (normalized === 'src/index.css') return true;
+  if (normalized.startsWith('src/lib/')) return true;
+  if (normalized.startsWith('src/components/ui/')) return true;
+  if (normalized === 'src/context/appcontext.tsx') return true;
+  if (normalized === 'src/hooks/uselocalstorage.ts') return true;
+  if (normalized === 'src/hooks/usetheme.ts') return true;
+
+  const protectedComponentFiles = new Set(
+    s.providedComponents.map(component =>
+      normalizeSkeletonPath(`src/components/${component}.tsx`).toLowerCase(),
+    ),
+  );
+  return protectedComponentFiles.has(normalized);
+}
+
+function formatPathList(paths: string[], empty = '  - none'): string {
+  return paths.length ? paths.map(path => `  - ${path}`).join('\n') : empty;
+}
+
 /**
  * Build the compact skeleton context block injected into the BUILD prompt.
  * ~600 tokens total — no skeleton source code included.
  */
-export function buildSkeletonPromptBlock(skeletonId: SkeletonId): string {
+export function buildSkeletonPromptBlock(
+  skeletonId: SkeletonId,
+  context?: SkeletonPromptContext,
+): string {
   const s = SKELETON_REGISTRY[skeletonId];
   if (!s || !s.available) return '';
 
+  const installedFiles = getSkeletonInstalledFiles(skeletonId);
+  const blueprintFiles = collectBlueprintFiles(context);
+  const blueprintDeltaFiles = blueprintFiles.filter(path => !installedFiles.includes(path));
+  const editableSkeletonFiles = uniqueSorted(
+    blueprintFiles.filter(path =>
+      installedFiles.includes(path) && !isProtectedSkeletonFile(skeletonId, path),
+    ),
+  );
+  const mustOutputFiles = uniqueSorted([...editableSkeletonFiles, ...blueprintDeltaFiles]);
+
   return `
 ═══════════════════════════════════════════════════════
-  SKELETON INSTALLED: ${s.label} (${s.id})
+  SKELETON ALREADY INSTALLED: ${s.label} (${s.id})
 ═══════════════════════════════════════════════════════
 
-The project skeleton is already installed in the workspace.
+SKELETON ALREADY INSTALLED in the project. These files ALREADY EXIST and are WORKING
+(source: src/route-manifest.json + skeleton registry):
+${formatPathList(installedFiles)}
+
 Navigation pattern: ${s.navigation}
 
-PROVIDED — DO NOT RECREATE (already compiled and working):
+DO NOT rewrite protected skeleton infrastructure files. They are production-quality and tested.
+
+PROVIDED — IMPORT, DO NOT RECREATE:
 Components: ${s.providedComponents.join(', ')}
 Hooks: ${s.providedHooks.length ? s.providedHooks.join(', ') : 'none'}
 UI primitives: ${s.uiPrimitives.join(', ')}
-Import path: @/components/..., @/hooks/..., @/lib/cn
+Import paths:
+- UI primitives: import from '@/components/ui/'
+- Layout: import from existing App.tsx, BottomTabs, Sidebar, TopBar where provided
+- Hooks: useLocalStorage and useTheme already exist
+- Config: app.ts, routes.ts, navigation.ts already exist. MODIFY them when needed; do not create duplicates.
 
-LOCKED FILES — DO NOT OUTPUT THESE FILES:
-${s.lockedPrefixes.map(p => `  • ${p}`).join('\n')}
+PROTECTED FILES — DO NOT OUTPUT THESE FILES:
+${formatPathList(installedFiles.filter(path => isProtectedSkeletonFile(skeletonId, path)))}
 
-YOUR JOB — WRITE ONLY THESE ${s.deltaFiles.length} FILES:
-${s.deltaFiles.map(f => `  • ${f}`).join('\n')}
+YOUR TASK: Write ONLY the delta files. New pages, new components, new hooks, and
+product-specific config/data changes that the skeleton does not provide.
+
+Files you MUST create or modify (delta only; blueprint files after excluding protected skeleton files):
+${formatPathList(mustOutputFiles)}
 
 KEY RULES:
-• Replace "AppName" with the real product name everywhere
-• Replace all /* PRODUCT: ... */ markers with product-specific content
-• Replace all // SEED: ... markers with real domain data (5-10 items)
-• Import from existing skeleton files — do not duplicate their code
-• Use design tokens: bg-background, bg-card, text-foreground, text-muted-foreground,
+- Replace "AppName" with the real product name everywhere
+- Replace all /* PRODUCT: ... */ markers with product-specific content
+- Replace all // SEED: ... markers with real domain data (5-10 items)
+- Import from existing skeleton files. Do not duplicate their code.
+- Use design tokens: bg-background, bg-card, text-foreground, text-muted-foreground,
   border-border, text-primary, --pm-brand (never hardcode hex colors)
-• Every list page uses <EmptyState> from @/components/EmptyState
-• Every loading state uses <Skeleton> from @/components/ui/Skeleton
-• Paywall trigger: call openPaywall() from useApp() after freeActionLimit actions
+- Every list page uses <EmptyState> from @/components/EmptyState
+- Every loading state uses <Skeleton> from @/components/ui/Skeleton
+- Paywall trigger: call openPaywall() from useApp() after freeActionLimit actions
 `.trim();
 }
