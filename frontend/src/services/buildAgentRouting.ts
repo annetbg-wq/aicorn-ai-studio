@@ -49,6 +49,19 @@ function endpointForProvider(provider: ApiProvider): string {
   }
 }
 
+/**
+ * Strip the provider prefix from a model ID when targeting a native API.
+ * e.g. "deepseek/deepseek-v4-flash" → "deepseek-v4-flash" for DeepSeek's own endpoint.
+ * OpenRouter model IDs (which need the prefix) are left untouched.
+ */
+function normalizeModelForEndpoint(modelId: string, endpoint: string): string {
+  const isOpenRouter = endpoint.includes('openrouter.ai');
+  if (!isOpenRouter && modelId.includes('/')) {
+    return modelId.split('/').slice(1).join('/');
+  }
+  return modelId;
+}
+
 const SLOT_AGENT_KEY: Record<AgentSlot, string> = {
   primary: 'agent_primary',
   fix:     'agent_fix',
@@ -80,7 +93,7 @@ export function resolveStandardRoute(
 
   const agentKey              = SLOT_AGENT_KEY[slot];
   const cfg                   = ConfigService.getAgentConfig(agentKey);
-  const modelId               = ConfigService.resolveModel(slot);
+  const rawModelId            = ConfigService.resolveModel(slot);
   const keyResolution         = ConfigService.getKeyResolutionForAgent(slot);
   const rawProvider           = (cfg.provider ?? keyResolution.provider ?? 'openrouter') as ApiProvider;
   const configuredKey         = keyResolution.key;
@@ -90,6 +103,7 @@ export function resolveStandardRoute(
   // Rule 3: Anthropic → OpenRouter fallback (streaming incompatibility)
   if (rawProvider === 'anthropic') {
     const endpoint = endpointForProvider('openrouter');
+    const modelId  = normalizeModelForEndpoint(rawModelId, endpoint);
     const reason   =
       `slot=${slot} model=${modelId} configured-provider=anthropic → openrouter (streaming-fallback)`;
     onLog?.(`[RouteResolver] ${reason}`);
@@ -108,6 +122,7 @@ export function resolveStandardRoute(
   // Rule 2: missing provider key → OpenRouter fallback
   if (!configuredKey && rawProvider !== 'openrouter') {
     const endpoint = endpointForProvider('openrouter');
+    const modelId  = normalizeModelForEndpoint(rawModelId, endpoint);
     const reason   =
       `slot=${slot} model=${modelId} configured-provider=${rawProvider} key=MISSING → openrouter (missing-key-fallback)`;
     onLog?.(`[RouteResolver] ${reason}`);
@@ -128,6 +143,7 @@ export function resolveStandardRoute(
     ? (configuredKey || fallbackOpenRouterKey)
     : configuredKey;
   const endpoint    = endpointForProvider(rawProvider);
+  const modelId     = normalizeModelForEndpoint(rawModelId, endpoint);
   const keyTail     = resolvedKey ? `...${resolvedKey.slice(-6)}` : '(none)';
   const reason      =
     `slot=${slot} model=${modelId} provider=${rawProvider} key=${keyTail}`;

@@ -242,6 +242,33 @@ describe('resolveStandardRoute', () => {
     expect(route.fallbackReason).toBeUndefined();
     expect(route.endpoint).toMatch(/openai\.com/);
   });
+
+  // 11. Native deepseek provider strips slash prefix from model ID
+  it('strips provider prefix from model ID when using native deepseek endpoint', () => {
+    setAgentConfigRaw('agent_fix', 'deepseek', 'deepseek/deepseek-v4-flash');
+    setProviderKey('deepseek', 'sk-deepseek-key');
+
+    const route = resolveStandardRoute('fix');
+
+    expect(route.provider).toBe('deepseek');
+    expect(route.endpoint).toMatch(/deepseek\.com/);
+    // Slash prefix must be stripped for native API
+    expect(route.modelId).toBe('deepseek-v4-flash');
+    expect(route.modelId).not.toContain('/');
+  });
+
+  // 12. OpenRouter model IDs with slash prefix are NOT stripped
+  it('preserves provider/model prefix for OpenRouter endpoint', () => {
+    setAgentConfigRaw('agent_build', 'openrouter', 'deepseek/deepseek-v4-flash');
+    setProviderKey('openrouter', 'sk-or-key');
+
+    const route = resolveStandardRoute('build');
+
+    expect(route.provider).toBe('openrouter');
+    expect(route.endpoint).toMatch(/openrouter\.ai/);
+    // Full model ID must be preserved for OpenRouter
+    expect(route.modelId).toBe('deepseek/deepseek-v4-flash');
+  });
 });
 
 // ── Integration: SimpleGeneration route guard ─────────────────────────────────
