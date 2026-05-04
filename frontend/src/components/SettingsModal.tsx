@@ -464,19 +464,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const setRemoteDevAgentProvider = async (nextProvider: DevAgentProvider) => {
     if (nextProvider === 'claude') {
-      const current = localStorage.getItem('AGENT_CONFIG_agent_primary');
-      if (current) localStorage.setItem('CLAUDE_MAX_PREV_CONFIG', current);
+      // Save BOTH slots independently so each can be restored to its own key.
+      const snapshot = {
+        primary: localStorage.getItem('AGENT_CONFIG_agent_primary'),
+        build:   localStorage.getItem('AGENT_CONFIG_agent_build'),
+      };
+      localStorage.setItem('CLAUDE_MAX_PREV_CONFIG', JSON.stringify(snapshot));
       localStorage.setItem('AGENT_CONFIG_agent_primary', CLAUDE_BRIDGE_CFG);
-      localStorage.setItem('AGENT_CONFIG_agent_build', CLAUDE_BRIDGE_CFG);
+      localStorage.setItem('AGENT_CONFIG_agent_build',   CLAUDE_BRIDGE_CFG);
     } else {
-      const prev = localStorage.getItem('CLAUDE_MAX_PREV_CONFIG');
-      if (prev) {
-        localStorage.setItem('AGENT_CONFIG_agent_primary', prev);
-        localStorage.setItem('AGENT_CONFIG_agent_build', prev);
-      } else {
-        localStorage.removeItem('AGENT_CONFIG_agent_primary');
-        localStorage.removeItem('AGENT_CONFIG_agent_build');
+      const raw  = localStorage.getItem('CLAUDE_MAX_PREV_CONFIG');
+      // Handle legacy format where raw is a plain agent-config JSON string (not {primary,build}).
+      let snapshot: { primary?: string | null; build?: string | null } = {};
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as unknown;
+          if (parsed && typeof parsed === 'object' && ('primary' in parsed || 'build' in parsed)) {
+            snapshot = parsed as typeof snapshot;
+          } else {
+            // Legacy: treat the entire value as the primary config.
+            snapshot = { primary: raw, build: null };
+          }
+        } catch {
+          snapshot = { primary: raw, build: null };
+        }
       }
+      if (snapshot.primary) localStorage.setItem('AGENT_CONFIG_agent_primary', snapshot.primary);
+      else                   localStorage.removeItem('AGENT_CONFIG_agent_primary');
+      if (snapshot.build)    localStorage.setItem('AGENT_CONFIG_agent_build',   snapshot.build);
+      else                   localStorage.removeItem('AGENT_CONFIG_agent_build');
     }
 
     try {

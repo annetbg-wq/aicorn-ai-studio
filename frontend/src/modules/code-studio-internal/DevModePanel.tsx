@@ -590,21 +590,35 @@ const DevModePanel: React.FC = () => {
 
   const handleSetProvider = useCallback(async (next: DevAgentProvider) => {
     setModeLoading(true);
-    // Sync AGENT_CONFIG
+    // Sync AGENT_CONFIG — save both slots independently so each restores to its own key.
     if (next === 'claude') {
-      const cur = localStorage.getItem('AGENT_CONFIG_agent_primary');
-      if (cur) localStorage.setItem('CLAUDE_MAX_PREV_CONFIG', cur);
+      const snapshot = {
+        primary: localStorage.getItem('AGENT_CONFIG_agent_primary'),
+        build:   localStorage.getItem('AGENT_CONFIG_agent_build'),
+      };
+      localStorage.setItem('CLAUDE_MAX_PREV_CONFIG', JSON.stringify(snapshot));
       localStorage.setItem('AGENT_CONFIG_agent_primary', CLAUDE_BRIDGE_CFG);
       localStorage.setItem('AGENT_CONFIG_agent_build',   CLAUDE_BRIDGE_CFG);
     } else {
-      const prev = localStorage.getItem('CLAUDE_MAX_PREV_CONFIG');
-      if (prev) {
-        localStorage.setItem('AGENT_CONFIG_agent_primary', prev);
-        localStorage.setItem('AGENT_CONFIG_agent_build',   prev);
-      } else {
-        localStorage.removeItem('AGENT_CONFIG_agent_primary');
-        localStorage.removeItem('AGENT_CONFIG_agent_build');
+      const raw = localStorage.getItem('CLAUDE_MAX_PREV_CONFIG');
+      // Handle legacy format where raw is a plain agent-config JSON string (not {primary,build}).
+      let snapshot: { primary?: string | null; build?: string | null } = {};
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as unknown;
+          if (parsed && typeof parsed === 'object' && ('primary' in parsed || 'build' in parsed)) {
+            snapshot = parsed as typeof snapshot;
+          } else {
+            snapshot = { primary: raw, build: null };
+          }
+        } catch {
+          snapshot = { primary: raw, build: null };
+        }
       }
+      if (snapshot.primary) localStorage.setItem('AGENT_CONFIG_agent_primary', snapshot.primary);
+      else                   localStorage.removeItem('AGENT_CONFIG_agent_primary');
+      if (snapshot.build)    localStorage.setItem('AGENT_CONFIG_agent_build',   snapshot.build);
+      else                   localStorage.removeItem('AGENT_CONFIG_agent_build');
     }
     try {
       const mode = await setDevAgentMode(next);
