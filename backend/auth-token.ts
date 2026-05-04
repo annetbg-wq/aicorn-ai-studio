@@ -691,6 +691,16 @@ export function runDevAgentPrompt(
     : runClaudePrompt(prompt, resolveClaudeModel(model), spawnFn);
 }
 
+/** OpenAI-compatible endpoints for each provider */
+const STANDARD_PROVIDER_ENDPOINTS: Record<string, string> = {
+  openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+  openai:     'https://api.openai.com/v1/chat/completions',
+  deepseek:   'https://api.deepseek.com/v1/chat/completions',
+  mistral:    'https://api.mistral.ai/v1/chat/completions',
+  groq:       'https://api.groq.com/openai/v1/chat/completions',
+  google:     'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+};
+
 async function runStandardAgents(
   prompt: string,
   model: string,
@@ -698,54 +708,31 @@ async function runStandardAgents(
   const normalize = (value: string): string => value.trim().toLowerCase();
   const rawModel = (model || '').trim();
   const lowerModel = normalize(rawModel);
-  const openrouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
-  const anthropicKey = (process.env.ANTHROPIC_API_KEY || '').trim();
   const primaryCfg = getPrimaryAgentConfig();
   const primaryProvider = normalize(primaryCfg.provider || '');
   const explicitProvider = lowerModel.includes('/') ? lowerModel.split('/')[0] : '';
   const wantsAnthropic = explicitProvider === 'anthropic' || lowerModel.startsWith('claude-');
 
-  // Operator settings have priority:
-  // - provider=anthropic  → native Anthropic endpoint
-  // - provider=openrouter → OpenRouter endpoint (even for anthropic/* models)
-  // - provider missing    → infer from model intent
-  const configuredProvider = primaryProvider || '';
-  const useAnthropic = configuredProvider
-    ? configuredProvider === 'anthropic'
-    : wantsAnthropic;
-  const apiKey = useAnthropic ? anthropicKey : openrouterKey;
-  const endpoint = useAnthropic
-    ? 'https://api.anthropic.com/v1/messages'
-    : 'https://openrouter.ai/api/v1/chat/completions';
+  // Resolve provider: settings take priority, fall back to model-name inference
+  const configuredProvider = primaryProvider
+    || (wantsAnthropic ? 'anthropic' : 'openrouter');
 
-  if (!apiKey) {
-    throw new Error(
-      useAnthropic
-        ? 'No Anthropic API key configured for Standard Agents mode. Configure it in Settings.'
-        : 'No OpenRouter API key configured for Standard Agents mode. Configure it in Settings.',
-    );
-  }
+  // Anthropic uses a different API shape — handle it separately
+  if (configuredProvider === 'anthropic') {
+    const anthropicKey = (process.env.ANTHROPIC_API_KEY || '').trim();
+    if (!anthropicKey) throw new Error('No Anthropic API key configured for Standard Agents mode. Configure it in Settings.');
 
-  if (useAnthropic) {
-    const explicitProvider = lowerModel.includes('/') ? lowerModel.split('/')[0] : '';
     const anthropicModel = (() => {
-      // anthropic/claude-* → strip provider prefix
-      if (explicitProvider === 'anthropic' && rawModel.includes('/')) {
-        return rawModel.split('/').slice(1).join('/');
-      }
-      // claude-* (already native Anthropic model id)
-      if (lowerModel.startsWith('claude-')) {
-        return rawModel;
-      }
-      // Any non-Anthropic model while provider=anthropic → safe Claude fallback
+      if (explicitProvider === 'anthropic' && rawModel.includes('/')) return rawModel.split('/').slice(1).join('/');
+      if (lowerModel.startsWith('claude-')) return rawModel;
       return DEFAULT_CLAUDE_MODEL;
     })();
 
-    const response = await fetch(endpoint, {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'x-api-key': anthropicKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -762,6 +749,18 @@ async function runStandardAgents(
     return data.content?.[0]?.text ?? '';
   }
 
+  // OpenAI-compatible path (openrouter / deepseek / openai / mistral / groq / google)
+  const envKey = PROVIDER_ENV_KEYS[configuredProvider] ?? PROVIDER_ENV_KEYS['openrouter'];
+  const apiKey = (process.env[envKey] || process.env.OPENROUTER_API_KEY || '').trim();
+  const endpoint = STANDARD_PROVIDER_ENDPOINTS[configuredProvider]
+    ?? STANDARD_PROVIDER_ENDPOINTS['openrouter'];
+
+  if (!apiKey) {
+    throw new Error(
+      `No API key configured for provider "${configuredProvider}" in Standard Agents mode. Configure it in Settings.`,
+    );
+  }
+
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -776,7 +775,7 @@ async function runStandardAgents(
   });
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`OpenRouter API ${response.status}: ${err.slice(0, 300)}`);
+    throw new Error(`${configuredProvider} API ${response.status}: ${err.slice(0, 300)}`);
   }
   const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   return data.choices?.[0]?.message?.content ?? '';

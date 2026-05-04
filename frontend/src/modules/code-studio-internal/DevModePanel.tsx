@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   getDevAgentCliStatus,
   getDevAgentMode,
@@ -11,6 +11,7 @@ import {
   setLocalDevAgentProvider,
   syncLocalDevAgentMode,
 } from '../../services/devAgentMode';
+import { ConfigService } from '../../services/ConfigService';
 
 const BRIDGE_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000';
 const POLL_INTERVAL = 4000;   // bridge health poll, ms
@@ -569,6 +570,18 @@ const DevModePanel: React.FC = () => {
     : modeStatus?.provider === 'claude' ? 'claude'
     : 'off';
 
+  // Resolve the actual configured Standard provider label dynamically
+  const standardProviderLabel = useMemo(() => {
+    try {
+      const cfg = ConfigService.getAgentConfig('agent_primary');
+      const p = cfg?.provider;
+      if (!p || p === 'openrouter') return 'Standard (OpenRouter)';
+      return `Standard (${p.charAt(0).toUpperCase() + p.slice(1)})`;
+    } catch {
+      return 'Standard (OpenRouter)';
+    }
+  }, [activeProvider]);
+
   const CLAUDE_BRIDGE_CFG = JSON.stringify({
     provider: 'claude-bridge',
     modelId: 'claude-sonnet-4-6',
@@ -597,7 +610,7 @@ const DevModePanel: React.FC = () => {
       const mode = await setDevAgentMode(next);
       setModeStatus(mode);
       syncLocalDevAgentMode(mode);
-      pushLog({ level: 'ok', source: 'connector', message: `Provider → ${next === 'off' ? 'Standard (OpenRouter)' : next === 'claude' ? 'Claude CLI bridge' : 'Codex bridge'}` });
+      pushLog({ level: 'ok', source: 'connector', message: `Provider → ${next === 'off' ? standardProviderLabel : next === 'claude' ? 'Claude CLI bridge' : 'Codex bridge'}` });
     } catch (e) {
       setLocalDevAgentProvider(next);
       pushLog({ level: 'warn', source: 'connector', message: `Provider set locally (bridge unreachable): ${next}` });
@@ -717,7 +730,7 @@ const DevModePanel: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {/* Standard/Off option */}
           <ConnectorRow
-            conn={{ id: 'claude', label: 'Standard (OpenRouter)', available: true, version: 'agents mode' }}
+            conn={{ id: 'claude', label: standardProviderLabel, available: true, version: 'agents mode' }}
             active={activeProvider === 'off'}
             onClick={() => !modeLoading && handleSetProvider('off')}
           />
