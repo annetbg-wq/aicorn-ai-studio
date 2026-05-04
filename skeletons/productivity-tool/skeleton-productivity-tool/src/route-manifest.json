@@ -1,0 +1,73 @@
+{
+  "skeletonId": "productivity-tool",
+  "label": "Productivity Tool",
+  "version": "0.2.0",
+  "navigation": "sidebar+command-palette",
+  "shell": "Sidebar + TopBar around routed Workspace + global ItemDetailSheet + CommandPalette",
+  "routes": [
+    { "path": "/", "page": "src/pages/Workspace.tsx" },
+    { "path": "/workspace/:workspaceId", "page": "src/pages/Workspace.tsx", "params": ["workspaceId"] }
+  ],
+  "providedComponents": [
+    "ErrorBoundary",
+    "LoadingScreen",
+    "EmptyState",
+    "Sidebar",
+    "TopBar",
+    "KanbanBoard",
+    "ListView",
+    "ItemCard",
+    "ItemDetailSheet",
+    "CommandPalette"
+  ],
+  "providedHooks": [
+    "useApp",
+    "useLocalStorage",
+    "useTheme",
+    "useKeyboard",
+    "useCommandPalette"
+  ],
+  "uiPrimitives": [
+    "Avatar",
+    "Badge",
+    "Button",
+    "Card",
+    "Dialog",
+    "Input",
+    "Progress",
+    "Select",
+    "Sheet",
+    "Skeleton",
+    "Tabs"
+  ],
+  "designTokens": [
+    "--pm-canvas",
+    "--pm-surface",
+    "--pm-surface-soft",
+    "--pm-ink",
+    "--pm-muted",
+    "--pm-line",
+    "--pm-brand",
+    "--pm-on-brand",
+    "--pm-success",
+    "--pm-warning",
+    "--pm-rose",
+    "--pm-violet",
+    "--pm-overlay"
+  ],
+  "shortcuts": [
+    { "keys": "⌘K", "action": "Open command palette" },
+    { "keys": "Esc", "action": "Close command palette" }
+  ],
+  "config": {
+    "appIdentity": "src/config/app.ts",
+    "routes": "src/config/routes.ts",
+    "navigation": "src/config/navigation.ts (static filters)",
+    "theme": "src/config/theme.ts"
+  },
+  "placeholders": {
+    "appName": "AppName — defined in src/config/app.ts → APP_CONFIG.name",
+    "productMarkers": "/* PRODUCT: ... */ — copy and domain rewrites",
+    "seedMarkers": "/* SEED: ... */ — replace with real data source"
+  }
+}

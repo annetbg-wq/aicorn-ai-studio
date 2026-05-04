@@ -1,0 +1,73 @@
+{
+  "skeletonId": "social-community",
+  "label": "Social / Community",
+  "version": "0.2.0",
+  "navigation": "bottom-tabs",
+  "shell": "AppShell + BottomTabs",
+  "routes": [
+    { "path": "/", "page": "src/pages/Feed.tsx" },
+    { "path": "/explore", "page": "src/pages/Explore.tsx" },
+    { "path": "/create", "page": "src/pages/Create.tsx" },
+    { "path": "/notifications", "page": "src/pages/Notifications.tsx" },
+    { "path": "/me", "page": "src/pages/Profile.tsx" },
+    { "path": "/profile/:userId", "page": "src/pages/Profile.tsx", "params": ["userId"] },
+    { "path": "/post/:postId", "page": "src/pages/PostDetail.tsx", "params": ["postId"] }
+  ],
+  "tabs": [
+    { "to": "/", "label": "Feed" },
+    { "to": "/explore", "label": "Explore" },
+    { "to": "/create", "label": "Create", "primary": true },
+    { "to": "/notifications", "label": "Notifications" },
+    { "to": "/me", "label": "You" }
+  ],
+  "providedComponents": [
+    "ErrorBoundary",
+    "LoadingScreen",
+    "EmptyState",
+    "BottomTabs",
+    "PostCard",
+    "CommentItem",
+    "UserAvatar",
+    "NotificationItem"
+  ],
+  "providedHooks": ["useApp", "useLocalStorage", "useTheme", "useFeed"],
+  "uiPrimitives": [
+    "Avatar",
+    "Badge",
+    "Button",
+    "Card",
+    "Dialog",
+    "Input",
+    "Progress",
+    "Select",
+    "Sheet",
+    "Skeleton",
+    "Tabs"
+  ],
+  "designTokens": [
+    "--pm-canvas",
+    "--pm-surface",
+    "--pm-surface-soft",
+    "--pm-ink",
+    "--pm-muted",
+    "--pm-line",
+    "--pm-brand",
+    "--pm-on-brand",
+    "--pm-success",
+    "--pm-warning",
+    "--pm-rose",
+    "--pm-violet",
+    "--pm-overlay"
+  ],
+  "config": {
+    "appIdentity": "src/config/app.ts",
+    "routes": "src/config/routes.ts",
+    "navigation": "src/config/navigation.ts",
+    "theme": "src/config/theme.ts"
+  },
+  "placeholders": {
+    "appName": "AppName — defined in src/config/app.ts → APP_CONFIG.name",
+    "productMarkers": "/* PRODUCT: ... */ — copy and domain rewrites",
+    "seedMarkers": "/* SEED: ... */ — replace with real data source"
+  }
+}

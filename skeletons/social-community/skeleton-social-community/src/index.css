@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --pm-canvas: 250 250 251;
+    --pm-surface: 255 255 255;
+    --pm-surface-soft: 244 244 246;
+    --pm-ink: 17 17 19;
+    --pm-muted: 113 113 122;
+    --pm-line: 228 228 231;
+    --pm-brand: 99 102 241;
+    --pm-on-brand: 255 255 255;
+    --pm-success: 34 197 94;
+    --pm-warning: 234 179 8;
+    --pm-rose: 244 63 94;
+    --pm-violet: 139 92 246;
+    --pm-overlay: 0 0 0;
+  }
+
+  .dark {
+    --pm-canvas: 10 10 11;
+    --pm-surface: 24 24 27;
+    --pm-surface-soft: 39 39 42;
+    --pm-ink: 250 250 251;
+    --pm-muted: 161 161 170;
+    --pm-line: 39 39 42;
+    --pm-brand: 129 140 248;
+    --pm-on-brand: 17 17 19;
+    --pm-success: 74 222 128;
+    --pm-warning: 250 204 21;
+    --pm-rose: 251 113 133;
+    --pm-violet: 167 139 250;
+    --pm-overlay: 0 0 0;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}
+
+@layer utilities {
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tap-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
