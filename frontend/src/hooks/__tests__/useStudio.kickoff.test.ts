@@ -322,9 +322,17 @@ function StudioLifecycleHarness({
   onRender: (studio: StudioHook) => void;
 }) {
   const studio = useStudio();
+  const autoSelectedSurfaceRef = React.useRef(false);
 
   React.useEffect(() => {
     onRender(studio);
+    if (
+      !autoSelectedSurfaceRef.current &&
+      studio.messages.some(message => message.type === 'surface-choice')
+    ) {
+      autoSelectedSurfaceRef.current = true;
+      studio.chooseSurface('app');
+    }
   });
 
   return React.createElement('div', { 'data-testid': 'studio-kickoff-phase' }, studio.kickoffPhase);
@@ -844,6 +852,52 @@ describe('Existing-project explicit continuation', () => {
 });
 
 describe('Kickoff state cleanup', () => {
+  it('pauses on network failure instead of auto-starting a fresh chat generation', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    generationPipelineMock.generatePlan.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    let latestStudio: StudioHook | null = null;
+
+    try {
+      render(React.createElement(StudioLifecycleHarness, {
+        onRender: (studio) => {
+          latestStudio = studio;
+        },
+      }));
+
+      await waitFor(() => expect(latestStudio).not.toBeNull());
+
+      act(() => {
+        latestStudio!.setInput('build a simple todo app');
+        latestStudio!.chooseSurface('app');
+      });
+
+      await act(async () => {
+        void latestStudio!.handleSend();
+      });
+
+      await waitFor(() => {
+        expect(latestStudio!.isGenerating).toBe(false);
+        expect(latestStudio!.previewLifecycle).toBe('failed');
+      });
+
+      expect(generationPipelineMock.generatePlan).toHaveBeenCalledTimes(1);
+      expect(latestStudio!.messages.some(message =>
+        message.retryable === true &&
+        String(message.content).includes('Connection lost'),
+      )).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000);
+      });
+
+      expect(generationPipelineMock.generatePlan).toHaveBeenCalledTimes(1);
+    } finally {
+      generationPipelineMock.generatePlan.mockReset();
+      vi.useRealTimers();
+    }
+  });
+
   it('kickoffPhase returns to idle after a completed generation in the rendered useStudio flow', async () => {
     configureCompletedKickoffGeneration();
 
