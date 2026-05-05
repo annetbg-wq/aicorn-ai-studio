@@ -3687,23 +3687,10 @@ export const useStudio = () => {
       } catch (firstErr: any) {
         const firstErrMsg = String(firstErr?.message ?? '');
         const isTimeout = /timed out|timeout/i.test(firstErrMsg);
-        if (!isTimeout || controller.signal.aborted) throw firstErr;
-
-        const compactContextPack = hasComposerContext
-          ? [
-              'CONTEXT PACK (compact):',
-              ...composerContextItemsSnapshot.map((item, index) => `${index + 1}. [${item.source}] ${item.title}`),
-            ].join('\n')
-          : '';
-        const retryIntent = [
-          userPrompt || 'Continue with selected context.',
-          buildPreferencesText,
-          compactContextPack,
-        ].filter(Boolean).join('\n\n');
-
-        addLog(`[Retry] Timeout on ${buildRoute.modelId}. Retrying with fix route (${fixRoute.modelId}).`, 'warn');
-        startTransition(() => updatePlan({ buildStatus: 'generating', streamingCode: '' }));
-        result = await runOnce(retryIntent, fixRoute);
+        if (isTimeout && !controller.signal.aborted) {
+          addLog(`[Timeout] ${buildRoute.modelId} exhausted its LLM retry budget. Pausing for explicit retry.`, 'warn');
+        }
+        throw firstErr;
       }
 
       if (result.status === 'cancelled') {
@@ -4006,6 +3993,7 @@ export const useStudio = () => {
       // continue from the last captured prompt.
       const isNetworkError = err instanceof TypeError &&
         /fetch|network|ERR_|failed to fetch/i.test(err.message ?? '');
+      const isTimeoutError = /timed out|timeout/i.test(String(err?.message ?? ''));
 
       // Real error — track for spam protection
       consecutiveErrors.current += 1;
@@ -4031,7 +4019,9 @@ export const useStudio = () => {
         type: 'text',
         content: isNetworkError
           ? '🔌 **Connection lost.** Check your internet and retry.'
-          : `❌ Ошибка: ${err?.message ?? 'Проверь API Key.'}`,
+          : isTimeoutError
+            ? `⏱️ **Generation timed out.** ${err?.message ?? 'The model did not finish in time.'}\n\nRetry will continue with the same prompt and project context.`
+            : `❌ Ошибка: ${err?.message ?? 'Проверь API Key.'}`,
         retryable: true,
       });
       setCurrentPhase('');

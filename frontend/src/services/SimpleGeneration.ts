@@ -3040,7 +3040,15 @@ interface CallLLMResolvedRequestMetadata {
   timeoutMs: number;
 }
 
-const LLM_TIMEOUT_MS = 240_000; // 240 s timeout budget per standard LLM call
+const LLM_TIMEOUT_MS = 240_000; // default timeout budget per standard LLM call
+const LLM_SLOT_TIMEOUT_MS: Partial<Record<AgentSlot, number>> = {
+  build: 600_000,
+  fix:   360_000,
+};
+
+function getLLMTimeoutMs(slot: AgentSlot): number {
+  return LLM_SLOT_TIMEOUT_MS[slot] ?? LLM_TIMEOUT_MS;
+}
 
 async function callLLM(
   systemPrompt: string,
@@ -3106,7 +3114,7 @@ async function callLLM(
     'HTTP-Referer': window.location.origin,
   };
 
-  const timeoutMs = LLM_TIMEOUT_MS;
+  const timeoutMs = getLLMTimeoutMs(slot);
   opts?.onResolvedRequest?.({
     slot,
     configuredProvider,
@@ -3120,55 +3128,60 @@ async function callLLM(
     timeoutMs,
   });
 
-  // Merge caller signal with a mode-aware timeout AbortController
-  const timeoutCtrl = new AbortController();
-  const timer = window.setTimeout(() => timeoutCtrl.abort(), timeoutMs);
-  // If the caller already has a signal, abort timeout controller when it fires
-  const onCallerAbort = () => timeoutCtrl.abort();
-  signal?.addEventListener('abort', onCallerAbort);
-
-  const mergedSignal = timeoutCtrl.signal;
-
   // Retry up to 2 times on network errors (ERR_QUIC_PROTOCOL_ERROR, etc.)
   // AbortError (user stop) is not retried.
   const MAX_RETRIES = 3;
   let lastError: unknown;
-  try {
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        if (mergedSignal.aborted) throw new DOMException('Aborted', 'AbortError');
-        const resp = await llmFetchStream(endpoint, headers, body, mergedSignal);
-        const noop = () => {};
-        // Determine soft limit for overflow detection (before ×1.3 buffer)
-        const agentKey = slot === 'build' ? 'agent_build' : slot === 'fix' ? 'agent_fix' : 'agent_primary';
-        const stageKey = slot === 'build' ? 'coder_app' : slot === 'fix' ? 'autofix' : 'clarifier';
-        const softLimit = maxTokensOverride
-          ? Math.round(maxTokensOverride / (1 + 0.30))
-          : ConfigService.getSoftMaxTokens(agentKey, stageKey);
-        return await readStream(resp, onStream ?? noop, {
-          modelId:   modelId,
-          stage:     stageKey,
-          softLimit,
-        });
-      } catch (err: unknown) {
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          // Distinguish timeout from user stop
-          if (signal?.aborted) throw err; // user initiated
-          throw new Error('Generation timed out. Automatic retry was attempted. Please retry once more or switch model.');
-        }
+  let lastWasTimeout = false;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const attemptCtrl = new AbortController();
+    const timer = window.setTimeout(() => attemptCtrl.abort(), timeoutMs);
+    const onCallerAbort = () => attemptCtrl.abort();
+    signal?.addEventListener('abort', onCallerAbort, { once: true });
+
+    try {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      const resp = await llmFetchStream(endpoint, headers, body, attemptCtrl.signal);
+      const noop = () => {};
+      // Determine soft limit for overflow detection (before ×1.3 buffer)
+      const agentKey = slot === 'build' ? 'agent_build' : slot === 'fix' ? 'agent_fix' : 'agent_primary';
+      const stageKey = slot === 'build' ? 'coder_app' : slot === 'fix' ? 'autofix' : 'clarifier';
+      const softLimit = maxTokensOverride
+        ? Math.round(maxTokensOverride / (1 + 0.30))
+        : ConfigService.getSoftMaxTokens(agentKey, stageKey);
+      return await readStream(resp, onStream ?? noop, {
+        modelId:   modelId,
+        stage:     stageKey,
+        softLimit,
+      });
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // Distinguish user stop from per-attempt timeout. Timeout is retryable
+        // because the next attempt gets a fresh AbortController.
+        if (signal?.aborted) throw err;
+        lastWasTimeout = true;
+        lastError = new Error(`Generation timed out on attempt ${attempt}/${MAX_RETRIES}.`);
+      } else {
+        lastWasTimeout = false;
         lastError = err;
-        if (attempt < MAX_RETRIES) {
-          console.warn(`[SimpleGeneration] Network error on attempt ${attempt}, retrying...`, err);
-          // Brief pause before retry — let QUIC connection reset
-          await new Promise(r => setTimeout(r, 1500 * attempt));
-        }
       }
+
+      if (attempt < MAX_RETRIES) {
+        const reason = lastWasTimeout ? 'Timeout' : 'Network error';
+        console.warn(`[SimpleGeneration] ${reason} on attempt ${attempt}, retrying...`, err);
+        await new Promise(r => setTimeout(r, 1500 * attempt));
+      }
+    } finally {
+      window.clearTimeout(timer);
+      signal?.removeEventListener('abort', onCallerAbort);
     }
-    throw lastError;
-  } finally {
-    window.clearTimeout(timer);
-    signal?.removeEventListener('abort', onCallerAbort);
   }
+
+  if (lastWasTimeout) {
+    throw new Error(`Generation timed out after ${MAX_RETRIES} attempts (${Math.round(timeoutMs / 1000)}s each). Project files were preserved; retry continues from the same prompt.`);
+  }
+  throw lastError;
 }
 
 function isRoutingViolationError(error: unknown): error is Error {
