@@ -3212,6 +3212,35 @@ export const useStudio = () => {
       timestamp: Date.now() + 1,
     } });
 
+    const failBeforePipelineRun = (planErr: unknown) => {
+      const err = planErr as any;
+      const isNetworkError = err instanceof TypeError &&
+        /fetch|network|ERR_|failed to fetch/i.test(err.message ?? '');
+      const errorMessage = err?.message ?? 'Unknown error';
+
+      consecutiveErrors.current += 1;
+      lastErrorTime.current = Date.now();
+      networkRetryCountRef.current = 0;
+      commandBus.dispatch({ type: 'GENERATION_FAILED', error: errorMessage });
+      addLog(`${isNetworkError ? 'Connection lost' : 'Error'} #${consecutiveErrors.current}: ${errorMessage}`, 'error');
+      dispatch({ type: 'REMOVE_BY_ID', id: optimisticPlanMsgId });
+      dispatch({ type: 'REMOVE_BY_ID', id: progressMsgId });
+      chatAppend({
+        role: 'assistant',
+        type: 'text',
+        content: isNetworkError
+          ? '🔌 **Connection lost.** Check your internet and retry.'
+          : `❌ Ошибка: ${errorMessage}`,
+        retryable: true,
+        timestamp: Date.now(),
+      });
+      setCurrentPhase('');
+      setPreviewLifecycle('failed');
+      setIsGenerating(false);
+      setKickoffPhase('idle');
+      setTimeout(() => setProgress(0), 1200);
+    };
+
     // ── Generate plan — replace optimistic card with real plan data ───────────
     // Resolve planRoute here so generatePlan uses canonical routing (not ConfigService fallback).
     // planRoute always uses 'primary' slot — autoRoute escalation only affects the main coder,
@@ -3232,9 +3261,8 @@ export const useStudio = () => {
           signal:   controller.signal,
         });
       } catch (planErr) {
-        // Remove optimistic card so UI doesn't show a stuck skeleton.
-        dispatch({ type: 'REMOVE_BY_ID', id: optimisticPlanMsgId });
-        throw planErr;
+        failBeforePipelineRun(planErr);
+        return;
       }
     }
     console.log('[planner] plan generated, dispatching', plan);
@@ -3972,27 +4000,12 @@ export const useStudio = () => {
         return;
       }
 
-      // Network error — auto-retry once after 3 s
+      // Network errors are not idempotent in the chat generation flow: a full
+      // resend creates a new blueprint/progress chain and looks like a fresh
+      // project start. Keep the run paused and let the explicit Retry action
+      // continue from the last captured prompt.
       const isNetworkError = err instanceof TypeError &&
         /fetch|network|ERR_|failed to fetch/i.test(err.message ?? '');
-
-      if (isNetworkError && networkRetryCountRef.current < 1) {
-        networkRetryCountRef.current += 1;
-        addLog('Connection lost — retrying in 3 s…', 'error');
-        chatPatchLast({
-          role: 'assistant',
-          type: 'text',
-          content: '🔌 **Connection lost.** Retrying in 3 seconds…',
-        });
-        if (networkRetryTimeoutRef.current) clearTimeout(networkRetryTimeoutRef.current);
-        networkRetryTimeoutRef.current = setTimeout(() => {
-          networkRetryCountRef.current = 0;
-          _sendRef.current();
-        }, 3000);
-        setCurrentPhase('');
-        setPreviewLifecycle('failed');
-        return;
-      }
 
       // Real error — track for spam protection
       consecutiveErrors.current += 1;
