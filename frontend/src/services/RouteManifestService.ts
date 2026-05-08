@@ -250,8 +250,26 @@ export function generateAppTsx(
     `        <Route path="${r.path}" element={<RouteGuard name="${r.title}"><${r.component} /></RouteGuard>} />`
   );
 
-  const wrapStart = options?.wrapperStart ?? [];
-  const wrapEnd   = options?.wrapperEnd ?? [];
+  // Safety: collect all names that are actually imported so we can filter wrappers.
+  // This prevents runtime "X is not defined" when the coder response was truncated.
+  const importedNames = new Set<string>();
+  for (const imp of imports) {
+    const named = imp.match(/import\s+\{([^}]+)\}/);
+    if (named) named[1].split(',').map(n => n.trim().split(/\s+as\s+/).pop()!.trim()).forEach(n => importedNames.add(n));
+    const deflt = imp.match(/^import\s+([A-Za-z_]\w*)\s+from/);
+    if (deflt) importedNames.add(deflt[1]);
+    const lazy = imp.match(/^const\s+(\w+)\s*=/);
+    if (lazy) importedNames.add(lazy[1]);
+  }
+
+  const wrapStart = (options?.wrapperStart ?? []).filter(l => {
+    const comp = l.match(/<([A-Z]\w*)/)?.[1];
+    return !comp || importedNames.has(comp);
+  });
+  const wrapEnd = (options?.wrapperEnd ?? []).filter(l => {
+    const comp = l.match(/<\/([A-Z]\w*)/)?.[1];
+    return !comp || importedNames.has(comp);
+  });
 
   const lines = [
     ...imports,
@@ -296,8 +314,10 @@ export function extractAppTsxContext(appTsxContent: string): {
     // Skip route-related imports (pages, react-router-dom)
     if (line.includes('react-router-dom')) continue;
     if (/from\s+['"]\.\/pages\//.test(line)) continue;
-    // Keep everything else (contexts, layouts, components)
-    if (/from\s+['"]\.\//.test(line)) {
+    // Skip bare react/react-dom — generateAppTsx already adds them
+    if (/from\s+['"]react(-dom)?['"]/.test(line)) continue;
+    // Keep relative ('./') AND aliased ('@/context/', '@/providers/', etc.) imports
+    if (/from\s+['"]\.\//.test(line) || /from\s+['"]@\//.test(line)) {
       extraImports.push(line);
     }
   }
