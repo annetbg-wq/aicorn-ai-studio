@@ -2479,12 +2479,14 @@ export async function ensureTrendNichesModel(
       monthly = monthlyResult.value;
     }
   } else if (hasIdeaGenerationAccess(googleAccessToken)) {
+    let anyLlmSuccess = false;
     try {
       const hot = await ensureHotIdeas(googleAccessToken, force);
       if (hot.length > 0) {
         daily = hot
           .slice(0, 3)
           .map(idea => normalizeTrendIdea(idea as unknown as Record<string, unknown>, 'daily', language));
+        anyLlmSuccess = true;
       }
     } catch {
       daily = fallback.daily;
@@ -2496,11 +2498,32 @@ export async function ensureTrendNichesModel(
         weekly = nicheIdeas
           .slice(0, 3)
           .map(idea => normalizeTrendIdea(idea as unknown as Record<string, unknown>, 'weekly', language));
+        anyLlmSuccess = true;
       }
     } catch {
       weekly = fallback.weekly;
     }
+
+    // Generate monthly ideas via LLM (no interest filter) — previously always used DEFAULT
+    try {
+      const monthlyIdeas = await generateTrendIdeasForCadence('monthly', language, googleAccessToken, null, refreshSeed);
+      if (monthlyIdeas.length > 0) {
+        monthly = monthlyIdeas;
+        anyLlmSuccess = true;
+      }
+    } catch {
+      monthly = fallback.monthly;
+    }
+
+    // If ALL cadences fell back to defaults, signal error — cache will NOT be written below
+    if (!anyLlmSuccess) {
+      emitIdeaFeedUpdate('aic:idea-feed-error');
+    }
   }
+
+  // Track whether LLM actually produced content (needed to decide whether to cache)
+  const llmProducedContent =
+    daily !== fallback.daily || weekly !== fallback.weekly || monthly !== fallback.monthly;
 
   const seen = new Set<string>();
   const model: TrendNichesModel = {
@@ -2516,8 +2539,13 @@ export async function ensureTrendNichesModel(
   };
 
   try {
-    localStorage.setItem(IDEA_FEED_STORAGE_KEYS.trendNiches, JSON.stringify(model));
-    emitIdeaFeedUpdate(IDEA_FEED_STORAGE_KEYS.trendNiches);
+    // Only persist to cache if LLM actually produced content.
+    // If all cadences fell back to DEFAULT_TREND_NICHES, skip caching so the
+    // next app startup will retry LLM instead of serving stale hardcoded defaults.
+    if (llmProducedContent) {
+      localStorage.setItem(IDEA_FEED_STORAGE_KEYS.trendNiches, JSON.stringify(model));
+      emitIdeaFeedUpdate(IDEA_FEED_STORAGE_KEYS.trendNiches);
+    }
   } catch {
     // localStorage may be unavailable or full
   }
