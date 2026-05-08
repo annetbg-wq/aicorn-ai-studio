@@ -3310,6 +3310,21 @@ function enforceShadcn(llmFiles: Record<string, string>, onLog: (msg: string) =>
   const hasRawButtons = /<button[\s>]/.test(allCode);
   const hasRawInputs  = /<input[\s/]/.test(allCode);
   const hasRawColors  = /bg-(?:blue|green|red|indigo|purple|pink|yellow|orange)-[0-9]/.test(allCode);
+  const hasWrongAlertDialogImport = /AlertDialog[A-Za-z]*[^'"\n]*from\s*['"]@\/components\/ui\/dialog['"]/.test(allCode);
+
+  // Always fix wrong import paths regardless of other conditions
+  if (hasWrongAlertDialogImport) {
+    for (const [filePath, content] of Object.entries(llmFiles)) {
+      const fixed = content.replace(
+        /import\s*\{([^}]*AlertDialog[^}]*)\}\s*from\s*['"]@\/components\/ui\/dialog['"]/g,
+        (_, names) => `import {${names}} from "@/components/ui/alert-dialog"`,
+      );
+      if (fixed !== content) {
+        llmFiles[filePath] = fixed;
+        onLog(`[SimpleGeneration] Fixed AlertDialog import path: ${filePath}`);
+      }
+    }
+  }
 
   if (!hasShadcn || hasRawButtons || hasRawInputs || hasRawColors) {
     onLog(`[SimpleGeneration] ⚠ shadcn check: imports=${hasShadcn} rawButtons=${hasRawButtons} rawInputs=${hasRawInputs} rawColors=${hasRawColors}`);
