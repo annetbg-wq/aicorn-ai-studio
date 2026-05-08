@@ -9,7 +9,6 @@ const Dashboard          = lazy(() => lazyWithRetry(() => import('./components/D
 const TrendNichesModule  = lazy(() => lazyWithRetry(() => import('./components/dashboard/TrendNichesModule')).then(m => ({ default: m.TrendNichesModule })));
 const ProjectsPage       = lazy(() => lazyWithRetry(() => import('./pages/ProjectsPage')));
 const PlatinumFigma      = lazy(() => lazyWithRetry(() => import('./components/PlatinumFigma')).then(m => ({ default: m.PlatinumFigma })));
-const AgentLabPanel      = lazy(() => lazyWithRetry(() => import('./components/AgentLabPanel')).then(m => ({ default: m.AgentLabPanel })));
 const BenchmarkDashboard    = lazy(() => lazyWithRetry(() => import('./components/BenchmarkDashboard')));
 const SupabaseConsolePanel  = lazy(() => lazyWithRetry(() => import('./components/SupabaseConsolePanel')).then(m => ({ default: m.SupabaseConsolePanel })));
 const CodeStudioWorkspace = lazy(() => lazyWithRetry(() => import('./modules/code-studio/CodeStudioWorkspace')));
@@ -28,7 +27,6 @@ const PageLoader = () => (
 );
 import { GlobalErrorBoundary } from './components/GlobalErrorBoundary';
 import { StudioToast }          from './components/StudioToast';
-import { StudioTerminal }       from './components/StudioTerminal';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useStudio }            from './hooks/useStudio';
 import { LoginPage }            from './pages/LoginPage';
@@ -226,17 +224,7 @@ export default function App() {
   }, []);
 
 
-  // ── Ctrl+` navigates to terminal view (except inside Code Studio) ────────────
-  React.useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === '`') {
-        e.preventDefault();
-        if (view !== 'code-studio') setView(prev => prev === 'terminal' ? 'dashboard' : 'terminal');
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [view]);
+
 
   // ── Init storageService + subscribe to connectivity ────────────────────────
   React.useEffect(() => {
@@ -287,15 +275,9 @@ export default function App() {
 
   // ── Navigation ────────────────────────────────────────────────────────────
   const handleNavigate = (id: ModuleId) => {
-    // Analytics + AgentLab → floating overlays, not view changes
+    // Analytics → floating overlay, not view change
     if (id === 'analytics') {
       uiStore.setShowAnalytics(!uiStore.showAnalytics);
-      uiStore.setShowAgentLab(false);
-      return;
-    }
-    if (id === 'agentlab') {
-      uiStore.setShowAgentLab(!uiStore.showAgentLab);
-      uiStore.setShowAnalytics(false);
       return;
     }
     uiStore.closeAll();
@@ -452,7 +434,6 @@ export default function App() {
   if (sharedCode) return <iframe srcDoc={sharedCode} className="w-full h-full border-none" />;
 
   const activeModule: ViewId = uiStore.showAnalytics ? 'analytics'
-    : uiStore.showAgentLab  ? 'agentlab'
     : view === 'engine'     ? 'engine'
     : view === 'trend-niches' ? 'trend-niches'
     : view === 'figma'      ? 'figma'
@@ -460,7 +441,6 @@ export default function App() {
     : view === 'projects'   ? 'projects'
     : view === 'benchmark'    ? 'benchmark'
     : view === 'code-studio' && creatorMode ? 'code-studio'
-    : view === 'terminal'    ? 'terminal'
     : view === 'db-console'  ? 'db-console'
     : 'dashboard';
 
@@ -702,21 +682,7 @@ export default function App() {
           </div>
         )}
 
-        {view === 'terminal' && (
-          <div className="flex flex-1 overflow-hidden"
-               style={{ animation: 'viewFadeIn 0.28s ease' }}>
-            <StudioTerminal
-              logs={studio.logs}
-              modules={[
-                { name: 'LLM',     status: studio.isGenerating ? 'ok' : studio.apiKey ? 'ok' : 'error' },
-                { name: 'Preview', status: 'ok' },
-                { name: 'Cloud',   status: cloudAvailable ? 'ok' : 'idle' },
-              ]}
-              supabaseOk={cloudAvailable}
-              onClear={studio.clearLogs}
-            />
-          </div>
-        )}
+
 
         {view === 'db-console' && (
           <div className="flex flex-1 overflow-hidden"
@@ -837,7 +803,6 @@ export default function App() {
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <Suspense fallback={<PageLoader />}>
                 <AnalyticsDashboard
-                  onSendToAgent={(task) => uiStore.openAgentLabWithTask(task)}
                 />
               </Suspense>
             </div>
@@ -845,45 +810,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── AgentLab modal — centre overlay ── */}
-      {uiStore.showAgentLab && (
-        <div
-          onClick={() => uiStore.setShowAgentLab(false)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 400,
-            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              width: '80vw', height: '80vh', background: '#06060a',
-              border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16,
-              overflow: 'hidden', display: 'flex', flexDirection: 'column',
-              animation: 'scaleIn 0.22s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, background: '#080810' }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Agent Lab</span>
-              <button onClick={() => uiStore.setShowAgentLab(false)} style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px' }}>×</button>
-            </div>
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <Suspense fallback={<PageLoader />}>
-                <AgentLabPanel
-                  files={studio.files ?? {}}
-                  agentConfigs={studio.agentConfigs ?? {}}
-                  currentTheme={studio.theme}
-                  onApplyFiles={studio.setFiles}
-                  addLog={studio.addLog}
-                  initialTask={uiStore.agentLabTask}
-                  onNavigate={(v) => { uiStore.setShowAgentLab(false); setView(v as ViewId); }}
-                />
-              </Suspense>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Animations */}
       <style>{`
@@ -901,7 +828,7 @@ export default function App() {
         }
       `}</style>
 
-      {/* Global terminal is now a sidebar-navigated full-page view (view === 'terminal') */}
+
       <StudioToast />
     </RootLayout>
     </GlobalErrorBoundary>
