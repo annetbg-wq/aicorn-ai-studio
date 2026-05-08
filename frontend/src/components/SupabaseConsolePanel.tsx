@@ -326,6 +326,15 @@ const SqlEditor: React.FC<{
   );
 };
 
+// ─── Quick SQL snippets ───────────────────────────────────────────────────────
+const SNIPPETS: { label: string; sql: string }[] = [
+  { label: 'List tables',     sql: "SELECT table_name, table_type\nFROM information_schema.tables\nWHERE table_schema = 'public'\nORDER BY table_name;" },
+  { label: 'Table sizes',     sql: "SELECT relname AS table, pg_size_pretty(pg_total_relation_size(relid)) AS size\nFROM pg_catalog.pg_statio_user_tables\nORDER BY pg_total_relation_size(relid) DESC;" },
+  { label: 'Row counts',      sql: "SELECT schemaname, relname AS table, n_live_tup AS rows\nFROM pg_stat_user_tables\nORDER BY n_live_tup DESC;" },
+  { label: 'Recent activity', sql: "SELECT query, calls, mean_exec_time::int AS avg_ms, total_exec_time::int AS total_ms\nFROM pg_stat_statements\nORDER BY total_exec_time DESC\nLIMIT 20;" },
+  { label: 'Indexes',         sql: "SELECT tablename, indexname, indexdef\nFROM pg_indexes\nWHERE schemaname = 'public'\nORDER BY tablename, indexname;" },
+];
+
 // ─── Main component ───────────────────────────────────────────────────────────
 interface SupabaseConsolePanelProps {
   theme?: string;
@@ -345,7 +354,476 @@ export const SupabaseConsolePanel: React.FC<SupabaseConsolePanelProps> = () => {
   const [queryError,      setQueryError]      = useState('');
   const [queryRunning,    setQueryRunning]    = useState(false);
   const [sqlToRun,        setSqlToRun]        = useState('');
-  const [statusMsg,       setStatusMsg]       = useState('');
+  const [tableSearch,     setTableSearch]     = useState('');
+  const [showSnippets,    setShowSnippets]    = useState(false);
+
+  useEffect(() => { loadTables(); }, []);
+
+  const loadTables = async () => {
+    setTablesLoading(true);
+    try {
+      const data = await SupabaseSqlService.listTables();
+      setTables(data);
+    } catch {
+      // handled by empty state
+    } finally {
+      setTablesLoading(false);
+    }
+  };
+
+  const selectTable = async (tableName: string) => {
+    setSelectedTable(tableName);
+    setColumnsLoading(true);
+    setColumns([]);
+    try {
+      const cols = await SupabaseSqlService.listColumns(tableName);
+      setColumns(cols);
+    } catch {
+      setColumns([]);
+    } finally {
+      setColumnsLoading(false);
+    }
+  };
+
+  const previewTable = (tableName: string) => {
+    setSqlToRun(`SELECT * FROM "${tableName}" LIMIT 100`);
+    setActiveTab('sql');
+    setQueryResult(null);
+    setQueryError('');
+  };
+
+  const copySelect = (tableName: string) => {
+    void navigator.clipboard.writeText(`SELECT * FROM "${tableName}" LIMIT 100`);
+  };
+
+  // Filtered + grouped tables
+  const filteredTables = tableSearch.trim()
+    ? tables.filter(t => t.name.toLowerCase().includes(tableSearch.toLowerCase()))
+    : tables;
+
+  const bySchema = filteredTables.reduce<Record<string, TableInfo[]>>((acc, t) => {
+    (acc[t.schema] = acc[t.schema] ?? []).push(t);
+    return acc;
+  }, {});
+
+  const toggleSchema = (schema: string) => {
+    setExpandedSchemas(prev => {
+      const next = new Set(prev);
+      if (next.has(schema)) next.delete(schema); else next.add(schema);
+      return next;
+    });
+  };
+
+  const exportCsv = () => {
+    if (!queryResult) return;
+    const header = queryResult.columns.join(',');
+    const rows = queryResult.rows.map(row =>
+      queryResult.columns.map(col => {
+        const v = row[col];
+        if (v === null || v === undefined) return '';
+        const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        return s.includes(',') || s.includes('"') || s.includes('\n')
+          ? `"${s.replace(/"/g, '""')}"` : s;
+      }).join(','),
+    );
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = 'query-result.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const selectedTableInfo = tables.find(t => t.name === selectedTable);
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', height: '100%',
+      background: C.bg, color: C.text, fontFamily: 'system-ui, sans-serif',
+      overflow: 'hidden',
+    }}>
+      {/* ── Header ── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '10px 16px',
+        borderBottom: `1px solid ${C.border}`,
+        background: C.panel, flexShrink: 0,
+      }}>
+        <Database size={16} color={C.accent} />
+        <span style={{ fontWeight: 700, fontSize: 14, color: C.accent }}>
+          DB Console
+        </span>
+        <span style={{ fontSize: 11, color: C.muted, marginLeft: 2 }}>
+          · Supabase
+        </span>
+        <div style={{ flex: 1 }} />
+        {/* Snippets toggle */}
+        <button
+          onClick={() => setShowSnippets(v => !v)}
+          style={{
+            background: showSnippets ? C.accentDim : 'none',
+            border: `1px solid ${showSnippets ? C.accent + '55' : C.border}`,
+            borderRadius: 6, padding: '4px 10px',
+            color: showSnippets ? C.accent : C.muted,
+            cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4,
+          }}
+        >
+          <Code2 size={11} /> Snippets
+        </button>
+        <button
+          onClick={loadTables}
+          disabled={tablesLoading}
+          style={{
+            background: 'none', border: `1px solid ${C.border}`,
+            borderRadius: 6, padding: '4px 8px',
+            color: C.muted, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 4, fontSize: 11,
+          }}
+        >
+          <RefreshCw size={11} style={{ animation: tablesLoading ? 'spin 1s linear infinite' : 'none' }} />
+          Refresh
+        </button>
+      </div>
+
+      {/* ── Snippets bar ── */}
+      {showSnippets && (
+        <div style={{
+          display: 'flex', gap: 6, padding: '8px 16px', flexWrap: 'wrap',
+          background: 'rgba(62,207,142,0.04)',
+          borderBottom: `1px solid ${C.border}`, flexShrink: 0,
+        }}>
+          {SNIPPETS.map(s => (
+            <button
+              key={s.label}
+              onClick={() => { setSqlToRun(s.sql); setActiveTab('sql'); setQueryResult(null); setQueryError(''); setShowSnippets(false); }}
+              style={{
+                background: 'rgba(62,207,142,0.1)', border: `1px solid rgba(62,207,142,0.2)`,
+                borderRadius: 6, padding: '4px 10px',
+                color: C.accent, cursor: 'pointer', fontSize: 11,
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Tab bar ── */}
+      <div style={{
+        display: 'flex', gap: 0,
+        borderBottom: `1px solid ${C.border}`,
+        background: C.panel, flexShrink: 0,
+      }}>
+        {([
+          { id: 'tables', label: 'Tables', icon: LayoutList },
+          { id: 'sql',    label: 'SQL Editor', icon: Code2 },
+        ] as const).map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px',
+              background: activeTab === tab.id ? C.accentDim : 'none',
+              border: 'none',
+              borderBottom: activeTab === tab.id ? `2px solid ${C.accent}` : '2px solid transparent',
+              color: activeTab === tab.id ? C.accent : C.muted,
+              cursor: 'pointer', fontSize: 12, fontWeight: 500,
+              transition: 'all 0.15s',
+            }}
+          >
+            <tab.icon size={13} />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Body ── */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+        {/* Left: Table browser */}
+        <div style={{
+          width: 220, flexShrink: 0,
+          borderRight: `1px solid ${C.border}`,
+          background: C.panel,
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+        }}>
+          {/* Search */}
+          <div style={{ padding: '8px 10px', borderBottom: `1px solid ${C.border}` }}>
+            <input
+              value={tableSearch}
+              onChange={e => setTableSearch(e.target.value)}
+              placeholder="Filter tables…"
+              style={{
+                width: '100%', background: 'rgba(255,255,255,0.05)',
+                border: `1px solid ${C.border}`, borderRadius: 6,
+                padding: '5px 8px', color: C.text, fontSize: 12,
+                outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          <div style={{
+            padding: '5px 12px', fontSize: 10, fontWeight: 600,
+            color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase',
+            borderBottom: `1px solid ${C.border}`,
+          }}>
+            {tablesLoading ? 'Loading…' : `${filteredTables.length} of ${tables.length} tables`}
+          </div>
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            {Object.entries(bySchema).map(([schema, schTables]) => (
+              <div key={schema}>
+                <button
+                  onClick={() => toggleSchema(schema)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5, width: '100%',
+                    padding: '5px 12px', background: 'rgba(255,255,255,0.03)',
+                    border: 'none', color: C.muted, cursor: 'pointer',
+                    fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {expandedSchemas.has(schema) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                  {schema}
+                  <span style={{ marginLeft: 'auto' }}>{schTables.length}</span>
+                </button>
+                {expandedSchemas.has(schema) && schTables.map(t => (
+                  <TableItem
+                    key={t.name}
+                    table={t}
+                    selected={selectedTable === t.name}
+                    onSelect={() => { selectTable(t.name); if (activeTab === 'sql') setActiveTab('tables'); }}
+                    onPreview={() => previewTable(t.name)}
+                  />
+                ))}
+              </div>
+            ))}
+            {!tablesLoading && tables.length === 0 && (
+              <div style={{ padding: '16px 14px', color: C.muted, fontSize: 11, lineHeight: 1.6 }}>
+                No tables found.<br />
+                Make sure the <code style={{ color: C.accent }}>sql-console</code> Edge Function is deployed.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right pane */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+          {/* TABLES TAB: column inspector + actions */}
+          {activeTab === 'tables' && (
+            <>
+              {selectedTable && selectedTableInfo ? (
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'auto' }}>
+                  {/* Table header */}
+                  <div style={{
+                    padding: '12px 16px', borderBottom: `1px solid ${C.border}`,
+                    background: C.headerBg, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>
+                        {selectedTableInfo.schema}
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>
+                        {selectedTable}
+                        {selectedTableInfo.type === 'view' && (
+                          <span style={{ marginLeft: 8, fontSize: 10, color: C.muted, fontFamily: 'system-ui' }}>VIEW</span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => copySelect(selectedTable)}
+                        style={{
+                          fontSize: 11, padding: '5px 10px', borderRadius: 6,
+                          background: 'none', border: `1px solid ${C.border}`,
+                          color: C.muted, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', gap: 5,
+                        }}
+                      >
+                        <Copy size={11} /> Copy SELECT
+                      </button>
+                      <button
+                        onClick={() => previewTable(selectedTable)}
+                        style={{
+                          fontSize: 11, padding: '5px 12px', borderRadius: 6,
+                          background: C.accentDim, border: `1px solid ${C.accent}55`,
+                          color: C.accent, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', gap: 5,
+                        }}
+                      >
+                        <Play size={11} /> Preview rows
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Column list */}
+                  <div style={{ flex: 1, overflow: 'auto' }}>
+                    {columnsLoading ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 16, color: C.muted, fontSize: 12 }}>
+                        <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                        Loading columns…
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: '24px 1fr 120px 80px 60px',
+                          padding: '6px 16px',
+                          borderBottom: `1px solid ${C.border}`,
+                          background: C.headerBg,
+                          fontSize: 10, fontWeight: 700, color: C.muted,
+                          letterSpacing: '0.06em', textTransform: 'uppercase',
+                          position: 'sticky', top: 0,
+                        }}>
+                          <span></span>
+                          <span>Column</span>
+                          <span>Type</span>
+                          <span>Nullable</span>
+                          <span>Default</span>
+                        </div>
+                        {columns.map((col, i) => (
+                          <div
+                            key={col.name}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '24px 1fr 120px 80px 60px',
+                              padding: '7px 16px',
+                              borderBottom: `1px solid rgba(255,255,255,0.03)`,
+                              background: i % 2 === 0 ? 'transparent' : C.rowAlt,
+                              fontSize: 12,
+                              alignItems: 'center',
+                            }}
+                          >
+                            <span title={col.isPrimary ? 'Primary key' : ''}>
+                              {col.isPrimary ? <Key size={11} color={C.tagPkText} /> : <Minus size={11} color="transparent" />}
+                            </span>
+                            <span style={{ fontFamily: 'monospace', color: col.isPrimary ? C.tagPkText : C.text }}>
+                              {col.name}
+                            </span>
+                            <TypeBadge type={col.type} />
+                            <span style={{ fontSize: 11, color: col.nullable ? C.muted : C.danger }}>
+                              {col.nullable ? 'YES' : 'NO'}
+                            </span>
+                            <span style={{ fontSize: 10, color: C.muted, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {col.defaultValue ?? '—'}
+                            </span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexDirection: 'column', gap: 10, color: C.muted,
+                }}>
+                  <Table2 size={36} color={C.muted} opacity={0.4} />
+                  <span style={{ fontSize: 13 }}>Select a table to inspect its schema</span>
+                  <span style={{ fontSize: 11 }}>Double-click → preview rows in SQL Editor</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* SQL TAB: resizable editor + results */}
+          {activeTab === 'sql' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              {/* Editor — takes ~40% */}
+              <div style={{ flex: '0 0 40%', borderBottom: `1px solid ${C.border}`, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <SqlEditor
+                  initialSql={sqlToRun}
+                  onResult={r => { setQueryResult(r); setQueryError(''); }}
+                  onError={e => { setQueryError(e); setQueryResult(null); }}
+                  onRunning={setQueryRunning}
+                />
+              </div>
+
+              {/* Status bar */}
+              <div style={{
+                padding: '4px 14px', background: C.headerBg,
+                borderBottom: `1px solid ${C.border}`,
+                display: 'flex', alignItems: 'center', gap: 12,
+                fontSize: 11, color: C.muted, flexShrink: 0, minHeight: 30,
+              }}>
+                {queryRunning && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.accent }}>
+                    <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
+                    Running…
+                  </span>
+                )}
+                {queryResult && !queryRunning && (
+                  <>
+                    <span style={{ color: C.accent, fontWeight: 600 }}>
+                      {queryResult.rowCount} row{queryResult.rowCount !== 1 ? 's' : ''}
+                    </span>
+                    {queryResult.durationMs !== undefined && (
+                      <span>{queryResult.durationMs} ms</span>
+                    )}
+                    <div style={{ flex: 1 }} />
+                    <button
+                      onClick={exportCsv}
+                      style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                    >
+                      <Download size={11} /> CSV
+                    </button>
+                    <button
+                      onClick={() => void navigator.clipboard.writeText(JSON.stringify(queryResult.rows, null, 2))}
+                      style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                    >
+                      <Copy size={11} /> Copy JSON
+                    </button>
+                  </>
+                )}
+                {!queryResult && !queryRunning && (
+                  <span style={{ fontSize: 11 }}>Ctrl+Enter to run</span>
+                )}
+              </div>
+
+              {/* Results — takes remaining space */}
+              <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+                {queryError && (
+                  <div style={{
+                    margin: 12, padding: 12,
+                    background: 'rgba(248,113,113,0.08)',
+                    border: `1px solid rgba(248,113,113,0.22)`,
+                    borderRadius: 8,
+                    display: 'flex', alignItems: 'flex-start', gap: 8,
+                    color: C.danger, fontSize: 12,
+                  }}>
+                    <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <pre style={{ margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                      {queryError}
+                    </pre>
+                  </div>
+                )}
+                {queryResult && <ResultGrid result={queryResult} />}
+                {!queryResult && !queryError && !queryRunning && (
+                  <div style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: C.muted, fontSize: 12, flexDirection: 'column', gap: 10, padding: 32,
+                  }}>
+                    <Code2 size={32} color={C.muted} opacity={0.4} />
+                    <span>Write a SELECT query and press <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace' }}>Ctrl+Enter</kbd> to run</span>
+                    <span style={{ fontSize: 11, color: C.muted, opacity: 0.7 }}>
+                      Only SELECT queries are allowed · max 500 rows per query
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
+  );
+};
 
   // Load tables on mount
   useEffect(() => {
