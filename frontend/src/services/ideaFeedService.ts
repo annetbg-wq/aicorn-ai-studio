@@ -342,7 +342,7 @@ function buildTrendCadencePrompt(
     : null;
   const interestLabel = interestMeta?.labels[lang] ?? interestMeta?.labels.en ?? selectedInterest ?? '';
   const exampleSubjects = directRule?.focuses
-    .slice(0, 3)
+    .slice(refreshSeed % Math.max(1, directRule.focuses.length - 2), (refreshSeed % Math.max(1, directRule.focuses.length - 2)) + 3)
     .map(focus => `"${focus.subjectEn}"`)
     .join(', ');
   const cadenceCopy = {
@@ -377,11 +377,11 @@ ${cadenceCopy.rule}
  ${directRule ? `CRITICAL FOR "${selectedInterest}": ${directRule.promptDirective}` : ''}
 
  ${selectedInterest
-    ? `It is valid if all 3 ideas stay inside one concrete subdomain of "${selectedInterest}" and explore different business angles. For example, three education ideas can all be language-learning apps if the target user, pricing, or retention loop is different.${exampleSubjects ? ` Example subdomains for this interest: ${exampleSubjects}.` : ''}`
+    ? `It is valid if all 3 ideas stay inside one concrete subdomain of "${selectedInterest}" and explore different business angles. For example, three education ideas can all be language-learning apps if the target user, pricing, or retention loop is different.${exampleSubjects ? ` Use these as inspiration for subdomains (do NOT copy them literally — invent fresh product ideas within these areas or adjacent ones): ${exampleSubjects}.` : ''}`
     : ''}
 
  ${refreshSeed > 0
-    ? `Refresh variation key: ${refreshSeed}. Generate a materially different angle from previous ideas for this same interest and cadence.`
+    ? `Refresh variation key: ${refreshSeed}. You MUST generate completely different product ideas from any previous response. Do NOT repeat the same subject areas, app names, or problem framings. Explore a different subdomain or angle within the interest.`
     : ''}
 
 Write EVERY human-readable field in ${getLanguageName(lang)}. This includes appName, description, targetUser, marketContext, targetAudience, painPoint, competitorGap, onboarding text, page names, uiSpec text, and seed data examples.
@@ -1271,7 +1271,7 @@ const TREND_INTEREST_DIRECT_PRODUCT_RULES: Record<TrendNicheInterest, TrendInter
     ],
   },
   education: {
-    promptDirective: 'For "education", the product itself must teach or train a concrete skill or body of knowledge. Good examples: spoken English, dance practice, drawing fundamentals, guitar, exam prep. It is acceptable if all 3 ideas stay in one learning subdomain, for example three different language-learning apps, as long as the business angles differ. Do NOT generate LMS, school admin, curriculum analytics, cohort operations, teacher dashboards, or tools for educational programs.',
+    promptDirective: 'For "education", the product itself must teach or train a concrete skill or body of knowledge. The product must directly deliver the learning experience to the end user. Do NOT generate LMS, school admin, curriculum analytics, cohort operations, teacher dashboards, or tools for educational programs.',
     bannedPattern: /(lms|school admin|cohort|teacher dashboard|curriculum|educational programs?|program operators?|course ops|операцион|образовательных программ|админ|когорт|куратор|дашборд|curriculum|lms)/i,
     focuses: [
       {
@@ -1303,6 +1303,66 @@ const TREND_INTEREST_DIRECT_PRODUCT_RULES: Record<TrendNicheInterest, TrendInter
         dailyActionRu: 'делают timed-упражнения, сравнивают штрих и нарабатывают видимую мышечную память',
         outcomeEn: 'see measurable improvement in visual skill',
         outcomeRu: 'видеть измеримый рост навыка рисования',
+      },
+      {
+        subjectEn: 'guitar for beginners',
+        subjectRu: 'гитара для начинающих',
+        audienceEn: 'adults picking up guitar with no prior music background',
+        audienceRu: 'взрослые, которые берут гитару без музыкального опыта',
+        dailyActionEn: 'follow chord progressions, track finger placement, and complete daily song pieces',
+        dailyActionRu: 'разучивают аккорды, отслеживают постановку пальцев и собирают фрагменты песен',
+        outcomeEn: 'play a full song within 30 days',
+        outcomeRu: 'сыграть полную песню за 30 дней',
+      },
+      {
+        subjectEn: 'math for exam prep',
+        subjectRu: 'математика для подготовки к экзаменам',
+        audienceEn: 'high-school students preparing for standardized tests',
+        audienceRu: 'школьники, которые готовятся к ЕГЭ или олимпиадам',
+        dailyActionEn: 'solve adaptive problem sets, identify weak areas, and track score trends',
+        dailyActionRu: 'решают адаптивные задачи, выявляют слабые места и отслеживают динамику баллов',
+        outcomeEn: 'close knowledge gaps and raise exam score',
+        outcomeRu: 'закрыть пробелы и поднять балл на экзамене',
+      },
+      {
+        subjectEn: 'coding for kids',
+        subjectRu: 'программирование для детей',
+        audienceEn: 'children aged 8-13 learning logic and coding through play',
+        audienceRu: 'дети 8-13 лет, которые учат логику и код через игру',
+        dailyActionEn: 'complete visual puzzles and mini-projects that build real logic skills',
+        dailyActionRu: 'проходят визуальные головоломки и мини-проекты, которые нарабатывают реальные навыки',
+        outcomeEn: 'build a simple app or game independently',
+        outcomeRu: 'самостоятельно собрать простое приложение или игру',
+      },
+      {
+        subjectEn: 'digital photography',
+        subjectRu: 'цифровая фотография',
+        audienceEn: 'smartphone photographers wanting to shoot intentionally',
+        audienceRu: 'фотографы-любители, которые хотят снимать осмысленно',
+        dailyActionEn: 'complete daily composition challenges and get feedback on light and framing',
+        dailyActionRu: 'выполняют daily-задания по композиции и получают обратную связь по свету и кадру',
+        outcomeEn: 'build a portfolio of intentional shots',
+        outcomeRu: 'собрать портфолио из осмысленных снимков',
+      },
+      {
+        subjectEn: 'public speaking',
+        subjectRu: 'публичные выступления',
+        audienceEn: 'professionals who freeze up before presentations',
+        audienceRu: 'специалисты, которые теряются перед выступлением',
+        dailyActionEn: 'record short practice speeches, get AI feedback on pace and clarity',
+        dailyActionRu: 'записывают короткие речи и получают AI-фидбек по темпу и ясности',
+        outcomeEn: 'deliver confident presentations without over-preparing',
+        outcomeRu: 'уверенно выступать без избыточной подготовки',
+      },
+      {
+        subjectEn: 'chess tactics',
+        subjectRu: 'шахматные тактики',
+        audienceEn: 'casual chess players who want to stop losing to simple tactics',
+        audienceRu: 'любители шахмат, которые хотят перестать проигрывать на простых тактиках',
+        dailyActionEn: 'solve daily puzzles, replay blunders, and track pattern recognition',
+        dailyActionRu: 'решают daily-задачи, разбирают зевки и отслеживают узнавание паттернов',
+        outcomeEn: 'increase rating by 200 points in two months',
+        outcomeRu: 'поднять рейтинг на 200 пунктов за два месяца',
       },
     ],
   },
