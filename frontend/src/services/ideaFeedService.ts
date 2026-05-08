@@ -2675,12 +2675,65 @@ export async function ensureTrendNichesModel(
     if (llmProducedContent) {
       localStorage.setItem(IDEA_FEED_STORAGE_KEYS.trendNiches, JSON.stringify(model));
       emitIdeaFeedUpdate(IDEA_FEED_STORAGE_KEYS.trendNiches);
+      void saveTrendTopicsToArchive(model);
     }
   } catch {
     // localStorage may be unavailable or full
   }
 
   return model;
+}
+
+// ── Trend Topic Archive ────────────────────────────────────────────────────────
+// After each successful LLM generation we POST the topic names (appName) to the
+// backend so they accumulate in trend-archive.json. These are the themes that
+// have been *surfaced* but not necessarily launched yet.
+async function saveTrendTopicsToArchive(model: TrendNichesModel): Promise<void> {
+  const toLine = (ideas: TrendNicheIdea[]) =>
+    ideas.map(i => i.appName).filter(Boolean).join(', ');
+
+  const body = {
+    interest: model.taskInterest ?? undefined,
+    daily:    toLine(model.daily),
+    weekly:   toLine(model.weekly),
+    monthly:  toLine(model.monthly),
+  };
+
+  // Skip if nothing to save
+  if (!body.daily && !body.weekly && !body.monthly) return;
+
+  try {
+    const apiUrl = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://127.0.0.1:3000';
+    await fetch(`${apiUrl}/trend-archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // Backend may be offline — silently ignore
+  }
+}
+
+export async function fetchTrendArchive(): Promise<TrendArchiveEntry[]> {
+  try {
+    const apiUrl = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://127.0.0.1:3000';
+    const res = await fetch(`${apiUrl}/trend-archive`);
+    if (!res.ok) return [];
+    const data: unknown = await res.json();
+    return Array.isArray(data) ? (data as TrendArchiveEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export interface TrendArchiveEntry {
+  id: string;
+  date: string;
+  interest: string | null;
+  daily: string;
+  weekly: string;
+  monthly: string;
+  createdAt: string;
 }
 
 export function loadTrendIdeaBank(): TrendIdeaBankItem[] {
