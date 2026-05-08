@@ -1729,7 +1729,41 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel } from "@/components/ui/alert-dialog"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
+import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip"
+
+AVAILABLE UI COMPONENTS — FULL REFERENCE (import from '@/components/ui/...'):
+  button           → Button (variants: default, destructive, outline, ghost, secondary, link; sizes: default, sm, lg, icon)
+  card             → Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter
+  input            → Input
+  label            → Label
+  badge            → Badge (variants: default, secondary, destructive, outline)
+  textarea         → Textarea
+  separator        → Separator
+  progress         → Progress
+  checkbox         → Checkbox
+  switch           → Switch
+  skeleton         → Skeleton
+  avatar           → Avatar, AvatarImage, AvatarFallback
+  tabs             → Tabs, TabsList, TabsTrigger, TabsContent
+  dialog           → Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose
+  alert-dialog     → AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
+                     AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
+                     AlertDialogAction, AlertDialogCancel
+  select           → Select, SelectTrigger, SelectValue, SelectContent, SelectItem
+  sheet            → Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle
+  dropdown-menu    → DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator
+  scroll-area      → ScrollArea
+  tooltip          → TooltipProvider, Tooltip, TooltipTrigger, TooltipContent
+  toast / toaster  → useToast (from '@/hooks/use-toast'), Toaster
+  accordion        → Accordion, AccordionItem, AccordionTrigger, AccordionContent
+  alert            → Alert, AlertTitle, AlertDescription
+
+AVAILABLE ICONS: import from 'lucide-react' (e.g. import { Plus, Trash2, Check } from 'lucide-react')
 
 COLOR TOKENS (MANDATORY — never use raw colors):
   bg-background text-foreground          → main surfaces
@@ -6374,16 +6408,32 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
         },
       });
 
-      const retryPrompt = `Your previous response had an artifact ingress failure.
+      const retryPrompt = `CRITICAL: Your previous response could not be parsed.
 Problem: ${retryReason}
 The response started with: "${raw.slice(0, 200)}"
 
-You MUST respond with ONLY a JSON artifact in this exact format:
-\`\`\`json
-{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/App.tsx","content":"..."}]}}
-\`\`\`
+You MUST use EXACTLY this format for every file — no JSON, no markdown fences, no explanation:
 
-No text before or after. No markdown except the json fence.
+<!--FILE: src/App.tsx-->
+import React from 'react';
+export default function App() {
+  return <div>Hello</div>;
+}
+<!--END-->
+
+<!--FILE: src/pages/Home.tsx-->
+import React from 'react';
+export default function Home() {
+  return <div>Home</div>;
+}
+<!--END-->
+
+Rules:
+- Start IMMEDIATELY with the first <!--FILE: ...--> marker, no preamble
+- Every file must end with <!--END-->
+- Include ALL files for the complete application
+- No text outside FILE blocks
+
 Generate the complete application for: ${config.intent}`;
       trace.recordPrompt({
         kind: 'artifact_retry',

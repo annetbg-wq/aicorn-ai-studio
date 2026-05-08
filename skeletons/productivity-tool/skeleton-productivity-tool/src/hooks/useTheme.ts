@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { DEFAULT_THEME, resolveTheme, type ResolvedTheme, type ThemeChoice } from '@/config/theme';
-import { STORAGE_KEYS } from '@/config/app';
 import { useLocalStorage } from './useLocalStorage';
 
 interface UseThemeResult {
@@ -16,7 +15,7 @@ interface UseThemeResult {
  * 'system' is picked, applies/removes the `dark` class on <html>.
  */
 export function useTheme(): UseThemeResult {
-  const [choice, setChoice] = useLocalStorage<ThemeChoice>(STORAGE_KEYS.theme, DEFAULT_THEME);
+  const [choice, setChoice] = useLocalStorage<ThemeChoice>('app_theme_preference', DEFAULT_THEME);
 
   const resolved = useMemo<ResolvedTheme>(() => resolveTheme(choice), [choice]);
 
