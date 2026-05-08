@@ -401,16 +401,16 @@ ${refreshSeed > 0
 
 For each idea, the "marketContext" MUST cite a concrete, real trend signal — a named behavior shift, search trend, platform change, or market event happening RIGHT NOW. Not generic statements like "the market is growing".
 
-Write EVERY human-readable field in ${getLanguageName(lang)}. This includes appName, description, targetUser, marketContext, targetAudience, painPoint, competitorGap, onboarding text, page names, uiSpec text, and seed data examples.
+Write EVERY human-readable field in ${getLanguageName(lang)}. This includes appName, description, targetUser, marketContext, targetAudience, painPoint, competitorGap, and seedData examples.
 Do not switch back to English unless a proper noun requires it.
 
-Use this EXACT schema:
-
-${PLAN_SCHEMA}
-
-Also add these fields to each plan object:
+Use this EXACT JSON schema for each idea:
 {
   "id": "kebab-case-unique-id",
+  "appName": "Human readable product name — specific, not generic",
+  "description": "One sentence: the core value proposition",
+  "theme": "dark-slate|trust|warm|neon|bloom",
+  "targetUser": "Specific person: role, context, pain point",
   "categories": [${selectedInterest ? `"${selectedInterest}"` : categoryList}],
   "marketContext": "Specific real trend signal (search spike, viral moment, platform change, regulatory shift) happening NOW in US or EU that makes this the right time to build",
   "targetAudience": "Specific end user — role, context, and current frustration",
@@ -424,8 +424,6 @@ RULES:
 - ${selectedInterest ? `categories must include "${selectedInterest}" on every idea` : 'categories must match the actual domain of the idea'}
 - Each idea must have a DIFFERENT and SPECIFIC trend signal in marketContext (no generic "growing market" statements)
 - The product is the end-user-facing solution, not internal tooling or dashboards
-- onboarding.needed = true only if user-specific input meaningfully changes the experience
-- seedData.needed = true for any app with lists or content
 - NEVER use the words: landing page, SaaS, MVP
 - Do NOT generate generic ideas like "AI assistant for everyone"
 - Primary target: US and EU users
@@ -2558,39 +2556,37 @@ export async function ensureTrendNichesModel(
       monthly = monthlyResult.value;
     }
   } else if (hasIdeaGenerationAccess(googleAccessToken)) {
+    // Run all three concurrently to minimize loading time
+    const [hotResult, nicheResult, monthlyResult] = await Promise.allSettled([
+      ensureHotIdeas(googleAccessToken, force),
+      ensureNicheIdeas(googleAccessToken, force),
+      generateTrendIdeasForCadence('monthly', language, googleAccessToken, null, refreshSeed),
+    ]);
+
     let anyLlmSuccess = false;
-    try {
-      const hot = await ensureHotIdeas(googleAccessToken, force);
-      if (hot.length > 0) {
-        daily = hot
-          .slice(0, 3)
-          .map(idea => normalizeTrendIdea(idea as unknown as Record<string, unknown>, 'daily', language));
-        anyLlmSuccess = true;
-      }
-    } catch {
+
+    if (hotResult.status === 'fulfilled' && hotResult.value.length > 0) {
+      daily = hotResult.value
+        .slice(0, 3)
+        .map(idea => normalizeTrendIdea(idea as unknown as Record<string, unknown>, 'daily', language));
+      anyLlmSuccess = true;
+    } else {
       daily = fallback.daily;
     }
 
-    try {
-      const nicheIdeas = await ensureNicheIdeas(googleAccessToken, force);
-      if (nicheIdeas.length > 0) {
-        weekly = nicheIdeas
-          .slice(0, 3)
-          .map(idea => normalizeTrendIdea(idea as unknown as Record<string, unknown>, 'weekly', language));
-        anyLlmSuccess = true;
-      }
-    } catch {
+    if (nicheResult.status === 'fulfilled' && nicheResult.value.length > 0) {
+      weekly = nicheResult.value
+        .slice(0, 3)
+        .map(idea => normalizeTrendIdea(idea as unknown as Record<string, unknown>, 'weekly', language));
+      anyLlmSuccess = true;
+    } else {
       weekly = fallback.weekly;
     }
 
-    // Generate monthly ideas via LLM (no interest filter) — previously always used DEFAULT
-    try {
-      const monthlyIdeas = await generateTrendIdeasForCadence('monthly', language, googleAccessToken, null, refreshSeed);
-      if (monthlyIdeas.length > 0) {
-        monthly = monthlyIdeas;
-        anyLlmSuccess = true;
-      }
-    } catch {
+    if (monthlyResult.status === 'fulfilled' && monthlyResult.value.length > 0) {
+      monthly = monthlyResult.value;
+      anyLlmSuccess = true;
+    } else {
       monthly = fallback.monthly;
     }
 
