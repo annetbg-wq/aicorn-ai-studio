@@ -2163,6 +2163,19 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               const isReport        = m.type === 'generation-report' && !!m.report;
               const isClarification = m.type === 'clarification' && Array.isArray(m.questions) && (m.questions as string[]).length > 0;
               const isBlueprint     = m.type === 'blueprint';
+              // content may be a vision array: [{type:'image_url',...},{type:'text',...}]
+              const imgUrls: string[] = Array.isArray(m.content)
+                ? (m.content as Array<{type: string; image_url?: {url: string}}>)
+                    .filter(c => c.type === 'image_url')
+                    .map(c => c.image_url?.url ?? '')
+                    .filter(Boolean)
+                : [];
+              const textContent: string = Array.isArray(m.content)
+                ? (m.content as Array<{type: string; text?: string}>)
+                    .filter(c => c.type === 'text')
+                    .map(c => c.text ?? '')
+                    .join(' ')
+                : (m.content as string);
 
               if (isBlueprint) {
                 // If full blueprint payload exists — render the rich card.
@@ -2254,50 +2267,36 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                           color: textColor,
                           userSelect: 'text',
                         }}>
-                        {isTyping ? <TypingDots /> : (() => {
-                          // content may be a vision array: [{type:'image_url',...},{type:'text',...}]
-                          const imgUrls: string[] = Array.isArray(m.content)
-                            ? (m.content as Array<{type: string; image_url?: {url: string}}>)
-                                .filter(c => c.type === 'image_url')
-                                .map(c => c.image_url?.url ?? '')
-                                .filter(Boolean)
-                            : [];
-                          const textContent: string = Array.isArray(m.content)
-                            ? (m.content as Array<{type: string; text?: string}>)
-                                .filter(c => c.type === 'text')
-                                .map(c => c.text ?? '')
-                                .join(' ')
-                            : (m.content as string);
-                          return (
-                            <>
-                              {imgUrls.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mb-1">
-                                  {imgUrls.map((url, idx) => (
-                                    <img key={idx} src={url} alt="attachment"
-                                      style={{ maxHeight: 80, maxWidth: 120, borderRadius: 6, objectFit: 'cover' }} />
-                                  ))}
-                                </div>
-                              )}
-                              <div className={`allow-copy prose prose-sm max-w-none ${isDark ? 'prose-invert' : 'prose-slate'}`}>
-                                <ReactMarkdown
-                                  remarkPlugins={[remarkGfm]}
-                                  components={{
-                                    code({ node, className, children, ...props }: any) {
-                                      const match = /language-(\w+)/.exec(className || '');
-                                      const isBlock = !props.inline && (match || String(children).includes('\n'));
-                                      if (isBlock) {
-                                        return <CodeBlock language={match?.[1] ?? ''} code={String(children).replace(/\n$/, '')} isDark={isDark} />;
-                                      }
-                                      return <code className={className} style={{ background: isDark ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.07)', borderRadius: 4, padding: '1px 5px', fontFamily: 'monospace', fontSize: '0.875em' }} {...props}>{children}</code>;
-                                    },
-                                  }}
-                                >
-                                  {textContent}
-                                </ReactMarkdown>
-                              </div>
-                            </>
-                          );
-                        })()}
+                        <div style={{ display: isTyping ? 'block' : 'none' }}>
+                          <TypingDots />
+                        </div>
+                        <div style={{ display: isTyping ? 'none' : 'block' }}>
+                          {imgUrls.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-1">
+                              {imgUrls.map((url, idx) => (
+                                <img key={idx} src={url} alt="attachment"
+                                  style={{ maxHeight: 80, maxWidth: 120, borderRadius: 6, objectFit: 'cover' }} />
+                              ))}
+                            </div>
+                          )}
+                          <div className={`allow-copy prose prose-sm max-w-none ${isDark ? 'prose-invert' : 'prose-slate'}`}>
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                code({ node, className, children, ...props }: any) {
+                                  const match = /language-(\w+)/.exec(className || '');
+                                  const isBlock = !props.inline && (match || String(children).includes('\n'));
+                                  if (isBlock) {
+                                    return <CodeBlock language={match?.[1] ?? ''} code={String(children).replace(/\n$/, '')} isDark={isDark} />;
+                                  }
+                                  return <code className={className} style={{ background: isDark ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.07)', borderRadius: 4, padding: '1px 5px', fontFamily: 'monospace', fontSize: '0.875em' }} {...props}>{children}</code>;
+                                },
+                              }}
+                            >
+                              {textContent}
+                            </ReactMarkdown>
+                          </div>
+                        </div>
                       </div>
                       {!isUser && !isTyping && (
                         <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex gap-0.5 transition-all">
