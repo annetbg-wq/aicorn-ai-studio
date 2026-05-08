@@ -459,6 +459,67 @@ export function isProtectedSkeletonFile(skeletonId: SkeletonId, path: string): b
   return manifest.protectedFiles.some(pattern => pathMatchesPattern(path, pattern));
 }
 
+/**
+ * Returns true if the given path falls under any of the skeleton's locked prefixes.
+ */
+function isLockedSkeletonPath(skeletonId: SkeletonId, path: string): boolean {
+  const meta = SKELETON_REGISTRY[skeletonId];
+  if (!meta) return false;
+  const normalized = normalizeSkeletonPath(path);
+  return meta.lockedPrefixes.some(prefix => {
+    const normalizedPrefix = normalizeSkeletonPath(prefix);
+    return (
+      normalized.toLowerCase() === normalizedPrefix.toLowerCase() ||
+      normalized.toLowerCase().startsWith(normalizedPrefix.toLowerCase().replace(/\/?$/, '/'))
+    );
+  });
+}
+
+/**
+ * Strip locked/provided skeleton entries from a product plan so the coder
+ * receives a shorter, delta-focused prompt.
+ *
+ * Removes from plan.pages, plan.fileArchitecture, and plan.architecture.domainComponents
+ * any items whose paths/names are already covered by the installed skeleton.
+ * All other plan fields are preserved.
+ */
+export function stripLockedPlanEntries(
+  plan: Record<string, unknown>,
+  skeletonId: SkeletonId,
+): Record<string, unknown> {
+  const meta = SKELETON_REGISTRY[skeletonId];
+  if (!meta) return plan;
+
+  const result: Record<string, unknown> = { ...plan };
+
+  if (Array.isArray(result.pages)) {
+    result.pages = (result.pages as Array<Record<string, unknown>>).filter(page => {
+      const rawFile = typeof page.file === 'string' ? page.file : '';
+      return !rawFile || !isLockedSkeletonPath(skeletonId, rawFile);
+    });
+  }
+
+  if (Array.isArray(result.fileArchitecture)) {
+    result.fileArchitecture = (result.fileArchitecture as Array<Record<string, unknown>>).filter(entry => {
+      const rawPath = typeof entry.path === 'string' ? entry.path : '';
+      return !rawPath || !isLockedSkeletonPath(skeletonId, rawPath);
+    });
+  }
+
+  if (result.architecture && typeof result.architecture === 'object') {
+    const arch = { ...(result.architecture as Record<string, unknown>) };
+    if (Array.isArray(arch.domainComponents)) {
+      arch.domainComponents = (arch.domainComponents as Array<Record<string, unknown>>).filter(comp => {
+        const name = typeof comp.name === 'string' ? comp.name : '';
+        return !meta.providedComponents.includes(name);
+      });
+    }
+    result.architecture = arch;
+  }
+
+  return result;
+}
+
 function formatPathList(paths: string[], empty = '  - none'): string {
   return paths.length ? paths.map(path => `  - ${path}`).join('\n') : empty;
 }
