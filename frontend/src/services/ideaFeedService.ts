@@ -341,48 +341,65 @@ function buildTrendCadencePrompt(
     ? TREND_NICHE_INTERESTS.find(item => item.id === selectedInterest)
     : null;
   const interestLabel = interestMeta?.labels[lang] ?? interestMeta?.labels.en ?? selectedInterest ?? '';
-  const exampleSubjects = directRule?.focuses
-    .slice(refreshSeed % Math.max(1, directRule.focuses.length - 2), (refreshSeed % Math.max(1, directRule.focuses.length - 2)) + 3)
-    .map(focus => `"${focus.subjectEn}"`)
-    .join(', ');
+
+  // Rotate the seed-window so LLM anchors on different sub-topics each refresh
+  const focusWindow = directRule?.focuses.length
+    ? (() => {
+        const total = directRule.focuses.length;
+        const offset = refreshSeed % Math.max(1, total - 2);
+        return directRule.focuses.slice(offset, offset + 3).map(f => f.subjectEn);
+      })()
+    : [];
+
   const cadenceCopy = {
     daily: {
-      headline: 'daily product ideas',
-      horizon: 'next 24-72 hours',
-      rule: 'Bias toward immediate recurring tasks, fresh signal, and decisions users make every day.',
+      horizon: 'the next 24–72 hours',
+      trendSignal: 'surfacing right now on Google Trends, X/Twitter, TikTok, Reddit, or Product Hunt in the US or EU',
+      rule: 'Pick signals that spiked in the last 24 hours. The product solves a recurring daily problem triggered by that signal.',
     },
     weekly: {
-      headline: 'weekly product ideas',
-      horizon: 'the next 1-3 weeks',
-      rule: 'Bias toward recurring weekly planning, review, and growth loops with habit-forming behavior.',
+      horizon: 'the next 1–3 weeks',
+      trendSignal: 'gaining traction this week in US/EU markets based on App Store charts, VC deals, or rising search interest',
+      rule: 'Pick signals showing clear weekly growth momentum. The product builds a habit or recurring weekly workflow.',
     },
     monthly: {
-      headline: 'monthly product ideas',
-      horizon: 'the next 1-3 months',
-      rule: 'Bias toward budget, reporting, coordination, or risk problems that compound across the month.',
+      horizon: 'the next 1–3 months',
+      trendSignal: 'emerging as a durable market shift this month — regulatory changes, macroeconomic shifts, new platform APIs, or growing consumer behavior in the US or EU',
+      rule: 'Pick signals with compounding growth over months. The product captures a structural shift, not a fad.',
     },
   }[cadence];
+
   const categoryList = TREND_NICHE_INTERESTS.map(item => `"${item.id}"`).join(', ');
 
-  return `You are a product strategist focused on emerging software opportunities.
-Today is ${new Date().toDateString()}.
+  const trendInstructions = selectedInterest
+    ? `Focus ONLY on the "${interestLabel}" (${selectedInterest}) market in the US and EU.
+Each idea must be grounded in a real, specific trend signal ${cadenceCopy.trendSignal} within "${interestLabel}".
+The product must BE the consumer/user-facing solution in this space — not tooling, admin, or back-office for that market.
+${directRule ? `\nCRITICAL: ${directRule.promptDirective}` : ''}
+${focusWindow.length > 0 ? `\nFor inspiration on which sub-niches to explore (do NOT copy literally — use as a direction and add fresh market angles): ${focusWindow.map(s => `"${s}"`).join(', ')}.` : ''}`
+    : `Scan the US and EU startup landscape. Each idea must be anchored in a DIFFERENT real market trend signal ${cadenceCopy.trendSignal}.
+Cover 3 different verticals or user problems. Avoid repeating the same domain.`;
 
-Generate 3 fresh ${cadenceCopy.headline} relevant in ${cadenceCopy.horizon}.
+  return `You are a startup trend analyst and product strategist with deep knowledge of the US and EU markets.
+Today is ${new Date().toDateString()}. Week ${getWeekNumber()} of ${new Date().getFullYear()}.
+
+Your task: identify 3 high-signal startup product opportunities ${cadenceCopy.horizon}.
 ${cadenceCopy.rule}
 
-  ${selectedInterest
-    ? `The selected interest task is "${interestLabel}" (${selectedInterest}). Every idea must clearly belong to this interest and categories must include "${selectedInterest}". The selected interest defines the PRODUCT ITSELF, not tooling or services around that market.`
-    : 'Cover concrete markets with a visible trigger right now. Avoid broad generic categories.'}
+MARKET SCOPE: United States and European Union primarily. Focus on:
+- Google Trends breakout queries (US/EU)
+- App Store / Play Store rising charts
+- Reddit, TikTok, X viral pain points
+- VC funding signals and accelerator Demo Days
+- New platform APIs, regulatory changes, or behavior shifts
 
- ${directRule ? `CRITICAL FOR "${selectedInterest}": ${directRule.promptDirective}` : ''}
+${trendInstructions}
 
- ${selectedInterest
-    ? `It is valid if all 3 ideas stay inside one concrete subdomain of "${selectedInterest}" and explore different business angles. For example, three education ideas can all be language-learning apps if the target user, pricing, or retention loop is different.${exampleSubjects ? ` Use these as inspiration for subdomains (do NOT copy them literally — invent fresh product ideas within these areas or adjacent ones): ${exampleSubjects}.` : ''}`
-    : ''}
+${refreshSeed > 0
+  ? `VARIATION REQUIRED (seed=${refreshSeed}): These ideas must be COMPLETELY DIFFERENT from any previously generated set. Explore a different market signal, different target user segment, or different business model angle. Do not repeat app names, problem framings, or subject areas from previous generations.`
+  : ''}
 
- ${refreshSeed > 0
-    ? `Refresh variation key: ${refreshSeed}. You MUST generate completely different product ideas from any previous response. Do NOT repeat the same subject areas, app names, or problem framings. Explore a different subdomain or angle within the interest.`
-    : ''}
+For each idea, the "marketContext" MUST cite a concrete, real trend signal — a named behavior shift, search trend, platform change, or market event happening RIGHT NOW. Not generic statements like "the market is growing".
 
 Write EVERY human-readable field in ${getLanguageName(lang)}. This includes appName, description, targetUser, marketContext, targetAudience, painPoint, competitorGap, onboarding text, page names, uiSpec text, and seed data examples.
 Do not switch back to English unless a proper noun requires it.
@@ -395,21 +412,23 @@ Also add these fields to each plan object:
 {
   "id": "kebab-case-unique-id",
   "categories": [${selectedInterest ? `"${selectedInterest}"` : categoryList}],
-  "marketContext": "Why this opportunity matters right now, with a concrete trigger",
-  "targetAudience": "Specific end user or direct buyer of this product",
-  "painPoint": "The exact user problem or skill gap being solved",
-  "competitorGap": "What existing apps, passive content, or substitutes fail to do",
+  "marketContext": "Specific real trend signal (search spike, viral moment, platform change, regulatory shift) happening NOW in US or EU that makes this the right time to build",
+  "targetAudience": "Specific end user — role, context, and current frustration",
+  "painPoint": "The exact recurring problem the trend is exposing",
+  "competitorGap": "What existing apps, content, or substitutes fail to do that this product would solve",
   "generatedAt": "${new Date().toISOString()}"
 }
 
 RULES:
 - categories must contain 1-3 items chosen only from: [${categoryList}]
 - ${selectedInterest ? `categories must include "${selectedInterest}" on every idea` : 'categories must match the actual domain of the idea'}
-- ${selectedInterest ? `for "${selectedInterest}", the product itself must live inside that interest, not be a service layer, dashboard, admin console, or support workflow around that market` : 'the product must be the end-user product itself, not an internal support workflow unless the interest explicitly implies that'}
+- Each idea must have a DIFFERENT and SPECIFIC trend signal in marketContext (no generic "growing market" statements)
+- The product is the end-user-facing solution, not internal tooling or dashboards
 - onboarding.needed = true only if user-specific input meaningfully changes the experience
 - seedData.needed = true for any app with lists or content
 - NEVER use the words: landing page, SaaS, MVP
-- Avoid generic ideas like "AI assistant for everyone"
+- Do NOT generate generic ideas like "AI assistant for everyone"
+- Primary target: US and EU users
 
 Output: JSON array of 3 plan objects. No markdown. No explanation.`;
 }
