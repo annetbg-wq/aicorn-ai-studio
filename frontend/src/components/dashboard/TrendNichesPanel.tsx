@@ -15,6 +15,7 @@ import { buildFounderReadyBrief } from '../../services/founderBriefBuilder';
 import { PACKAGING_PROGRESS_STEPS, packageSelectedIdea } from '../../services/ideaPackagingService';
 import {
   ensureTrendNichesModel,
+  fetchTrendArchive,
   getIdeaFeedEventName,
   getTrendIdeaText,
   loadCachedTrendNiches,
@@ -28,6 +29,7 @@ import {
   TREND_NICHE_INTERESTS,
   type ProductBlueprint,
   type ProductIdea,
+  type TrendArchiveEntry,
   type TrendIdeaBankItem,
   type TrendNicheIdea,
   type TrendNicheInterest,
@@ -50,6 +52,12 @@ const LABELS: Record<string, Record<string, string>> = {
     week: 'Weekly ideas',
     month: 'Monthly ideas',
     bank: 'Idea bank',
+    archive: 'Archive',
+    archiveEmpty: 'No topics archived yet',
+    archiveSendToChat: 'Send to chat',
+    archiveDay: 'Daily',
+    archiveWeek: 'Weekly',
+    archiveMonth: 'Monthly',
     refresh: 'Refresh',
     save: 'Save idea',
     saved: 'Saved',
@@ -74,6 +82,12 @@ const LABELS: Record<string, Record<string, string>> = {
     week: 'Идеи недели',
     month: 'Идеи месяца',
     bank: 'Банк идей',
+    archive: 'Архив тем',
+    archiveEmpty: 'Тем пока нет',
+    archiveSendToChat: 'В чат',
+    archiveDay: 'День',
+    archiveWeek: 'Неделя',
+    archiveMonth: 'Месяц',
     refresh: 'Обновить',
     save: 'Сохранить идею',
     saved: 'В банке',
@@ -137,6 +151,9 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
   const labels = labelsFor(appLanguage);
   const [model, setModel] = React.useState<TrendNichesModel | null>(() => loadCachedTrendNiches() ?? makeDefaultTrendModel());
   const [bank, setBank] = React.useState<TrendIdeaBankItem[]>(() => loadTrendIdeaBank());
+  const [archive, setArchive] = React.useState<TrendArchiveEntry[]>([]);
+  const [archiveLoading, setArchiveLoading] = React.useState(false);
+  const [activeSection, setActiveSection] = React.useState<'ideas' | 'bank' | 'archive'>('ideas');
   const [selectedInterest, setSelectedInterest] = React.useState<TrendNicheInterest | null>(() => loadTrendNicheInterests()[0] ?? null);
   const [loading, setLoading] = React.useState(false);
   const [pendingIdea, setPendingIdea] = React.useState<TrendNicheIdea | null>(null);
@@ -175,6 +192,15 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
       window.removeEventListener(getIdeaFeedEventName(), refreshBank);
     };
   }, []);
+
+  React.useEffect(() => {
+    if (activeSection !== 'archive') return;
+    setArchiveLoading(true);
+    void fetchTrendArchive().then(entries => {
+      setArchive(entries);
+      setArchiveLoading(false);
+    });
+  }, [activeSection]);
 
   const bankIds = React.useMemo(() => new Set(bank.map(item => item.idea.id)), [bank]);
   const allIdeas = React.useMemo(
@@ -549,28 +575,57 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {sections.map((section, index) => (
-          <div key={section.key}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <div style={{ width: 7, height: 7, borderRadius: 4, background: sectionAccent(index) }} />
-              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: textPrimary, letterSpacing: 0 }}>
-                {section.title}
-              </h3>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-              {section.ideas.map(idea => renderIdeaCard(idea, sectionAccent(index)))}
-            </div>
-          </div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: '1px solid #e5e7eb', paddingBottom: 0 }}>
+        {([
+          { key: 'ideas', label: `${labels.day} / ${labels.week} / ${labels.month}` },
+          { key: 'bank', label: labels.bank },
+          { key: 'archive', label: labels.archive },
+        ] as const).map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveSection(tab.key)}
+            style={{
+              height: 34,
+              padding: '0 12px',
+              borderRadius: '8px 8px 0 0',
+              border: '1px solid',
+              borderBottom: activeSection === tab.key ? '1px solid #ffffff' : '1px solid #e5e7eb',
+              borderColor: activeSection === tab.key ? '#e5e7eb' : 'transparent',
+              background: activeSection === tab.key ? '#ffffff' : 'transparent',
+              color: activeSection === tab.key ? '#111827' : '#6b7280',
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+              marginBottom: activeSection === tab.key ? -1 : 0,
+              position: 'relative',
+              zIndex: activeSection === tab.key ? 1 : 0,
+            }}
+          >
+            {tab.label}
+          </button>
         ))}
+      </div>
 
+      {activeSection === 'ideas' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {sections.map((section, index) => (
+            <div key={section.key}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <div style={{ width: 7, height: 7, borderRadius: 4, background: sectionAccent(index) }} />
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: textPrimary, letterSpacing: 0 }}>
+                  {section.title}
+                </h3>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                {section.ideas.map(idea => renderIdeaCard(idea, sectionAccent(index)))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeSection === 'bank' && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <div style={{ width: 7, height: 7, borderRadius: 4, background: '#b45309' }} />
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: textPrimary, letterSpacing: 0 }}>
-              {labels.bank}
-            </h3>
-          </div>
           {bank.length === 0 ? (
             <div style={{ border: '1px dashed #d1d5db', borderRadius: 8, padding: '18px 16px', fontSize: 12, color: muted, background: '#ffffff' }}>
               {labels.emptyBank}
@@ -581,7 +636,100 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
             </div>
           )}
         </div>
-      </div>
+      )}
+
+      {activeSection === 'archive' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {archiveLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 12, padding: '12px 0' }}>
+              <Loader2 size={13} className="animate-spin" /> {labels.loading}…
+            </div>
+          ) : archive.length === 0 ? (
+            <div style={{ border: '1px dashed #d1d5db', borderRadius: 8, padding: '18px 16px', fontSize: 12, color: muted, background: '#ffffff' }}>
+              {labels.archiveEmpty}
+            </div>
+          ) : (
+            archive.map(entry => {
+              const interestLabel = entry.interest ? ` · ${entry.interest}` : '';
+              const sendMsg = [
+                `Архив тем ${entry.date}${interestLabel}:`,
+                entry.daily   ? `День: ${entry.daily}`   : '',
+                entry.weekly  ? `Неделя: ${entry.weekly}`  : '',
+                entry.monthly ? `Месяц: ${entry.monthly}` : '',
+                '',
+                'На основе этих тем предложи новые идеи для продуктов в этих направлениях.',
+              ].filter(Boolean).join('\n');
+              return (
+                <div
+                  key={entry.id}
+                  style={{
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    background: '#ffffff',
+                    padding: '12px 14px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: muted, letterSpacing: '0.06em' }}>
+                      {entry.date}{interestLabel}
+                    </span>
+                    <button
+                      onClick={() => {
+                        const fakeIdea: TrendNicheIdea = {
+                          id: entry.id,
+                          appName: `Архив ${entry.date}`,
+                          painPoint: '',
+                          marketContext: '',
+                          theme: 'archive',
+                        } as unknown as TrendNicheIdea;
+                        onSendIdeaToChat(fakeIdea, sendMsg);
+                      }}
+                      style={{
+                        height: 28,
+                        borderRadius: 8,
+                        border: '1px solid rgba(37,99,235,0.24)',
+                        background: '#eff6ff',
+                        color: '#1d4ed8',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '0 10px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                      }}
+                    >
+                      <Send size={11} />
+                      {labels.archiveSendToChat}
+                    </button>
+                  </div>
+                  {entry.daily && (
+                    <div style={{ fontSize: 11, lineHeight: 1.5, color: textSecondary }}>
+                      <span style={{ fontWeight: 700, color: sectionAccent(0) }}>{labels.archiveDay}: </span>
+                      {entry.daily}
+                    </div>
+                  )}
+                  {entry.weekly && (
+                    <div style={{ fontSize: 11, lineHeight: 1.5, color: textSecondary }}>
+                      <span style={{ fontWeight: 700, color: sectionAccent(1) }}>{labels.archiveWeek}: </span>
+                      {entry.weekly}
+                    </div>
+                  )}
+                  {entry.monthly && (
+                    <div style={{ fontSize: 11, lineHeight: 1.5, color: textSecondary }}>
+                      <span style={{ fontWeight: 700, color: sectionAccent(2) }}>{labels.archiveMonth}: </span>
+                      {entry.monthly}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
 
       {pendingIdea && pendingCopy && (
         <div

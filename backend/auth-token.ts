@@ -1341,9 +1341,65 @@ app.delete('/pending-import', (_req, res) => {
   }
 });
 
+// ── Trend Topic Archive ───────────────────────────────────────────────────────
+// Each generation session appends one record: the topic names (appName) surfaced
+// for daily / weekly / monthly, stored as comma-joined strings.
+// Topics stay in the archive until user explicitly launches them ("В работу").
+// From the archive UI the user can send any topic to the AI chat for generation.
+const TREND_ARCHIVE_FILE = path.join(process.cwd(), 'backend', 'trend-archive.json');
+
+interface TrendArchiveEntry {
+  id: string;          // ISO timestamp — unique key
+  date: string;        // YYYY-MM-DD
+  interest: string | null;
+  daily: string;       // "Topic A, Topic B, Topic C"
+  weekly: string;      // "Topic D, Topic E, Topic F"
+  monthly: string;     // "Topic G, Topic H, Topic I"
+  createdAt: string;
+}
+
+function readTrendArchive(): TrendArchiveEntry[] {
+  try {
+    if (!fs.existsSync(TREND_ARCHIVE_FILE)) return [];
+    const parsed = JSON.parse(fs.readFileSync(TREND_ARCHIVE_FILE, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function writeTrendArchive(entries: TrendArchiveEntry[]): void {
+  fs.writeFileSync(TREND_ARCHIVE_FILE, JSON.stringify(entries, null, 2), 'utf8');
+}
+
+// GET /trend-archive — returns all entries, newest first
+app.get('/trend-archive', (_req, res) => {
+  res.json(readTrendArchive());
+});
+
+// POST /trend-archive — appends a new entry
+// Body: { interest?, daily, weekly, monthly }  (each field: comma-joined topic names)
+app.post('/trend-archive', (req, res) => {
+  const body = req.body as Partial<TrendArchiveEntry>;
+  if (!body.daily && !body.weekly && !body.monthly) {
+    return res.status(400).json({ error: 'At least one of daily/weekly/monthly is required' });
+  }
+  const now = new Date();
+  const entry: TrendArchiveEntry = {
+    id: now.toISOString(),
+    date: now.toISOString().slice(0, 10),
+    interest: typeof body.interest === 'string' ? body.interest : null,
+    daily:   typeof body.daily   === 'string' ? body.daily.trim()   : '',
+    weekly:  typeof body.weekly  === 'string' ? body.weekly.trim()  : '',
+    monthly: typeof body.monthly === 'string' ? body.monthly.trim() : '',
+    createdAt: now.toISOString(),
+  };
+  const entries = readTrendArchive();
+  entries.unshift(entry);
+  writeTrendArchive(entries);
+  res.json(entry);
+});
+
+// ── Start server ──────────────────────────────────────────────────────────────
 export function startServer(port = PORT) {
-  // Bind to loopback only — this server is a local dev helper and must not
-  // be reachable from the network. All routes assume a trusted local caller.
   return app.listen(port, '127.0.0.1', () => {
     console.log(`[auth-token] Running on http://127.0.0.1:${port} (loopback only)`);
     console.log(`[auth-token] Provider: Claude Code CLI`);
