@@ -28,6 +28,24 @@ function pruneOldSnapshots(): void {
   } catch { /* best-effort */ }
 }
 
+/** Aggressively free space: remove large expendable keys. */
+function aggressiveCleanup(skipKey: string): void {
+  const expendable = ['LAST_CODE', 'LAST_FILES'];
+  for (const k of expendable) {
+    if (k !== skipKey) localStorage.removeItem(k);
+  }
+  // Truncate chat history to last 10 messages if present
+  try {
+    const chatRaw = localStorage.getItem('CHAT_HISTORY');
+    if (chatRaw) {
+      const msgs: unknown[] = JSON.parse(chatRaw);
+      if (msgs.length > 10) {
+        localStorage.setItem('CHAT_HISTORY', JSON.stringify(msgs.slice(-10)));
+      }
+    }
+  } catch { /* best-effort */ }
+}
+
 /**
  * Safe wrapper around localStorage.setItem.
  * On QuotaExceededError: purges expendable caches and retries once.
@@ -46,8 +64,15 @@ export function safeSetItem(key: string, value: string): boolean {
         localStorage.setItem(key, value);
         return true;
       } catch {
-        console.error('[safeStorage] Still over quota after cleanup for key:', key);
-        return false;
+        // Still over quota — try aggressive cleanup
+        aggressiveCleanup(key);
+        try {
+          localStorage.setItem(key, value);
+          return true;
+        } catch {
+          console.error('[safeStorage] Still over quota after cleanup for key:', key);
+          return false;
+        }
       }
     }
     // Non-quota error (storage blocked, etc.)
