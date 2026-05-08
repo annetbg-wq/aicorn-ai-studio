@@ -3216,7 +3216,26 @@ export const useStudio = () => {
       const err = planErr as any;
       const isNetworkError = err instanceof TypeError &&
         /fetch|network|ERR_|failed to fetch/i.test(err.message ?? '');
-      const errorMessage = err?.message ?? 'Unknown error';
+      const errorMessage: string = err?.message ?? 'Unknown error';
+      const httpStatusMatch = errorMessage.match(/LLM Proxy (\d+)/);
+      const httpStatus = httpStatusMatch ? parseInt(httpStatusMatch[1], 10) : 0;
+      const isUnauthorized = httpStatus === 401;
+      const isRateLimit = httpStatus === 429;
+      const isProviderError = httpStatus >= 500;
+      const isModelError = isUnauthorized || isRateLimit || isProviderError;
+
+      let errorContent: string;
+      if (isNetworkError) {
+        errorContent = '🔌 **Connection lost.** Check your internet and retry.';
+      } else if (isUnauthorized) {
+        errorContent = `🔑 **API key rejected.** Open **Settings → API Keys** and verify your key, then retry.`;
+      } else if (isRateLimit) {
+        errorContent = `⏳ **Rate limit reached.** Switch to a different model in **Settings → Agents**, then retry.`;
+      } else if (isProviderError) {
+        errorContent = `🔴 **Provider error (${httpStatus}).** The service may be down. Switch to an OpenRouter model in Settings, then retry.`;
+      } else {
+        errorContent = `❌ Ошибка: ${errorMessage}`;
+      }
 
       consecutiveErrors.current += 1;
       lastErrorTime.current = Date.now();
@@ -3228,10 +3247,9 @@ export const useStudio = () => {
       chatAppend({
         role: 'assistant',
         type: 'text',
-        content: isNetworkError
-          ? '🔌 **Connection lost.** Check your internet and retry.'
-          : `❌ Ошибка: ${errorMessage}`,
+        content: errorContent,
         retryable: true,
+        showSettingsButton: isModelError,
         timestamp: Date.now(),
       });
       setCurrentPhase('');
@@ -4014,15 +4032,40 @@ export const useStudio = () => {
           metadata: { isNetworkError, errorCount: consecutiveErrors.current },
         });
       }
+      // ── Classify model/provider errors for actionable guidance ──────────
+      const errMsg: string = err?.message ?? '';
+      const httpStatusMatch = errMsg.match(/LLM Proxy (\d+)/);
+      const httpStatus = httpStatusMatch ? parseInt(httpStatusMatch[1], 10) : 0;
+      const isUnauthorized = httpStatus === 401;
+      const isRateLimit = httpStatus === 429;
+      const isProviderError = httpStatus >= 500;
+      const isModelError = isUnauthorized || isRateLimit || isProviderError;
+
+      // Extract model/provider from last resolved routes if available
+      const failedModel = primaryRoute?.modelId ?? buildRoute?.modelId ?? '';
+      const failedProvider = primaryRoute?.provider ?? buildRoute?.provider ?? '';
+
+      let errorContent: string;
+      if (isNetworkError) {
+        errorContent = '🔌 **Connection lost.** Check your internet and retry.';
+      } else if (isTimeoutError) {
+        errorContent = `⏱️ **Generation timed out.** ${errMsg}\n\nRetry will continue with the same prompt and project context.`;
+      } else if (isUnauthorized) {
+        errorContent = `🔑 **API key rejected** by **${failedProvider || 'provider'}**${failedModel ? ` (model: \`${failedModel}\`)` : ''}.\n\nOpen **Settings → API Keys** and verify your key, then retry.`;
+      } else if (isRateLimit) {
+        errorContent = `⏳ **Rate limit reached** on **${failedModel || failedProvider || 'model'}**.\n\nYou can switch to a different model in **Settings → Agents**, then retry.`;
+      } else if (isProviderError) {
+        errorContent = `🔴 **Provider error (${httpStatus})** from **${failedProvider || 'provider'}**${failedModel ? ` (model: \`${failedModel}\`)` : ''}.\n\nThe service may be temporarily down. Try switching to an **OpenRouter** model in Settings, then retry.`;
+      } else {
+        errorContent = `❌ Ошибка: ${errMsg || 'Проверь API Key.'}`;
+      }
+
       chatPatchLast({
         role: 'assistant',
         type: 'text',
-        content: isNetworkError
-          ? '🔌 **Connection lost.** Check your internet and retry.'
-          : isTimeoutError
-            ? `⏱️ **Generation timed out.** ${err?.message ?? 'The model did not finish in time.'}\n\nRetry will continue with the same prompt and project context.`
-            : `❌ Ошибка: ${err?.message ?? 'Проверь API Key.'}`,
+        content: errorContent,
         retryable: true,
+        showSettingsButton: isModelError,
       });
       setCurrentPhase('');
       setPreviewLifecycle('failed');

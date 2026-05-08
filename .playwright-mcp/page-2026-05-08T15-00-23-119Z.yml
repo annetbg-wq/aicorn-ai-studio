@@ -1,0 +1,199 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Agent Lab" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Analytics" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+        - button "Quality" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Code Studio" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+        - button "Terminal" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "DB Console" [ref=e70] [cursor=pointer]:
+          - img [ref=e71]
+        - button "Cloud & Backend — Coming Soon" [ref=e76]:
+          - img [ref=e77]
+        - button "Packaging & Ship — Coming Soon" [ref=e80]:
+          - img [ref=e81]
+        - button "Growth & Marketing — Coming Soon" [ref=e87]:
+          - img [ref=e88]
+    - generic [ref=e292]:
+      - generic [ref=e293]:
+        - generic [ref=e294]:
+          - generic [ref=e295]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e296] [cursor=pointer]:
+            - img [ref=e297]
+            - text: New Project
+          - generic: New Project
+          - generic [ref=e299]: /
+          - img [ref=e300]
+          - generic [ref=e304]: main
+          - generic [ref=e305]: ·
+          - img [ref=e306]
+          - generic [ref=e308]: "snap #0"
+        - generic [ref=e310]: Not backed up
+        - generic [ref=e311]:
+          - generic [ref=e312]:
+            - 'button "Theme: dark" [ref=e313] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e314] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e315] [cursor=pointer]'
+          - button "Settings" [ref=e316] [cursor=pointer]:
+            - img [ref=e317]
+          - button "D dev.local@aic-studio.test" [ref=e320] [cursor=pointer]:
+            - generic [ref=e321]: D
+            - generic [ref=e322]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e323] [cursor=pointer]:
+            - img [ref=e324]
+            - text: Backup to Cloud
+      - generic [ref=e327]:
+        - generic [ref=e329]:
+          - generic [ref=e331]:
+            - paragraph [ref=e336]: Habit tracker app with daily streaks, categories, and weekly stats
+            - generic [ref=e337]:
+              - generic [ref=e338]: Что строим?
+              - generic [ref=e339]:
+                - button "🌐 Веб-приложение" [ref=e340] [cursor=pointer]
+                - button "⚡ Супер-апп" [ref=e341] [cursor=pointer]
+            - paragraph [ref=e346]: "Budget tracker: income/expense logs, categories, monthly chart"
+            - generic [ref=e347]:
+              - generic [ref=e349]:
+                - generic [ref=e350]: MoneyFlow
+                - generic [ref=e351]: 6 screens · theme
+              - generic [ref=e353]:
+                - generic [ref=e354]:
+                  - generic [ref=e355]: Режим быстрого прототипа
+                  - generic [ref=e356]: Используется наблюдаемое состояние ветки
+                - generic [ref=e357]: Активен режим быстрого прототипа. Архитектура ветки остаётся лёгким контекстом совместимости.
+            - generic [ref=e359]:
+              - generic [ref=e361]:
+                - paragraph [ref=e362]:
+                  - strong [ref=e363]: Анализ Architect — Приложение
+                - paragraph [ref=e364]: Приложение — первый проход прототипа
+                - paragraph [ref=e365]:
+                  - strong [ref=e366]: "Объём первого прохода:"
+                  - text: • Аналитика — Аналитика и отчёты входят в первый проход
+                - paragraph [ref=e367]:
+                  - strong [ref=e368]: "Варианты сборки:"
+                  - text: →
+                  - strong [ref=e369]: Собрать core
+                  - text: — Собрать ключевые экраны и сценарии на локальных / mock-данных. Самый быстрый путь к рабочему прототипу.
+                  - strong [ref=e370]: Собрать core + backend
+                  - text: — Core UI с реальной персистентностью данных, аутентификацией и backend-связкой.
+                  - strong [ref=e371]: Собрать core + backend + AI
+                  - text: "— Полный первый проход: backend, аутентификация и AI-интеграция."
+                - paragraph [ref=e372]:
+                  - emphasis [ref=e373]: Перед первым запуском сборки вы выберете один из этих объёмов.
+              - generic [ref=e374]:
+                - button "Copy" [ref=e375] [cursor=pointer]:
+                  - img [ref=e376]
+                - button "Regenerate" [ref=e379] [cursor=pointer]:
+                  - img [ref=e380]
+                - button "Good response" [ref=e385] [cursor=pointer]:
+                  - img [ref=e386]
+                - button "Bad response" [ref=e388] [cursor=pointer]:
+                  - img [ref=e389]
+            - generic [ref=e391]:
+              - generic [ref=e393]:
+                - generic [ref=e394]: MoneyFlow
+                - generic [ref=e395]: 6 screens · dark-slate theme
+              - generic [ref=e397]: "## MoneyFlow _Простой трекер доходов и расходов с категориями и месячной статистикой_ **Target user:** Человек, который хочет просто и быстро записывать доходы и расходы, видеть месячную статистику и понимать структуру своих трат без сложных банковских интерфейсов ### Product Strategy - **Core action:** Быстро добавить доход или расход с категорией - **Retention:** Ежедневное логирование → ежемесячная статистика → понимание паттернов → желание продолжать - **Monetization:** После 3 записей при попытке экспорта или просмотра расширенной аналитики ### Screens 1. **Onboarding** — Познакомить пользователя с приложением и настроить базовые предпочтения _()_ 2. **Page2** — Показать сводку за текущий месяц: баланс, доходы, расходы, последние операции _()_ 3. **Page3** — Быстро добавить доход или расход _()_ 4. **Page4** — Показать график расходов по категориям за месяц _()_ 5. **Page5** — Управление профилем, категориями, валютой, подпиской _()_ 6. **Page6** — Управление аккаунтом и подпиской _()_ ### Design Direction - **Visual archetype:** focused utility shell - **Density / breathing room:** comfortable / balanced - **Shell style:** Lean product shell with direct task framing, limited navigation, and highly legible work surfaces. Preserve the recognizable page scaffolding while refreshing visual expression. - **Hierarchy emphasis:** Lead with the task and result, not with decorative scene-setting. - **Content rhythm:** Compact sections, clear labels, and repeated component logic that supports fast comprehension. - **CTA strategy:** Keep one obvious primary action and reduce secondary clutter. - **Imagery strategy:** Use imagery sparingly; prefer diagrams, icons, or self-contained visual accents. - **Motion strategy:** Use subtle fades, hover lifts, and state transitions that make the interface feel intentional without stealing attention. - **Mobile composition:** Use one dominant column, progressive disclosure for settings, and sticky submission or apply actions. - **Avoid:** Avoid unnecessary marketing chrome around core tasks. | Do not introduce multiple visual metaphors on one screen. | Avoid ornamental motion that slows repeat use. ### Redesign Intent - **Mode:** preserve - **Structure lock:** strict - **Change envelope:** greenfield_foundation - **Visual system reset:** false - **Screens in scope:** Page2, Page3, Page4, Page5 - **Brand anchors:** MoneyFlow naming and product promise | existing dark-slate theme expectations | current navigation labels for Page2, Page3, Page4 | existing information architecture | recognizable brand accents and tone ### Asset Policy - **Components:** shadcn/ui primitives, studio block components, project-local composed components - **Icons:** lucide-react, local inline SVG for brand marks only - **Media:** avoid — Default to self-contained gradients, illustrations, or shaped placeholders so the preview remains stable and coherent. - **Fonts:** local_preferred — fallbacks Inter, system-ui, sans-serif - **Advanced resources:** CSS gradients, inline SVG patterns, data URI textures, Framer Motion, local illustration wrappers - **Preview-safe fallback:** Maintain self-contained gradients, patterns, or framed placeholders when remote media is avoided or unavailable."
+              - group [ref=e398]:
+                - generic "Technical Blueprint" [ref=e399] [cursor=pointer]
+            - generic [ref=e401]:
+              - paragraph [ref=e404]: ⚙️ Building…
+              - generic [ref=e405]:
+                - button "Copy" [ref=e406] [cursor=pointer]:
+                  - img [ref=e407]
+                - button "Regenerate" [ref=e410] [cursor=pointer]:
+                  - img [ref=e411]
+                - button "Good response" [ref=e416] [cursor=pointer]:
+                  - img [ref=e417]
+                - button "Bad response" [ref=e419] [cursor=pointer]:
+                  - img [ref=e420]
+            - generic [ref=e422]:
+              - generic [ref=e423]:
+                - paragraph [ref=e426]: "❌ Ошибка: Architect did not return sections"
+                - generic [ref=e427]:
+                  - button "Copy" [ref=e428] [cursor=pointer]:
+                    - img [ref=e429]
+                  - button "Regenerate" [ref=e432] [cursor=pointer]:
+                    - img [ref=e433]
+                  - button "Good response" [ref=e438] [cursor=pointer]:
+                    - img [ref=e439]
+                  - button "Bad response" [ref=e441] [cursor=pointer]:
+                    - img [ref=e442]
+              - button "↺ Повторить" [ref=e444] [cursor=pointer]
+          - generic [ref=e446]:
+            - generic [ref=e447]:
+              - button "AUTO" [ref=e448]
+              - button "APP" [ref=e449]
+              - button "SUPER" [ref=e450]
+              - button "ALL" [ref=e451]
+              - button "История" [ref=e453]:
+                - img [ref=e454]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e459]:
+                - img [ref=e460]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e463]:
+                - img [ref=e464]
+            - generic [ref=e467]:
+              - button "Attach / tools" [ref=e469]:
+                - img [ref=e470]
+              - textbox "Что строим сегодня?" [ref=e471]
+              - button [disabled] [ref=e472]:
+                - img [ref=e473]
+        - generic [ref=e476]:
+          - generic [ref=e477]:
+            - generic [ref=e478]:
+              - button "Preview" [ref=e479] [cursor=pointer]
+              - button "Reasoning" [ref=e480] [cursor=pointer]
+              - button "Code" [ref=e481] [cursor=pointer]
+              - button "Design" [ref=e482] [cursor=pointer]
+              - button "Analytics" [ref=e483] [cursor=pointer]
+              - button "Security" [ref=e484] [cursor=pointer]
+              - button "Cloud" [ref=e485] [cursor=pointer]
+            - generic [ref=e486]:
+              - button "Select" [ref=e487] [cursor=pointer]:
+                - img [ref=e488]
+                - text: Select
+              - generic [ref=e490]:
+                - button "Desktop Chrome" [ref=e491] [cursor=pointer]:
+                  - img [ref=e492]
+                - button "iPhone 16 Pro Max" [ref=e494] [cursor=pointer]:
+                  - img [ref=e495]
+                - button "Pixel 9 Pro" [ref=e497] [cursor=pointer]:
+                  - img [ref=e498]
+                - button "iPad Pro 13" [ref=e500] [cursor=pointer]:
+                  - img [ref=e501]
+              - generic [ref=e503]:
+                - button "↑" [ref=e504] [cursor=pointer]
+                - button "↓" [ref=e505] [cursor=pointer]
+                - button "←" [ref=e506] [cursor=pointer]
+                - button "⎘" [ref=e507] [cursor=pointer]
+              - button "Export" [ref=e508] [cursor=pointer]:
+                - img [ref=e509]
+                - text: Export
+              - button "Share" [ref=e512] [cursor=pointer]:
+                - img [ref=e513]
+                - text: Share
+          - generic [ref=e521]:
+            - img [ref=e523]
+            - generic [ref=e528]: AIC-RG Studio
+            - generic [ref=e529]:
+              - text: Опишите идею ниже или выберите
+              - text: в сайдбаре

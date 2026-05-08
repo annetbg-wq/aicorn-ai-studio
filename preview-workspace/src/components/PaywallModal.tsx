@@ -1,69 +1,63 @@
-import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import React from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Crown, Check, Sparkles } from 'lucide-react';
-import { useApp } from '../App';
+import { Crown, Sparkles } from 'lucide-react';
 
 interface PaywallModalProps {
-  trigger: React.ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onUpgrade: () => void;
 }
 
-const FEATURES = [
-  'Безлимитные мероприятия',
-  'Расширенная аналитика посещаемости',
-  'Приоритетная поддержка',
-  'Экспорт списков участников',
-  'Персональные рекомендации',
-];
-
-export default function PaywallModal({ trigger }: PaywallModalProps) {
-  const [open, setOpen] = useState(false);
-  const { setIsPremium } = useApp();
-
-  const handleUpgrade = () => {
-    setIsPremium(true);
-    setOpen(false);
-  };
-
+export default function PaywallModal({ open, onOpenChange, onUpgrade }: PaywallModalProps) {
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="rounded-2xl sm:max-w-sm">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md rounded-2xl">
         <DialogHeader>
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-accent/15 flex items-center justify-center mb-3">
-            <Crown className="w-7 h-7 text-accent" />
+          <div className="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+            <Crown size={24} className="text-primary" />
           </div>
-          <DialogTitle className="text-center text-xl" style={{ fontFamily: 'Georgia, serif' }}>
-            Разблокируйте больше возможностей
-          </DialogTitle>
+          <DialogTitle className="text-center text-xl">Больше задач — больше порядка</DialogTitle>
+          <DialogDescription className="text-center text-muted-foreground">
+            Открой безлимитный режим и управляй задачами без ограничений
+          </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <p className="text-sm text-muted-foreground text-center">
-            Управляйте мероприятиями без ограничений с Community Connect Pro.
-          </p>
-          <div className="space-y-3">
-            {FEATURES.map((feature) => (
-              <div key={feature} className="flex items-center gap-3">
-                <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <Check className="w-3 h-3 text-primary" />
-                </div>
-                <span className="text-sm text-foreground">{feature}</span>
-              </div>
-            ))}
+
+        <div className="space-y-3 py-4">
+          <div className="flex items-center gap-3 px-4 py-3 bg-accent/30 rounded-xl">
+            <Sparkles size={18} className="text-primary" />
+            <span className="text-sm font-medium">Безлимитные задачи</span>
           </div>
+          <div className="flex items-center gap-3 px-4 py-3 bg-accent/30 rounded-xl">
+            <Sparkles size={18} className="text-primary" />
+            <span className="text-sm font-medium">5 тем оформления</span>
+          </div>
+          <div className="flex items-center gap-3 px-4 py-3 bg-accent/30 rounded-xl">
+            <Sparkles size={18} className="text-primary" />
+            <span className="text-sm font-medium">Категории и приоритеты</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
           <Button
-            onClick={handleUpgrade}
-            className="w-full rounded-xl min-h-[52px] text-base font-semibold active:scale-[0.98] transition-transform duration-100"
+            onClick={onUpgrade}
+            className="w-full gap-2 bg-primary text-primary-foreground rounded-xl py-2.5 font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all duration-150"
           >
-            <Sparkles className="w-4 h-4 mr-2" />
-            Активировать Pro
+            <Crown size={18} />
+            Улучшить до Premium
           </Button>
           <Button
             variant="ghost"
-            onClick={() => setOpen(false)}
-            className="w-full rounded-xl text-muted-foreground"
+            onClick={() => onOpenChange(false)}
+            className="w-full text-muted-foreground"
           >
-            Может быть позже
+            Может, позже
           </Button>
         </div>
       </DialogContent>

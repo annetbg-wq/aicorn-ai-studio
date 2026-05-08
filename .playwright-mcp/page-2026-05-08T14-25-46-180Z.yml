@@ -1,0 +1,155 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Agent Lab" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Analytics" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+        - button "Quality" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Code Studio" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+        - button "Terminal" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "DB Console" [ref=e70] [cursor=pointer]:
+          - img [ref=e71]
+        - button "Cloud & Backend — Coming Soon" [ref=e76]:
+          - img [ref=e77]
+        - button "Packaging & Ship — Coming Soon" [ref=e80]:
+          - img [ref=e81]
+        - button "Growth & Marketing — Coming Soon" [ref=e87]:
+          - img [ref=e88]
+    - generic [ref=e292]:
+      - generic [ref=e293]:
+        - generic [ref=e294]:
+          - generic [ref=e295]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e296] [cursor=pointer]:
+            - img [ref=e297]
+            - text: New Project
+          - generic [ref=e299]: New Project
+          - generic [ref=e300]: /
+          - img [ref=e301]
+          - generic [ref=e305]: main
+          - generic [ref=e306]: ·
+          - img [ref=e307]
+          - generic [ref=e309]: "snap #0"
+        - generic [ref=e311]: Not backed up
+        - generic [ref=e312]:
+          - generic [ref=e313]:
+            - 'button "Theme: dark" [ref=e314] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e315] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e316] [cursor=pointer]'
+          - button "Settings" [ref=e317] [cursor=pointer]:
+            - img [ref=e318]
+          - button "D dev.local@aic-studio.test" [ref=e321] [cursor=pointer]:
+            - generic [ref=e322]: D
+            - generic [ref=e323]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e324] [cursor=pointer]:
+            - img [ref=e325]
+            - text: Backup to Cloud
+      - generic [ref=e328]:
+        - generic [ref=e330]:
+          - generic [ref=e332]:
+            - paragraph [ref=e438]: Language learning app with flashcard decks, quiz mode, and progress tracking
+            - generic [ref=e439]:
+              - generic [ref=e441]:
+                - generic [ref=e442]: LinguaFlash
+                - generic [ref=e443]: 4 screens · theme
+              - generic [ref=e445]:
+                - generic [ref=e446]:
+                  - generic [ref=e447]: Режим быстрого прототипа
+                  - generic [ref=e448]: Используется наблюдаемое состояние ветки
+                - generic [ref=e449]: Активен режим быстрого прототипа. Архитектура ветки остаётся лёгким контекстом совместимости.
+            - generic [ref=e455]: ⚡ Пишу код...
+          - generic [ref=e340]:
+            - generic [ref=e341]:
+              - button "AUTO" [ref=e342]
+              - button "APP" [ref=e343]
+              - button "SUPER" [ref=e344]
+              - button "ALL" [ref=e345]
+              - button "История" [ref=e347]:
+                - img [ref=e348]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e353]:
+                - img [ref=e354]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e357]:
+                - img [ref=e358]
+            - generic [ref=e459]:
+              - generic [ref=e460]: Кодирование
+              - generic [ref=e461]: 30%
+            - generic [ref=e361]:
+              - button "Attach / tools" [ref=e363]:
+                - img [ref=e364]
+              - textbox "Что строим сегодня?" [ref=e365]
+              - button "Stop generation" [ref=e462]:
+                - img [ref=e463]
+        - generic [ref=e370]:
+          - generic [ref=e371]:
+            - generic [ref=e372]:
+              - button "Preview" [ref=e373] [cursor=pointer]
+              - button "Reasoning" [active] [ref=e374] [cursor=pointer]
+              - button "Code" [ref=e375] [cursor=pointer]
+              - button "Design" [ref=e376] [cursor=pointer]
+              - button "Analytics" [ref=e377] [cursor=pointer]
+              - button "Security" [ref=e378] [cursor=pointer]
+              - button "Cloud" [ref=e379] [cursor=pointer]
+            - generic [ref=e380]:
+              - button "Copy visible reasoning" [ref=e471] [cursor=pointer]:
+                - img [ref=e472]
+                - text: Copy visible reasoning
+              - button "Copy debug trace JSON" [ref=e475] [cursor=pointer]:
+                - img [ref=e476]
+                - text: Copy debug trace JSON
+              - button "Export" [ref=e402] [cursor=pointer]:
+                - img [ref=e403]
+                - text: Export
+              - button "Expo" [ref=e406] [cursor=pointer]:
+                - img [ref=e407]
+                - text: Expo
+              - button "Share" [ref=e409] [cursor=pointer]:
+                - img [ref=e410]
+                - text: Share
+          - generic [ref=e479]:
+            - generic [ref=e481]:
+              - generic [ref=e482]: Reasoning timeline
+              - generic [ref=e483]: Current run · project draft_899efa1c9860_1777929133689 · branch main · run p71np1tymox0b5f2
+              - generic [ref=e484]: 4 steps · started 18:24:50
+            - generic [ref=e485]:
+              - generic [ref=e486]:
+                - generic [ref=e487]:
+                  - generic [ref=e488]: "1"
+                  - generic [ref=e489]: Understand the request
+                  - generic [ref=e490]: Done
+                - generic [ref=e491]: Using the edit path with 15 existing files.
+              - generic [ref=e492]:
+                - generic [ref=e493]:
+                  - generic [ref=e494]: "2"
+                  - generic [ref=e495]: Plan the solution
+                  - generic [ref=e496]: Skipped
+                - generic [ref=e497]: Skipped formal architect planning because the run is editing an existing project.
+              - generic [ref=e498]:
+                - generic [ref=e499]:
+                  - generic [ref=e500]: "3"
+                  - generic [ref=e501]: Set design direction
+                  - generic [ref=e502]: Done
+                - generic [ref=e503]: "Reusing the existing design direction: time-tracking/dark-pro direction with focused utility shell."
+              - generic [ref=e504]:
+                - generic [ref=e505]:
+                  - generic [ref=e506]: "4"
+                  - generic [ref=e507]: Generate code
+                  - generic [ref=e508]: In progress
+                  - generic [ref=e509]: Current
+                - generic [ref=e510]: Generating the requested code edits.

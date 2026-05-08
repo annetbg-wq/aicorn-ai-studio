@@ -1,0 +1,111 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [active] [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Agent Lab" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Analytics" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+        - button "Quality" [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+        - button "Code Studio" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+        - button "Terminal" [ref=e65] [cursor=pointer]:
+          - img [ref=e66]
+        - button "DB Console" [ref=e70] [cursor=pointer]:
+          - img [ref=e71]
+        - button "Cloud & Backend — Coming Soon" [ref=e76]:
+          - img [ref=e77]
+        - button "Packaging & Ship — Coming Soon" [ref=e80]:
+          - img [ref=e81]
+        - button "Growth & Marketing — Coming Soon" [ref=e87]:
+          - img [ref=e88]
+      - generic: Projects
+    - generic [ref=e386]:
+      - generic [ref=e387]:
+        - heading "Projects" [level=1] [ref=e388]:
+          - img [ref=e389]
+          - text: Projects
+        - generic [ref=e391]:
+          - img [ref=e392]
+          - textbox "Search projects..." [ref=e395]
+      - generic [ref=e396]:
+        - tablist [ref=e397]:
+          - tab "Overview" [selected] [ref=e398]:
+            - img [ref=e399]
+            - text: Overview
+          - tab "History" [ref=e401]:
+            - img [ref=e402]
+            - text: History
+          - tab "Revisions" [ref=e405]:
+            - img [ref=e406]
+            - text: Revisions
+        - tabpanel "Overview" [ref=e410]:
+          - generic [ref=e411]:
+            - generic [ref=e412] [cursor=pointer]:
+              - img [ref=e413]
+              - generic [ref=e414]: New Project
+            - generic [ref=e415] [cursor=pointer]:
+              - generic [ref=e418]:
+                - generic [ref=e419]:
+                  - heading "SpeakEasy" [level=3] [ref=e420]
+                  - generic [ref=e421]: v1
+                - paragraph [ref=e422]: 5d ago
+              - generic [ref=e423]:
+                - generic [ref=e426]: dark-slate
+                - generic [ref=e427]:
+                  - button [ref=e428]:
+                    - img
+                  - button [ref=e429]:
+                    - img
+            - generic [ref=e430] [cursor=pointer]:
+              - generic [ref=e433]:
+                - generic [ref=e434]:
+                  - heading "Community Events App" [level=3] [ref=e435]
+                  - generic [ref=e436]: v1
+                - paragraph [ref=e437]: 5d ago
+              - generic [ref=e438]:
+                - generic [ref=e441]: dark-slate
+                - generic [ref=e442]:
+                  - button [ref=e443]:
+                    - img
+                  - button [ref=e444]:
+                    - img
+            - generic [ref=e445] [cursor=pointer]:
+              - generic [ref=e448]:
+                - generic [ref=e449]:
+                  - heading "Сон и восстановление" [level=3] [ref=e450]
+                  - generic [ref=e451]: v1
+                - paragraph [ref=e452]: 6d ago
+              - generic [ref=e453]:
+                - generic [ref=e456]: warm
+                - generic [ref=e457]:
+                  - button [ref=e458]:
+                    - img
+                  - button [ref=e459]:
+                    - img
+            - generic [ref=e460] [cursor=pointer]:
+              - generic [ref=e463]:
+                - generic [ref=e464]:
+                  - heading "Founder-ready brief для продуктового архитектора Название" [level=3] [ref=e465]
+                  - generic [ref=e466]: v1
+                - paragraph [ref=e467]: 6d ago
+              - generic [ref=e468]:
+                - generic [ref=e471]: dark-slate
+                - generic [ref=e472]:
+                  - button [ref=e473]:
+                    - img
+                  - button [ref=e474]:
+                    - img

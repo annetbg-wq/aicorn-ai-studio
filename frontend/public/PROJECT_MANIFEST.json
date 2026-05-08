@@ -183,6 +183,7 @@
     "services/previewGuard.ts",
     "services/previewLifecycleResolver.ts",
     "services/PreviewWriteGateway.ts",
+    "services/product-readiness.manifest.json",
     "services/projectCorruptionScan.ts",
     "services/ProjectExportService.ts",
     "services/ProjectManager.ts",
@@ -202,6 +203,13 @@
     "services/SecurityAuditService.ts",
     "services/ShareService.ts",
     "services/SimpleGeneration.ts",
+    "services/skeleton-manifests/ecommerce/skeleton.manifest.json",
+    "services/skeleton-manifests/landing-page/skeleton.manifest.json",
+    "services/skeleton-manifests/mobile-app/skeleton.manifest.json",
+    "services/skeleton-manifests/productivity-tool/skeleton.manifest.json",
+    "services/skeleton-manifests/saas-dashboard/skeleton.manifest.json",
+    "services/skeleton-manifests/social-community/skeleton.manifest.json",
+    "services/SkeletonRegistry.ts",
     "services/storageService.ts",
     "services/studioCommandBus.ts",
     "services/studioStateMachine.ts",
@@ -317,5 +325,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-05-02T17:11:42.461Z"
+  "last_scan_timestamp": "2026-05-08T19:46:05.203Z"
 }

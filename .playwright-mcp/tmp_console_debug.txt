@@ -1,0 +1,231 @@
+Total messages: 71 (Errors: 2, Warnings: 5)
+Returning 192 messages for level "debug"
+
+[LOG] [RevisionManager] compiling candidate f1875719-5e72-485c-a88d-bf7868c20b33 (1 files) via backend build @ http://localhost:5183/src/services/RevisionManager.ts:304
+[ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5183/preview/f1875719-5e72-485c-a88d-bf7868c20b33:0
+[WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:5183/preview/f1875719-5e72-485c-a88d-bf7868c20b33:0
+[LOG] [preview-timeline] write_batch_done {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, buildId: f1875719-5e72-485c-a88d-bf7868c20b33, fileCount: 1, _t: 1778257773436} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, stage: sandbox-written, buildId: f1875719-5e72-485c-a88d-bf7868c20b33, entryPath: App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, stage: bootstrap-written, buildId: f1875719-5e72-485c-a88d-bf7868c20b33, entryPath: App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, stage: preview-entry-registered, buildId: f1875719-5e72-485c-a88d-bf7868c20b33, entryPath: App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] wait_ready_start {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, buildId: f1875719-5e72-485c-a88d-bf7868c20b33, fileCount: 1, timeoutMs: 17000} @ http://localhost:5183/src/services/PreviewController.ts:9
+[WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:5183/preview/f1875719-5e72-485c-a88d-bf7868c20b33/:0
+[LOG] [handleSend] history length: 1 first msg: Expense tracker: add expenses, categories, monthly @ http://localhost:5183/src/hooks/useStudio.ts?t=1778255808905:2236
+[WARNING] [RevisionManager] Preview timeout: no preview-mounted for f1875719-5e72-485c-a88d-bf7868c20b33 @ http://localhost:5183/src/App.tsx?t=1778255808905:186
+[LOG] [preview-timeline] wait_ready_timeout {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, buildId: f1875719-5e72-485c-a88d-bf7868c20b33, _t: 1778257790467} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_error {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, failedAtStage: iframe-mounted, lastGoodStage: preview-entry-registered, buildId: f1875719-5e72-485c-a88d-bf7868c20b33} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] controller_failed {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, buildId: f1875719-5e72-485c-a88d-bf7868c20b33, error: Preview timeout: no preview-mounted for f1875719-5e72-485c-a88d-bf7868c20b33, _t: 1778257790468} @ http://localhost:5183/src/services/PreviewController.ts:9
+[WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:5183/preview/f1875719-5e72-485c-a88d-bf7868c20b33/:0
+[LOG] [planner] plan generated, dispatching {appName: ExpenseTracker, summary: A simple expense tracker app to add expenses with categories and view a monthly chart., pages: Array(2), steps: Array(5), assumptions: Array(1)} @ http://localhost:5183/src/hooks/useStudio.ts?t=1778255808905:2385
+[LOG] [useStudio] routes resolved — primary: deepseek-chat build: deepseek-chat @ http://localhost:5183/src/hooks/useStudio.ts?t=1778255808905:2436
+[LOG] [design] Classified: time-tracking / dark-pro (50%) @ http://localhost:5183/src/hooks/useStudio.ts?t=1778255808905:2076
+[LOG] [DEBUG] pipeline input files: [_projectId] @ http://localhost:5183/src/hooks/useStudio.ts?t=1778255808905:2474
+[ERROR] Failed to load resource: the server responded with a status of 401 () @ https://openrouter.ai/api/v1/chat/completions:0
+[LOG] [preview-timeline] canonical_generation_path_selected {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, source: SimpleGeneration.run, bridgePath: backend_compile_only, _t: 1778257802299} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] current_run_preview_isolated {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, source: SimpleGeneration.run, _t: 1778257802301} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] candidate_orphaned {activeRevisionId: null, candidateRevisionId: f1875719-5e72-485c-a88d-bf7868c20b33, orphanedId: f1875719-5e72-485c-a88d-bf7868c20b33, reason: new_candidate_created, _t: 1778257802302} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] candidate_created {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, storeSize: 2, _t: 1778257802303} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] legacy_preview_bridge_bypassed {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, endpoint: __read_all_preview, replacement: config.files} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] generation_path_unified {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, mode: new, detail: backend_compile_owns_workspace_cleanup} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [SimpleGeneration] Architect plan: {appName: Трекер расходов, description: Простое приложение для учета личных расходов с категориями и ежемесячной аналитикой, archetype: dashboard-workspace, domain: fintech, modules: Array(4)} @ http://localhost:5183/src/services/SimpleGeneration.ts?t=1778255808905:4748
+[WARNING] [readStream] finish_reason=length — step truncated. model=deepseek-chat stage=coder_app tokens=20800 softLimit=16000 @ http://localhost:5183/src/App.tsx?t=1778255808905:186
+[LOG] [SimpleGeneration] RAW first 500: I'll build a complete expense tracker application with expenses, categories, and a monthly chart. Let me create all the necessary files.
+
+```json
+{
+  "artifact": {
+    "entry": "src/App.tsx",
+    "files": [
+      {
+        "path": "src/data/types.ts",
+        "content": "export interface Expense {\n  id: string;\n  amount: number;\n  categoryId: string;\n  date: string;\n  note: string;\n  createdAt: string;\n}\n\nexport interface Category {\n  id: string;\n  name: string;\n  icon: string;\n  co @ http://localhost:5183/src/services/SimpleGeneration.ts?t=1778255808905:5155
+[LOG] [SimpleGeneration] RAW last 200: v className=\"bg-card border border-border rounded-2xl shadow-sm p-5\">\n            <div className=\"flex items-center gap-4 mb-4\">\n              <Avatar className=\"h-14 w-14\">\n                < @ http://localhost:5183/src/services/SimpleGeneration.ts?t=1778255808905:5156
+[LOG] [preview-timeline] artifact_accepted_for_execution {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, entry: src/App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] candidate_materialization_start {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, projectId: draft_d27262d9c7ce_1778256116526} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, path: App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, path: pages/Onboarding.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, path: pages/Dashboard.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, path: pages/AddExpense.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, path: pages/Categories.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, path: pages/Account.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, path: route-manifest.json} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, path: index.css} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] candidate_materialization_success {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, projectId: draft_d27262d9c7ce_1778256116526} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] fast_gate_start {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, fileCount: 8} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, stage: source-ready, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] compile_start {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, fileCount: 8} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] controller_compiling {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, _t: 1778258185847} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, stage: entry-resolved, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] write_batch_start {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, fileCount: 8} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [RevisionManager] compiling candidate e77301d2-85df-48a1-801c-c3d9afb7296b (8 files) via backend build @ http://localhost:5183/src/services/RevisionManager.ts:304
+[ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b:0
+[WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b:0
+[LOG] [preview-timeline] write_batch_done {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, fileCount: 8} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, stage: sandbox-written, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, stage: bootstrap-written, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, stage: preview-entry-registered, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] wait_ready_start {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, fileCount: 8} @ http://localhost:5183/src/services/PreviewController.ts:9
+[WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/:0
+[ERROR] ReferenceError: ExpensesProvider is not defined
+    at Mv (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:67:4079)
+    at ss (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:38:16961)
+    at ff (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:43768)
+    at uf (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:39561)
+    at sm (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:39492)
+    at jl (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:39348)
+    at Ei (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:35751)
+    at lf (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:34707)
+    at _ (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:25:1554)
+    at MessagePort.Ge (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:25:1922) @ http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:39
+[WARNING] [RevisionManager] Preview timeout: no preview-mounted for e77301d2-85df-48a1-801c-c3d9afb7296b @ http://localhost:5183/src/App.tsx?t=1778255808905:186
+[LOG] [preview-timeline] wait_ready_timeout {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, _t: 1778258225900} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_error {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, failedAtStage: iframe-mounted, lastGoodStage: preview-entry-registered} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] controller_failed {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, error: Preview timeout: no preview-mounted for e77301d2-85df-48a1-801c-c3d9afb7296b} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] fast_gate_result {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, result: failed} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] repair_decision {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, decision: needed} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] failure_classified {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, severity: fatal} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] repair_attempt_started {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, attempt: 1} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] repair_decision {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, decision: stop} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] final_stop_reason {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, stopReason: no_fix_output} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] final_check_started {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, candidateViable: false} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] final_check_result {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, result: skipped} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] promotion_decision {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, decision: blocked} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] promotion_blocked_candidate_not_viable {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, attempts: 1} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] candidate_rejected {activeRevisionId: null, candidateRevisionId: e77301d2-85df-48a1-801c-c3d9afb7296b, source: simple_generation, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, reason: no_fix_output} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] ship_outcome {activeRevisionId: null, candidateRevisionId: null, source: SimpleGeneration.run, buildId: e77301d2-85df-48a1-801c-c3d9afb7296b, shipOutcome: SHIP_FAIL} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] generation_preview_ownership_released {activeRevisionId: null, candidateRevisionId: null, source: simple_generation, _t: 1778258226019} @ http://localhost:5183/src/services/PreviewController.ts:9
+[WARNING] [safeStorage] QuotaExceededError — clearing caches and retrying… @ http://localhost:5183/src/App.tsx?t=1778255808905:186
+[ERROR] [safeStorage] Still over quota after cleanup for key: LAST_FILES @ http://localhost:5183/src/App.tsx?t=1778255808905:172
+[ERROR] Failed to load resource: the server responded with a status of 404 () @ https://zdzuaodphrlpvorutpyc.supabase.co/rest/v1/generation_metrics?columns=%22generation_id%22%2C%22intent%22%2C%22model_id%22%2C%22duration_ms%22%2C%22file_count%22%2C%22parse_success%22%2C%22fallback_used%22%2C%22compile_success%22%2C%22autofix_needed%22%2C%22autofix_success%22%2C%22error_message%22:0
+[DEBUG] [MetricsService] Supabase insert failed (non-critical): Could not find the table 'public.generation_metrics' in the schema cache @ http://localhost:5183/src/services/MetricsService.ts:117
+[LOG] [ScannerService] ✅ src/App.tsx → App @ http://localhost:5183/src/services/ScannerService.ts:93
+[LOG] [ScannerService] ✅ src/pages/Onboarding.tsx → Onboarding @ http://localhost:5183/src/services/ScannerService.ts:93
+[LOG] [ScannerService] ✅ src/pages/Dashboard.tsx → Page2 @ http://localhost:5183/src/services/ScannerService.ts:93
+[LOG] [ScannerService] ✅ src/pages/AddExpense.tsx → Page3 @ http://localhost:5183/src/services/ScannerService.ts:93
+[LOG] [ScannerService] ✅ src/pages/Categories.tsx → Page4 @ http://localhost:5183/src/services/ScannerService.ts:93
+[LOG] [ScannerService] ✅ src/pages/Account.tsx → Page5 @ http://localhost:5183/src/services/ScannerService.ts:93
+[STARTGROUPCOLLAPSED] [ScannerService] 6 components | 6/7 files eligible @ http://localhost:5183/src/services/ScannerService.ts:107
+[LOG] All file keys received: [src/App.tsx, src/pages/Onboarding.tsx, src/pages/Dashboard.tsx, src/pages/AddExpense.tsx, src/pages/Categories.tsx, src/pages/Account.tsx, src/route-manifest.json] @ http://localhost:5183/src/services/ScannerService.ts:110
+[LOG] Eligible (.ts/.tsx/.js/.jsx) paths: [src/App.tsx, src/pages/Onboarding.tsx, src/pages/Dashboard.tsx, src/pages/AddExpense.tsx, src/pages/Categories.tsx, src/pages/Account.tsx] @ http://localhost:5183/src/services/ScannerService.ts:111
+[LOG] Registered: [App @ src/App.tsx, Onboarding @ src/pages/Onboarding.tsx, Page2 @ src/pages/Dashboard.tsx, Page3 @ src/pages/AddExpense.tsx, Page4 @ src/pages/Categories.tsx, Page5 @ src/pages/Account.tsx] @ http://localhost:5183/src/services/ScannerService.ts:113
+[ENDGROUP] console.groupEnd @ http://localhost:5183/src/services/ScannerService.ts:119
+[LOG] [ScannerService] активен. В реестр занесено 6 компонентов. Система готова к интеллектуальному слиянию. @ http://localhost:5183/src/services/ScannerService.ts:120
+[DEBUG] [vite] connecting... @ http://localhost:5183/@vite/client:494
+[DEBUG] [vite] connected. @ http://localhost:5183/@vite/client:617
+[INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5183/node_modules/.vite/deps/chunk-H4KYLSX2.js?v=53b3ac1f:21550
+[LOG] [Supabase] Connected to: https://zdzuaodphrlpvorutpyc.supabase.co @ http://localhost:5183/src/lib/supabase.ts:23
+[LOG] [ConfigService] Loaded provider keys from backend .env @ http://localhost:5183/src/services/ConfigService.ts:553
+[LOG] [ConfigService] Synced 5 agent config(s) from localStorage → backend @ http://localhost:5183/src/services/ConfigService.ts:590
+[LOG] [ConfigService] Loaded provider keys from backend .env @ http://localhost:5183/src/services/ConfigService.ts:553
+[LOG] [ConfigService] Synced 5 agent config(s) from localStorage → backend @ http://localhost:5183/src/services/ConfigService.ts:590
+[LOG] [StorageService] Connected to Supabase ✓ @ http://localhost:5183/src/services/storageService.ts:29
+[LOG] [StorageService] Connected to Supabase ✓ @ http://localhost:5183/src/services/storageService.ts:29
+[DEBUG] [vite] connecting... @ http://localhost:5183/@vite/client:494
+[DEBUG] [vite] connected. @ http://localhost:5183/@vite/client:617
+[INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5183/node_modules/.vite/deps/chunk-H4KYLSX2.js?v=53b3ac1f:21550
+[LOG] [Supabase] Connected to: https://zdzuaodphrlpvorutpyc.supabase.co @ http://localhost:5183/src/lib/supabase.ts:23
+[LOG] [ConfigService] Synced 5 agent config(s) from localStorage → backend @ http://localhost:5183/src/services/ConfigService.ts:590
+[LOG] [ConfigService] Synced 5 agent config(s) from localStorage → backend @ http://localhost:5183/src/services/ConfigService.ts:590
+[LOG] [ConfigService] Loaded provider keys from backend .env @ http://localhost:5183/src/services/ConfigService.ts:553
+[LOG] [StorageService] Connected to Supabase ✓ @ http://localhost:5183/src/services/storageService.ts:29
+[LOG] [ConfigService] Loaded provider keys from backend .env @ http://localhost:5183/src/services/ConfigService.ts:553
+[LOG] [StorageService] Connected to Supabase ✓ @ http://localhost:5183/src/services/storageService.ts:29
+[DEBUG] [vite] connecting... @ http://localhost:5183/@vite/client:494
+[DEBUG] [vite] connected. @ http://localhost:5183/@vite/client:617
+[INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5183/node_modules/.vite/deps/chunk-H4KYLSX2.js?v=53b3ac1f:21550
+[LOG] [Supabase] Connected to: https://zdzuaodphrlpvorutpyc.supabase.co @ http://localhost:5183/src/lib/supabase.ts:23
+[LOG] [ConfigService] Loaded provider keys from backend .env @ http://localhost:5183/src/services/ConfigService.ts:553
+[LOG] [ConfigService] Loaded provider keys from backend .env @ http://localhost:5183/src/services/ConfigService.ts:553
+[LOG] [StorageService] Connected to Supabase ✓ @ http://localhost:5183/src/services/storageService.ts:29
+[LOG] [ConfigService] Synced 5 agent config(s) from localStorage → backend @ http://localhost:5183/src/services/ConfigService.ts:590
+[LOG] [ConfigService] Synced 5 agent config(s) from localStorage → backend @ http://localhost:5183/src/services/ConfigService.ts:590
+[LOG] [StorageService] Connected to Supabase ✓ @ http://localhost:5183/src/services/storageService.ts:29
+[DEBUG] [vite] connecting... @ http://localhost:5183/@vite/client:494
+[DEBUG] [vite] connected. @ http://localhost:5183/@vite/client:617
+[INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5183/node_modules/.vite/deps/chunk-H4KYLSX2.js?v=53b3ac1f:21550
+[LOG] [Supabase] Connected to: https://zdzuaodphrlpvorutpyc.supabase.co @ http://localhost:5183/src/lib/supabase.ts:23
+[LOG] [ConfigService] Synced 5 agent config(s) from localStorage → backend @ http://localhost:5183/src/services/ConfigService.ts:590
+[LOG] [ConfigService] Loaded provider keys from backend .env @ http://localhost:5183/src/services/ConfigService.ts:553
+[LOG] [ConfigService] Loaded provider keys from backend .env @ http://localhost:5183/src/services/ConfigService.ts:553
+[LOG] [StorageService] Connected to Supabase ✓ @ http://localhost:5183/src/services/storageService.ts:29
+[LOG] [ConfigService] Synced 5 agent config(s) from localStorage → backend @ http://localhost:5183/src/services/ConfigService.ts:590
+[LOG] [StorageService] Connected to Supabase ✓ @ http://localhost:5183/src/services/storageService.ts:29
+[LOG] [preview-timeline] candidate_created {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, storeSize: 1, _t: 1778258846378} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, path: App.tsx, size: 1565} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, stage: source-ready, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, entryPath: App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] compile_start {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, fileCount: 1, _t: 1778258846459} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] controller_compiling {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, _t: 1778258846461} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, stage: entry-resolved, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, entryPath: App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] write_batch_start {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, fileCount: 1, _t: 1778258846462} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [RevisionManager] compiling candidate 53c6af8c-deeb-41ea-b458-23727fd6013d (1 files) via backend build @ http://localhost:5183/src/services/RevisionManager.ts:304
+[ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5183/preview/53c6af8c-deeb-41ea-b458-23727fd6013d:0
+[WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:5183/preview/53c6af8c-deeb-41ea-b458-23727fd6013d:0
+[LOG] [preview-timeline] write_batch_done {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, fileCount: 1, _t: 1778258856188} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, stage: sandbox-written, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, entryPath: App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, stage: bootstrap-written, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, entryPath: App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, stage: preview-entry-registered, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, entryPath: App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] wait_ready_start {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, fileCount: 1, timeoutMs: 17000} @ http://localhost:5183/src/services/PreviewController.ts:9
+[WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:5183/preview/53c6af8c-deeb-41ea-b458-23727fd6013d/:0
+[LOG] [handleSend] history length: 1 first msg: Budget tracker app: income, expenses, categories,  @ http://localhost:5183/src/hooks/useStudio.ts?t=1778258572905:2236
+[WARNING] [RevisionManager] Preview timeout: no preview-mounted for 53c6af8c-deeb-41ea-b458-23727fd6013d @ http://localhost:5183/src/App.tsx?t=1778258572905:186
+[LOG] [preview-timeline] wait_ready_timeout {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, _t: 1778258873222} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] materialize_error {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, failedAtStage: iframe-mounted, lastGoodStage: preview-entry-registered, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] controller_failed {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, buildId: 53c6af8c-deeb-41ea-b458-23727fd6013d, error: Preview timeout: no preview-mounted for 53c6af8c-deeb-41ea-b458-23727fd6013d, _t: 1778258873223} @ http://localhost:5183/src/services/PreviewController.ts:9
+[WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:5183/preview/53c6af8c-deeb-41ea-b458-23727fd6013d/:0
+[LOG] [planner] plan generated, dispatching {appName: BudgetTracker, summary: A personal budget tracker that records income and …ries, and displays charts for financial insights., pages: Array(4), steps: Array(5), assumptions: Array(1)} @ http://localhost:5183/src/hooks/useStudio.ts?t=1778258572905:2385
+[LOG] [useStudio] routes resolved — primary: deepseek-chat build: deepseek-chat @ http://localhost:5183/src/hooks/useStudio.ts?t=1778258572905:2436
+[LOG] [design] Classified: personal-finance / clean-light (50%) @ http://localhost:5183/src/hooks/useStudio.ts?t=1778258572905:2076
+[LOG] [DEBUG] pipeline input files: [_projectId] @ http://localhost:5183/src/hooks/useStudio.ts?t=1778258572905:2474
+[ERROR] Failed to load resource: the server responded with a status of 401 () @ https://openrouter.ai/api/v1/chat/completions:0
+[LOG] [preview-timeline] canonical_generation_path_selected {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, source: SimpleGeneration.run, bridgePath: backend_compile_only, _t: 1778258897561} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] current_run_preview_isolated {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, source: SimpleGeneration.run, _t: 1778258897562} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] candidate_orphaned {activeRevisionId: null, candidateRevisionId: 53c6af8c-deeb-41ea-b458-23727fd6013d, orphanedId: 53c6af8c-deeb-41ea-b458-23727fd6013d, reason: new_candidate_created, _t: 1778258897562} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] candidate_created {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, storeSize: 2, _t: 1778258897563} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] legacy_preview_bridge_bypassed {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: SimpleGeneration.run, endpoint: __read_all_preview, replacement: config.files} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] generation_path_unified {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: SimpleGeneration.run, mode: new, detail: backend_compile_owns_workspace_cleanup} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [SimpleGeneration] Architect plan: {appName: Деньги в порядке, description: Простой и наглядный трекер личных финансов с доходами, расходами, категориями и графиками, archetype: dashboard-workspace, domain: fintech, modules: Array(7)} @ http://localhost:5183/src/services/SimpleGeneration.ts?t=1778258524805:4748
+[WARNING] [readStream] finish_reason=length — step truncated. model=deepseek-chat stage=coder_app tokens=20800 softLimit=16000 @ http://localhost:5183/src/App.tsx?t=1778258572905:186
+[LOG] [SimpleGeneration] RAW first 500: ```json
+{
+  "artifact": {
+    "entry": "src/App.tsx",
+    "files": [
+      {
+        "path": "src/App.tsx",
+        "content": "import React from 'react';\nimport { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';\nimport { AppProvider } from '@/context/AppContext';\nimport { Toaster } from '@/components/ui/toaster';\nimport BottomTabs from '@/components/BottomTabs';\nimport RouteGuard from '@/components/RouteGuard';\nimport Onboarding from '@/pages/Onboarding';\nimport Dashboar @ http://localhost:5183/src/services/SimpleGeneration.ts?t=1778258524805:5155
+[LOG] [SimpleGeneration] RAW last 200: tItem key={i + 1} value={(i + 1).toString()}>\n                      {i + 1} число\n                    </SelectItem>\n                  ))}\n                </SelectContent>\n              </Select>\ @ http://localhost:5183/src/services/SimpleGeneration.ts?t=1778258524805:5156
+[LOG] [preview-timeline] artifact_accepted_for_execution {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: SimpleGeneration.run, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, entry: src/App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] candidate_materialization_start {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: SimpleGeneration.run, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, projectId: draft_20ea2a157d32_1778257790470} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: App.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: components/RouteGuard.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: components/CategoryCard.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: components/PeriodSwitcher.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: components/TransactionItem.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: components/TypeFilter.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: components/SeedData.ts} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: data/types.ts} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: data/seed.ts} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: store/useStore.ts} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: pages/Onboarding.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: pages/Dashboard.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: pages/Transactions.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: pages/AddTransaction.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: pages/Categories.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: pages/Charts.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: pages/Settings.tsx} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: config/app.ts} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: config/navigation.ts} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: route-manifest.json} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: simple_generation, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, path: index.css} @ http://localhost:5183/src/services/PreviewController.ts:9
+[LOG] [preview-timeline] candidate_materialization_success {activeRevisionId: null, candidateRevisionId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, source: SimpleGeneration.run, buildId: 5d4e81f4-a925-4ee0-b7c6-ddb818846832, projectId: draft_20ea2a157d32_1778257790470} @ http://localhost:5183/src/services/PreviewController.ts:9
+ReferenceError: ExpensesProvider is not defined
+    at Mv (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:67:4079)
+    at ss (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:38:16961)
+    at ff (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:43768)
+    at uf (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:39561)
+    at sm (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:39492)
+    at jl (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:39348)
+    at Ei (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:35751)
+    at lf (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:40:34707)
+    at _ (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:25:1554)
+    at MessagePort.Ge (http://localhost:5183/preview/e77301d2-85df-48a1-801c-c3d9afb7296b/assets/index-CyYy8rOv.js:25:1922)
