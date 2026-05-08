@@ -334,6 +334,7 @@ function buildTrendCadencePrompt(
   language = 'en',
   selectedInterest?: TrendNicheInterest | null,
   refreshSeed = 0,
+  excludeTopics: string[] = [],
 ): string {
   const lang = normalizeLanguage(language);
   const directRule = selectedInterest ? TREND_INTEREST_DIRECT_PRODUCT_RULES[selectedInterest] : null;
@@ -351,25 +352,54 @@ function buildTrendCadencePrompt(
       })()
     : [];
 
+  // ── Per-cadence depth profile ──────────────────────────────────────────────
+  // Each cadence has a distinct time horizon, signal type AND analytical depth.
+  // daily  = surface signal → quick-win product, 1–2 fields of analysis
+  // weekly = validated trend → business model sketched, retention loop named
+  // monthly = structural shift → full competitive landscape, monetisation path
   const cadenceCopy = {
     daily: {
       horizon: 'the next 24–72 hours',
-      trendSignal: 'surfacing right now on Google Trends, X/Twitter, TikTok, Reddit, or Product Hunt in the US or EU',
-      rule: 'Pick signals that spiked in the last 24 hours. The product solves a recurring daily problem triggered by that signal.',
+      trendSignal: 'surfacing RIGHT NOW on Google Trends, X/Twitter, TikTok, Reddit, or Product Hunt in the US or EU',
+      rule: 'Bias toward fast, recurring daily problems — something a user encounters every day and would fix immediately.',
+      depth: `DEPTH — DAILY SIGNAL (shallow sweep):
+- Identify the raw viral/search spike (1 sentence)
+- Name the daily recurring pain it exposes
+- Describe the product in 1–2 sentences: what it does the moment you open it
+- competitorGap: what the top app in this space currently fails to do TODAY
+Do NOT write a business model, retention analysis, or financial projection.`,
     },
     weekly: {
       horizon: 'the next 1–3 weeks',
-      trendSignal: 'gaining traction this week in US/EU markets based on App Store charts, VC deals, or rising search interest',
-      rule: 'Pick signals showing clear weekly growth momentum. The product builds a habit or recurring weekly workflow.',
+      trendSignal: 'gaining traction THIS WEEK in US/EU markets — App Store charts, VC deal flow, or sustained search growth over 7 days',
+      rule: 'Pick signals with clear weekly growth momentum. The product builds a habit or recurring weekly workflow.',
+      depth: `DEPTH — WEEKLY TREND (medium analysis):
+- State the trend signal and its 7-day growth trajectory
+- Define the target user persona (role, context, frustration level)
+- Describe the core weekly habit the product enables
+- Name the retention loop: what brings the user back every 7 days
+- competitorGap: where existing weekly tools (Notion, Todoist, Calendly, etc.) leave users stranded
+Do NOT write a full financial model or multi-year roadmap.`,
     },
     monthly: {
       horizon: 'the next 1–3 months',
-      trendSignal: 'emerging as a durable market shift this month — regulatory changes, macroeconomic shifts, new platform APIs, or growing consumer behavior in the US or EU',
+      trendSignal: 'emerging as a durable market shift THIS MONTH — regulatory changes, macroeconomic shifts, new platform APIs, or a measurable consumer behavior change in the US or EU',
       rule: 'Pick signals with compounding growth over months. The product captures a structural shift, not a fad.',
+      depth: `DEPTH — MONTHLY SHIFT (deep structural analysis):
+- Describe the macro signal: regulation, platform API, demographic shift, or economic pressure
+- Estimate the addressable segment in the US or EU (qualitative: niche / mid-market / mass)
+- Map the competitive landscape: who dominates now, who is most vulnerable, and why
+- Outline the business model: how does the product monetise in months 3–12
+- Explain the compounding advantage: why this product gets harder to copy over time
+- competitorGap: what structural weakness in incumbents or substitutes this product exploits`,
     },
   }[cadence];
 
   const categoryList = TREND_NICHE_INTERESTS.map(item => `"${item.id}"`).join(', ');
+
+  const excludeBlock = excludeTopics.length > 0
+    ? `TOPIC EXCLUSION — the following sub-topics have already been covered in longer-horizon ideas for this session. Do NOT generate ideas on these subjects (even from a different angle):\n${excludeTopics.map(t => `- ${t}`).join('\n')}\nChoose completely different problem spaces.`
+    : '';
 
   const trendInstructions = selectedInterest
     ? `Focus ONLY on the "${interestLabel}" (${selectedInterest}) market in the US and EU.
@@ -386,6 +416,8 @@ Today is ${new Date().toDateString()}. Week ${getWeekNumber()} of ${new Date().g
 Your task: identify 3 high-signal startup product opportunities ${cadenceCopy.horizon}.
 ${cadenceCopy.rule}
 
+${cadenceCopy.depth}
+
 MARKET SCOPE: United States and European Union primarily. Focus on:
 - Google Trends breakout queries (US/EU)
 - App Store / Play Store rising charts
@@ -395,13 +427,15 @@ MARKET SCOPE: United States and European Union primarily. Focus on:
 
 ${trendInstructions}
 
+${excludeBlock}
+
 ${refreshSeed > 0
-  ? `VARIATION REQUIRED (seed=${refreshSeed}): These ideas must be COMPLETELY DIFFERENT from any previously generated set. Explore a different market signal, different target user segment, or different business model angle. Do not repeat app names, problem framings, or subject areas from previous generations.`
+  ? `VARIATION REQUIRED (seed=${refreshSeed}): These ideas must be COMPLETELY DIFFERENT from any previously generated set. Do not repeat app names, problem framings, or subject areas from previous generations.`
   : ''}
 
 For each idea, the "marketContext" MUST cite a concrete, real trend signal — a named behavior shift, search trend, platform change, or market event happening RIGHT NOW. Not generic statements like "the market is growing".
 
-Write EVERY human-readable field in ${getLanguageName(lang)}. This includes appName, description, targetUser, marketContext, targetAudience, painPoint, competitorGap, and seedData examples.
+Write EVERY human-readable field in ${getLanguageName(lang)}. This includes appName, description, targetUser, marketContext, targetAudience, painPoint, competitorGap.
 Do not switch back to English unless a proper noun requires it.
 
 Use this EXACT JSON schema for each idea:
@@ -2281,15 +2315,31 @@ function finalizeTrendIdeasForInterest(
   return dedupeTrendIdeas([...relevant, ...templates]).slice(0, 3);
 }
 
+/** Extract topic keywords from a set of ideas to use as exclusion hints for shallower cadences */
+function extractTopicHints(ideas: TrendNicheIdea[]): string[] {
+  return ideas.flatMap(idea => {
+    const tokens: string[] = [];
+    // Extract the most specific topic identifiers: appName words + painPoint first clause
+    const name = (idea.appName ?? '').toLowerCase();
+    const pain = (idea.painPoint ?? '').toLowerCase().split(/[.,;]/)[0];
+    const ctx = (idea.marketContext ?? '').toLowerCase().split(/[.,;]/)[0];
+    if (name) tokens.push(name);
+    if (pain && pain.length > 10) tokens.push(pain.slice(0, 80));
+    if (ctx && ctx.length > 10) tokens.push(ctx.slice(0, 80));
+    return tokens;
+  });
+}
+
 async function generateTrendIdeasForCadence(
   cadence: TrendNicheCadence,
   language = 'en',
   googleAccessToken?: string | null,
   selectedInterest?: TrendNicheInterest | null,
   refreshSeed = 0,
+  excludeTopics: string[] = [],
 ): Promise<TrendNicheIdea[]> {
   const ideas = await generateIdeas(
-    buildTrendCadencePrompt(cadence, language, selectedInterest, refreshSeed),
+    buildTrendCadencePrompt(cadence, language, selectedInterest, refreshSeed, excludeTopics),
     3,
     googleAccessToken,
   );
@@ -2540,23 +2590,28 @@ export async function ensureTrendNichesModel(
   let monthly = fallback.monthly;
 
   if (selectedInterest && hasIdeaGenerationAccess(googleAccessToken)) {
-    const [dailyResult, weeklyResult, monthlyResult] = await Promise.allSettled([
-      generateTrendIdeasForCadence('daily', language, googleAccessToken, selectedInterest, refreshSeed),
-      generateTrendIdeasForCadence('weekly', language, googleAccessToken, selectedInterest, refreshSeed),
-      generateTrendIdeasForCadence('monthly', language, googleAccessToken, selectedInterest, refreshSeed),
-    ]);
+    // Sequential: monthly → weekly → daily so each shallower cadence excludes
+    // topics already covered at deeper cadences (no "English learning" in all three).
+    const monthlyResult = await generateTrendIdeasForCadence(
+      'monthly', language, googleAccessToken, selectedInterest, refreshSeed,
+    ).catch(() => [] as TrendNicheIdea[]);
+    if (monthlyResult.length > 0) monthly = monthlyResult;
 
-    if (dailyResult.status === 'fulfilled' && dailyResult.value.length > 0) {
-      daily = dailyResult.value;
-    }
-    if (weeklyResult.status === 'fulfilled' && weeklyResult.value.length > 0) {
-      weekly = weeklyResult.value;
-    }
-    if (monthlyResult.status === 'fulfilled' && monthlyResult.value.length > 0) {
-      monthly = monthlyResult.value;
-    }
+    const weeklyExclude = extractTopicHints(monthly);
+    const weeklyResult = await generateTrendIdeasForCadence(
+      'weekly', language, googleAccessToken, selectedInterest, refreshSeed, weeklyExclude,
+    ).catch(() => [] as TrendNicheIdea[]);
+    if (weeklyResult.length > 0) weekly = weeklyResult;
+
+    const dailyExclude = [...weeklyExclude, ...extractTopicHints(weekly)];
+    const dailyResult = await generateTrendIdeasForCadence(
+      'daily', language, googleAccessToken, selectedInterest, refreshSeed, dailyExclude,
+    ).catch(() => [] as TrendNicheIdea[]);
+    if (dailyResult.length > 0) daily = dailyResult;
+
   } else if (hasIdeaGenerationAccess(googleAccessToken)) {
-    // Run all three concurrently to minimize loading time
+    // No interest selected: run hot/niche concurrently for speed, then monthly
+    // (monthly references its own topics only — different vertical, so parallel is fine)
     const [hotResult, nicheResult, monthlyResult] = await Promise.allSettled([
       ensureHotIdeas(googleAccessToken, force),
       ensureNicheIdeas(googleAccessToken, force),
