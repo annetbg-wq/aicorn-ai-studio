@@ -6638,16 +6638,21 @@ Generate the complete application for: ${config.intent}`;
 
     // ── Sections assembly: override App.tsx with template-composed content ──
     // When plan.sections is defined, it wins over any LLM-generated App.tsx.
-    // Empty sections array means the Architect forgot to return sections → hard error.
+    // Empty sections array in landing mode means the Architect forgot to return sections → hard error.
+    // In APP mode the architect should never return sections; if it returns [] just ignore it.
     const planSections = plan.sections as SectionSpec[] | undefined;
     if (planSections !== undefined) {
       if (!planSections.length) {
-        throw new Error('Architect did not return sections');
+        if (mode === 'landing') {
+          throw new Error('Architect did not return sections');
+        }
+        config.onLog('[SimpleGeneration] Architect returned empty sections for APP mode — ignored.');
+      } else {
+        Object.assign(llmFiles, buildSectionCompositionFiles(planSections));
+        config.onLog(
+          `[SimpleGeneration] Sections assembled: ${planSections.length} templates → App.tsx + ${[...new Set(planSections.map((section) => section.template))].length} section file(s)`,
+        );
       }
-      Object.assign(llmFiles, buildSectionCompositionFiles(planSections));
-      config.onLog(
-        `[SimpleGeneration] Sections assembled: ${planSections.length} templates → App.tsx + ${[...new Set(planSections.map((section) => section.template))].length} section file(s)`,
-      );
     }
 
     for (const filePath of Object.keys(llmFiles)) {
