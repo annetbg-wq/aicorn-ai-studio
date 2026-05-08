@@ -107,6 +107,7 @@ import {
   selectSkeleton,
   buildSkeletonPromptBlock,
   isProtectedSkeletonFile,
+  stripLockedPlanEntries,
   type SkeletonId,
 } from './SkeletonRegistry';
 
@@ -4447,6 +4448,10 @@ export class SimpleGeneration {
     apiKey:  string;
     signal?: AbortSignal;
   }): Promise<{ questions: string[] } | null> {
+    // Skip immediately if no API key is available — avoids a guaranteed 401.
+    const resolvedKey = ConfigService.getKeyForAgent('primary') || config.apiKey;
+    if (!resolvedKey) return null;
+
     const CLARIFIER_PROMPT = `You are a product advisor. The user wants to build an app.
 
 Analyze their request. If it's clear and specific enough to build — respond with:
@@ -6138,10 +6143,22 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       config.onLog(`[SimpleGeneration] Skeleton install failed (non-fatal): ${String(e)}`);
     }
 
+    // When a skeleton is installed, strip locked infrastructure from the plan so
+    // the coder only sees delta files. Also skip the technicalBlueprint (which
+    // describes ALL files including skeleton-locked ones) — the skeletonBlock
+    // already lists exactly what needs to be written.
+    const coderPlan = skeletonBlock
+      ? stripLockedPlanEntries(plan, selectedSkeletonId)
+      : plan;
+    const coderBlueprint = skeletonBlock ? null : technicalBlueprint;
+    if (skeletonBlock) {
+      config.onLog('[SimpleGeneration] Skeleton active — plan trimmed to delta files, blueprint skipped');
+    }
+
     const coderSystemPrompt = buildNewCoderSystemPrompt({
       mode,
-      plan,
-      technicalBlueprint,
+      plan: coderPlan,
+      technicalBlueprint: coderBlueprint,
       branchGuidancePrompt,
       designSystemPrompt: config.designSystemPrompt,
       memoryContext,
@@ -6503,96 +6520,11 @@ Generate the complete application for: ${config.intent}`;
     if (finalAttempt.parseResult.artifact) {
       const protectedPaths = collectProtectedArtifactPaths(finalAttempt.parseResult.artifact, selectedSkeletonId);
       if (protectedPaths.length > 0) {
-        const protectedSummary = protectedPaths.slice(0, 12).join(', ');
+        // Protected skeleton files will be silently dropped at the file-write stage (line ~6722).
+        // No second LLM call needed — filtering is already applied below.
         config.onLog(
-          `[SimpleGeneration] ⚠ Skeleton protected files returned (${protectedSummary}) — retrying delta-only`,
+          `[SimpleGeneration] Skeleton protected files in response (${protectedPaths.slice(0, 12).join(', ')}) — filtering silently`,
         );
-        const skeletonRetryStepId = trace.beginStep({
-          kind: 'artifact_retry',
-          summary: 'Retrying artifact generation because protected skeleton files were returned.',
-          labels: buildTraceLabels(config.buildRoute),
-          attemptNumber: 3,
-          metadata: {
-            retryReason: 'protected_skeleton_files_returned',
-            protectedPaths,
-          },
-        });
-
-        const skeletonRetryPrompt = `Your previous response returned protected skeleton files:
-${protectedPaths.map(path => `- ${path}`).join('\n')}
-
-Those files already exist and are tested. Do NOT output them.
-Regenerate the artifact with ONLY delta files for: ${config.intent}
-
-Use existing imports from '@/components/ui/', '@/components/', '@/hooks/', '@/config/'.
-Modify only editable config/data/page files or create new domain-specific delta files.
-
-Return ONLY a JSON artifact in this exact shape:
-\`\`\`json
-{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/pages/Example.tsx","content":"...complete source..."}]}}
-\`\`\``;
-
-        try {
-          const skeletonRetryRaw = await callLLM(
-            coderSystemPrompt,
-            skeletonRetryPrompt,
-            'build',
-            config.apiKey,
-            undefined,
-            config.signal,
-            coderTokens,
-            config.buildRoute,
-          );
-          const skeletonRetryAttempt = inspectArtifactAttempt(skeletonRetryRaw);
-          const retryProtectedPaths = skeletonRetryAttempt.parseResult.artifact
-            ? collectProtectedArtifactPaths(skeletonRetryAttempt.parseResult.artifact, selectedSkeletonId)
-            : [];
-
-          if (
-            skeletonRetryAttempt.parseResult.success &&
-            skeletonRetryAttempt.parseResult.artifact &&
-            !skeletonRetryAttempt.semanticIssue &&
-            retryProtectedPaths.length === 0
-          ) {
-            finalAttempt = skeletonRetryAttempt;
-            config.onLog('[SimpleGeneration] Skeleton delta-only retry accepted');
-            trace.finishStep(skeletonRetryStepId, {
-              status: 'completed',
-              summary: 'Skeleton delta-only retry produced an artifact without protected files.',
-              labels: buildTraceLabels(config.buildRoute),
-              attemptNumber: 3,
-            });
-          } else {
-            config.onLog(
-              `[SimpleGeneration] ⚠ Skeleton delta-only retry not accepted; protected filter will drop forbidden files (${retryProtectedPaths.join(', ') || 'parse/semantic issue'})`,
-            );
-            trace.finishStep(skeletonRetryStepId, {
-              status: 'warning',
-              summary: 'Skeleton delta-only retry still needs protected-file filtering.',
-              labels: buildTraceLabels(config.buildRoute),
-              attemptNumber: 3,
-              parserDecision: {
-                success: skeletonRetryAttempt.parseResult.success,
-                fallbackUsed: skeletonRetryAttempt.parseResult.fallbackUsed,
-                issueCode: retryProtectedPaths.length > 0 ? 'PROTECTED_SKELETON_FILES_RETURNED' : skeletonRetryAttempt.semanticIssue?.failClass,
-                issueSummary: retryProtectedPaths.join(', ') || (
-                  skeletonRetryAttempt.semanticIssue
-                    ? formatArtifactSemanticIssue(skeletonRetryAttempt.semanticIssue)
-                    : skeletonRetryAttempt.parseResult.error
-                ),
-              },
-            });
-          }
-        } catch (error) {
-          config.onLog(`[SimpleGeneration] ⚠ Skeleton delta-only retry failed; protected filter will continue: ${formatDebugError(error)}`);
-          trace.finishStep(skeletonRetryStepId, {
-            status: 'warning',
-            summary: 'Skeleton delta-only retry request failed; continuing with protected-file filtering.',
-            labels: buildTraceLabels(config.buildRoute),
-            attemptNumber: 3,
-            errorSummary: formatDebugError(error),
-          });
-        }
       }
     }
 
