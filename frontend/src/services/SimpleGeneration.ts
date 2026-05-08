@@ -2109,6 +2109,7 @@ async function readStream(
     modelId?: string;
     stage?: string;
     softLimit?: number;
+    onFinishReason?: (reason: string) => void;
   },
 ): Promise<string> {
   const reader = resp.body!.getReader();
@@ -2202,6 +2203,7 @@ async function readStream(
     );
   }
 
+  meta?.onFinishReason?.(finishReason);
   return full;
 }
 
@@ -3098,6 +3100,7 @@ async function callLLM(
     allowLegacyFallback?: boolean;
     onResolvedRequest?: (metadata: CallLLMResolvedRequestMetadata) => void;
     onLog?: (msg: string) => void;
+    onFinishReason?: (reason: string) => void;
   },
 ): Promise<string> {
   // Standard-path callers must pass a canonical route object.
@@ -3189,6 +3192,7 @@ async function callLLM(
         modelId:   modelId,
         stage:     stageKey,
         softLimit,
+        onFinishReason: opts?.onFinishReason,
       });
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -6304,6 +6308,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     const closeNewCoder = trace.span('coder_new', { mode, expectedFiles: expectedFileCount });
     fourthStepStatusHistory.push('request_dispatched');
     let raw: string;
+    let coderFinishReason = '';
     try {
       raw = await callLLM(
         coderSystemPrompt,
@@ -6318,6 +6323,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
           onResolvedRequest: (metadata) => {
             fourthStepResolvedRoute = metadata;
           },
+          onFinishReason: (reason) => { coderFinishReason = reason; },
         },
       );
     } catch (error) {
@@ -6353,7 +6359,92 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     });
     config.onLog(`[SimpleGeneration] Coder response: ${raw.length} chars`);
 
-    // 5. Parse files from LLM output
+    // ── Truncation retry: if finish_reason=length, the LLM was cut off mid-output.
+    // Parse what arrived, identify absent/incomplete files, re-prompt for those only,
+    // then merge the two outputs into a single synthetic raw string for downstream parsing.
+    if (coderFinishReason === 'length') {
+      config.onLog('[SimpleGeneration] ⚠ Coder truncated (finish_reason=length) — building continuation...');
+
+      const rawTrimmed = raw.trimEnd();
+      const lastFileIsTruncated = !rawTrimmed.endsWith('<!--END-->');
+
+      // Files successfully parsed from the partial output
+      const partialFiles = parseFileMarkers(raw);
+      const parsedPaths = Object.keys(partialFiles);
+
+      // Expected file paths from the architect plan (skeleton-locked files already stripped by coderPlan)
+      const archFiles = Array.isArray(coderPlan.fileArchitecture)
+        ? (coderPlan.fileArchitecture as Array<{ path?: string }>).map(f => f.path ?? '').filter(Boolean)
+        : [];
+
+      // Files that are completely absent from parsed output
+      const absentFiles = archFiles.filter(
+        expected => !parsedPaths.some(p => p === expected || p.endsWith(expected) || expected.endsWith(p)),
+      );
+
+      // The last streamed file may be truncated — regenerate it plus all absent files
+      const lastParsedPath = parsedPaths[parsedPaths.length - 1];
+      const filesToRetry: string[] = lastFileIsTruncated && lastParsedPath
+        ? [lastParsedPath, ...absentFiles]
+        : absentFiles;
+
+      config.onLog(
+        `[SimpleGeneration] Truncation: lastFileTruncated=${lastFileIsTruncated}, ` +
+        `absent=${absentFiles.length}, retrying=${filesToRetry.length} files`,
+      );
+
+      if (filesToRetry.length > 0) {
+        const truncRetryUserPrompt = [
+          `CURRENT USER REQUEST:\n${config.intent}`,
+          `\nPrevious response was truncated. Write ONLY these ${filesToRetry.length} file(s) (complete, no truncation):`,
+          filesToRetry.map(f => `- ${f}`).join('\n'),
+          `\nUse <!--FILE: path-->...<!--END--> format. No other files. No explanation.`,
+        ].join('\n');
+
+        config.onLog(`[SimpleGeneration] Truncation retry for: ${filesToRetry.join(', ')}`);
+        const truncRetryStepId = trace.beginStep({
+          kind: 'coder_generation',
+          summary: `Truncation continuation: regenerating ${filesToRetry.length} file(s).`,
+          labels: buildTraceLabels(config.buildRoute),
+          attemptNumber: 2,
+          metadata: { filesToRetry },
+        });
+
+        const truncRetryRaw = await callLLM(
+          coderSystemPrompt,
+          truncRetryUserPrompt,
+          'build',
+          config.apiKey,
+          undefined,
+          config.signal,
+          coderTokens,
+          config.buildRoute,
+        );
+        config.onLog(`[SimpleGeneration] Truncation retry response: ${truncRetryRaw.length} chars`);
+        trace.finishStep(truncRetryStepId, {
+          status: 'completed',
+          summary: `Truncation retry produced ${truncRetryRaw.length} chars.`,
+          labels: buildTraceLabels(config.buildRoute),
+          metadata: { chars: truncRetryRaw.length },
+        });
+
+        // Remove the truncated version of the last file, replace with the retry version
+        if (lastFileIsTruncated && lastParsedPath) {
+          delete partialFiles[lastParsedPath];
+        }
+        const retryFiles = parseFileMarkers(truncRetryRaw);
+        const mergedFiles = { ...partialFiles, ...retryFiles };
+
+        // Reconstruct raw as FILE marker format so the downstream parser sees a single stream
+        raw = Object.entries(mergedFiles)
+          .map(([path, content]) => `<!--FILE: ${path}-->\n${content}\n<!--END-->`)
+          .join('\n\n');
+
+        config.onLog(`[SimpleGeneration] Merged ${Object.keys(mergedFiles).length} files after truncation retry`);
+      }
+    }
+
+
     // Debug: log raw response boundaries to diagnose parse failures
     console.log('[SimpleGeneration] RAW first 500:', raw.slice(0, 500));
     console.log('[SimpleGeneration] RAW last 200:', raw.slice(-200));
