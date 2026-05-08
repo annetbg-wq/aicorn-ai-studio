@@ -1,46 +1,68 @@
 {
-  "version": 1,
-  "layout": "tabs",
+  "skeletonId": "mobile-app",
+  "label": "Mobile App",
+  "version": "0.2.0",
+  "navigation": "bottom-tabs",
+  "shell": "AppShell wraps OnboardingGuard + BottomTabs",
   "routes": [
-    {
-      "path": "/",
-      "component": "Page1",
-      "filePath": "pages/Home.tsx",
-      "title": "Page1",
-      "isHome": true,
-      "isProtected": true
-    },
-    {
-      "path": "/event/:id",
-      "component": "Page2",
-      "filePath": "pages/EventDetails.tsx",
-      "title": "Page2",
-      "isHome": false,
-      "isProtected": true
-    },
-    {
-      "path": "/create-event",
-      "component": "Page3",
-      "filePath": "pages/CreateEvent.tsx",
-      "title": "Page3",
-      "isHome": false,
-      "isProtected": true
-    },
-    {
-      "path": "/my-events",
-      "component": "Page4",
-      "filePath": "pages/MyEvents.tsx",
-      "title": "Page4",
-      "isHome": false,
-      "isProtected": true
-    },
-    {
-      "path": "/account",
-      "component": "Page5",
-      "filePath": "pages/AccountSettings.tsx",
-      "title": "Page5",
-      "isHome": false,
-      "isProtected": true
-    }
-  ]
+    { "path": "/onboarding", "page": "src/pages/Onboarding.tsx", "guard": "GuestGuard" },
+    { "path": "/home", "page": "src/pages/Home.tsx", "guard": "OnboardingGuard" },
+    { "path": "/detail/:id", "page": "src/pages/Detail.tsx", "guard": "OnboardingGuard", "params": ["id"] },
+    { "path": "/create", "page": "src/pages/Create.tsx", "guard": "OnboardingGuard" },
+    { "path": "/progress", "page": "src/pages/Progress.tsx", "guard": "OnboardingGuard" },
+    { "path": "/profile", "page": "src/pages/Profile.tsx", "guard": "OnboardingGuard" }
+  ],
+  "tabs": [
+    { "to": "/home", "label": "Home" },
+    { "to": "/create", "label": "Create", "primary": true },
+    { "to": "/progress", "label": "Progress" },
+    { "to": "/profile", "label": "Profile" }
+  ],
+  "providedComponents": [
+    "ErrorBoundary",
+    "LoadingScreen",
+    "EmptyState",
+    "BottomTabs",
+    "PaywallSheet"
+  ],
+  "providedHooks": ["useApp", "useLocalStorage", "useTheme"],
+  "uiPrimitives": [
+    "Avatar",
+    "Badge",
+    "Button",
+    "Card",
+    "Dialog",
+    "Input",
+    "Progress",
+    "Select",
+    "Sheet",
+    "Skeleton",
+    "Tabs"
+  ],
+  "designTokens": [
+    "--pm-canvas",
+    "--pm-surface",
+    "--pm-surface-soft",
+    "--pm-ink",
+    "--pm-muted",
+    "--pm-line",
+    "--pm-brand",
+    "--pm-on-brand",
+    "--pm-success",
+    "--pm-warning",
+    "--pm-rose",
+    "--pm-violet",
+    "--pm-overlay"
+  ],
+  "config": {
+    "appIdentity": "src/config/app.ts",
+    "routes": "src/config/routes.ts",
+    "navigation": "src/config/navigation.ts",
+    "theme": "src/config/theme.ts"
+  },
+  "placeholders": {
+    "appName": "AppName — defined in src/config/app.ts → APP_CONFIG.name",
+    "productMarkers": "/* PRODUCT: ... */ — copy and domain rewrites",
+    "seedMarkers": "// SEED: ... — replace with real data source"
+  }
 }

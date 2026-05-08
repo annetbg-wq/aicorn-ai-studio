@@ -2329,22 +2329,40 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       )}
                     </div>
                     {(m as any).retryable && !isUser && (
-                      <button
-                        onClick={onRetry ?? onSend}
-                        style={{
-                          marginTop: 6,
-                          padding: '5px 12px',
-                          borderRadius: 8,
-                          border: '1px solid rgba(99,102,241,0.4)',
-                          background: 'rgba(99,102,241,0.1)',
-                          color: '#6366f1',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        ↺ Повторить
-                      </button>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                        <button
+                          onClick={onRetry ?? onSend}
+                          style={{
+                            padding: '5px 12px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(99,102,241,0.4)',
+                            background: 'rgba(99,102,241,0.1)',
+                            color: '#6366f1',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ↺ Повторить
+                        </button>
+                        {(m as any).showSettingsButton && (
+                          <button
+                            onClick={onSettings}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: 8,
+                              border: '1px solid rgba(234,179,8,0.4)',
+                              background: 'rgba(234,179,8,0.1)',
+                              color: '#ca8a04',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            ⚙ Настройки
+                          </button>
+                        )}
+                      </div>
                     )}
                     </>
                   )}

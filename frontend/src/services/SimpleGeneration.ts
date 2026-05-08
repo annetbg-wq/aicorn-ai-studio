@@ -3220,6 +3220,18 @@ async function callLLM(
   if (lastWasTimeout) {
     throw new Error(`Generation timed out after ${MAX_RETRIES} attempts (${Math.round(timeoutMs / 1000)}s each). Project files were preserved; retry continues from the same prompt.`);
   }
+
+  // ── Emit structured model failure event before rethrowing ─────────────────
+  // UI layers listen for 'studio-model-failure' to surface model-specific guidance.
+  try {
+    const errMsg = lastError instanceof Error ? lastError.message : String(lastError ?? '');
+    const statusMatch = errMsg.match(/LLM Proxy (\d+)/);
+    const httpStatus = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+    window.dispatchEvent(new CustomEvent('studio-model-failure', {
+      detail: { modelId, provider: configuredProvider, slot, httpStatus, message: errMsg },
+    }));
+  } catch { /* ignore event dispatch errors */ }
+
   throw lastError;
 }
 
