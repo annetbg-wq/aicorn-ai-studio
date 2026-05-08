@@ -195,7 +195,7 @@ export class EditAdmissionService {
    *                           compile cycle is mid-flight)
    */
   static classify(meta: EditMeta, isDirtyWorkspace = false): AdmissionDecision {
-    const { candidatePaths, activePaths = [], source: _source = 'unknown' } = meta;
+    const { candidatePaths, activePaths = [], source = 'unknown' } = meta;
     const reasons: string[] = [];
     const canonicalCandidate = canonicalizeForClassification(candidatePaths);
     const canonicalActive = canonicalizeForClassification(activePaths);
@@ -241,7 +241,7 @@ export class EditAdmissionService {
       risk = 'risky';
     }
 
-    if (isLargeChange && risk === 'safe') {
+    if (isLargeChange && risk === 'safe' && source !== 'generation') {
       reasons.push(`Large change: ${canonicalCandidate.canonical.length} files`);
       risk = 'risky';
     }

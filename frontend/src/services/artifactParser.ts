@@ -224,7 +224,7 @@ export function parseFileMarkers(raw: string): Record<string, string> {
       ? cleaned.lastIndexOf('<!--FILE:', markers[i + 1].index - 1)
       : cleaned.length;
     let content = cleaned.slice(start, end).trim();
-    content = content.replace(/<!--\/?FILE[^>]*-->/g, '').trim();
+    content = content.replace(/<!--\/?FILE[^>]*-->/g, '').replace(/<!--END-->/g, '').trim();
     content = content.replace(/^```\w*\s*\n?/, '').replace(/\n?\s*```$/, '').trim();
     if (content.length > 0) {
       let path = markers[i].path;
