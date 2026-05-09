@@ -356,6 +356,64 @@ export const STORAGE_KEYS = {
     'utf-8',
   );
 
+  // 2.5. Force-write canonical main.tsx with the preview-mounted handshake.
+  //      Skeletons ship a vanilla main.tsx and the LLM may emit its own; either
+  //      would silence the host handshake. Writing it last guarantees the
+  //      iframe always reports back to the studio.
+  const canonicalMainTsx = `import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App';
+import './index.css';
+import { BUILD_ID } from './__build_id';
+
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error('Root element #root not found in document');
+}
+
+createRoot(rootElement).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);
+
+function notifyMounted(): void {
+  if (typeof window === 'undefined' || window.parent === window) return;
+  try {
+    window.parent.postMessage(
+      { type: 'preview-mounted', buildId: BUILD_ID },
+      '*',
+    );
+  } catch { /* parent may be cross-origin; ignore */ }
+}
+requestAnimationFrame(() => {
+  notifyMounted();
+  setTimeout(notifyMounted, 100);
+  setTimeout(notifyMounted, 500);
+  setTimeout(notifyMounted, 1500);
+});
+
+window.addEventListener('error', (e) => {
+  if (window.parent === window) return;
+  try {
+    window.parent.postMessage(
+      { type: 'iframe-error', buildId: BUILD_ID, message: String(e.message ?? e.error ?? 'error') },
+      '*',
+    );
+  } catch { /* ignore */ }
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (window.parent === window) return;
+  try {
+    window.parent.postMessage(
+      { type: 'iframe-error', buildId: BUILD_ID, message: String(e.reason ?? 'unhandled rejection') },
+      '*',
+    );
+  } catch { /* ignore */ }
+});
+`;
+  await fsPromises.writeFile(path.join(srcDir, 'main.tsx'), canonicalMainTsx, 'utf-8');
+
   // 3. Ensure builds/ exists and run vite build
   //    outDir is outside preview-workspace/ so Vite's root-check passes.
   await fsPromises.mkdir(BUILDS_WORKSPACE, { recursive: true });
