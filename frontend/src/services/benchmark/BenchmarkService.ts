@@ -408,17 +408,23 @@ export const BenchmarkService = {
     const filePaths = Object.keys(files).filter(p => !p.startsWith('_'));
     const codeFiles = filePaths.filter(p => /\.(tsx?|jsx?)$/.test(p));
 
-    // App.tsx is mandatory
-    const hasApp = codeFiles.some(p => p.endsWith('App.tsx') || p.endsWith('App.jsx'));
-    if (!hasApp) {
-      blockers.push('App.tsx missing from output');
-      score -= 30;
-    }
-
     // Must produce at least one code file
     if (codeFiles.length === 0) {
       blockers.push('No code files generated');
       score -= 40;
+    } else {
+      // App.tsx is only required when no other code files exist.
+      // Skeleton-based pipelines (ProtoPipeline) ship App.tsx in the locked
+      // skeleton and emit only delta pages/hooks/components, so the absence
+      // of App.tsx in the delta output is normal — not a blocker.
+      const hasApp = codeFiles.some(p => p.endsWith('App.tsx') || p.endsWith('App.jsx'));
+      if (!hasApp && codeFiles.length === 0) {
+        blockers.push('App.tsx missing from output');
+        score -= 30;
+      } else if (!hasApp) {
+        // Non-blocking note — user's app.tsx comes from the skeleton.
+        score -= 2;
+      }
     }
 
     // Plan page coverage
