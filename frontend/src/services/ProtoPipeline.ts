@@ -557,7 +557,8 @@ Emit each file enclosed in plain-text markers, nothing else around them:
 RULES
 - Paths relative to preview-workspace/src/. No leading "src/" or "/".
 - Each file must be a complete, compilable .tsx/.ts file. No diffs, no patches.
-- Only import from skeleton-provided modules, "@/components/ui/*", "lucide-react", "react", and files you yourself emit.
+- Only import from skeleton-provided modules listed above, "@/components/ui/*", "lucide-react", "react", and files you yourself emit.
+- For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, import "useLocalStorage" from "@/hooks/useLocalStorage".
 - Do not modify any skeleton-locked path.
 - No commentary outside the markers. No markdown. No code fences.
 - Quality over verbosity: real content, no lorem ipsum, no TODOs.`;
@@ -657,9 +658,8 @@ ${input.errorLog.slice(0, 4000)}`;
     maxTokens: STEP_BUDGET.repair.maxTokens,
     timeoutMs: STEP_BUDGET.repair.timeoutMs,
     signal:    input.signal,
-    onChunk:   () => { /* repair output is not streamed to UI */ },
+    onChunk:   (delta) => { body += delta; },
   });
-  void body;
   const parsed = parseFileMarkers(body);
   if (Object.keys(parsed).length === 0) {
     throw new Error('Repair produced no FILE/END blocks');

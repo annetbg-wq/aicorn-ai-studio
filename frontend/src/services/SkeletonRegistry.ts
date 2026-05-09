@@ -111,7 +111,7 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'ErrorBoundary', 'LoadingScreen', 'EmptyState',
       'BottomTabs', 'PaywallSheet',
     ],
-    providedHooks: ['useApp', 'useLocalStorage', 'useTheme'],
+    providedHooks: ['useLocalStorage', 'useTheme'],
     uiPrimitives: [
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
@@ -154,7 +154,7 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'Sidebar', 'TopBar', 'KPICard', 'Sparkline',
       'DataTable', 'OnboardingChecklist',
     ],
-    providedHooks: ['useApp', 'useLocalStorage', 'useTheme', 'useTable'],
+    providedHooks: ['useLocalStorage', 'useTheme', 'useTable'],
     uiPrimitives: [
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
@@ -235,7 +235,7 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'ErrorBoundary', 'LoadingScreen', 'EmptyState',
       'BottomTabs', 'PostCard', 'CommentItem', 'NotificationItem', 'UserAvatar',
     ],
-    providedHooks: ['useApp', 'useFeed', 'useLocalStorage', 'useTheme'],
+    providedHooks: ['useFeed', 'useLocalStorage', 'useTheme'],
     uiPrimitives: [
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
@@ -277,7 +277,7 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'ItemCard', 'ItemDetailSheet', 'CommandPalette',
     ],
     providedHooks: [
-      'useApp', 'useCommandPalette', 'useKeyboard',
+      'useCommandPalette', 'useKeyboard',
       'useLocalStorage', 'useTheme',
     ],
     uiPrimitives: [
