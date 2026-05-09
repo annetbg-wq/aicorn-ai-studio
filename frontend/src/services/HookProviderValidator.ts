@@ -1,7 +1,7 @@
 /**
  * HookProviderValidator.ts — Pre-compile custom hook/provider completeness check.
  *
- * Lovable gap: AI often generates custom hooks (useApp, useCartContext, useAuth)
+ * Common gap: AI often generates custom hooks (useApp, useCartContext, useAuth)
  * with corresponding Provider components, but forgets to:
  *   a) Create the Provider
  *   b) Import the Provider into App.tsx / main.tsx

@@ -1,18 +1,18 @@
 /**
- * SimpleGeneration — compatibility shim over the new LovablePipeline.
+ * SimpleGeneration — compatibility shim over the new ProtoPipeline.
  *
  * The legacy SimpleGeneration module (~7 200 lines) has been replaced by the
- * 6-step Lovable-style pipeline in `LovablePipeline.ts`. This file preserves
+ * 6-step pipeline in `ProtoPipeline.ts`. This file preserves
  * the public surface (`SimpleGeneration.run / .generatePlan / .autoFix /
  * .clarify`, plus the `ProjectPlan` and `PipelineRunConfig` types) so the rest
  * of the codebase keeps compiling while every actual generation now goes
- * through LovablePipeline under the hood.
+ * through ProtoPipeline under the hood.
  *
  *   ┌────────────────────────────────────────────────────────────────┐
  *   │ useStudio / SandpackPreview / BenchmarkService                 │
  *   │      │  SimpleGeneration.run / .generatePlan / .autoFix         │
  *   │      ▼                                                          │
- *   │ shim (this file) → LovablePipeline.{run,clarify,repair}         │
+ *   │ shim (this file) → ProtoPipeline.{run,clarify,repair}           │
  *   │      │                                                          │
  *   │      ▼                                                          │
  *   │ /api/preview/:buildId/compile  (skeleton install + build)       │
@@ -20,12 +20,12 @@
  *
  * The shim is intentionally thin: no admission gating, no artist layer,
  * no visual-polish loops, no plan confirmation gating, no edit-vs-create
- * branching. Every call is forwarded to LovablePipeline and the response
+ * branching. Every call is forwarded to ProtoPipeline and the response
  * is normalised back into the GenerationResult shape that downstream code
  * still reads.
  */
 
-import { LovablePipeline, type StepEvent, type StepId } from './LovablePipeline';
+import { ProtoPipeline, type StepEvent, type StepId } from './ProtoPipeline';
 import { selectSkeleton, type SkeletonId } from './SkeletonRegistry';
 import { ConfigService } from './ConfigService';
 import { Orchestrator } from './Orchestrator';
@@ -117,19 +117,19 @@ export interface PipelineRunConfig {
   [key: string]: unknown;
 }
 
-// ── Public class — adapter over LovablePipeline ──────────────────────────────
+// ── Public class — adapter over ProtoPipeline ──────────────────────────────
 
 export class SimpleGeneration {
   /**
    * Optional clarification step. Mirrors the legacy signature; delegates to
-   * LovablePipeline.clarify().
+   * ProtoPipeline.clarify().
    */
   static async clarify(config: {
     intent:  string;
     apiKey:  string;
     signal?: AbortSignal;
   }): Promise<{ questions: string[] } | null> {
-    return LovablePipeline.clarify({ prompt: config.intent, signal: config.signal });
+    return ProtoPipeline.clarify({ prompt: config.intent, signal: config.signal });
   }
 
   /**
@@ -211,8 +211,8 @@ Return ONLY JSON, no markdown, matching this exact shape:
   }
 
   /**
-   * Run the full Lovable pipeline. Translates the legacy callback shape
-   * (onStream / onFiles / onPhase / onLog / onPlan) to LovablePipeline events
+   * Run the full pipeline. Translates the legacy callback shape
+   * (onStream / onFiles / onPhase / onLog / onPlan) to ProtoPipeline events
    * and synthesises a GenerationResult so downstream consumers continue to
    * read graph / operations / status / message as before.
    */
@@ -249,7 +249,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
 
     let result: { success: boolean; files?: Record<string, string>; error?: string; url?: string; plan?: { appName: string; summary: string; deltaFiles: Array<{ path: string; purpose: string }>; pages?: Array<{ path: string; name: string; file: string; purpose: string }> } };
     try {
-      result = await LovablePipeline.run({
+      result = await ProtoPipeline.run({
         prompt:     config.intent,
         skeletonId,
         buildId,
@@ -268,7 +268,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
           try { config.onStream(delta); } catch { /* ignore */ }
         },
         onStep: (e: StepEvent) => {
-          // Map the 6 Lovable step events to the legacy 4-phase signal.
+          // Map the 6 pipeline step events to the legacy 4-phase signal.
           const m = stepToPhase(e.step, e.status);
           if (m) phase(m.phase, m.progress);
           // Emit a friendly log line for the chat panel.
@@ -368,7 +368,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
 
   /**
    * Minimal autoFix: collects current files from the active revision, asks
-   * LovablePipeline to repair them against the build error log, and returns
+   * ProtoPipeline to repair them against the build error log, and returns
    * true on success.
    */
   static async autoFix(config: {
@@ -394,7 +394,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
     // that already exist in `currentFiles` so the skeleton id mainly gates the
     // protected-paths check.
     const skeletonId: SkeletonId = 'mobile-app';
-    const out = await LovablePipeline.repair({
+    const out = await ProtoPipeline.repair({
       buildId:      activeRevId,
       skeletonId,
       prompt:       'Restore the project to a building state by fixing the reported errors.',

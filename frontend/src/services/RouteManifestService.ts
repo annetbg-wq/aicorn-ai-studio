@@ -1,7 +1,7 @@
 /**
  * RouteManifestService — Route manifest as single source of truth.
  *
- * Architecture (Lovable-level pattern):
+ * Architecture (route-manifest pattern):
  *   1. route-manifest.json is the AUTHORITY for which routes exist
  *   2. App.tsx is GENERATED from the manifest — never hand-edited for routes
  *   3. EDIT mode reads manifest → injects as protected route list → LLM can add

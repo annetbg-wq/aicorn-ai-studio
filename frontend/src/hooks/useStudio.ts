@@ -3900,9 +3900,16 @@ export const useStudio = () => {
         });
         addLog(`[Preview] Blocked: ${reason}`);
       } else {
-        // Not blocking — wait for iframe handshake
-        setPreviewLifecycle('committing');
-        setPreviewBlockedReason(null);
+        // Only set 'committing' if previewController hasn't already completed the compile cycle
+        // (ProtoPipeline compiles synchronously before returning, so it may already be ready)
+        if (previewController.getState().status !== 'ready') {
+          setPreviewLifecycle('committing');
+          setPreviewBlockedReason(null);
+        } else {
+          // Preview already ready — promote to preview-ready immediately
+          setPreviewLifecycle('preview-ready');
+          setPreviewBlockedReason(null);
+        }
       }
 
       const projectId = runProjectId;

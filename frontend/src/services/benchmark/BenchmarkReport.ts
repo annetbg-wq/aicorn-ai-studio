@@ -18,7 +18,7 @@ export type {
 } from './ComparisonScorecardService';
 export { ComparisonScorecardService } from './ComparisonScorecardService';
 export type { BaselineMetrics } from './BaselineSchema';
-export { validateBaseline, EXAMPLE_LOVABLE_BASELINE } from './BaselineSchema';
+export { validateBaseline, EXAMPLE_COMPETITOR_BASELINE } from './BaselineSchema';
 
 // ── Per-intent run result ────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 /**
- * LovablePipeline — clean 6-step generation pipeline.
+ * ProtoPipeline — clean 6-step generation pipeline.
  *
- * Inspired by Lovable's UX: tell the user exactly what's happening at each step
+ * Each step tells the user exactly what's happening
  * while the underlying work runs as a deterministic linear flow.
  *
  *   1. clarify   — 1 LLM call (agent_spec)        : confirm / clarify intent
@@ -29,6 +29,7 @@ import {
   SKELETON_REGISTRY,
   isProtectedSkeletonFile,
 } from './SkeletonRegistry';
+import { previewController } from './PreviewController';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ export interface PipelineAttachment {
   textContent?: string;
 }
 
-export interface LovablePipelineConfig {
+export interface ProtoPipelineConfig {
   prompt:       string;
   skeletonId:   SkeletonId;
   buildId:      string;
@@ -76,7 +77,7 @@ export interface LovablePipelineConfig {
   onPreviewReady?: (url: string, buildId: string) => void;
 }
 
-export interface LovablePipelineResult {
+export interface ProtoPipelineResult {
   success:  boolean;
   buildId:  string;
   url?:     string;
@@ -99,7 +100,7 @@ export interface ArchitectPlan {
   notes?:      string[];
 }
 
-// ── Step labels (RU, Lovable-style) ───────────────────────────────────────────
+// ── Step labels (RU) ───────────────────────────────────────────
 
 const STEP_LABEL: Record<StepId, string> = {
   clarify:   'Понимаю задачу...',
@@ -124,7 +125,7 @@ const MAX_REPAIR_PASSES = 2;
 
 // ── Implementation ────────────────────────────────────────────────────────────
 
-export class LovablePipeline {
+export class ProtoPipeline {
   /**
    * Optional Step 1 helper — callers may invoke this BEFORE run() to ask the
    * user clarifying questions. Returns null when the prompt is already clear
@@ -171,12 +172,12 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
    * Run the full 6-step pipeline. Always emits step events even on failure
    * so the UI can surface the exact phase that broke.
    */
-  static async run(config: LovablePipelineConfig): Promise<LovablePipelineResult> {
+  static async run(config: ProtoPipelineConfig): Promise<ProtoPipelineResult> {
     const log = config.onLog ?? (() => {});
     const emit = (step: StepId, status: StepStatus, detail?: string) =>
       config.onStep({ step, status, label: STEP_LABEL[step], detail });
-    const fail = (step: StepId, error: string): LovablePipelineResult => {
-      log(`[LovablePipeline] ${step} failed: ${error}`, 'error');
+    const fail = (step: StepId, error: string): ProtoPipelineResult => {
+      log(`[ProtoPipeline] ${step} failed: ${error}`, 'error');
       emit(step, 'error', error);
       return { success: false, buildId: config.buildId, error };
     };
@@ -644,6 +645,10 @@ async function compile(
   skeletonId: SkeletonId,
   signal?:    AbortSignal,
 ): Promise<void> {
+  // 1. Notify UI that compile is starting (sets previewState.expectingBuildId → iframe gets URL)
+  previewController.notifyCompiling(buildId);
+
+  // 2. Call backend compile endpoint
   const resp = await fetch(`/api/preview/${encodeURIComponent(buildId)}/compile`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -654,8 +659,56 @@ async function compile(
   let json: { success?: boolean; error?: string } = {};
   try { json = JSON.parse(text); } catch { /* keep raw text */ }
   if (!resp.ok || json.success === false) {
-    throw new Error(json.error || text || `compile failed (${resp.status})`);
+    const errMsg = json.error || text || `compile failed (${resp.status})`;
+    previewController.notifyFailed(errMsg, buildId);
+    throw new Error(errMsg);
   }
+
+  // 3. Force-reload the iframe so MountReporter fires (iframe may have gotten 404 during build)
+  const iframe = typeof document !== 'undefined'
+    ? document.querySelector<HTMLIFrameElement>('iframe[data-testid="preview-iframe"]')
+    : null;
+  const nextPreviewUrl = `/preview/${buildId}`;
+  if (iframe) {
+    const absoluteNextUrl = new URL(nextPreviewUrl, window.location.origin).toString();
+    if (iframe.src === absoluteNextUrl) {
+      iframe.src = 'about:blank';
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    }
+    iframe.src = nextPreviewUrl;
+  }
+
+  // 4. Wait for preview-mounted postMessage from MountReporter (timeout: 45s)
+  const ready = await waitForIframeMounted(buildId, signal);
+  if (!ready) {
+    // Don't throw — preview might still load; just log and continue
+    console.warn(`[ProtoPipeline] compile: preview-mounted not received for ${buildId} — iframe may load later`);
+  }
+
+  // 5. Mark preview as ready in PreviewController
+  previewController.notifyReady(buildId, 'proto_pipeline_complete');
+}
+
+function waitForIframeMounted(buildId: string, signal?: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timeoutMs = 45_000;
+    let settled = false;
+    const settle = (result: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.removeEventListener('message', onMessage);
+      resolve(result);
+    };
+    const onMessage = (e: MessageEvent) => {
+      if (!e.data || typeof e.data !== 'object') return;
+      if (e.data.type === 'preview-mounted' && e.data.buildId === buildId) settle(true);
+      if (e.data.type === 'iframe-error') settle(false);
+    };
+    window.addEventListener('message', onMessage);
+    const timer = setTimeout(() => settle(false), timeoutMs);
+    signal?.addEventListener('abort', () => settle(false), { once: true });
+  });
 }
 
 // ── LLM helpers ──────────────────────────────────────────────────────────────
@@ -840,3 +893,4 @@ function isAbort(err: unknown): boolean {
 export function stepLabel(step: StepId): string {
   return STEP_LABEL[step];
 }
+

@@ -10,7 +10,7 @@ import type { VisualQualityVerdict } from '../../shared/projectModel';
 // ── Baseline entry ────────────────────────────────────────────────────────────
 
 export interface BaselineMetrics {
-  /** Human-readable tool name, e.g. "Lovable" or "v0". */
+  /** Human-readable tool name, e.g. "v0" or "bolt.new". */
   toolName: string;
   /** ISO-8601 timestamp of when these results were recorded. */
   recordedAt: string;
@@ -77,10 +77,10 @@ export function validateBaseline(b: unknown): b is BaselineMetrics {
   return REQUIRED_KEYS.every(k => k in obj && obj[k] !== undefined && obj[k] !== null);
 }
 
-// ── Example baseline (Lovable — illustrative, replace with real data) ─────────
+// ── Example baseline (Competitor — illustrative, replace with real data) ──────
 
-export const EXAMPLE_LOVABLE_BASELINE: BaselineMetrics = {
-  toolName:                 'Lovable',
+export const EXAMPLE_COMPETITOR_BASELINE: BaselineMetrics = {
+  toolName:                 'Competitor',
   recordedAt:               '2026-03-01T00:00:00.000Z',
   intentCount:              15,
   avgTimeToFirstPreviewMs:  18000,
