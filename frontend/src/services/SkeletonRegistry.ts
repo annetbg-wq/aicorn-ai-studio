@@ -44,6 +44,12 @@ export interface SkeletonMeta {
   uiPrimitives: string[];
   /** true = skeleton files are on disk and ready to copy */
   available: boolean;
+  /**
+   * Exact API contract of this skeleton's AppContext / useApp() hook.
+   * Injected verbatim into the coder system prompt so the LLM knows what the
+   * context provides and what it must NOT reinvent with raw localStorage calls.
+   */
+  contextContract?: string;
 }
 
 export interface SkeletonPromptContext {
@@ -117,6 +123,25 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  isOnboarded: boolean        — true when profile.onboardingComplete && profile.name.length > 0
+  profile: { id, name, goal, createdAt, onboardingComplete, plan, usageCount }
+  isPremium: boolean
+  loadingState: 'loading' | 'ready' | 'error'
+  completeOnboarding({ name: string, goal: string }) — call this to finish onboarding (sets onboardingComplete=true, persists to localStorage automatically)
+  updateProfile(patch: Partial<UserProfile>)          — patch any profile field
+  consumeAction(limit: number): boolean               — increment usage; returns false when over limit
+  setPlan(plan: 'free' | 'pro' | 'team')
+  resetProfile()
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- NEVER use useLocalStorage('onboarding', ...) — onboarding state lives inside AppContext at STORAGE_KEYS.profile
+- To complete onboarding call completeOnboarding({ name, goal }) — do NOT write to localStorage directly
+- The Onboarding screen MUST call completeOnboarding() on submit, not navigate away by setting local state
+- Check isOnboarded (not any local flag) to decide whether to show the onboarding screen
+`,
   },
 
   'saas-dashboard': {
@@ -160,6 +185,23 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  profile: { name, email, role, avatarUrl, plan, ... }
+  updateProfile(patch: Partial<UserProfile>)
+  sidebarCollapsed: boolean
+  setSidebarCollapsed(collapsed: boolean)
+  checklist: readonly ChecklistTask[]   — onboarding checklist items
+  toggleTask(id: string)               — mark a checklist item done
+  dismissChecklist()                   — hide the checklist panel
+  isChecklistDismissed: boolean
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- NEVER manage sidebar collapsed state with local useState — use setSidebarCollapsed from useApp()
+- NEVER manage checklist state locally — use toggleTask / dismissChecklist from useApp()
+`,
   },
 
   'landing-page': {
@@ -196,6 +238,11 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     available: true,
+    contextContract: `
+No AppContext / useApp() in this skeleton — it is a single-page static marketing site.
+All app configuration comes from src/data/content.ts which you MUST write.
+Do NOT import from '@/context/AppContext'.
+`,
   },
 
   'social-community': {
@@ -241,6 +288,22 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  currentUser: User              — the logged-in seed user (read-only; no real auth in prototype)
+  follows: readonly string[]     — user ids that currentUser follows
+  isFollowing(userId: string): boolean
+  toggleFollow(userId: string)   — follow / unfollow; persists automatically
+  unreadNotifications: number
+  markNotificationsRead()
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- NEVER create auth state with useState — currentUser is always pre-seeded via SEED_USERS
+- NEVER use useLocalStorage for follow state — use toggleFollow() from useApp()
+- currentUser is read-only; update it only via updateProfile if available
+`,
   },
 
   'productivity-tool': {
@@ -285,6 +348,29 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  workspaces: readonly Workspace[]
+  tags: readonly Tag[]
+  items: readonly Item[]
+  activeWorkspaceId: string
+  setActiveWorkspaceId(id: string)
+  view: 'kanban' | 'list'
+  setView(view: ViewMode)
+  filters: Filters
+  setFilters(patch: Partial<Filters>)
+  openItemId: string | null
+  openItem(id: string | null)         — open/close the ItemDetailSheet
+  setItemStatus(id: string, status: ItemStatus)  — optimistic drag-to-column update
+  sidebarCollapsed: boolean
+  setSidebarCollapsed(collapsed: boolean)
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- NEVER manage view mode (kanban/list), filters, or sidebar with local useState — use setView/setFilters/setSidebarCollapsed from useApp()
+- NEVER manage openItemId locally — call openItem() from useApp()
+`,
   },
 
   'ecommerce': {
@@ -334,6 +420,30 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  cart: {
+    items: CartItem[]
+    addItem(product: Product, qty?: number): void
+    removeItem(id: string): void
+    updateQty(id: string, qty: number): void
+    clearCart(): void
+    total: number
+    itemCount: number
+    freeShippingProgress: number   — 0–1 fraction toward free-shipping threshold
+  }
+  wishlist: {
+    ids: readonly string[]
+    toggle(productId: string): void
+    has(productId: string): boolean
+  }
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- NEVER use useLocalStorage for cart or wishlist state — use cart.addItem() / wishlist.toggle() from useApp()
+- NEVER create local cart arrays with useState — the cart is persisted automatically via AppContext
+`,
   },
 };
 
