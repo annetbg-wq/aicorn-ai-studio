@@ -1,46 +1,46 @@
 {
   "agent_primary": {
-    "provider": "openrouter",
+    "provider": "deepseek",
     "maxTokens": {
-      "clarifier": 6000,
-      "architect_landing": 8000,
-      "architect_app": 12000,
+      "clarifier": 10256,
+      "architect_landing": 10256,
+      "architect_app": 14256,
       "architect_superapp": 16000,
-      "tech_lead": 10000
+      "tech_lead": 15256
     },
-    "modelId": "openai/gpt-4o-mini",
+    "modelId": "deepseek/deepseek-v4-flash",
     "fallback1Provider": "openrouter",
     "fallback1ModelId": "xiaomi/mimo-v2-flash"
   },
   "agent_build": {
-    "provider": "openrouter",
+    "provider": "deepseek",
     "maxTokens": {
       "coder_superapp": 45256,
       "coder_app": 35256,
       "coder_landing": 10256
     },
-    "modelId": "xiaomi/mimo-v2-pro",
+    "modelId": "deepseek/deepseek-v4-pro",
     "fallback1Provider": "openrouter",
     "fallback1ModelId": "z-ai/glm-5.1"
   },
   "agent_fix": {
-    "provider": "openrouter",
+    "provider": "deepseek",
     "maxTokens": {
-      "autofix": 4000
+      "autofix": 13256
     },
-    "modelId": "openai/gpt-4o-mini",
+    "modelId": "deepseek/deepseek-v4-flash",
     "fallback1ModelId": "xiaomi/mimo-v2-flash",
     "fallback1Provider": "openrouter"
   },
   "agent_spec": {
-    "provider": "openrouter",
-    "modelId": "openai/gpt-4o-mini",
+    "provider": "deepseek",
+    "modelId": "deepseek/deepseek-v4-flash",
     "fallback1ModelId": "xiaomi/mimo-v2-flash",
     "fallback1Provider": "openrouter"
   },
   "agent_qa": {
-    "provider": "openrouter",
-    "modelId": "openai/gpt-4o-mini",
+    "provider": "deepseek",
+    "modelId": "deepseek/deepseek-v4-flash",
     "fallback1ModelId": "xiaomi/mimo-v2-flash",
     "fallback1Provider": "openrouter"
   }

@@ -4,7 +4,7 @@
  * Extracted from the legacy SimpleGeneration module so consumers
  * (ideaFeedService, ArchitectPlannerService, ideaPackagingService, …)
  * can keep their compile-time contract while the underlying pipeline
- * is replaced by LovablePipeline.
+ * is replaced by ProtoPipeline.
  */
 
 import type { ArtistLayerSpec } from '../../shared/projectModel';

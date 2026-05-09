@@ -1,7 +1,7 @@
 /**
  * PropWiringValidator.ts — Pre-compile prop-wiring correctness check.
  *
- * Lovable-style gap: AI often generates components with required props but
+ * Common gap: AI often generates components with required props but
  * renders them in App.tsx without passing those props, causing runtime
  * "Cannot read properties of undefined" errors that Vite won't catch.
  *

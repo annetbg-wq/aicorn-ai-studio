@@ -4,8 +4,8 @@
  * After SimpleGeneration writes files to a candidate revision, this module
  * runs compile → diagnose → fix → recompile, up to MAX_ATTEMPTS times.
  *
- * This closes the #1 architectural gap vs. Lovable-level quality:
- * without a retry loop, a single compile error = white screen for the user.
+ * This closes the #1 architectural gap without a retry loop:
+ * a single compile error = white screen for the user.
  */
 
 import { revisionManager } from './RevisionManager';
