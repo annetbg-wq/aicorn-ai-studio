@@ -258,9 +258,9 @@ test.describe('Lifecycle golden flow', () => {
     const draftChat = [
       { role: 'user', content: 'draft-only-message', timestamp: Date.now() - 5000 },
     ];
-    await page.evaluate((id, chat) => {
+    await page.evaluate(({ id, chat }) => {
       sessionStorage.setItem(`AIC_DRAFT_CHAT_${id}`, JSON.stringify(chat));
-    }, draftId, draftChat);
+    }, { id: draftId, chat: draftChat });
 
     // Open the saved project — draft chat must NOT be loaded.
     await page.evaluate(async (id) => window.__E2E_PROJECT_TEST.loadProjectById(id), projectId);
