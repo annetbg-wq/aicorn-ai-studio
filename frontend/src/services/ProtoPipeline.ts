@@ -536,7 +536,7 @@ SKELETON: ${skeleton.label} (${skeleton.id})
 PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}
 PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
 UI PRIMITIVES: ${skeleton.uiPrimitives.join(', ') || '(see registry)'}
-
+${skeleton.contextContract ? `\nAPPCONTEXT CONTRACT — READ CAREFULLY:\n${skeleton.contextContract.trim()}\n` : ''}
 YOU MUST write EXACTLY these files and only these files:
 ${fileList}
 
