@@ -322,6 +322,17 @@ async function compileBuild(
     await fsPromises.writeFile(fullPath, content, 'utf-8');
   }
 
+  // 1.5a. In skeleton mode: force-restore skeleton's index.css after user file writes
+  //       so LLM-emitted index.css cannot strip the design-system CSS variables.
+  //       Works for all skeletons automatically — each has a canonical index.css.
+  if (skeletonId) {
+    const skeletonCss = path.join(SKELETONS_ROOT, skeletonId, `skeleton-${skeletonId}`, 'src', 'index.css');
+    if (fs.existsSync(skeletonCss)) {
+      await fsPromises.copyFile(skeletonCss, path.join(srcDir, 'index.css'));
+      console.log(`[preview-manager] Skeleton CSS preserved: index.css from ${skeletonId}`);
+    }
+  }
+
   // 1.5. Guard: ensure src/config/app.ts exports STORAGE_KEYS.
   //      Skeleton hooks (useLocalStorage, useApp) import STORAGE_KEYS from
   //      '@/config/app'. If the LLM-generated app.ts omits it, the build
