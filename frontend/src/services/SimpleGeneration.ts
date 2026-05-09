@@ -7158,7 +7158,7 @@ Generate the complete application for: ${config.intent}`;
     });
     config.onLog('[SimpleGeneration] Fast gate start: compile + boot candidate');
 
-    const fastGate = await revisionManager.compileCandidate(revId);
+    const fastGate = await revisionManager.compileCandidate(revId, skeletonBlock ? selectedSkeletonId : undefined);
     previewLog('fast_gate_result', {
       buildId: revId,
       source: 'SimpleGeneration.run',

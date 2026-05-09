@@ -438,6 +438,7 @@ export class RevisionManager {
    */
   async compileCandidate(
     revisionId: string,
+    skeletonId?: string,
   ): Promise<CompileResult> {
     if (revisionId !== this.candidateRevisionId) {
       return { success: false, errors: ['Not the current candidate'], _compiled: false };
@@ -475,7 +476,7 @@ export class RevisionManager {
     // __build_id.ts is written server-side so MountReporter bakes the correct
     // buildId into the static output and posts `preview-mounted` on load.
     try {
-      await triggerCompile(revisionId, files);
+      await triggerCompile(revisionId, files, skeletonId);
     } catch (e: any) {
       const msg: string = e?.message ?? 'Backend compile failed';
       previewLog('write_batch_done', { buildId: revisionId, fileCount, error: msg });
@@ -1119,13 +1120,14 @@ export class RevisionManager {
 async function triggerCompile(
   buildId: string,
   files: Record<string, string>,
+  skeletonId?: string,
 ): Promise<void> {
   let res: Response;
   try {
     res = await fetch(`/api/preview/${buildId}/compile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files }),
+      body: JSON.stringify({ files, ...(skeletonId ? { skeletonId } : {}) }),
     });
   } catch (networkErr: any) {
     throw new Error(
