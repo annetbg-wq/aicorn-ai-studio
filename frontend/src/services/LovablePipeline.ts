@@ -717,7 +717,7 @@ async function streamCall(input: {
 }): Promise<void> {
   const route = resolveRoute(input.slot);
   const body = JSON.stringify({
-    model:       route.modelId,
+    model:       Orchestrator.normalizeModelId(route.modelId, route.endpoint),
     messages:    [
       { role: 'system', content: input.system },
       { role: 'user',   content: input.user },
