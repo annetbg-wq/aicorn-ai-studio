@@ -3552,6 +3552,36 @@ function buildNewModeArtistLayerFocusBlock(plan: Record<string, unknown>): strin
   ].join('\n');
 }
 
+const MAX_CODER_PROMPT_COMPONENT_CHARS = 8000;
+
+function capCoderPromptComponent(value: string, label: string): string {
+  if (value.length <= MAX_CODER_PROMPT_COMPONENT_CHARS) return value;
+  const suffix = `\n\n[${label} truncated to ${MAX_CODER_PROMPT_COMPONENT_CHARS} chars]`;
+  return value.slice(0, Math.max(0, MAX_CODER_PROMPT_COMPONENT_CHARS - suffix.length)) + suffix;
+}
+
+const NEW_CODER_SYSTEM_PROMPT = `You are a senior frontend developer building production-quality React 18 + TypeScript + Tailwind apps.
+
+Return ONLY a fenced JSON artifact:
+\`\`\`json
+{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/App.tsx","content":"...complete file code..."}],"routes":["/"],"dependencies":[]}}
+\`\`\`
+
+Hard rules:
+- Every file content is complete source code as a JSON string with escaped quotes/newlines.
+- Paths are relative to src/; do not output components/ui/*, lib/utils.ts, or index.css.
+- Use only installed packages unless the artifact dependencies array declares the package.
+- Prefer lucide-react icons, react-router-dom for multi-route apps, local React state/context for first-pass state.
+- No TODOs, placeholder pages, missing handlers, passive buttons, or unwired forms.
+- Every generated app must compile, mount, and show meaningful UI on first render.
+- Use semantic HTML, mobile-first responsive layout, readable contrast, hover/focus states, empty/loading states, and realistic domain seed data.
+- Use shadcn/ui primitives from @/components/ui/* and design tokens such as bg-background, text-foreground, text-muted-foreground, border-border, bg-card.
+- Do not hardcode cheap raw Tailwind grays/blues for core surfaces when tokens are available.
+- For first-pass safety, prefer simpler local-state architecture over provider/store chains that may be unwired.
+- Every component rendered by App.tsx must receive all required props.
+- App mode requires pages/components/hooks/data where useful; superapp requires a richer multi-file structure; landing may be single-page.
+- Follow the provided PRODUCT PLAN, TECHNICAL BLUEPRINT, and SKELETON CONTEXT exactly when present.`;
+
 export function buildNewCoderSystemPrompt(input: {
   mode: GenerationMode;
   plan: Record<string, unknown>;
@@ -3563,23 +3593,16 @@ export function buildNewCoderSystemPrompt(input: {
   skeletonBlock?: string;
 }): string {
   const artistLayerFocusBlock = buildNewModeArtistLayerFocusBlock(input.plan);
-  let prompt = SYSTEM_PROMPT
-    + FIRST_PASS_RUNTIME_SAFETY_PATCH
-    + CSS_RECIPES
-    + SHADCN_CHEATSHEET
+  let prompt = NEW_CODER_SYSTEM_PROMPT
     + '\n\nGENERATION_MODE:\n'
     + input.mode
     + (artistLayerFocusBlock ? '\n\n' + artistLayerFocusBlock : '')
-    + '\n\nPRODUCT PLAN (SOURCE OF TRUTH):\n'
-    + JSON.stringify(input.plan, null, 2)
-    + '\n\nDESIGN DIRECTION: ' + ((input.plan.designDirection as string) ?? (input.plan as { artistLayer?: { designDirection?: { visualArchetype?: string } } }).artistLayer?.designDirection?.visualArchetype ?? 'premium dark mobile')
-    + (input.technicalBlueprint
-        ? '\n\nTECHNICAL BLUEPRINT (IMPLEMENTATION GUIDE):\n'
-          + JSON.stringify(input.technicalBlueprint, null, 2)
-        : '');
+    + '\n\nDESIGN DIRECTION: '
+    + ((input.plan.designDirection as string) ?? (input.plan as { artistLayer?: { designDirection?: { visualArchetype?: string } } }).artistLayer?.designDirection?.visualArchetype ?? 'premium dark mobile');
 
   if (input.branchGuidancePrompt) {
-    prompt += '\n\nCURRENT BRANCH ARCHITECTURE GUIDANCE (HARD CONSTRAINT):\n' + input.branchGuidancePrompt;
+    prompt += '\n\nCURRENT BRANCH ARCHITECTURE GUIDANCE (HARD CONSTRAINT):\n'
+      + capCoderPromptComponent(input.branchGuidancePrompt, 'branchGuidancePrompt');
   }
 
   const kickoffScopePrompt = formatKickoffScopePrompt(input.plan);
@@ -3589,22 +3612,21 @@ export function buildNewCoderSystemPrompt(input: {
 
   const sanitizedDesignPrompt = sanitizeSupportDesignPrompt(input.designSystemPrompt);
   if (sanitizedDesignPrompt) {
-    prompt += '\n\n' + sanitizedDesignPrompt;
+    prompt += '\n\n' + capCoderPromptComponent(sanitizedDesignPrompt, 'designSystemPrompt');
   }
   if (input.memoryContext) {
-    prompt += '\n\n' + input.memoryContext;
+    prompt += '\n\n' + capCoderPromptComponent(input.memoryContext, 'memoryContext');
   }
   if (input.envPrompt) {
-    prompt += '\n\n' + input.envPrompt;
+    prompt += '\n\n' + capCoderPromptComponent(input.envPrompt, 'envPrompt');
   }
 
   const planSections = Array.isArray(input.plan.sections)
     ? input.plan.sections as SectionSpec[]
     : [];
 
-  // Inject skeleton context block (comes before section composition, if any)
   if (input.skeletonBlock) {
-    prompt += '\n\n' + input.skeletonBlock;
+    prompt += '\n\nSKELETON MODE: skeleton context is provided in the user message. Output delta files only.';
   }
 
   if (planSections.length > 0) {
@@ -3616,28 +3638,10 @@ STRICT RULES:
 2. App.tsx JSX may contain ONLY a fragment and direct <TemplateName {...props} /> calls.
 3. Do NOT write raw layout markup in App.tsx: no <section>, <main>, <div>, <h1>, <p>, <nav>, or other HTML tags.
 4. Each section template must stay in its own file under components/sections/.
-5. If plan.sections is present, prefer section composition over inventing custom landing markup.
-
-WRONG:
-export default function App() {
-  return <main><section><h1>...</h1></section></main>;
-}
-
-CORRECT:
-import { HeroLamp } from '@/components/sections/HeroLamp';
-import { FAQ } from '@/components/sections/FAQ';
-
-export default function App() {
-  return (
-    <>
-      <HeroLamp {...{"title":"Example"}} />
-      <FAQ {...{"items":[]}} />
-    </>
-  );
-}`;
+5. If plan.sections is present, prefer section composition over inventing custom landing markup.`;
   }
 
-  return prompt;
+  return capCoderPromptComponent(prompt, 'systemPrompt');
 }
 
 export function buildEditCoderSystemPrompt(input: {
@@ -6220,6 +6224,14 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       config.onLog('[SimpleGeneration] Skeleton active — plan trimmed to delta files, blueprint skipped');
     }
 
+    const coderPlanJson = capCoderPromptComponent(JSON.stringify(coderPlan, null, 2), 'PRODUCT PLAN');
+    const coderBlueprintJson = coderBlueprint
+      ? capCoderPromptComponent(JSON.stringify(coderBlueprint, null, 2), 'TECHNICAL BLUEPRINT')
+      : '';
+    const coderSkeletonBlock = skeletonBlock
+      ? capCoderPromptComponent(skeletonBlock, 'SKELETON CONTEXT')
+      : '';
+
     const coderSystemPrompt = buildNewCoderSystemPrompt({
       mode,
       plan: coderPlan,
@@ -6228,7 +6240,7 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
       designSystemPrompt: config.designSystemPrompt,
       memoryContext,
       envPrompt,
-      skeletonBlock: skeletonBlock || undefined,
+      skeletonBlock: coderSkeletonBlock || undefined,
     });
     if (branchGuidancePrompt) {
       config.onLog('[SimpleGeneration] NEW branch architecture guidance injected');
@@ -6243,6 +6255,13 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
 
     const coderUserPrompt = [
       `CURRENT USER REQUEST:\n${config.intent}`,
+      `\nPRODUCT PLAN (SOURCE OF TRUTH):\n${coderPlanJson}`,
+      coderBlueprintJson
+        ? `\nTECHNICAL BLUEPRINT (IMPLEMENTATION GUIDE):\n${coderBlueprintJson}`
+        : '',
+      coderSkeletonBlock
+        ? `\nSKELETON CONTEXT (DELTA-ONLY CONSTRAINT):\n${coderSkeletonBlock}`
+        : '',
       recentHistoryContext
         ? `\nRECENT CHAT CONTEXT (for continuity with prior turns):\n${recentHistoryContext}`
         : '',
@@ -6322,6 +6341,17 @@ Respond with ONLY valid JSON. No markdown fences, no prose outside the object.`;
     let raw: string;
     let coderFinishReason = '';
     try {
+      const messages = [
+        { role: 'system', content: coderSystemPrompt },
+        { role: 'user', content: coderUserPrompt },
+      ];
+      console.log('[CODER PROMPT SIZE]', JSON.stringify(messages).length, 'chars');
+      console.log('[CODER PROMPT BREAKDOWN]', {
+        systemPrompt: coderSystemPrompt?.length ?? 0,
+        skeletonBlock: coderSkeletonBlock?.length ?? 0,
+        blueprint: coderBlueprintJson.length,
+        planJson: coderPlanJson.length,
+      });
       raw = await callLLM(
         coderSystemPrompt,
         coderUserPrompt,
