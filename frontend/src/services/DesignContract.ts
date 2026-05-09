@@ -159,11 +159,24 @@ export function designContractForCoder(ctx: DesignContext): string {
     'bg-destructive text-destructive-foreground',
     'border-border', 'ring-ring',
   ];
+
+  const archetypeSection = ctx.archetype
+    ? `\nARCHETYPE REFERENCE — ${ctx.archetype.name} (${ctx.archetype.id})\n` +
+      `  Available prebuilt components (import these, do NOT recreate):\n` +
+      ctx.archetype.includes.slice(0, 6).map(i => `    • ${i}`).join('\n') + '\n' +
+      `  Navigation: ${ctx.archetype.navigation}  |  Entities: ${ctx.archetype.entities.slice(0, 4).join(', ')}\n`
+    : '';
+
+  const domainSection = ctx.domain
+    ? `\nDOMAIN CONSTRAINTS — ${ctx.domain.name}\n` +
+      ctx.domain.restrictions.slice(0, 4).map(r => `  • ${r}`).join('\n') + '\n'
+    : '';
+
   return `
 DESIGN CONTRACT — ENFORCED BY VALIDATOR (your build will fail if you break this)
 
 Theme: ${ctx.theme.name}  (mood=${ctx.intent.mood}, contrast=${ctx.intent.contrast}, radius=${ctx.intent.radius})
-
+${archetypeSection}${domainSection}
 You may use ONLY these semantic Tailwind utilities for colour and surfaces:
   ${tokenList.join('  ')}
 
