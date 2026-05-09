@@ -1528,6 +1528,12 @@ export const useStudio = () => {
     if (!saved) return 'none';
     return ProjectStorage.projectDataExists(saved) ? 'exists' : 'unknown';
   });
+  // Keep a ref in sync with projectPersistenceState so callers that capture a stale
+  // closure (notably the e2e facade useEffect with [] deps) can read the current value.
+  const projectPersistenceStateRef = useRef<ProjectPersistenceState>(projectPersistenceState);
+  useEffect(() => {
+    projectPersistenceStateRef.current = projectPersistenceState;
+  }, [projectPersistenceState]);
 
   // Refresh project list from Supabase on mount (async — sync init above is the initial state)
   useEffect(() => {
@@ -4469,7 +4475,7 @@ export const useStudio = () => {
         name: meta.name,
       })),
       getCurrentProjectId: () => localStorage.getItem('CURRENT_PROJECT_ID'),
-      getProjectPersistenceState: () => projectPersistenceState,
+      getProjectPersistenceState: () => projectPersistenceStateRef.current,
       getDraftSessionId: () => _draftSessionIdRef.current ?? localStorage.getItem('AIC_DRAFT_SESSION_ID'),
       loadProjectById: async (id: string) => {
         if (!id) throw new Error('loadProjectById requires a project id');
