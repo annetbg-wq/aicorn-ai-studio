@@ -21,7 +21,7 @@
  * retry asks the model for the missing files only — never the whole project.
  */
 
-import { llmFetchStream } from './LLMProxy';
+import { llmFetch } from './LLMProxy';
 import { ConfigService, type AgentSlot } from './ConfigService';
 import { Orchestrator } from './Orchestrator';
 import {
@@ -788,6 +788,18 @@ async function callOnce(input: {
   return out;
 }
 
+/**
+ * Non-streaming LLM call. We deliberately set `stream: false` because the
+ * surrounding pipeline only needs the final assistant message (it parses
+ * <<<FILE>>>/<<<END>>> markers AFTER the call completes). Avoiding SSE means
+ * we can JSON.parse the entire response body in one go and never have to
+ * handle the `data: {...}\n\n` chunk framing — the original cause of the
+ * "Unexpected token 'd'..." parse errors observed in the browser console.
+ *
+ * The `onChunk` callback is preserved for callers that wire it into a live
+ * "writing code…" UI: we fire it exactly once with the full assistant content
+ * so the existing accumulator code (`body += delta`) keeps working unchanged.
+ */
 async function streamCall(input: {
   slot:           AgentSlot;
   system:         string;
@@ -805,7 +817,7 @@ async function streamCall(input: {
       { role: 'system', content: input.system },
       { role: 'user',   content: input.user },
     ],
-    stream:      true,
+    stream:      false,
     temperature: 0.3,
     max_tokens:  input.maxTokens,
   });
@@ -822,48 +834,60 @@ async function streamCall(input: {
 
   try {
     if (input.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const resp = await llmFetchStream(route.endpoint, headers, body, ctrl.signal);
-    await readSSE(resp, input.onChunk, input.onFinishReason);
+    const resp = await llmFetch(route.endpoint, headers, body);
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      throw new Error(`LLM ${resp.status}: ${errText.slice(0, 300)}`);
+    }
+    const raw = await resp.text();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      // Defensive fallback: some providers ignore stream:false and return SSE
+      // anyway. Salvage by reassembling deltas line-by-line so the pipeline
+      // never crashes mid-generation.
+      const reassembled = reassembleSSE(raw);
+      if (reassembled.content) {
+        if (reassembled.content) input.onChunk(reassembled.content);
+        if (reassembled.finishReason) input.onFinishReason?.(reassembled.finishReason);
+        return;
+      }
+      throw new Error(
+        `Unparseable LLM response (first 200 chars): ${raw.slice(0, 200)} — ${(err as Error).message}`,
+      );
+    }
+    const content: string = parsed?.choices?.[0]?.message?.content ?? '';
+    const finishReason: string = parsed?.choices?.[0]?.finish_reason ?? '';
+    if (content) input.onChunk(content);
+    if (finishReason) input.onFinishReason?.(finishReason);
   } finally {
     clearTimeout(timer);
     input.signal?.removeEventListener('abort', onCallerAbort);
   }
 }
 
-async function readSSE(
-  resp: Response,
-  onChunk: (delta: string) => void,
-  onFinishReason?: (reason: string) => void,
-): Promise<void> {
-  const reader = resp.body?.getReader();
-  if (!reader) return;
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let lastReason = '';
-
-  const handleLine = (line: string): void => {
-    if (!line.startsWith('data: ')) return;
-    const payload = line.slice(6);
-    if (payload === '[DONE]') return;
+/**
+ * Defensive SSE fallback for providers that ignore `stream: false`.
+ * Walks `data: {...}` lines and concatenates `delta.content` / `message.content`.
+ */
+function reassembleSSE(raw: string): { content: string; finishReason: string } {
+  let content = '';
+  let finishReason = '';
+  for (const line of raw.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    const payload = line.slice(6).trim();
+    if (!payload || payload === '[DONE]') continue;
     try {
       const parsed = JSON.parse(payload);
-      const delta = parsed.choices?.[0]?.delta?.content ?? '';
-      if (delta) onChunk(delta);
-      const fr = parsed.choices?.[0]?.finish_reason;
-      if (fr) lastReason = fr;
-    } catch { /* skip malformed JSON */ }
-  };
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) handleLine(line);
+      const choice = parsed?.choices?.[0];
+      if (!choice) continue;
+      const piece = choice.delta?.content ?? choice.message?.content ?? '';
+      if (typeof piece === 'string') content += piece;
+      if (choice.finish_reason) finishReason = choice.finish_reason;
+    } catch { /* skip malformed line */ }
   }
-  if (buffer) handleLine(buffer);
-  onFinishReason?.(lastReason);
+  return { content, finishReason };
 }
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
