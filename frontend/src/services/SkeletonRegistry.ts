@@ -563,8 +563,12 @@ export function buildSkeletonPromptBlock(
   SKELETON ALREADY INSTALLED: ${s.label} (${s.id})
 ═══════════════════════════════════════════════════════
 
-SKELETON ALREADY INSTALLED in the project. These file groups ALREADY EXIST and are WORKING
-(source: skeleton.manifest.json + src/route-manifest.json):
+SKELETON FILES ARE ALREADY INSTALLED IN THE FILESYSTEM.
+The backend copied skeleton-${s.id}/src/* into preview-workspace/src/ BEFORE this prompt.
+These files physically exist on disk and will be compiled as-is — DO NOT regenerate them.
+Write ONLY the delta files listed under "Files you MUST create or modify" below.
+
+File groups already on disk (source: skeleton.manifest.json + src/route-manifest.json):
 ${manifest ? formatWorkingGroups(manifest.workingGroups) : formatPathList(installedFiles)}
 
 Navigation pattern: ${s.navigation}

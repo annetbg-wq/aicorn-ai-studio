@@ -39,6 +39,9 @@ const BUILDS_WORKSPACE = path.resolve(__dirname, '..', 'builds');
 const MAX_BUILDS = 20;
 const PRESERVED_PREVIEW_DIRS = ['components', 'config', 'context', 'lib', 'themes', 'hooks'];
 
+/** Root directory where skeleton source trees live: skeletons/<id>/skeleton-<id>/src */
+const SKELETONS_ROOT = path.resolve(__dirname, '..', 'skeletons');
+
 export function getPreservedPreviewDirs(): string[] {
   return [...PRESERVED_PREVIEW_DIRS];
 }
@@ -136,12 +139,15 @@ export function registerPreviewCompileRoute(app: express.Express): void {
         return res.status(400).json({ success: false, error: 'Invalid buildId' });
       }
 
-      const { files } = req.body as { files?: Record<string, string> };
+      const { files, skeletonId } = req.body as { files?: Record<string, string>; skeletonId?: string };
       if (!files || typeof files !== 'object' || Array.isArray(files)) {
         return res.status(400).json({
           success: false,
           error: 'files is required (Record<string, string>)',
         });
+      }
+      if (skeletonId !== undefined && typeof skeletonId !== 'string') {
+        return res.status(400).json({ success: false, error: 'skeletonId must be a string' });
       }
 
       const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
@@ -156,7 +162,7 @@ export function registerPreviewCompileRoute(app: express.Express): void {
       }
 
       // Enqueue — only one build runs at a time
-      const job = compileQueue.then(() => compileBuild(buildId, sanitizedFiles));
+      const job = compileQueue.then(() => compileBuild(buildId, sanitizedFiles, skeletonId));
       compileQueue = job.then(() => undefined, () => undefined);
 
       try {
@@ -252,6 +258,7 @@ async function ensureShadcnComponents(workspaceRoot: string): Promise<void> {
 async function compileBuild(
   buildId: string,
   files: Record<string, string>,
+  skeletonId?: string,
 ): Promise<void> {
   const outDir = path.join(BUILDS_WORKSPACE, buildId);
   const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
@@ -259,24 +266,47 @@ async function compileBuild(
   // 0-pre. Ensure shadcn/ui accordion is present (idempotent, non-fatal).
   await ensureShadcnComponents(PREVIEW_WORKSPACE);
 
-  // 0. Clear user-generated files from the shared source workspace.
-  //    Serialised via compileQueue — no concurrent writes possible here.
-  const KEEP_FILES = new Set(['main.tsx', 'index.css', 'vite-env.d.ts', '__build_id.ts']);
-  const KEEP_DIRS  = new Set(PRESERVED_PREVIEW_DIRS);
-  try {
-    const items = await fsPromises.readdir(srcDir, { withFileTypes: true });
-    for (const item of items) {
-      const itemPath = path.join(srcDir, item.name);
-      if (item.isDirectory()) {
-        if (!KEEP_DIRS.has(item.name)) {
-          await fsPromises.rm(itemPath, { recursive: true, force: true });
-        }
-      } else if (!KEEP_FILES.has(item.name)) {
-        await fsPromises.rm(itemPath, { force: true });
-      }
+  // 0. Workspace reset — two modes:
+  //    a) Skeleton mode (skeletonId provided): wipe src/* entirely, then copy
+  //       the skeleton so there is no contamination from previous projects.
+  //    b) Legacy mode: keep PRESERVED_PREVIEW_DIRS, only delete unknown files.
+  if (skeletonId) {
+    const skeletonSrc = path.join(SKELETONS_ROOT, skeletonId, `skeleton-${skeletonId}`, 'src');
+    if (!fs.existsSync(skeletonSrc)) {
+      throw new Error(`Skeleton not found: ${skeletonId} (expected at ${skeletonSrc})`);
     }
-  } catch {
-    // Non-fatal: proceed with compilation even if cleanup fails
+    console.log(`[preview-manager] Atomic skeleton install: wiping src/ → copying ${skeletonId}`);
+    // 0a-i. Wipe everything in src/
+    try {
+      const items = await fsPromises.readdir(srcDir, { withFileTypes: true });
+      for (const item of items) {
+        await fsPromises.rm(path.join(srcDir, item.name), { recursive: true, force: true });
+      }
+    } catch {
+      // Non-fatal: proceed even if wipe partially fails
+    }
+    // 0a-ii. Copy skeleton src/* into preview-workspace/src/
+    await fsPromises.cp(skeletonSrc, srcDir, { recursive: true });
+    console.log(`[preview-manager] Skeleton ${skeletonId} installed into src/`);
+  } else {
+    // 0b. Legacy cleanup — preserve skeleton infra dirs, remove unknown files.
+    const KEEP_FILES = new Set(['main.tsx', 'index.css', 'vite-env.d.ts', '__build_id.ts']);
+    const KEEP_DIRS  = new Set(PRESERVED_PREVIEW_DIRS);
+    try {
+      const items = await fsPromises.readdir(srcDir, { withFileTypes: true });
+      for (const item of items) {
+        const itemPath = path.join(srcDir, item.name);
+        if (item.isDirectory()) {
+          if (!KEEP_DIRS.has(item.name)) {
+            await fsPromises.rm(itemPath, { recursive: true, force: true });
+          }
+        } else if (!KEEP_FILES.has(item.name)) {
+          await fsPromises.rm(itemPath, { force: true });
+        }
+      }
+    } catch {
+      // Non-fatal: proceed with compilation even if cleanup fails
+    }
   }
 
   // 0.5. Mirror section templates into the preview workspace so generated
@@ -285,11 +315,37 @@ async function compileBuild(
   await fsPromises.rm(sectionsDest, { recursive: true, force: true });
   await fsPromises.cp(templatesSrc, sectionsDest, { recursive: true });
 
-  // 1. Write user source files
+  // 1. Write user source files (delta over the skeleton base)
   for (const [filePath, content] of Object.entries(files)) {
     const { fullPath } = resolvePreviewSrcPath(srcDir, filePath);
     await fsPromises.mkdir(path.dirname(fullPath), { recursive: true });
     await fsPromises.writeFile(fullPath, content, 'utf-8');
+  }
+
+  // 1.5. Guard: ensure src/config/app.ts exports STORAGE_KEYS.
+  //      Skeleton hooks (useLocalStorage, useApp) import STORAGE_KEYS from
+  //      '@/config/app'. If the LLM-generated app.ts omits it, the build
+  //      fails with an unresolved-import error. Auto-append when missing.
+  const appConfigPath = path.join(srcDir, 'config', 'app.ts');
+  try {
+    if (fs.existsSync(appConfigPath)) {
+      const appConfigContent = await fsPromises.readFile(appConfigPath, 'utf-8');
+      if (!appConfigContent.includes('STORAGE_KEYS')) {
+        const storageKeysBlock = `
+// Auto-patched by preview-manager: required by skeleton hooks.
+export const STORAGE_KEYS = {
+  profile: \`\${typeof APP_CONFIG !== 'undefined' ? APP_CONFIG.storagePrefix : 'app.v1'}.profile\`,
+  theme: \`\${typeof APP_CONFIG !== 'undefined' ? APP_CONFIG.storagePrefix : 'app.v1'}.theme\`,
+  feed: \`\${typeof APP_CONFIG !== 'undefined' ? APP_CONFIG.storagePrefix : 'app.v1'}.feed\`,
+  progress: \`\${typeof APP_CONFIG !== 'undefined' ? APP_CONFIG.storagePrefix : 'app.v1'}.progress\`,
+} as const;
+`;
+        await fsPromises.appendFile(appConfigPath, storageKeysBlock, 'utf-8');
+        console.log('[preview-manager] Auto-patched STORAGE_KEYS into src/config/app.ts');
+      }
+    }
+  } catch {
+    // Non-fatal: if the patch fails the build error will surface naturally
   }
 
   // 2. Stamp __build_id.ts — MountReporter reads this at build time and posts
