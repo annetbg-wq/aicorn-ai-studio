@@ -394,6 +394,13 @@ async function runArchitect(input: {
     ...skeleton.providedHooks.map(h => `hook:${h}`),
     ...skeleton.uiPrimitives.map(u => `ui:${u}`),
   ].join(', ');
+  // Page slots the skeleton's router already wires — the coder MUST overwrite
+  // these so the user's app appears (otherwise the default skeleton screens
+  // — onboarding, etc. — are what the user will see).
+  const slotList = skeleton.deltaFiles
+    .filter(p => p.startsWith('src/pages/'))
+    .map(p => `  - ${p.replace(/^src\//, '')}`)
+    .join('\n') || '  (no page slots)';
 
   const system = `You are a senior product architect. The user wants a React + Tailwind app built on top of an EXISTING SKELETON.
 
@@ -403,7 +410,10 @@ ALREADY PROVIDED (do not recreate): ${providedList || '(none listed)'}
 LOCKED PATHS (do not write to these):
 ${lockedList || '  (none)'}
 
-Your job: produce a JSON plan listing ONLY the DELTA files the coder must create or rewrite on top of the skeleton. Skeleton files (router, providers, layout shell, theme tokens, base UI primitives) MUST NOT appear in deltaFiles.
+PAGE SLOTS the skeleton router renders — your delta MUST OVERWRITE the slots this app uses, otherwise the user will see the skeleton's default screens (e.g. onboarding) instead of their app:
+${slotList}
+
+Your job: produce a JSON plan listing the DELTA files the coder must write to make the user's app appear. The plan MUST overwrite the page slots the app uses (pick from the list above) plus any extra components/hooks needed. Skeleton infrastructure files (router, providers, layout shell, theme tokens, base UI primitives) MUST NOT appear in deltaFiles.
 
 Return ONLY valid JSON matching this schema:
 {
@@ -420,7 +430,7 @@ Return ONLY valid JSON matching this schema:
 
 RULES
 - All paths are relative to preview-workspace/src/ — no leading "src/" or "/".
-- 4 to 12 deltaFiles. Bias to fewer larger files.
+- 3 to 12 deltaFiles. Always include the page slots the user's app needs.
 - Wire pages through the skeleton router only — do not invent a new App.tsx unless the skeleton has none.
 - Use only the components/hooks/UI primitives listed above. Do not invent imports.
 - Output JSON only. No markdown fences. No prose.`;
@@ -453,6 +463,26 @@ RULES
 
   if (deltaFiles.length === 0) {
     throw new Error('Architect plan contains no usable deltaFiles');
+  }
+
+  // Safety net: if architect plan is suspiciously thin (e.g. just a single
+  // hook), inject the skeleton's primary page slot so the user still sees
+  // a tailored screen instead of the default skeleton onboarding.
+  const hasAnyPage = deltaFiles.some(d => /(^|\/)pages\//.test(d.path));
+  if (!hasAnyPage) {
+    const firstSlot = skeleton.deltaFiles
+      .map(p => p.replace(/^src\//, ''))
+      .find(p => p.startsWith('pages/') && !/Onboarding/i.test(p));
+    if (firstSlot) {
+      deltaFiles.push({
+        path:    firstSlot,
+        purpose: 'Primary screen for the user-requested app (auto-injected)',
+      });
+      input.onLog(
+        `[architect] plan had no page slot — injected ${firstSlot} as primary screen`,
+        'warn',
+      );
+    }
   }
 
   const pagesRaw = Array.isArray(obj.pages) ? obj.pages : [];
