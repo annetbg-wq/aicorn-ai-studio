@@ -30,6 +30,15 @@ import {
   isProtectedSkeletonFile,
 } from './SkeletonRegistry';
 import { previewController } from './PreviewController';
+import {
+  resolveDesignContext,
+  archetypeContextForArchitect,
+  designContractForCoder,
+  themeFile,
+  validateDesignContract,
+  describeViolations,
+  type DesignContext,
+} from './DesignContract';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -211,6 +220,22 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     }
     emit('skeleton', 'done');
 
+    // ── Step 2.5 — Resolve pack + materialise theme (deterministic, no LLM) ─
+    let designCtx: DesignContext;
+    try {
+      designCtx = await resolveDesignContext(clarifiedPrompt, config.skeletonId);
+      log(
+        `[design] archetype=${designCtx.archetype?.id ?? 'none'}` +
+        ` domain=${designCtx.domain?.id ?? 'none'}` +
+        ` theme=${designCtx.theme.name}`,
+      );
+    } catch (err) {
+      if (isAbort(err)) return fail('skeleton', 'aborted');
+      log(`[design] resolveDesignContext failed: ${(err as Error).message}`, 'warn');
+      // Fall back to a default corporate-medium theme so the pipeline still runs.
+      designCtx = await resolveDesignContext('', config.skeletonId);
+    }
+
     // ── Step 3 — Architect (delta plan only) ──────────────────────────────
     emit('architect', 'active');
     let plan: ArchitectPlan;
@@ -220,6 +245,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         skeletonId: config.skeletonId,
         signal:     config.signal,
         onLog:      log,
+        designCtx,
       });
     } catch (err) {
       if (isAbort(err)) return fail('architect', 'aborted');
@@ -241,6 +267,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         signal:     config.signal,
         onLog:      log,
         onStream:   config.onCoderStream,
+        designCtx,
       });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
@@ -250,6 +277,17 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
 
     // ── Step 5 — Apply (filter protected, defend STORAGE_KEYS) ────────────
     emit('apply', 'active');
+    // Inject the materialised theme as a delta file (overrides any coder copy).
+    const tf = themeFile(designCtx);
+    deltaFiles[tf.path] = tf.content;
+
+    // Validate the design contract — fail loudly so the coder is forced to use tokens.
+    const verdict = validateDesignContract(deltaFiles, designCtx);
+    if (!verdict.ok) {
+      const summary = describeViolations(verdict.violations);
+      log(`[design] ${verdict.violations.length} contract violation(s):\n${summary}`, 'warn');
+    }
+
     const filteredFiles: Record<string, string> = {};
     let droppedProtected = 0;
     for (const [path, content] of Object.entries(deltaFiles)) {
@@ -386,6 +424,7 @@ async function runArchitect(input: {
   skeletonId: SkeletonId;
   signal?:    AbortSignal;
   onLog:      (msg: string, level?: 'info' | 'warn' | 'error') => void;
+  designCtx?: DesignContext;
 }): Promise<ArchitectPlan> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const lockedList = skeleton.lockedPrefixes.map(p => `  - ${p}`).join('\n');
@@ -412,7 +451,7 @@ ${lockedList || '  (none)'}
 
 PAGE SLOTS the skeleton router renders — your delta MUST OVERWRITE the slots this app uses, otherwise the user will see the skeleton's default screens (e.g. onboarding) instead of their app:
 ${slotList}
-
+${input.designCtx ? archetypeContextForArchitect(input.designCtx) : ''}
 Your job: produce a JSON plan listing the DELTA files the coder must write to make the user's app appear. The plan MUST overwrite the page slots the app uses (pick from the list above) plus any extra components/hooks needed. Skeleton infrastructure files (router, providers, layout shell, theme tokens, base UI primitives) MUST NOT appear in deltaFiles.
 
 Return ONLY valid JSON matching this schema:
@@ -518,6 +557,7 @@ async function runCoder(input: {
   signal?:    AbortSignal;
   onLog:      (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onStream?:  (delta: string) => void;
+  designCtx?: DesignContext;
 }): Promise<Record<string, string>> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const fileList = input.plan.deltaFiles
@@ -536,7 +576,7 @@ SKELETON: ${skeleton.label} (${skeleton.id})
 PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}
 PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
 UI PRIMITIVES: ${skeleton.uiPrimitives.join(', ') || '(see registry)'}
-${skeleton.contextContract ? `\nAPPCONTEXT CONTRACT — READ CAREFULLY:\n${skeleton.contextContract.trim()}\n` : ''}
+${skeleton.contextContract ? `\nAPPCONTEXT CONTRACT — READ CAREFULLY:\n${skeleton.contextContract.trim()}\n` : ''}${input.designCtx ? '\n' + designContractForCoder(input.designCtx) : ''}
 YOU MUST write EXACTLY these files and only these files:
 ${fileList}
 
