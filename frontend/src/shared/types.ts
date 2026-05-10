@@ -7,6 +7,7 @@ export type ModuleId =
   | 'agentlab'
   | 'analytics'
   | 'benchmark'
+  | 'quality'
   | 'cloud'
   | 'package'
   | 'growth'

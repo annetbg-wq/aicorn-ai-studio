@@ -3,7 +3,7 @@
  */
 
 import React, { useState } from 'react';
-import { LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, BarChart2, FolderOpen, TestTube2, Code2, Database } from 'lucide-react';
+import { LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, BarChart2, FolderOpen, TestTube2, Code2, Database, FlaskConical } from 'lucide-react';
 import type { ModuleId, ViewId } from '../shared/types';
 import { isCreatorMode } from '../services/internalAccess';
 
@@ -22,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'figma',     icon: Figma,         label: 'Figma Platinum',     available: true  },
   { id: 'analytics', icon: BarChart2,     label: 'Analytics',          available: true  },
   { id: 'benchmark',    icon: TestTube2,     label: 'Quality',            available: true  },
+  { id: 'quality',      icon: FlaskConical,  label: 'Flow Chain',         available: true  },
   { id: 'code-studio', icon: Code2,          label: 'Code Studio',        available: true  },
   { id: 'db-console',  icon: Database,       label: 'DB Console',         available: true  },
   { id: 'cloud',        icon: Cloud,         label: 'Cloud & Backend',    available: false },
