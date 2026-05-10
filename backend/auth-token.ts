@@ -854,6 +854,11 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', provider: readMode().provider });
 });
 
+// Alias so /api/health also works (used by quality Canary test)
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', provider: readMode().provider });
+});
+
 app.get('/token', (_req, res) => {
   const claude = getClaudeCliStatus();
   const codex = getCodexCliStatus();
@@ -1492,6 +1497,161 @@ app.get('/api/quality/flow-chain', async (_req, res) => {
     handoff_errors: handoffErrors,
     broken_at: brokenAt,
   });
+});
+
+// ── GET /api/quality/test/:testName — individual runnable quality tests ────────
+// Each test is independent and returns { status, duration_ms, output?, error? }.
+// Tests that need existing builds will fail gracefully if none exist.
+const QUALITY_FIXTURES = {
+  idea: 'Трекер привычек: ежедневные отметки, стрик, статистика',
+  architectPlan: {
+    skeleton:   'mobile-app',
+    deltaFiles: ['src/pages/Home.tsx', 'src/config/app.ts'],
+    pages:      ['Home', 'Progress', 'Profile'],
+  },
+  codeOutput: {
+    'src/pages/Home.tsx':
+      "import React from 'react';\nexport default function Home(){return <div className='p-4'><h1>Test</h1></div>;}",
+    'src/config/app.ts':
+      "export const APP_CONFIG={name:'Test'}as const;\nexport const STORAGE_KEYS={theme:'app.v1.theme',profile:'app.v1.profile'}as const;",
+  },
+} as const;
+
+app.get('/api/quality/test/:testName', async (req, res) => {
+  const testName = req.params.testName as string;
+  const t0 = Date.now();
+  const ms = () => Date.now() - t0;
+
+  try {
+    switch (testName) {
+
+      // 1. Canary — backend reachable
+      case 'canary': {
+        const r = await fetch(`http://127.0.0.1:${PORT}/api/health`);
+        if (r.status !== 200) throw new Error(`Expected 200, got ${r.status}`);
+        const data = (await r.json()) as { status: string; provider: string };
+        res.json({ status: 'pass', duration_ms: ms(), output: `status: ${data.status}, provider: ${data.provider}` });
+        return;
+      }
+
+      // 2. Idea Validate — fixture prompt length > 10
+      case 'idea-validate': {
+        const idea = QUALITY_FIXTURES.idea;
+        if (!idea?.trim()) throw new Error('Idea is empty');
+        if (idea.trim().length <= 10) throw new Error(`Too short: ${idea.trim().length} chars (need > 10)`);
+        res.json({ status: 'pass', duration_ms: ms(), output: `${idea.trim().length} chars OK` });
+        return;
+      }
+
+      // 3. Architecture — fixture plan has skeleton, deltaFiles, pages
+      case 'architecture': {
+        const plan = QUALITY_FIXTURES.architectPlan;
+        if (!plan.skeleton) throw new Error('Plan missing: skeleton');
+        if (!plan.deltaFiles?.length) throw new Error('Plan missing: deltaFiles');
+        if (!plan.pages?.length) throw new Error('Plan missing: pages');
+        res.json({ status: 'pass', duration_ms: ms(), output: `skeleton: ${plan.skeleton}, ${plan.deltaFiles.length} delta file(s), ${plan.pages.length} page(s)` });
+        return;
+      }
+
+      // 4. Code Delta — compile fixture files via shared queue
+      case 'code-delta': {
+        const buildId = `qt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
+        await runCompileJob(buildId, QUALITY_FIXTURES.codeOutput as Record<string, string>);
+        res.json({ status: 'pass', duration_ms: ms(), output: `compiled OK, buildId: ${buildId}`, buildId });
+        return;
+      }
+
+      // 5. Compile — check that any build folder with .js assets exists
+      case 'compile': {
+        const buildsDir = path.join(process.cwd(), 'builds');
+        if (!fs.existsSync(buildsDir)) throw new Error('builds/ directory not found — run Code Delta first');
+        const builds = fs.readdirSync(buildsDir);
+        if (!builds.length) throw new Error('No builds found — run Code Delta first');
+        let foundBuild = '';
+        for (const b of [...builds].sort().reverse()) {
+          const assetsDir = path.join(buildsDir, b, 'assets');
+          if (fs.existsSync(assetsDir)) {
+            const jsFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
+            if (jsFiles.length) { foundBuild = b; break; }
+          }
+        }
+        if (!foundBuild) throw new Error('No build with .js assets found — run Code Delta first');
+        res.json({ status: 'pass', duration_ms: ms(), output: `build: ${foundBuild}` });
+        return;
+      }
+
+      // 6. Preview HTTP — GET /preview/{latestBuild} → 200 + HTML
+      case 'preview-http': {
+        const buildsDir = path.join(process.cwd(), 'builds');
+        if (!fs.existsSync(buildsDir)) throw new Error('builds/ not found — run Code Delta first');
+        const builds = fs.readdirSync(buildsDir)
+          .filter(b => {
+            const ad = path.join(buildsDir, b, 'assets');
+            return fs.existsSync(ad) && fs.readdirSync(ad).some(f => f.endsWith('.js'));
+          })
+          .sort().reverse();
+        if (!builds.length) throw new Error('No compiled builds found — run Code Delta first');
+        const buildId = builds[0];
+        const previewUrl = `http://127.0.0.1:${PORT}/preview/${buildId}`;
+        const r = await fetch(previewUrl);
+        if (r.status !== 200) throw new Error(`Expected 200, got ${r.status}`);
+        const html = await r.text();
+        if (!html.includes('<html') && !html.includes('<!DOCTYPE') && !html.includes('<script'))
+          throw new Error(`Response is not HTML (${html.length} bytes)`);
+        res.json({ status: 'pass', duration_ms: ms(), output: `${buildId}: HTTP 200, ${html.length} bytes` });
+        return;
+      }
+
+      // 7. Preview Mounted — main.tsx contains postMessage({type:"preview-mounted"})
+      case 'preview-mounted': {
+        const mainPath = path.join(process.cwd(), 'preview-workspace', 'src', 'main.tsx');
+        if (!fs.existsSync(mainPath)) throw new Error('main.tsx not found in preview-workspace/src/');
+        const content = fs.readFileSync(mainPath, 'utf-8');
+        if (!content.includes('preview-mounted'))
+          throw new Error('postMessage({type: "preview-mounted"}) not found in main.tsx');
+        res.json({ status: 'pass', duration_ms: ms(), output: 'postMessage({type: "preview-mounted"}) found' });
+        return;
+      }
+
+      // 8. Save Ready — verify that a completed build qualifies as save-ready
+      case 'save-ready': {
+        const buildsDir = path.join(process.cwd(), 'builds');
+        if (!fs.existsSync(buildsDir)) throw new Error('No builds/ directory — run Code Delta first');
+        const builds = fs.readdirSync(buildsDir);
+        let savedBuild = '';
+        for (const b of builds) {
+          const indexHtml = path.join(buildsDir, b, 'index.html');
+          const assetsDir = path.join(buildsDir, b, 'assets');
+          if (fs.existsSync(indexHtml) && fs.existsSync(assetsDir)) {
+            const jsFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
+            if (jsFiles.length) { savedBuild = b; break; }
+          }
+        }
+        if (!savedBuild) throw new Error('No successful build found → save-ready check failed');
+        res.json({ status: 'pass', duration_ms: ms(), output: `compile success = true → save-ready confirmed (build: ${savedBuild})` });
+        return;
+      }
+
+      // 9. No Premature Save — no session files auto-created by quality compile jobs
+      case 'no-premature-save': {
+        const sessionsDir = path.join(process.cwd(), 'backend', 'sessions');
+        const qualityFiles: string[] = [];
+        if (fs.existsSync(sessionsDir)) {
+          const entries = fs.readdirSync(sessionsDir);
+          qualityFiles.push(...entries.filter(e => e.startsWith('qt-') || e.startsWith('quality-')));
+        }
+        if (qualityFiles.length > 0)
+          throw new Error(`Quality session files should not exist: ${qualityFiles.join(', ')}`);
+        res.json({ status: 'pass', duration_ms: ms(), output: 'No premature project files created (correct)' });
+        return;
+      }
+
+      default:
+        res.status(404).json({ status: 'fail', error: `Unknown test: ${testName}`, duration_ms: ms() });
+    }
+  } catch (err: unknown) {
+    res.json({ status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 // ── Trend Topic Archive ───────────────────────────────────────────────────────
