@@ -90,6 +90,8 @@ export interface PipelineRunConfig {
     theme:              string;
     pages:              string[];
   }) => void;
+  /** Called on each pipeline step state change so the UI can show a step track. */
+  onStepTrack?:         (e: import('./ProtoPipeline').StepEvent) => void;
   waitForConfirmation?:  (plan: ProjectPlan) => Promise<unknown>;
   waitForDiffReview?:    (diffs: FileDiff[]) => Promise<string[] | false>;
   waitForAdmission?:     (decision: AdmissionDecision) => Promise<boolean>;
@@ -268,12 +270,17 @@ Return ONLY JSON, no markdown, matching this exact shape:
           try { config.onStream(delta); } catch { /* ignore */ }
         },
         onStep: (e: StepEvent) => {
-          // Map the 6 pipeline step events to the legacy 4-phase signal.
+          // Map pipeline step events to legacy 4-phase signal.
           const m = stepToPhase(e.step, e.status);
           if (m) phase(m.phase, m.progress);
-          // Emit a friendly log line for the chat panel.
+          // Emit a friendly log line.
           if (e.status === 'active') log(`[${e.step}] ${e.label}`);
           if (e.status === 'error')  log(`[${e.step}] error: ${e.detail ?? ''}`);
+          // Build step-track markdown for the progress message and forward it
+          // through a new onStepTrack channel if provided.
+          if (config.onStepTrack) {
+            try { config.onStepTrack(e); } catch { /* ignore */ }
+          }
           // Surface the architect plan to onPlan once it's known.
           if (e.step === 'architect' && e.status === 'done') {
             try {
@@ -285,6 +292,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
         },
       });
     } catch (err) {
+      revisionManager.releasePreviewOwnership();
       const message = err instanceof Error ? err.message : String(err);
       log(`[SimpleGeneration] pipeline crashed: ${message}`);
       return makeFailedResult({
@@ -295,6 +303,8 @@ Return ONLY JSON, no markdown, matching this exact shape:
         startedAt,
       });
     }
+
+    revisionManager.releasePreviewOwnership();
 
     if (!result.success) {
       log(`[SimpleGeneration] pipeline failed: ${result.error ?? 'unknown'}`);
@@ -447,10 +457,11 @@ function stepToPhase(step: StepId, status: StepEvent['status']): { phase: AgentP
   switch (step) {
     case 'clarify':   return { phase: 'think',  progress: status === 'active' ? 5  : 10 };
     case 'skeleton':  return { phase: 'think',  progress: status === 'active' ? 12 : 18 };
-    case 'architect': return { phase: 'think',  progress: status === 'active' ? 22 : 35 };
-    case 'coder':     return { phase: 'code',   progress: status === 'active' ? 40 : 75 };
-    case 'apply':     return { phase: 'verify', progress: status === 'active' ? 80 : 85 };
-    case 'build':     return { phase: 'verify', progress: status === 'active' ? 88 : 95 };
+    case 'pack':      return { phase: 'think',  progress: status === 'active' ? 20 : 28 };
+    case 'architect': return { phase: 'think',  progress: status === 'active' ? 30 : 40 };
+    case 'coder':     return { phase: 'code',   progress: status === 'active' ? 45 : 78 };
+    case 'apply':     return { phase: 'verify', progress: status === 'active' ? 82 : 88 };
+    case 'build':     return { phase: 'verify', progress: status === 'active' ? 90 : 96 };
     case 'preview':   return { phase: 'idle',   progress: 100 };
     default:          return null;
   }

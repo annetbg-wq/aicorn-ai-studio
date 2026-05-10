@@ -45,6 +45,7 @@ import {
 export type StepId =
   | 'clarify'
   | 'skeleton'
+  | 'pack'
   | 'architect'
   | 'coder'
   | 'apply'
@@ -114,6 +115,7 @@ export interface ArchitectPlan {
 const STEP_LABEL: Record<StepId, string> = {
   clarify:   'Понимаю задачу...',
   skeleton:  'Устанавливаю основу...',
+  pack:      'Выбираю дизайн-пак...',
   architect: 'Проектирую архитектуру...',
   coder:     'Пишу код...',
   apply:     'Применяю изменения...',
@@ -221,6 +223,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     emit('skeleton', 'done');
 
     // ── Step 2.5 — Resolve pack + materialise theme (deterministic, no LLM) ─
+    emit('pack', 'active');
     let designCtx: DesignContext;
     try {
       designCtx = await resolveDesignContext(clarifiedPrompt, config.skeletonId);
@@ -229,9 +232,14 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         ` domain=${designCtx.domain?.id ?? 'none'}` +
         ` theme=${designCtx.theme.name}`,
       );
+      emit(
+        'pack', 'done',
+        `${designCtx.archetype?.id ?? 'base'} · ${designCtx.theme.name}`,
+      );
     } catch (err) {
-      if (isAbort(err)) return fail('skeleton', 'aborted');
+      if (isAbort(err)) return fail('pack', 'aborted');
       log(`[design] resolveDesignContext failed: ${(err as Error).message}`, 'warn');
+      emit('pack', 'error', 'failed — using default');
       // Fall back to a default corporate-medium theme so the pipeline still runs.
       designCtx = await resolveDesignContext('', config.skeletonId);
     }

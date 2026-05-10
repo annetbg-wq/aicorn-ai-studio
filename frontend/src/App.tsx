@@ -340,7 +340,6 @@ export default function App() {
         `Why now: ${copy.whyInteresting}`,
         `Files planned: ${blueprint.fileArchitecture?.length ?? 0}`,
       ].join('\n'));
-      studio.onSend();
     } catch (error: unknown) {
       studio.addSystemMessage(`⚠️ Failed to launch packaged trend idea: ${(error as Error)?.message ?? String(error)}`);
     }

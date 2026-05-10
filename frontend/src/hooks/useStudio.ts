@@ -3120,25 +3120,35 @@ export const useStudio = () => {
     const effectiveExistingCodeCount = restartLineageRequested ? 0 : existingCodeCount;
 
     // ── Surface choice — ask before genesis when mode was not set explicitly ──
+    // Packaged trend-niche builds skip the dialog: the "В работу" flow is an
+    // explicit signal that the user wants to build — forcing a second choice
+    // breaks the founder flow. Auto-select 'app' and continue.
     if (effectiveExistingCodeCount === 0 && !modeSetByUserRef.current) {
-      const surfaceMsgId = createMessageId();
-      chatAppend({
-        id:        surfaceMsgId,
-        role:      'assistant' as const,
-        type:      'surface-choice' as const,
-        content:   '',
-        timestamp: Date.now(),
-      });
-      const chosen = await waitForSurfaceChoice(controller.signal);
-      if (controller.signal.aborted || chosen === null) {
-        setIsGenerating(false);
-        return;
+      if (autoStartPackagedTrendBuild) {
+        resolvedGenerationMode = 'app';
+        setGenerationMode('app');
+        modeSetByUserRef.current = true;
+        generationModeLabel = 'Application';
+      } else {
+        const surfaceMsgId = createMessageId();
+        chatAppend({
+          id:        surfaceMsgId,
+          role:      'assistant' as const,
+          type:      'surface-choice' as const,
+          content:   '',
+          timestamp: Date.now(),
+        });
+        const chosen = await waitForSurfaceChoice(controller.signal);
+        if (controller.signal.aborted || chosen === null) {
+          setIsGenerating(false);
+          return;
+        }
+        resolvedGenerationMode = chosen === 'superapp' ? 'superapp' : 'app';
+        setGenerationMode(resolvedGenerationMode);
+        modeSetByUserRef.current = true;
+        chatUpdate(surfaceMsgId, { selectedSurface: resolvedGenerationMode });
+        generationModeLabel = resolvedGenerationMode === 'superapp' ? 'Super app' : 'Application';
       }
-      resolvedGenerationMode = chosen === 'superapp' ? 'superapp' : 'app';
-      setGenerationMode(resolvedGenerationMode);
-      modeSetByUserRef.current = true;
-      chatUpdate(surfaceMsgId, { selectedSurface: resolvedGenerationMode });
-      generationModeLabel = resolvedGenerationMode === 'superapp' ? 'Super app' : 'Application';
       buildPreferencesText = [
         'BUILD PREFERENCES (user-selected defaults):',
         `- Project type: ${generationModeLabel}`,
@@ -3560,13 +3570,39 @@ export const useStudio = () => {
                 setKickoffPhase('building');
                 addLog('[Kickoff] kickoff_build_in_progress');
               }
-              chatUpdate(progressMsgId, { content: '🏗️ Проектирую архитектуру...' });
             }
-            if (event.phase === 'code')   { updateStep('architect', 'done'); updateStep('code', 'active'); updatePlan({ progress: 40 }); chatUpdate(progressMsgId, { content: '⚡ Пишу код...' }); }
-            if (event.phase === 'verify') { updateStep('code', 'done'); updateStep('theme', 'active'); updatePlan({ progress: 80 }); chatUpdate(progressMsgId, { content: '🔍 Проверяю качество...' }); }
+            if (event.phase === 'code')   { updateStep('architect', 'done'); updateStep('code', 'active'); updatePlan({ progress: 40 }); }
+            if (event.phase === 'verify') { updateStep('code', 'done'); updateStep('theme', 'active'); updatePlan({ progress: 80 }); }
             if (event.phase === 'idle')   { updateStep('theme', 'done'); updateStep('save', 'done'); updatePlan({ progress: 100, buildStatus: 'building' }); }
           });
         },
+        onStepTrack: (() => {
+          // Live step-track state — mutable, not React state (no re-render cascade).
+          const STEP_ORDER: string[] = ['clarify','skeleton','pack','architect','coder','apply','build'];
+          const STEP_RU: Record<string, string> = {
+            clarify:   'Анализирую задачу',
+            skeleton:  'Базовый скелет',
+            pack:      'Дизайн-пак',
+            architect: 'Архитектура',
+            coder:     'Кодирование',
+            apply:     'Применение',
+            build:     'Сборка',
+          };
+          const stepState: Record<string, 'pending'|'active'|'done'|'error'> = {};
+          for (const s of STEP_ORDER) stepState[s] = 'pending';
+
+          return (e: import('../services/ProtoPipeline').StepEvent) => {
+            stepState[e.step] = e.status;
+            const detail = e.detail ? ` — ${e.detail}` : '';
+            const rows = STEP_ORDER.map(s => {
+              const st = stepState[s] ?? 'pending';
+              const icon = st === 'done' ? '✓' : st === 'active' ? '⚡' : st === 'error' ? '✗' : '○';
+              const extra = (s === e.step && e.status === 'done' && detail) ? detail : '';
+              return `${icon} ${STEP_RU[s] ?? s}${s === e.step && e.status === 'active' && detail ? detail : ''}${extra}`;
+            });
+            chatUpdate(progressMsgId, { content: rows.join('\n') });
+          };
+        })(),
         onLog: (msg: string) => {
           addLog(msg);
           generationLogs.push(msg);
@@ -3991,6 +4027,17 @@ export const useStudio = () => {
         });
         // Transition to preview-ready: generation is done, preview is mounting.
         // Project is NOT yet persisted — explicit Save is the only path to Projects.
+        // Append an inline file-diff summary to the chat so the user sees what changed.
+        if (systemEvents.length > 0) {
+          const fileList = systemEvents.slice(0, 20).join('\n');
+          const extra = systemEvents.length > 20 ? `\n…and ${systemEvents.length - 20} more` : '';
+          chatAppend({
+            role: 'assistant' as const,
+            type: 'text',
+            content: `**Изменено файлов: ${systemEvents.length}**\n\n${fileList}${extra}`,
+            timestamp: Date.now(),
+          });
+        }
         setProjectPersistenceState('preview-ready');
         pendingSavePromptShownRef.current = false;
         addLog(`[Project] Save ready to request after preview (${projectTitle})`);
