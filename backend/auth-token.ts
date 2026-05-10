@@ -2,7 +2,7 @@ import 'dotenv/config';
 import dotenv from 'dotenv';
 import express from 'express';
 import { execSync, spawn, spawnSync } from 'child_process';
-import { registerPreviewBuildRoute, registerPreviewCompileRoute } from './preview-manager';
+import { registerPreviewBuildRoute, registerPreviewCompileRoute, runCompileJob } from './preview-manager';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -1339,6 +1339,159 @@ app.delete('/pending-import', (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
+});
+
+// ── GET /api/quality/flow-chain — fixture-based step chain test ───────────────
+// Runs the 8-step flow chain using hardcoded fixtures (no LLM).
+// Returns a JSON report identical in shape to flow-chain-report.json.
+app.get('/api/quality/flow-chain', async (_req, res) => {
+  const chainStart = Date.now();
+  const buildId    = `quality-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+  const FIXTURES = {
+    idea: 'Трекер привычек: ежедневные отметки, стрик, статистика',
+    architectPlan: {
+      skeleton:   'mobile-app',
+      deltaFiles: ['src/pages/Home.tsx', 'src/config/app.ts'],
+      pages:      ['Home', 'Progress', 'Profile'],
+    },
+    codeOutput: {
+      'src/pages/Home.tsx':
+        "import React from 'react';\nexport default function Home(){return <div className='p-4'><h1>Test</h1></div>;}",
+      'src/config/app.ts':
+        "export const APP_CONFIG={name:'Test'}as const;\nexport const STORAGE_KEYS={theme:'app.v1.theme',profile:'app.v1.profile'}as const;",
+    },
+  };
+
+  interface StepEntry {
+    step: string;
+    status: 'pass' | 'fail' | 'skip';
+    duration_ms: number;
+    input?: unknown;
+    output?: unknown;
+    error?: string;
+  }
+
+  const steps: StepEntry[] = [];
+  let compileSuccess = false;
+
+  async function runStep(
+    name: string,
+    fn: () => Promise<{ input?: unknown; output?: unknown }>,
+  ): Promise<boolean> {
+    const t0: number = Date.now();
+    const entry: StepEntry = { step: name, status: 'skip', duration_ms: 0 };
+    try {
+      const r = await fn();
+      entry.status = 'pass';
+      entry.output = r.output;
+      entry.input  = r.input;
+    } catch (e: unknown) {
+      entry.status = 'fail';
+      entry.error  = (e instanceof Error ? e.message : String(e));
+    }
+    entry.duration_ms = Date.now() - t0;
+    steps.push(entry);
+    return entry.status === 'pass';
+  }
+
+  // Step 1 — idea
+  await runStep('idea', async () => {
+    const idea = FIXTURES.idea;
+    if (!idea?.trim()) throw new Error('Idea is empty');
+    return { input: idea, output: `validated: "${idea.slice(0, 50)}"` };
+  });
+
+  // Step 2 — architecture
+  await runStep('architecture', async () => {
+    const plan = FIXTURES.architectPlan;
+    if (!plan.skeleton)          throw new Error('Plan missing: skeleton');
+    if (!plan.deltaFiles?.length) throw new Error('Plan missing: deltaFiles');
+    if (!plan.pages?.length)     throw new Error('Plan missing: pages');
+    return {
+      input:  plan,
+      output: `skeleton: ${plan.skeleton}, ${plan.deltaFiles.length} delta file(s)`,
+    };
+  });
+
+  // Step 3 — code_delta: actually run Vite build via shared compile queue
+  await runStep('code_delta', async () => {
+    await runCompileJob(buildId, FIXTURES.codeOutput);
+    compileSuccess = true;
+    return {
+      input:  Object.keys(FIXTURES.codeOutput),
+      output: `files compiled, buildId: ${buildId}`,
+    };
+  });
+
+  // Step 4 — compile: verify .js assets were written to disk
+  await runStep('compile', async () => {
+    const assetsDir = path.join(process.cwd(), 'builds', buildId, 'assets');
+    if (!fs.existsSync(assetsDir))
+      throw new Error(`assets/ dir not found: builds/${buildId}/assets`);
+    const jsFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
+    if (!jsFiles.length) throw new Error('No .js files found in assets/');
+    return { input: assetsDir, output: `${jsFiles.length} JS asset(s)` };
+  });
+
+  // Step 5 — preview: HTTP GET /preview/:buildId → expect 200 + HTML
+  await runStep('preview', async () => {
+    const previewUrl = `http://localhost:${PORT}/preview/${buildId}`;
+    const r = await fetch(previewUrl);
+    if (r.status !== 200) throw new Error(`Expected HTTP 200, got ${r.status}`);
+    const html = await r.text();
+    if (!html.includes('<html') && !html.includes('<!DOCTYPE') && !html.includes('<script'))
+      throw new Error(`Response does not look like HTML (${html.length} bytes)`);
+    return { input: previewUrl, output: `HTTP 200, ${html.length} bytes` };
+  });
+
+  // Step 6 — preview_mounted: canonical main.tsx must contain postMessage
+  await runStep('preview_mounted', async () => {
+    const mainPath = path.join(process.cwd(), 'preview-workspace', 'src', 'main.tsx');
+    if (!fs.existsSync(mainPath)) throw new Error('main.tsx not found in preview-workspace/src/');
+    const content = fs.readFileSync(mainPath, 'utf-8');
+    if (!content.includes('preview-mounted'))
+      throw new Error('postMessage({type: "preview-mounted"}) not found in main.tsx');
+    return { input: mainPath, output: 'postMessage({type: "preview-mounted"}) found in main.tsx' };
+  });
+
+  // Step 7 — save_ready: confirm compile succeeded
+  await runStep('save_ready', async () => {
+    if (!compileSuccess) throw new Error('Compile did not succeed');
+    return { output: 'compile success = true → save-ready state confirmed' };
+  });
+
+  // Step 8 — saved_project: no session file must exist for this buildId
+  await runStep('saved_project', async () => {
+    const sessionsDir = path.join(process.cwd(), 'backend', 'sessions');
+    if (fs.existsSync(sessionsDir)) {
+      const entries = fs.readdirSync(sessionsDir);
+      const found = entries.find(e => e.includes(buildId));
+      if (found) throw new Error(`Unexpected session file created: ${found}`);
+    }
+    return { output: 'No project file created before explicit save (correct)' };
+  });
+
+  // ── Build report ────────────────────────────────────────────────────────────
+  const totalMs       = Date.now() - chainStart;
+  const failed        = steps.filter(s => s.status === 'fail').length;
+  const passed        = steps.filter(s => s.status === 'pass').length;
+  const verdict       = failed === 0 ? 'PASS' : passed > 0 ? 'PARTIAL' : 'FAIL';
+  const brokenAt      = steps.find(s => s.status === 'fail')?.step ?? null;
+  const handoffErrors = steps.filter(s => s.status === 'fail').map(s => `${s.step}: ${s.error}`);
+
+  const perStep: Record<string, number> = {};
+  for (const s of steps) perStep[s.step] = s.duration_ms;
+
+  res.json({
+    verdict,
+    buildId,
+    timestamp: new Date().toISOString(),
+    steps,
+    timings: { total_ms: totalMs, per_step: perStep },
+    handoff_errors: handoffErrors,
+    broken_at: brokenAt,
+  });
 });
 
 // ── Trend Topic Archive ───────────────────────────────────────────────────────

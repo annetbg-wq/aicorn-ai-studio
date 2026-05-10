@@ -456,6 +456,23 @@ window.addEventListener('unhandledrejection', (e) => {
 }
 
 /**
+ * Public API for running a compile job directly (used by quality endpoint).
+ * Sanitises files, enqueues the build, cleans up LRU — same as the HTTP route.
+ */
+export async function runCompileJob(
+  buildId: string,
+  files: Record<string, string>,
+  skeletonId?: string,
+): Promise<void> {
+  const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
+  const sanitized = sanitizeCompileFiles(files, srcDir);
+  const job = compileQueue.then(() => compileBuild(buildId, sanitized, skeletonId));
+  compileQueue = job.then(() => undefined, () => undefined);
+  await job;
+  await cleanupLRU();
+}
+
+/**
  * Evict the oldest build directories when the count exceeds MAX_BUILDS.
  */
 async function cleanupLRU(): Promise<void> {

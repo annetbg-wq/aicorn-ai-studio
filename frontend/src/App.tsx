@@ -13,6 +13,7 @@ const BenchmarkDashboard    = lazy(() => lazyWithRetry(() => import('./component
 const SupabaseConsolePanel  = lazy(() => lazyWithRetry(() => import('./components/SupabaseConsolePanel')).then(m => ({ default: m.SupabaseConsolePanel })));
 const CodeStudioWorkspace = lazy(() => lazyWithRetry(() => import('./modules/code-studio/CodeStudioWorkspace')));
 const AnalyticsDashboard = lazy(() => lazyWithRetry(() => import('./modules/analytics')).then(m => ({ default: m.AnalyticsDashboard })));
+const QualityPanel       = lazy(() => lazyWithRetry(() => import('./modules/quality/QualityPanel')).then(m => ({ default: m.QualityPanel })));
 const SettingsModal      = lazy(() => lazyWithRetry(() => import('./components/SettingsModal')).then(m => ({ default: m.SettingsModal })));
 const DeployModal        = lazy(() => lazyWithRetry(() => import('./components/DeployModal')).then(m => ({ default: m.DeployModal })));
 const CollabModal        = lazy(() => lazyWithRetry(() => import('./components/CollabModal')).then(m => ({ default: m.CollabModal })));
@@ -287,6 +288,7 @@ export default function App() {
     if (id === 'architect') setView('architect');
     if (id === 'projects')  setView('projects');
     if (id === 'benchmark')    setView('benchmark');
+    if (id === 'quality')      setView('quality');
     if (id === 'code-studio' && creatorMode) setView('code-studio');
     if (id === 'db-console')   setView('db-console');
   };
@@ -439,6 +441,7 @@ export default function App() {
     : view === 'architect'  ? 'architect'
     : view === 'projects'   ? 'projects'
     : view === 'benchmark'    ? 'benchmark'
+    : view === 'quality'      ? 'quality'
     : view === 'code-studio' && creatorMode ? 'code-studio'
     : view === 'db-console'  ? 'db-console'
     : 'dashboard';
@@ -653,6 +656,15 @@ export default function App() {
                 apiKey={studio.apiKey ?? ''}
                 selectedModel={studio.selectedModel ?? ''}
               />
+            </Suspense>
+          </div>
+        )}
+
+        {view === 'quality' && (
+          <div className="flex flex-1 overflow-hidden"
+               style={{ animation: 'viewFadeIn 0.28s ease' }}>
+            <Suspense fallback={<PageLoader />}>
+              <QualityPanel />
             </Suspense>
           </div>
         )}
