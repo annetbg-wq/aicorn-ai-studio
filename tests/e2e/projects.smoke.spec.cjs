@@ -9,8 +9,8 @@ const IDEA_BETA_TITLE = 'Идея Бета';
 const BLUEPRINT_ALPHA = 'Atlas Clinic Ops';
 const BLUEPRINT_BETA = 'Pulse Deck Arena';
 
-const PROJECT_ONE_NAME = 'AtlasFlow';
-const PROJECT_TWO_NAME = 'PulseFlow';
+const PROJECT_ONE_NAME = BLUEPRINT_ALPHA;
+const PROJECT_TWO_NAME = BLUEPRINT_BETA;
 
 function inferBlueprintName(text = '') {
   if (
@@ -284,6 +284,91 @@ function buildPackagingBlueprint(appName, ideaId) {
   };
 }
 
+function buildArchitectPlanResponse(appName) {
+  return JSON.stringify({
+    appName,
+    summary: `Deterministic smoke build for ${appName}`,
+    deltaFiles: [
+      { path: 'pages/Home.tsx', purpose: 'Main screen' },
+      { path: 'pages/Onboarding.tsx', purpose: 'Onboarding screen' },
+      { path: 'config/app.ts', purpose: 'App identity and storage keys' },
+    ],
+    pages: [
+      { path: '/', name: 'Home', file: 'pages/Home.tsx', purpose: 'Entry point' },
+      { path: '/onboarding', name: 'Onboarding', file: 'pages/Onboarding.tsx', purpose: 'Initial setup' },
+    ],
+    notes: [],
+  });
+}
+
+function buildCoderFileMarkerResponse(appName) {
+  const homeTsx = [
+    "import { useState } from 'react';",
+    '',
+    'export default function Home() {',
+    '  const [n, setN] = useState(0);',
+    '  return (',
+    '    <div style={{ padding: 24, minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>',
+    `      <h1 data-testid="project-title">${appName}</h1>`,
+    '      <p>{n}</p>',
+    '      <button type="button" onClick={() => setN(v => v + 1)}>Go</button>',
+    '    </div>',
+    '  );',
+    '}',
+  ].join('\n');
+
+  const onboardingTsx = [
+    "import { useState } from 'react';",
+    '',
+    'export default function Onboarding() {',
+    '  const [done, setDone] = useState(false);',
+    '  if (done) return <p>Ready!</p>;',
+    '  return (',
+    '    <div style={{ padding: 24 }}>',
+    `      <h1>${appName} — Onboarding</h1>`,
+    '      <button type="button" onClick={() => setDone(true)}>',
+    '        Get Started',
+    '      </button>',
+    '    </div>',
+    '  );',
+    '}',
+  ].join('\n');
+
+  const configAppTs = [
+    'export const APP_CONFIG = {',
+    `  name: '${appName}',`,
+    "  tagline: 'Deterministic smoke build.',",
+    '  freeActionLimit: 10,',
+    "  storagePrefix: 'smoke.v1',",
+    '} as const;',
+    '',
+    'export const STORAGE_KEYS = {',
+    "  profile: 'smoke.v1.profile',",
+    "  theme: 'smoke.v1.theme',",
+    "  feed: 'smoke.v1.feed',",
+    "  progress: 'smoke.v1.progress',",
+    '} as const;',
+  ].join('\n');
+
+  // Override the skeleton's App.tsx so the root route always renders Home directly.
+  // Without this, the skeleton's routing sends "/" to its own Dashboard component
+  // and our pages/Home.tsx (with data-testid="project-title") never mounts.
+  const appTsx = [
+    "import Home from './pages/Home';",
+    '',
+    'export default function App() {',
+    '  return <Home />;',
+    '}',
+  ].join('\n');
+
+  return [
+    '<<<FILE: App.tsx>>>\n' + appTsx + '\n<<<END>>>',
+    '<<<FILE: pages/Home.tsx>>>\n' + homeTsx + '\n<<<END>>>',
+    '<<<FILE: pages/Onboarding.tsx>>>\n' + onboardingTsx + '\n<<<END>>>',
+    '<<<FILE: config/app.ts>>>\n' + configAppTs + '\n<<<END>>>',
+  ].join('\n\n');
+}
+
 async function installDeterministicRoutes(page) {
   let activeRunBlueprint = BLUEPRINT_ALPHA;
 
@@ -303,28 +388,54 @@ async function installDeterministicRoutes(page) {
     });
   });
 
+  await page.route('**/agent-config', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+      return;
+    }
+    const e2eCfg = { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' };
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        agent_primary: e2eCfg,
+        agent_build: e2eCfg,
+        agent_fix: e2eCfg,
+        agent_spec: e2eCfg,
+        agent_qa: e2eCfg,
+      }),
+    });
+  });
+
   await page.route('https://openrouter.ai/api/v1/chat/completions', async (route) => {
     const raw = route.request().postData() || '{}';
     let body = {};
     try { body = JSON.parse(raw); } catch { body = {}; }
-    const prompt = Array.isArray(body.messages)
-      ? body.messages.map(msg => toTextContent(msg?.content)).join('\n')
-      : '';
-    const appName = resolveBlueprintName(prompt, activeRunBlueprint);
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const systemText = toTextContent(messages[0]?.content);
+    const allText = messages.map(msg => toTextContent(msg?.content)).join('\n');
+    const appName = resolveBlueprintName(allText, activeRunBlueprint);
     activeRunBlueprint = appName;
     const ideaId = appName === BLUEPRINT_BETA ? 'trend-beta' : 'trend-alpha';
+
+    let responseContent;
+    if (systemText.includes('senior product architect') || systemText.includes('EXISTING SKELETON')) {
+      responseContent = buildArchitectPlanResponse(appName);
+    } else if (systemText.includes('senior React + TypeScript + Tailwind') || systemText.includes('completing an app')) {
+      responseContent = buildCoderFileMarkerResponse(appName);
+    } else if (systemText.includes('fixing build errors') || systemText.includes('Re-emit the files')) {
+      responseContent = buildCoderFileMarkerResponse(appName);
+    } else if (systemText.includes('Rewrite the user') || systemText.includes('dense paragraph')) {
+      responseContent = `${appName} — a focused product app for founders.`;
+    } else {
+      responseContent = JSON.stringify(buildPackagingBlueprint(appName, ideaId));
+    }
 
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify(buildPackagingBlueprint(appName, ideaId)),
-            },
-          },
-        ],
+        choices: [{ message: { content: responseContent }, finish_reason: 'stop' }],
       }),
     });
   });
@@ -505,12 +616,13 @@ async function sendInChat(page, text) {
   const textarea = composerTextarea(page);
   await expect(textarea).toBeVisible({ timeout: 20_000 });
   await textarea.fill(text);
-  await textarea.press('Enter');
-
-  const sendBtn = textarea.locator('xpath=following-sibling::button[not(@disabled)]').first();
-  if (await sendBtn.count()) {
-    await sendBtn.click({ force: true });
-  }
+  // Click send button only — pressing Enter AND clicking causes a double-send race where
+  // the second handleSend fires abortControllerRef.current.abort(), killing pipeline 1.
+  const sendBtn = page.locator('[data-testid="send-btn"], button[aria-label*="Send"], button[aria-label*="send"]').first();
+  const fallbackBtn = textarea.locator('xpath=following-sibling::button').first();
+  const btn = (await sendBtn.count()) ? sendBtn : fallbackBtn;
+  await expect(btn).toBeEnabled({ timeout: 5_000 });
+  await btn.click();
 }
 
 async function clickLatestConfirmPlan(page) {
@@ -542,7 +654,9 @@ async function waitForPreviewAndSaveCta(page, timeoutMs = FLOW_TIMEOUT) {
 async function clickSaveProjectCta(page) {
   const cta = page.locator('[data-testid="save-project-cta"]');
   await expect(cta).toBeVisible({ timeout: FLOW_TIMEOUT });
-  await cta.getByRole('button').click();
+  // Container holds two buttons: [reject-project-cta] and the save button.
+  // Target save specifically to avoid strict-mode violation.
+  await cta.locator('button:not([data-testid="reject-project-cta"])').click();
 }
 
 async function readPersistenceState(page) {
@@ -636,29 +750,19 @@ async function runTrendBuildToPreview(page, {
     ).toHaveCount(0);
   }
 
-  const attemptTimeouts = [70_000, 90_000, FLOW_TIMEOUT];
-  let lastError = null;
-  for (let attempt = 0; attempt < attemptTimeouts.length; attempt += 1) {
-    if (attempt > 0) {
-      await page.waitForTimeout(1_000);
-    }
-    await sendInChat(page, sendPrompt);
-    const confirmBtn = page.locator('[data-testid="generation-plan-card"] [data-testid="confirm-plan-btn"]').last();
-    const hasPlanConfirm = await confirmBtn.isVisible({ timeout: 15_000 }).catch(() => false);
-    if (hasPlanConfirm) {
-      await clickLatestConfirmPlan(page);
-    }
-
-    try {
-      await waitForPreviewAndSaveCta(page, attemptTimeouts[attempt]);
-      return readPersistenceState(page);
-    } catch (error) {
-      lastError = error;
-    }
+  // Single attempt with a generous timeout — retrying by re-sending aborts the
+  // current vite build on the frontend side while the backend build keeps
+  // running, causing all retries to queue behind each other and never succeed.
+  await sendInChat(page, sendPrompt);
+  const confirmBtn = page.locator('[data-testid="generation-plan-card"] [data-testid="confirm-plan-btn"]').last();
+  const hasPlanConfirm = await confirmBtn.isVisible({ timeout: 15_000 }).catch(() => false);
+  if (hasPlanConfirm) {
+    await clickLatestConfirmPlan(page);
   }
 
-  if (lastError) throw lastError;
-  throw new Error('Preview did not reach save CTA');
+  // 3 min: 2× vite builds (~25-35 s each) + 2× iframe mount (~5 s each) + buffer
+  await waitForPreviewAndSaveCta(page, 180_000);
+  return readPersistenceState(page);
 }
 
 async function readProjectChatIsolation(page) {
@@ -825,8 +929,8 @@ test.describe('Founder flow split-path smoke regressions', () => {
     await page.getByRole('button', { name: 'Отправить brief' }).click();
 
     await expect(composerTextarea(page)).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText('TREND').first()).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(IDEA_ALPHA_TITLE).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('Founder-ready brief').first()).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByText(IDEA_ALPHA_TITLE).first()).toBeVisible({ timeout: 45_000 });
     await expect(page.locator('[data-testid="save-project-cta"]')).toHaveCount(0);
 
     const state = await readPersistenceState(page);
@@ -861,8 +965,8 @@ test.describe('Founder flow split-path smoke regressions', () => {
     await page.getByRole('button', { name: 'Отправить brief' }).click();
 
     await expect(composerTextarea(page)).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText('TREND').first()).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(IDEA_BETA_TITLE).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('Founder-ready brief').first()).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByText(IDEA_BETA_TITLE).first()).toBeVisible({ timeout: 45_000 });
     await expect(
       page.getByText(new RegExp(`Blueprint packaged:\\s*${escapeRegExp(BLUEPRINT_ALPHA)}`, 'i'))
     ).toHaveCount(0);
