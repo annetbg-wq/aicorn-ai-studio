@@ -27,6 +27,7 @@ import { Orchestrator } from './Orchestrator';
 import {
   type SkeletonId,
   SKELETON_REGISTRY,
+  buildSkeletonPromptBlock,
   isProtectedSkeletonFile,
 } from './SkeletonRegistry';
 import { previewController } from './PreviewController';
@@ -39,6 +40,7 @@ import {
   describeViolations,
   type DesignContext,
 } from './DesignContract';
+import type { FastPathTelemetry } from '../shared/projectModel';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -76,6 +78,7 @@ export interface ProtoPipelineConfig {
   skeletonId:   SkeletonId;
   buildId:      string;
   attachments?: PipelineAttachment[];
+  skipClarify?: boolean;
   signal?:      AbortSignal;
   /** Step lifecycle events for the progress UI. */
   onStep:       (e: StepEvent) => void;
@@ -88,12 +91,13 @@ export interface ProtoPipelineConfig {
 }
 
 export interface ProtoPipelineResult {
-  success:  boolean;
-  buildId:  string;
-  url?:     string;
-  files?:   Record<string, string>;
-  plan?:    ArchitectPlan;
-  error?:   string;
+  success:            boolean;
+  buildId:            string;
+  url?:               string;
+  files?:             Record<string, string>;
+  plan?:              ArchitectPlan;
+  error?:             string;
+  fastPathTelemetry?: FastPathTelemetry;
 }
 
 export interface ArchitectPlan {
@@ -102,12 +106,20 @@ export interface ArchitectPlan {
   /**
    * Delta files the coder MUST produce (relative to preview-workspace/src/).
    * Skeleton-provided files MUST NOT appear here.
+   * Each entry carries `purpose` (what the file owns) and `imports`
+   * (skeleton-provided or sibling symbols the coder should import).
    */
-  deltaFiles:  Array<{ path: string; purpose: string }>;
+  deltaFiles:  Array<{ path: string; purpose: string; imports: string[] }>;
   /** Optional pages the coder should wire into the router. */
   pages?:      Array<{ path: string; name: string; file: string; purpose: string }>;
   /** Free-form notes routed into the coder system prompt. */
   notes?:      string[];
+  /**
+   * Optional cross-file context contract — e.g. "use useApp() from AppContext,
+   * NOT useLocalStorage('onboarding') directly". Injected verbatim into the
+   * coder system prompt.
+   */
+  contextContract?: string;
 }
 
 // ── Step labels (RU) ───────────────────────────────────────────
@@ -133,6 +145,12 @@ const STEP_BUDGET = {
 } as const;
 
 const MAX_REPAIR_PASSES = 2;
+
+interface CompileResultTiming {
+  compileMs: number;
+  previewMountMs: number;
+  totalMs: number;
+}
 
 // ── Implementation ────────────────────────────────────────────────────────────
 
@@ -185,6 +203,38 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
    */
   static async run(config: ProtoPipelineConfig): Promise<ProtoPipelineResult> {
     const log = config.onLog ?? (() => {});
+    const runStartedAt = Date.now();
+    const fastPathTelemetry: FastPathTelemetry = {
+      canonicalPath: [
+        'idea',
+        'package',
+        'architecture',
+        'skeleton selection',
+        'coder delta',
+        'final compile',
+        'first real preview',
+      ],
+      removedStages: [
+        'playwright hardcoded blueprint',
+        'legacy plan warmup',
+        'legacy design classification warmup',
+        'architect kickoff pre-analysis',
+      ],
+      collapsedStages: [
+        'idea -> package -> architecture',
+        'final compile -> preview mount',
+      ],
+      steps: {
+        packageMs: 0,
+        architectureMs: 0,
+        skeletonMs: 0,
+        coderMs: 0,
+        finalCompileMs: 0,
+        previewMountMs: 0,
+      },
+      timeToSkeletonPreviewMs: 0,
+      timeToFirstRealPreviewMs: 0,
+    };
     const emit = (step: StepId, status: StepStatus, detail?: string) =>
       config.onStep({ step, status, label: STEP_LABEL[step], detail });
     const fail = (step: StepId, error: string): ProtoPipelineResult => {
@@ -198,33 +248,28 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     }
 
     // ── Step 1 — Clarifier (advisory; never blocks) ───────────────────────
-    emit('clarify', 'active');
     let clarifiedPrompt = config.prompt;
-    try {
-      const enrichment = await summarizeIntent(config.prompt, config.signal);
-      if (enrichment) {
-        clarifiedPrompt = enrichment;
-        log(`[clarify] intent normalised`);
+    if (!config.skipClarify) {
+      emit('clarify', 'active');
+      try {
+        const enrichment = await summarizeIntent(config.prompt, config.signal);
+        if (enrichment) {
+          clarifiedPrompt = enrichment;
+          log(`[clarify] intent normalised`);
+        }
+      } catch (err) {
+        if (isAbort(err)) return fail('clarify', 'aborted');
+        log(`[clarify] non-fatal: ${(err as Error).message}`, 'warn');
       }
-    } catch (err) {
-      if (isAbort(err)) return fail('clarify', 'aborted');
-      log(`[clarify] non-fatal: ${(err as Error).message}`, 'warn');
+      emit('clarify', 'done');
+    } else {
+      log('[clarify] skipped for packaged founder fast path');
     }
-    emit('clarify', 'done');
 
-    // ── Step 2 — Skeleton install (validates clean build) ─────────────────
-    emit('skeleton', 'active');
-    try {
-      await compile(config.buildId, {}, config.skeletonId, config.signal);
-    } catch (err) {
-      if (isAbort(err)) return fail('skeleton', 'aborted');
-      return fail('skeleton', `Clean skeleton build failed: ${(err as Error).message}`);
-    }
-    emit('skeleton', 'done');
-
-    // ── Step 2.5 — Resolve pack + materialise theme (deterministic, no LLM) ─
+    // ── Step 2 — Resolve pack + materialise theme (deterministic, no LLM) ──
     emit('pack', 'active');
     let designCtx: DesignContext;
+    const packStartedAt = Date.now();
     try {
       designCtx = await resolveDesignContext(clarifiedPrompt, config.skeletonId);
       log(
@@ -243,10 +288,12 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       // Fall back to a default corporate-medium theme so the pipeline still runs.
       designCtx = await resolveDesignContext('', config.skeletonId);
     }
+    fastPathTelemetry.steps.packageMs = Date.now() - packStartedAt;
 
     // ── Step 3 — Architect (delta plan only) ──────────────────────────────
     emit('architect', 'active');
     let plan: ArchitectPlan;
+    const architectStartedAt = Date.now();
     try {
       plan = await runArchitect({
         prompt:     clarifiedPrompt,
@@ -263,10 +310,30 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       return fail('architect', 'Architect returned an empty delta plan');
     }
     emit('architect', 'done', `${plan.deltaFiles.length} файлов`);
+    fastPathTelemetry.steps.architectureMs = Date.now() - architectStartedAt;
 
-    // ── Step 4 — Coder (one shot + at most one targeted retry) ────────────
+    // ── Step 4 — Skeleton install (validates the selected base) ───────────
+    emit('skeleton', 'active');
+    try {
+      const skeletonTiming = await compile(
+        config.buildId,
+        {},
+        config.skeletonId,
+        config.signal,
+        'skeleton',
+      );
+      fastPathTelemetry.steps.skeletonMs = skeletonTiming.totalMs;
+      fastPathTelemetry.timeToSkeletonPreviewMs = Date.now() - runStartedAt;
+    } catch (err) {
+      if (isAbort(err)) return fail('skeleton', 'aborted');
+      return fail('skeleton', `Clean skeleton build failed: ${(err as Error).message}`);
+    }
+    emit('skeleton', 'done', SKELETON_REGISTRY[config.skeletonId].label);
+
+    // ── Step 5 — Coder (one shot + at most one targeted retry) ────────────
     emit('coder', 'active');
     let deltaFiles: Record<string, string>;
+    const coderStartedAt = Date.now();
     try {
       deltaFiles = await runCoder({
         prompt:     clarifiedPrompt,
@@ -282,8 +349,9 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       return fail('coder', (err as Error).message);
     }
     emit('coder', 'done', `${Object.keys(deltaFiles).length} файлов`);
+    fastPathTelemetry.steps.coderMs = Date.now() - coderStartedAt;
 
-    // ── Step 5 — Apply (filter protected, defend STORAGE_KEYS) ────────────
+    // ── Step 6 — Apply (filter protected, defend STORAGE_KEYS) ────────────
     emit('apply', 'active');
     // Inject the materialised theme as a delta file (overrides any coder copy).
     const tf = themeFile(designCtx);
@@ -314,14 +382,22 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     }
     emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`);
 
-    // ── Step 6 — Build (with at most 2 repair passes) ─────────────────────
+    // ── Step 7 — Build (with at most 2 repair passes) ─────────────────────
     emit('build', 'active');
     let lastBuildErr: string | null = null;
     let currentFiles = filteredFiles;
     let buildOk = false;
     for (let attempt = 0; attempt <= MAX_REPAIR_PASSES; attempt++) {
       try {
-        await compile(config.buildId, currentFiles, config.skeletonId, config.signal);
+        const buildTiming = await compile(
+          config.buildId,
+          currentFiles,
+          config.skeletonId,
+          config.signal,
+          attempt === 0 ? 'final' : 'repair',
+        );
+        fastPathTelemetry.steps.finalCompileMs = buildTiming.compileMs;
+        fastPathTelemetry.steps.previewMountMs = buildTiming.previewMountMs;
         buildOk = true;
         break;
       } catch (err) {
@@ -351,13 +427,27 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       return fail('build', `Build failed after ${MAX_REPAIR_PASSES + 1} attempts: ${lastBuildErr ?? 'unknown'}`);
     }
     emit('build', 'done');
+    fastPathTelemetry.timeToFirstRealPreviewMs = Date.now() - runStartedAt;
 
-    // ── Step 7 — Preview ready ────────────────────────────────────────────
+    // ── Step 8 — Preview ready ────────────────────────────────────────────
     const url = `/preview/${config.buildId}`;
     emit('preview', 'done', url);
     config.onPreviewReady?.(url, config.buildId);
+    log(
+      `[fast-path] package=${fastPathTelemetry.steps.packageMs}ms architecture=${fastPathTelemetry.steps.architectureMs}ms ` +
+      `skeleton=${fastPathTelemetry.steps.skeletonMs}ms coder=${fastPathTelemetry.steps.coderMs}ms ` +
+      `finalCompile=${fastPathTelemetry.steps.finalCompileMs}ms previewMount=${fastPathTelemetry.steps.previewMountMs}ms ` +
+      `skeletonPreview=${fastPathTelemetry.timeToSkeletonPreviewMs}ms firstRealPreview=${fastPathTelemetry.timeToFirstRealPreviewMs}ms`,
+    );
 
-    return { success: true, buildId: config.buildId, url, files: currentFiles, plan };
+    return {
+      success: true,
+      buildId: config.buildId,
+      url,
+      files: currentFiles,
+      plan,
+      fastPathTelemetry,
+    };
   }
 
   /**
@@ -376,7 +466,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     try {
       const repaired = await runRepair({
         prompt:      config.prompt,
-        plan:        { appName: 'app', summary: '', deltaFiles: Object.keys(config.currentFiles).map(p => ({ path: p, purpose: '' })) },
+        plan:        { appName: 'app', summary: '', deltaFiles: Object.keys(config.currentFiles).map(p => ({ path: p, purpose: '', imports: [] })) },
         skeletonId:  config.skeletonId,
         currentFiles: config.currentFiles,
         errorLog:    config.errorLog,
@@ -467,11 +557,16 @@ Return ONLY valid JSON matching this schema:
   "appName":  "<short name>",
   "summary":  "<one-sentence elevator pitch>",
   "deltaFiles": [
-    { "path": "pages/<Page>.tsx",  "purpose": "<what this file owns>" }
+    {
+      "path":    "pages/<Page>.tsx",
+      "purpose": "<what this file owns — one sentence>",
+      "imports": ["<SkeletonHook | SkeletonComponent | sibling file the coder must import>"]
+    }
   ],
   "pages": [
     { "path": "/dashboard", "name": "Dashboard", "file": "pages/Dashboard.tsx", "purpose": "..." }
   ],
+  "contextContract": "<optional: cross-file contract, e.g. which hook/context to use for shared state>",
   "notes": ["any cross-cutting requirement worth telling the coder"]
 }
 
@@ -479,7 +574,8 @@ RULES
 - All paths are relative to preview-workspace/src/ — no leading "src/" or "/".
 - 3 to 12 deltaFiles. Always include the page slots the user's app needs.
 - Wire pages through the skeleton router only — do not invent a new App.tsx unless the skeleton has none.
-- Use only the components/hooks/UI primitives listed above. Do not invent imports.
+- Each deltaFile.imports MUST list only skeleton-provided hooks/components (from ALREADY PROVIDED above), "@/components/ui/*" primitives, or sibling files that appear elsewhere in deltaFiles. Do NOT invent imports.
+- Use contextContract to describe shared state contracts (e.g. "use useApp() from AppContext, NOT useLocalStorage directly") whenever multiple files share state.
 - Output JSON only. No markdown fences. No prose.`;
 
   const raw = await callOnce({
@@ -504,9 +600,12 @@ RULES
       const path = typeof dx.path === 'string' ? normaliseDeltaPath(dx.path) : '';
       if (!path) return null;
       const purpose = typeof dx.purpose === 'string' ? dx.purpose : '';
-      return { path, purpose };
+      const imports = Array.isArray(dx.imports)
+        ? dx.imports.filter((i): i is string => typeof i === 'string')
+        : [];
+      return { path, purpose, imports };
     })
-    .filter((d): d is { path: string; purpose: string } => d !== null);
+    .filter((d): d is { path: string; purpose: string; imports: string[] } => d !== null);
 
   if (deltaFiles.length === 0) {
     throw new Error('Architect plan contains no usable deltaFiles');
@@ -524,6 +623,7 @@ RULES
       deltaFiles.push({
         path:    firstSlot,
         purpose: 'Primary screen for the user-requested app (auto-injected)',
+        imports: [],
       });
       input.onLog(
         `[architect] plan had no page slot — injected ${firstSlot} as primary screen`,
@@ -553,6 +653,7 @@ RULES
     notes: Array.isArray(obj.notes)
       ? obj.notes.filter((n): n is string => typeof n === 'string')
       : [],
+    contextContract: typeof obj.contextContract === 'string' ? obj.contextContract : undefined,
   };
 }
 
@@ -568,8 +669,22 @@ async function runCoder(input: {
   designCtx?: DesignContext;
 }): Promise<Record<string, string>> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
+  const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
+    plan: {
+      appName: input.plan.appName,
+      summary: input.plan.summary,
+      deltaFiles: input.plan.deltaFiles,
+      pages: input.plan.pages ?? [],
+      notes: input.plan.notes ?? [],
+    },
+  });
   const fileList = input.plan.deltaFiles
-    .map(d => `  - ${d.path}${d.purpose ? `  // ${d.purpose}` : ''}`)
+    .map(d => {
+      const importHint = d.imports && d.imports.length > 0
+        ? `  // imports: ${d.imports.join(', ')}`
+        : '';
+      return `  - ${d.path}${d.purpose ? `  // ${d.purpose}` : ''}${importHint}`;
+    })
     .join('\n');
   const pageList = input.plan.pages && input.plan.pages.length > 0
     ? input.plan.pages.map(p => `  - ${p.path}  → ${p.file}  (${p.purpose})`).join('\n')
@@ -578,14 +693,24 @@ async function runCoder(input: {
     ? `\nADDITIONAL REQUIREMENTS\n${input.plan.notes.map(n => `  • ${n}`).join('\n')}\n`
     : '';
 
+  const contractBlock = [
+    skeleton.contextContract
+      ? `APPCONTEXT CONTRACT — READ CAREFULLY:\n${skeleton.contextContract.trim()}`
+      : '',
+    input.plan.contextContract
+      ? `CONTEXT CONTRACT FROM ARCHITECT — READ CAREFULLY:\n${input.plan.contextContract.trim()}`
+      : '',
+  ].filter(Boolean).join('\n\n');
+
   const system = `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.
 
 SKELETON: ${skeleton.label} (${skeleton.id})
 PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}
 PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
 UI PRIMITIVES: ${skeleton.uiPrimitives.join(', ') || '(see registry)'}
-${skeleton.contextContract ? `\nAPPCONTEXT CONTRACT — READ CAREFULLY:\n${skeleton.contextContract.trim()}\n` : ''}${input.designCtx ? '\n' + designContractForCoder(input.designCtx) : ''}
-YOU MUST write EXACTLY these files and only these files:
+${contractBlock ? `\n${contractBlock}\n` : ''}${input.designCtx ? '\n' + designContractForCoder(input.designCtx) : ''}
+${skeletonPromptBlock}
+YOU MUST write EXACTLY these files and only these files (imports hint shows which symbols to use):
 ${fileList}
 
 PAGES TO WIRE INTO THE ROUTER:
@@ -607,6 +732,7 @@ RULES
 - Each file must be a complete, compilable .tsx/.ts file. No diffs, no patches.
 - Only import from skeleton-provided modules listed above, "@/components/ui/*", "lucide-react", "react", and files you yourself emit.
 - For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, import "useLocalStorage" from "@/hooks/useLocalStorage".
+- You are extending the installed skeleton by delta. NEVER rebuild the app shell, router, providers, or placeholder app from scratch when the selected skeleton already provides them.
 - Do not modify any skeleton-locked path.
 - No commentary outside the markers. No markdown. No code fences.
 - Quality over verbosity: real content, no lorem ipsum, no TODOs.`;
@@ -660,6 +786,20 @@ ${missing.map(p => `  - ${p}`).join('\n')}`;
 
   if (Object.keys(parsed).length === 0) {
     throw new Error('Coder produced no FILE/END blocks — output was unparsable');
+  }
+  const allowedPaths = new Set(input.plan.deltaFiles.map(file => normaliseDeltaPath(file.path)));
+  const droppedUnexpected = Object.keys(parsed).filter(path => !allowedPaths.has(normaliseDeltaPath(path)));
+  if (droppedUnexpected.length > 0) {
+    input.onLog(
+      `[coder] dropped ${droppedUnexpected.length} unexpected file(s): ${droppedUnexpected.join(', ')}`,
+      'warn',
+    );
+  }
+  parsed = Object.fromEntries(
+    Object.entries(parsed).filter(([path]) => allowedPaths.has(normaliseDeltaPath(path))),
+  );
+  if (Object.keys(parsed).length === 0) {
+    throw new Error('Coder did not return any allowed delta files');
   }
   if (missing.length > 0) {
     input.onLog(`[coder] still missing after retry: ${missing.join(', ')}`, 'warn');
@@ -722,11 +862,13 @@ async function compile(
   files:      Record<string, string>,
   skeletonId: SkeletonId,
   signal?:    AbortSignal,
-): Promise<void> {
+  buildStage: import('./PreviewController').PreviewBuildStage = 'unknown',
+): Promise<CompileResultTiming> {
   // 1. Notify UI that compile is starting (sets previewState.expectingBuildId → iframe gets URL)
-  previewController.notifyCompiling(buildId);
+  previewController.notifyCompiling(buildId, buildStage);
 
   // 2. Call backend compile endpoint
+  const compileStartedAt = Date.now();
   const resp = await fetch(`/api/preview/${encodeURIComponent(buildId)}/compile`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -741,6 +883,7 @@ async function compile(
     previewController.notifyFailed(errMsg, buildId);
     throw new Error(errMsg);
   }
+  const compileMs = Date.now() - compileStartedAt;
 
   // 3. Force-reload the iframe so MountReporter fires (iframe may have gotten 404 during build)
   const iframe = typeof document !== 'undefined'
@@ -757,14 +900,21 @@ async function compile(
   }
 
   // 4. Wait for preview-mounted postMessage from MountReporter (timeout: 45s)
+  const previewMountStartedAt = Date.now();
   const ready = await waitForIframeMounted(buildId, signal);
+  const previewMountMs = Date.now() - previewMountStartedAt;
   if (!ready) {
     // Don't throw — preview might still load; just log and continue
     console.warn(`[ProtoPipeline] compile: preview-mounted not received for ${buildId} — iframe may load later`);
   }
 
   // 5. Mark preview as ready in PreviewController
-  previewController.notifyReady(buildId, 'proto_pipeline_complete');
+  previewController.notifyReady(buildId, 'proto_pipeline_complete', buildStage);
+  return {
+    compileMs,
+    previewMountMs,
+    totalMs: compileMs + previewMountMs,
+  };
 }
 
 function waitForIframeMounted(buildId: string, signal?: AbortSignal): Promise<boolean> {
