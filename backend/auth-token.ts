@@ -1503,7 +1503,8 @@ app.get('/api/quality/flow-chain', async (_req, res) => {
 // Each test is independent and returns { status, duration_ms, output?, error? }.
 // Tests that need existing builds will fail gracefully if none exist.
 const QUALITY_FIXTURES = {
-  idea: 'Трекер привычек: ежедневные отметки, стрик, статистика',
+  idea:    'Трекер привычек: ежедневные отметки, стрик, статистика',
+  appName: 'HabitFlow',
   architectPlan: {
     skeleton:   'mobile-app',
     deltaFiles: ['src/pages/Home.tsx', 'src/config/app.ts'],
@@ -1530,7 +1531,11 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         const r = await fetch(`http://127.0.0.1:${PORT}/api/health`);
         if (r.status !== 200) throw new Error(`Expected 200, got ${r.status}`);
         const data = (await r.json()) as { status: string; provider: string };
-        res.json({ status: 'pass', duration_ms: ms(), output: `status: ${data.status}, provider: ${data.provider}` });
+        res.json({
+          status: 'pass', duration_ms: ms(),
+          output: `HTTP 200, provider: ${data.provider}`,
+          details: { httpStatus: r.status, response: data },
+        });
         return;
       }
 
@@ -1539,7 +1544,11 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         const idea = QUALITY_FIXTURES.idea;
         if (!idea?.trim()) throw new Error('Idea is empty');
         if (idea.trim().length <= 10) throw new Error(`Too short: ${idea.trim().length} chars (need > 10)`);
-        res.json({ status: 'pass', duration_ms: ms(), output: `${idea.trim().length} chars OK` });
+        res.json({
+          status: 'pass', duration_ms: ms(),
+          output: `${idea.trim().length} chars OK`,
+          details: { prompt: idea, length: idea.trim().length, valid: true },
+        });
         return;
       }
 
@@ -1549,7 +1558,16 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         if (!plan.skeleton) throw new Error('Plan missing: skeleton');
         if (!plan.deltaFiles?.length) throw new Error('Plan missing: deltaFiles');
         if (!plan.pages?.length) throw new Error('Plan missing: pages');
-        res.json({ status: 'pass', duration_ms: ms(), output: `skeleton: ${plan.skeleton}, ${plan.deltaFiles.length} delta file(s), ${plan.pages.length} page(s)` });
+        res.json({
+          status: 'pass', duration_ms: ms(),
+          output: `skeleton: ${plan.skeleton}, ${plan.deltaFiles.length} delta file(s)`,
+          details: {
+            appName:    QUALITY_FIXTURES.appName,
+            skeleton:   plan.skeleton,
+            deltaFiles: [...plan.deltaFiles],
+            pages:      [...plan.pages],
+          },
+        });
         return;
       }
 
@@ -1557,7 +1575,15 @@ app.get('/api/quality/test/:testName', async (req, res) => {
       case 'code-delta': {
         const buildId = `qt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
         await runCompileJob(buildId, QUALITY_FIXTURES.codeOutput as Record<string, string>);
-        res.json({ status: 'pass', duration_ms: ms(), output: `compiled OK, buildId: ${buildId}`, buildId });
+        const fixtureFiles = Object.entries(QUALITY_FIXTURES.codeOutput as Record<string, string>).map(
+          ([filePath, content]) => ({ path: filePath, size: Buffer.byteLength(content, 'utf8'), content }),
+        );
+        res.json({
+          status: 'pass', duration_ms: ms(),
+          output: `compiled OK, buildId: ${buildId}`,
+          buildId,
+          details: { buildId, files: fixtureFiles },
+        });
         return;
       }
 
@@ -1568,15 +1594,28 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         const builds = fs.readdirSync(buildsDir);
         if (!builds.length) throw new Error('No builds found — run Code Delta first');
         let foundBuild = '';
+        let assetList: Array<{ name: string; size: number }> = [];
         for (const b of [...builds].sort().reverse()) {
           const assetsDir = path.join(buildsDir, b, 'assets');
           if (fs.existsSync(assetsDir)) {
-            const jsFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
-            if (jsFiles.length) { foundBuild = b; break; }
+            const allFiles = fs.readdirSync(assetsDir);
+            const jsFiles  = allFiles.filter(f => f.endsWith('.js'));
+            if (jsFiles.length) {
+              foundBuild = b;
+              assetList  = allFiles.map(f => ({
+                name: f,
+                size: fs.statSync(path.join(assetsDir, f)).size,
+              }));
+              break;
+            }
           }
         }
         if (!foundBuild) throw new Error('No build with .js assets found — run Code Delta first');
-        res.json({ status: 'pass', duration_ms: ms(), output: `build: ${foundBuild}` });
+        res.json({
+          status: 'pass', duration_ms: ms(),
+          output: `build: ${foundBuild}, ${assetList.length} asset(s)`,
+          details: { buildId: foundBuild, assets: assetList },
+        });
         return;
       }
 
@@ -1598,7 +1637,18 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         const html = await r.text();
         if (!html.includes('<html') && !html.includes('<!DOCTYPE') && !html.includes('<script'))
           throw new Error(`Response is not HTML (${html.length} bytes)`);
-        res.json({ status: 'pass', duration_ms: ms(), output: `${buildId}: HTTP 200, ${html.length} bytes` });
+        const hasRootDiv = html.includes('id="root"') || html.includes("id='root'");
+        res.json({
+          status: 'pass', duration_ms: ms(),
+          output: `HTTP 200, ${(html.length / 1024).toFixed(1)}KB`,
+          details: {
+            httpStatus:        200,
+            contentLength:     html.length,
+            contentLengthStr:  `${(html.length / 1024).toFixed(1)}KB`,
+            hasRootDiv,
+            buildId,
+          },
+        });
         return;
       }
 
@@ -1609,7 +1659,14 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         const content = fs.readFileSync(mainPath, 'utf-8');
         if (!content.includes('preview-mounted'))
           throw new Error('postMessage({type: "preview-mounted"}) not found in main.tsx');
-        res.json({ status: 'pass', duration_ms: ms(), output: 'postMessage({type: "preview-mounted"}) found' });
+        const lines    = content.split('\n');
+        const lineIdx  = lines.findIndex(l => l.includes('preview-mounted'));
+        const matchedLine = lineIdx >= 0 ? lines[lineIdx].trim() : '';
+        res.json({
+          status: 'pass', duration_ms: ms(),
+          output: 'postMessage({type: "preview-mounted"}) found',
+          details: { lineNumber: lineIdx + 1, line: matchedLine },
+        });
         return;
       }
 
@@ -1618,17 +1675,22 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         const buildsDir = path.join(process.cwd(), 'builds');
         if (!fs.existsSync(buildsDir)) throw new Error('No builds/ directory — run Code Delta first');
         const builds = fs.readdirSync(buildsDir);
-        let savedBuild = '';
+        let savedBuild  = '';
+        let assetsCount = 0;
         for (const b of builds) {
           const indexHtml = path.join(buildsDir, b, 'index.html');
           const assetsDir = path.join(buildsDir, b, 'assets');
           if (fs.existsSync(indexHtml) && fs.existsSync(assetsDir)) {
             const jsFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
-            if (jsFiles.length) { savedBuild = b; break; }
+            if (jsFiles.length) { savedBuild = b; assetsCount = jsFiles.length; break; }
           }
         }
         if (!savedBuild) throw new Error('No successful build found → save-ready check failed');
-        res.json({ status: 'pass', duration_ms: ms(), output: `compile success = true → save-ready confirmed (build: ${savedBuild})` });
+        res.json({
+          status: 'pass', duration_ms: ms(),
+          output: `build: ${savedBuild} → save-ready`,
+          details: { compileSuccess: true, buildId: savedBuild, assetsCount },
+        });
         return;
       }
 
@@ -1636,13 +1698,19 @@ app.get('/api/quality/test/:testName', async (req, res) => {
       case 'no-premature-save': {
         const sessionsDir = path.join(process.cwd(), 'backend', 'sessions');
         const qualityFiles: string[] = [];
+        let totalSessions = 0;
         if (fs.existsSync(sessionsDir)) {
           const entries = fs.readdirSync(sessionsDir);
+          totalSessions = entries.length;
           qualityFiles.push(...entries.filter(e => e.startsWith('qt-') || e.startsWith('quality-')));
         }
         if (qualityFiles.length > 0)
           throw new Error(`Quality session files should not exist: ${qualityFiles.join(', ')}`);
-        res.json({ status: 'pass', duration_ms: ms(), output: 'No premature project files created (correct)' });
+        res.json({
+          status: 'pass', duration_ms: ms(),
+          output: 'No premature project files created',
+          details: { projectsBeforeSave: 0, totalSessions, correct: true },
+        });
         return;
       }
 
