@@ -78,6 +78,8 @@ interface TestApiResult {
 const LS_TEST_KEY     = (id: string) => `quality.test.${id}`;
 const LS_LAST_RUN_KEY = 'quality.lastRunAll';
 const MAX_HIST        = 5;
+const FIXTURE_BACKED_TESTS = new Set<StepId>(['idea-validate', 'architecture', 'code-delta']);
+const FIXTURE_NOTE_TEXT = '⚠️ Fixture данные — не реальный LLM output';
 
 function loadTestHistory(id: string): TestHistoryRun[] {
   try {
@@ -92,6 +94,13 @@ function persistTestRun(id: string, run: TestHistoryRun): void {
     const next = [run, ...hist].slice(0, MAX_HIST);
     localStorage.setItem(LS_TEST_KEY(id), JSON.stringify(next));
   } catch { /* quota */ }
+}
+
+function clearQualityPanelHistory(): void {
+  try {
+    STEP_DEFS.forEach(def => localStorage.removeItem(LS_TEST_KEY(def.id)));
+    localStorage.removeItem(LS_LAST_RUN_KEY);
+  } catch { /* ignore */ }
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────────
@@ -201,7 +210,10 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
     padding: '6px 16px 10px 40px',
     background: 'rgba(0,0,0,0.18)',
     borderLeft: '2px solid rgba(74,222,128,0.12)',
+    maxHeight: 300,
+    overflowY: 'auto',
   };
+  const isFixtureBacked = FIXTURE_BACKED_TESTS.has(testId);
 
   const sep = (
     <div style={{
@@ -214,15 +226,32 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
     </div>
   );
 
+  const renderPanel = (content: React.ReactNode) => (
+    <div style={panelStyle}>
+      {sep}
+      {content}
+      {isFixtureBacked && (
+        <div style={{
+          marginTop: 10,
+          paddingTop: 8,
+          borderTop: '1px solid rgba(255,255,255,0.05)',
+          fontSize: 11,
+          color: 'rgba(255,255,255,0.4)',
+        }}>
+          {FIXTURE_NOTE_TEXT}
+        </div>
+      )}
+    </div>
+  );
+
   if (testId === 'canary') {
     const d = details as unknown as CanaryDetails;
-    return (
-      <div style={panelStyle}>
-        {sep}
+    return renderPanel(
+      <>
         <KV label="httpStatus"       value={<span style={{ color: '#4ade80' }}>{d.httpStatus}</span>} />
         <KV label="response.status"  value={d.response?.status ?? '—'} />
         <KV label="response.provider" value={d.response?.provider ?? '—'} />
-      </div>
+      </>
     );
   }
 
@@ -230,21 +259,19 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
     const d = details as unknown as IdeaDetails;
     const prompt = String(d.prompt ?? '');
     const truncated = prompt.length > 64 ? `${prompt.slice(0, 64)}…` : prompt;
-    return (
-      <div style={panelStyle}>
-        {sep}
+    return renderPanel(
+      <>
         <KV label="prompt" value={<span style={{ color: '#e2c08d' }}>{`"${truncated}"`}</span>} />
         <KV label="length" value={String(d.length)} />
         <KV label="valid"  value={<span style={{ color: '#4ade80' }}>true</span>} />
-      </div>
+      </>
     );
   }
 
   if (testId === 'architecture') {
     const d = details as unknown as ArchDetails;
-    return (
-      <div style={panelStyle}>
-        {sep}
+    return renderPanel(
+      <>
         <KV label="appName"    value={<span style={{ color: '#e2c08d' }}>{`"${d.appName}"`}</span>} />
         <KV label="skeleton"   value={<span style={{ color: '#e2c08d' }}>{`"${d.skeleton}"`}</span>} />
         <KV label="deltaFiles" value={
@@ -257,7 +284,7 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
             {`[${(d.pages ?? []).map(p => `"${p}"`).join(', ')}]`}
           </span>
         } />
-      </div>
+      </>
     );
   }
 
@@ -268,9 +295,8 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
       try { await downloadFixtureZip(d.files); }
       finally { setDownloading(false); }
     };
-    return (
-      <div style={panelStyle}>
-        {sep}
+    return renderPanel(
+      <>
         <KV label="buildId" value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
         <div style={{ marginTop: 6, marginBottom: 4 }}>
           <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>files:</span>
@@ -297,15 +323,14 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
           <Download size={11} />
           {downloading ? 'Скачивание…' : 'Скачать архив'}
         </button>
-      </div>
+      </>
     );
   }
 
   if (testId === 'compile') {
     const d = details as unknown as CompileDetails;
-    return (
-      <div style={panelStyle}>
-        {sep}
+    return renderPanel(
+      <>
         <KV label="buildId" value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
         <div style={{ marginTop: 6, marginBottom: 4 }}>
           <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>assets:</span>
@@ -316,28 +341,26 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
             <span style={{ color: 'rgba(255,255,255,0.25)', flexShrink: 0 }}>{fmtSize(f.size)}</span>
           </div>
         ))}
-      </div>
+      </>
     );
   }
 
   if (testId === 'preview-http') {
     const d = details as unknown as PreviewHttpDetails;
-    return (
-      <div style={panelStyle}>
-        {sep}
+    return renderPanel(
+      <>
         <KV label="httpStatus"    value={<span style={{ color: '#4ade80' }}>{d.httpStatus}</span>} />
         <KV label="contentLength" value={`${d.contentLengthStr} (${d.contentLength} bytes)`} />
         <KV label="hasRootDiv"    value={<span style={{ color: d.hasRootDiv ? '#4ade80' : '#f87171' }}>{String(d.hasRootDiv)}</span>} />
         <KV label="buildId"       value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
-      </div>
+      </>
     );
   }
 
   if (testId === 'preview-mounted') {
     const d = details as unknown as PreviewMtdDetails;
-    return (
-      <div style={panelStyle}>
-        {sep}
+    return renderPanel(
+      <>
         <KV label="lineNumber" value={String(d.lineNumber)} />
         <KV label="line" value={
           <code style={{
@@ -348,42 +371,39 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
             {d.line}
           </code>
         } />
-      </div>
+      </>
     );
   }
 
   if (testId === 'save-ready') {
     const d = details as unknown as SaveReadyDetails;
-    return (
-      <div style={panelStyle}>
-        {sep}
+    return renderPanel(
+      <>
         <KV label="compileSuccess" value={<span style={{ color: '#4ade80' }}>true</span>} />
         <KV label="buildId"        value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
         <KV label="assetsCount"    value={String(d.assetsCount)} />
-      </div>
+      </>
     );
   }
 
   if (testId === 'no-premature-save') {
     const d = details as unknown as NoPremSaveDetails;
-    return (
-      <div style={panelStyle}>
-        {sep}
+    return renderPanel(
+      <>
         <KV label="projectsBeforeSave" value={<span style={{ color: '#4ade80' }}>0</span>} />
         <KV label="totalSessions"      value={String(d.totalSessions)} />
         <KV label="correct"            value={<span style={{ color: '#4ade80' }}>true</span>} />
-      </div>
+      </>
     );
   }
 
   // fallback
-  return (
-    <div style={panelStyle}>
-      {sep}
+  return renderPanel(
+    <>
       <pre style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, margin: 0, whiteSpace: 'pre-wrap' }}>
         {JSON.stringify(details, null, 2)}
       </pre>
-    </div>
+    </>
   );
 }
 
@@ -426,9 +446,10 @@ function TestRow({
     '2px solid transparent';
 
   const durText =
+    state.status === 'idle'    ? '' :
     state.status === 'running' ? '…' :
     state.duration_ms > 0      ? `${state.duration_ms}ms` :
-    '—';
+    '';
 
   return (
     <div>
@@ -596,6 +617,15 @@ function FlowChainTab() {
     setRunAllActive(false);
   }, [runSingleTest]);
 
+  const handleClear = useCallback(() => {
+    clearQualityPanelHistory();
+    setTestStates(makeInitStates());
+    setExpanded(makeInitExpanded());
+    setRunAllActive(false);
+    setLastRunAt(null);
+    setBrokenAt(null);
+  }, []);
+
   // Footer verdict
   const passCount = Object.values(testStates).filter(s => s.status === 'pass').length;
   const failCount = Object.values(testStates).filter(s => s.status === 'fail').length;
@@ -631,24 +661,41 @@ function FlowChainTab() {
         }}>
           Quality Tests
         </span>
-        <button
-          onClick={() => void handleRunAll()}
-          disabled={anyRunning}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '5px 14px', borderRadius: 7, border: 'none',
-            background: anyRunning ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.85)',
-            color: anyRunning ? 'rgba(96,165,250,0.5)' : '#fff',
-            fontSize: 12, fontWeight: 600,
-            cursor: anyRunning ? 'not-allowed' : 'pointer',
-            transition: 'all 0.15s',
-          }}
-        >
-          {anyRunning
-            ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Running…</>
-            : <><Play size={12} /> Run All</>
-          }
-        </button>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => void handleRunAll()}
+            disabled={anyRunning}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '5px 14px', borderRadius: 7, border: 'none',
+              background: anyRunning ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.85)',
+              color: anyRunning ? 'rgba(96,165,250,0.5)' : '#fff',
+              fontSize: 12, fontWeight: 600,
+              cursor: anyRunning ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            {anyRunning
+              ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Running…</>
+              : <><Play size={12} /> Run All</>
+            }
+          </button>
+          <button
+            onClick={handleClear}
+            disabled={anyRunning}
+            style={{
+              padding: '5px 12px', borderRadius: 7,
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: anyRunning ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)',
+              color: anyRunning ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.65)',
+              fontSize: 12, fontWeight: 600,
+              cursor: anyRunning ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            Clear
+          </button>
+        </div>
       </div>
 
       {/* Test rows */}
