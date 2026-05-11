@@ -1593,14 +1593,16 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
     previewLifecycle === 'generating' ||
     previewLifecycle === 'validating' ||
     previewLifecycle === 'committing' ||
-    previewLifecycle === 'materializing';
-  const isPreviewReady =
-    previewLifecycle === 'preview-ready' ||
-    previewLifecycle === 'degraded';
+    previewLifecycle === 'materializing' ||
+    previewLifecycle === 'skeleton-ready';
+  const isPreviewReady = previewLifecycle === 'preview-ready';
   const previewSaveLabels = (appLanguage || 'en').toLowerCase().startsWith('ru')
     ? { ready: 'Превью готово', save: 'Сохранить проект', reject: 'Отклонить', draft: 'Draft не попал в Projects' }
     : { ready: 'Preview ready', save: 'Save project', reject: 'Reject', draft: 'Draft is not in Projects' };
-  const pendingProjectDecisionReady = !!pendingProjectSave && (pendingProjectSave.previewReady || isPreviewReady);
+  const pendingProjectDecisionReady =
+    !!pendingProjectSave
+    && pendingProjectSave.previewReady
+    && previewLifecycle === 'preview-ready';
   const showSaveProjectCta =
     pendingProjectDecisionReady &&
     (!!onSavePendingProject || !!onRejectPendingProjectSave);
@@ -1637,6 +1639,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
     previewLifecycle === 'generating' ? 'Кодируем интерфейс' :
     previewLifecycle === 'validating' ? 'Проверяем связность проекта' :
     previewLifecycle === 'committing' ? 'Сохраняем ревизию прототипа' :
+    previewLifecycle === 'skeleton-ready' ? 'Показываем технический skeleton preview' :
     previewLifecycle === 'materializing' ? 'Запускаем живое превью' :
     'Подготавливаем окружение превью';
 

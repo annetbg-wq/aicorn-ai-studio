@@ -254,7 +254,7 @@ describe('PreviewCanvas workspace truth', () => {
     expect(copied).not.toContain('private reasoning');
   });
 
-  it('keeps project save actions visible after preview becomes ready until the user decides', () => {
+  it('keeps project save actions visible only while true preview-ready remains valid', () => {
     const onSavePendingProject = vi.fn();
     const onRejectPendingProjectSave = vi.fn();
 
@@ -262,7 +262,7 @@ describe('PreviewCanvas workspace truth', () => {
       <PreviewCanvas
         {...baseProps}
         pendingProjectSave={{ projectTitle: 'Draft Project', previewReady: true }}
-        previewLifecycle="materializing"
+        previewLifecycle="preview-ready"
         onSavePendingProject={onSavePendingProject}
         onRejectPendingProjectSave={onRejectPendingProjectSave}
       />,
@@ -274,6 +274,30 @@ describe('PreviewCanvas workspace truth', () => {
 
     fireEvent.click(screen.getByTestId('reject-project-cta'));
     expect(onRejectPendingProjectSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not expose save actions when lifecycle is degraded even if stale previewReady metadata exists', () => {
+    render(
+      <PreviewCanvas
+        {...baseProps}
+        pendingProjectSave={{ projectTitle: 'Draft Project', previewReady: true }}
+        previewLifecycle="degraded"
+      />,
+    );
+
+    expect(screen.queryByTestId('save-project-cta')).not.toBeInTheDocument();
+  });
+
+  it('does not expose save actions for a technical skeleton preview', () => {
+    render(
+      <PreviewCanvas
+        {...baseProps}
+        pendingProjectSave={{ projectTitle: 'Draft Project', previewReady: false }}
+        previewLifecycle="skeleton-ready"
+      />,
+    );
+
+    expect(screen.queryByTestId('save-project-cta')).not.toBeInTheDocument();
   });
 
   it('builds stable scoped analytics row identities without duplicate current/archive rows', () => {

@@ -91,6 +91,15 @@ const LS_TEST_KEY     = (id: string) => `quality.test.${id}`;
 const LS_LAST_RUN_KEY = 'quality.lastRunAll';
 const MAX_HIST        = 5;
 const FIXTURE_BACKED_TESTS = new Set<StepId>(['idea-validate', 'architecture', 'code-delta']);
+const REAL_RUNTIME_OR_LLM_GATES = new Set<StepId>([
+  'canary',
+  'compile',
+  'preview-http',
+  'preview-mounted',
+  'save-ready',
+  'no-premature-save',
+  'architect-real',
+]);
 const FIXTURE_NOTE_TEXT = '⚠️ Fixture данные — не реальный LLM output';
 
 function loadTestHistory(id: string): TestHistoryRun[] {
@@ -375,6 +384,42 @@ function makeInitStates(): Record<StepId, TestState> {
 
 function makeInitExpanded(): Record<StepId, boolean> {
   return Object.fromEntries(STEP_DEFS.map(d => [d.id, false])) as Record<StepId, boolean>;
+}
+
+type Verdict = 'PASS' | 'PARTIAL' | 'FAIL' | null;
+
+interface QualityBucketSummary {
+  total: number;
+  passCount: number;
+  failCount: number;
+  idleCount: number;
+  verdict: Verdict;
+  failedIds: StepId[];
+}
+
+function summarizeQualityBucket(
+  states: Record<StepId, TestState>,
+  ids: StepId[],
+): QualityBucketSummary {
+  const bucketStates = ids.map(id => ({ id, state: states[id] }));
+  const passCount = bucketStates.filter(entry => entry.state.status === 'pass').length;
+  const failCount = bucketStates.filter(entry => entry.state.status === 'fail').length;
+  const idleCount = bucketStates.filter(entry => entry.state.status === 'idle').length;
+  const verdict: Verdict =
+    failCount === 0 && passCount === ids.length ? 'PASS' :
+    failCount > 0 && passCount > 0 ? 'PARTIAL' :
+    failCount > 0 ? 'FAIL' :
+    null;
+  return {
+    total: ids.length,
+    passCount,
+    failCount,
+    idleCount,
+    verdict,
+    failedIds: bucketStates
+      .filter(entry => entry.state.status === 'fail')
+      .map(entry => entry.id),
+  };
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
@@ -983,10 +1028,23 @@ function FlowChainTab() {
   // Footer verdict
   const passCount = Object.values(testStates).filter(s => s.status === 'pass').length;
   const failCount = Object.values(testStates).filter(s => s.status === 'fail').length;
-  const verdict: 'PASS' | 'PARTIAL' | 'FAIL' | null =
-    failCount === 0 && passCount === STEP_DEFS.length ? 'PASS'    :
-    failCount > 0  && passCount > 0                   ? 'PARTIAL' :
-    failCount > 0  && passCount === 0                 ? 'FAIL'    :
+  const fixtureTestIds = STEP_DEFS
+    .map(def => def.id as StepId)
+    .filter(id => FIXTURE_BACKED_TESTS.has(id));
+  const realTestIds = STEP_DEFS
+    .map(def => def.id as StepId)
+    .filter(id => !FIXTURE_BACKED_TESTS.has(id));
+  const keyRealGateIds = STEP_DEFS
+    .map(def => def.id as StepId)
+    .filter(id => REAL_RUNTIME_OR_LLM_GATES.has(id));
+  const fixtureSummary = summarizeQualityBucket(testStates, fixtureTestIds);
+  const realSummary = summarizeQualityBucket(testStates, realTestIds);
+  const keyRealGateSummary = summarizeQualityBucket(testStates, keyRealGateIds);
+  const verdict: Verdict =
+    keyRealGateSummary.failCount > 0 ? (passCount > 0 ? 'PARTIAL' : 'FAIL') :
+    failCount === 0 && passCount === STEP_DEFS.length ? 'PASS' :
+    failCount > 0 && passCount > 0 ? 'PARTIAL' :
+    failCount > 0 ? 'FAIL' :
     null;
 
   const lastRunStr = lastRunAt
@@ -1001,6 +1059,12 @@ function FlowChainTab() {
       generatedAt: new Date().toISOString(),
       lastRunAt,
       verdict,
+      verdictBreakdown: {
+        overall: verdict,
+        fixtureBacked: fixtureSummary,
+        real: realSummary,
+        keyRealGates: keyRealGateSummary,
+      },
       passCount,
       failCount,
       brokenAt,
@@ -1014,7 +1078,7 @@ function FlowChainTab() {
       })),
     };
     downloadQualityReport(report);
-  }, [brokenAt, failCount, lastRunAt, passCount, testStates, verdict]);
+  }, [brokenAt, failCount, fixtureSummary, keyRealGateSummary, lastRunAt, passCount, realSummary, testStates, verdict]);
 
   return (
     <div style={{
@@ -1123,6 +1187,13 @@ function FlowChainTab() {
             <span>Last run: {lastRunStr}</span>
             {verdict && <span style={verdictBadgeStyle(verdict)}>{verdict}</span>}
             <span>{passCount}/{STEP_DEFS.length}</span>
+            <span>real {realSummary.passCount}/{realSummary.total}{realSummary.verdict ? ` ${realSummary.verdict}` : ''}</span>
+            <span>fixture {fixtureSummary.passCount}/{fixtureSummary.total}{fixtureSummary.verdict ? ` ${fixtureSummary.verdict}` : ''}</span>
+            {keyRealGateSummary.failCount > 0 && (
+              <span style={{ color: '#f87171' }}>
+                real gates failed: {keyRealGateSummary.failedIds.join(', ')}
+              </span>
+            )}
             {brokenAt && <span style={{ color: '#f87171' }}>stopped at {brokenAt}</span>}
           </>
         ) : (
