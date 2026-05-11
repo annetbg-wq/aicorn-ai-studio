@@ -57,6 +57,29 @@ export type StepId =
 
 export type StepStatus = 'pending' | 'active' | 'done' | 'error';
 
+export interface StepLlmMetrics {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd?: number;
+}
+
+export interface StepOutputMetrics {
+  file_count?: number;
+  total_bytes?: number;
+  asset_count?: number;
+  build_size_kb?: number;
+  preview_url?: string;
+  files?: string[];
+}
+
+export interface StepExecutionMetrics {
+  llm?: StepLlmMetrics;
+  output?: StepOutputMetrics;
+  warnings?: string[];
+}
+
 export interface StepEvent {
   step:    StepId;
   status:  StepStatus;
@@ -64,6 +87,9 @@ export interface StepEvent {
   label:   string;
   /** Optional secondary detail (e.g. "8 файлов"). */
   detail?: string;
+  llm?: StepLlmMetrics;
+  output?: StepOutputMetrics;
+  warnings?: string[];
 }
 
 export interface PipelineAttachment {
@@ -98,6 +124,7 @@ export interface ProtoPipelineResult {
   files?:             Record<string, string>;
   plan?:              ArchitectPlan;
   error?:             string;
+  stepResults?:       Partial<Record<StepId, StepExecutionMetrics>>;
   fastPathTelemetry?: FastPathTelemetry;
 }
 
@@ -243,12 +270,18 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       timeToSkeletonPreviewMs: 0,
       timeToFirstRealPreviewMs: 0,
     };
-    const emit = (step: StepId, status: StepStatus, detail?: string) =>
-      config.onStep({ step, status, label: STEP_LABEL[step], detail });
+    const stepResults: Partial<Record<StepId, StepExecutionMetrics>> = {};
+    const emit = (
+      step: StepId,
+      status: StepStatus,
+      detail?: string,
+      metrics?: StepExecutionMetrics,
+    ) =>
+      config.onStep({ step, status, label: STEP_LABEL[step], detail, ...metrics });
     const fail = (step: StepId, error: string): ProtoPipelineResult => {
       log(`[ProtoPipeline] ${step} failed: ${error}`, 'error');
       emit(step, 'error', error);
-      return { success: false, buildId: config.buildId, error };
+      return { success: false, buildId: config.buildId, error, stepResults };
     };
 
     if (!SKELETON_REGISTRY[config.skeletonId]) {
@@ -301,6 +334,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     // ── Step 3 — Architect (delta plan only) ──────────────────────────────
     emit('architect', 'active');
     let plan: ArchitectPlan;
+    let architectUsage: StepLlmMetrics | undefined;
     const architectStartedAt = Date.now();
     try {
       plan = await runArchitect({
@@ -308,6 +342,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         skeletonId: config.skeletonId,
         signal:     config.signal,
         onLog:      log,
+        onUsage:    (usage) => { architectUsage = usage; },
         designCtx,
       });
     } catch (err) {
@@ -317,7 +352,14 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     if (plan.deltaFiles.length === 0) {
       return fail('architect', 'Architect returned an empty delta plan');
     }
-    emit('architect', 'done', `${plan.deltaFiles.length} файлов`);
+    stepResults.architect = {
+      llm: architectUsage,
+      output: {
+        file_count: plan.deltaFiles.length,
+        files: plan.deltaFiles.map(file => file.path),
+      },
+    };
+    emit('architect', 'done', `${plan.deltaFiles.length} файлов`, stepResults.architect);
     fastPathTelemetry.steps.architectureMs = Date.now() - architectStartedAt;
 
     // ── Step 4 — Skeleton install (validates the selected base) ───────────
@@ -341,6 +383,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     // ── Step 5 — Coder (one shot + at most one targeted retry) ────────────
     emit('coder', 'active');
     let deltaFiles: Record<string, string>;
+    let coderUsage: StepLlmMetrics | undefined;
     const coderStartedAt = Date.now();
     try {
       deltaFiles = await runCoder({
@@ -350,13 +393,22 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         signal:     config.signal,
         onLog:      log,
         onStream:   config.onCoderStream,
+        onUsage:    (usage) => { coderUsage = usage; },
         designCtx,
       });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
       return fail('coder', (err as Error).message);
     }
-    emit('coder', 'done', `${Object.keys(deltaFiles).length} файлов`);
+    stepResults.coder = {
+      llm: coderUsage,
+      output: {
+        file_count: Object.keys(deltaFiles).length,
+        total_bytes: totalFileBytes(deltaFiles),
+        files: Object.keys(deltaFiles),
+      },
+    };
+    emit('coder', 'done', `${Object.keys(deltaFiles).length} файлов`, stepResults.coder);
     fastPathTelemetry.steps.coderMs = Date.now() - coderStartedAt;
 
     // ── Step 6 — Apply (filter protected, defend STORAGE_KEYS) ────────────
@@ -388,7 +440,15 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     if (Object.keys(filteredFiles).length === 0) {
       return fail('apply', 'All produced files are skeleton-protected — nothing to write');
     }
-    emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`);
+    stepResults.apply = {
+      output: {
+        file_count: Object.keys(filteredFiles).length,
+        total_bytes: totalFileBytes(filteredFiles),
+        files: Object.keys(filteredFiles),
+      },
+      warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
+    };
+    emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`, stepResults.apply);
 
     // ── Step 7 — Build (with at most 2 repair passes) ─────────────────────
     emit('build', 'active');
@@ -434,12 +494,22 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     if (!buildOk) {
       return fail('build', `Build failed after ${MAX_REPAIR_PASSES + 1} attempts: ${lastBuildErr ?? 'unknown'}`);
     }
-    emit('build', 'done');
+    stepResults.build = {
+      output: {
+        file_count: Object.keys(currentFiles).length,
+        total_bytes: totalFileBytes(currentFiles),
+        preview_url: `/preview/${config.buildId}`,
+        files: Object.keys(currentFiles),
+      },
+      warnings: lastBuildErr ? [`Recovered after build error: ${lastBuildErr}`] : undefined,
+    };
+    emit('build', 'done', undefined, stepResults.build);
     fastPathTelemetry.timeToFirstRealPreviewMs = Date.now() - runStartedAt;
 
     // ── Step 8 — Preview ready ────────────────────────────────────────────
     const url = `/preview/${config.buildId}`;
-    emit('preview', 'done', url);
+    stepResults.preview = { output: { preview_url: url } };
+    emit('preview', 'done', url, stepResults.preview);
     config.onPreviewReady?.(url, config.buildId);
     log(
       `[fast-path] package=${fastPathTelemetry.steps.packageMs}ms architecture=${fastPathTelemetry.steps.architectureMs}ms ` +
@@ -454,6 +524,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       url,
       files: currentFiles,
       plan,
+      stepResults,
       fastPathTelemetry,
     };
   }
@@ -535,6 +606,7 @@ async function runArchitect(input: {
   skeletonId: SkeletonId;
   signal?:    AbortSignal;
   onLog:      (msg: string, level?: 'info' | 'warn' | 'error') => void;
+  onUsage?:   (usage: StepLlmMetrics) => void;
   designCtx?: DesignContext;
 }): Promise<ArchitectPlan> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
@@ -637,6 +709,7 @@ RULES
     maxTokens: STEP_BUDGET.architect.maxTokens,
     timeoutMs: STEP_BUDGET.architect.timeoutMs,
     signal:    input.signal,
+    onUsage:   input.onUsage,
   });
 
   const parsed = safeParseJson(raw);
@@ -730,6 +803,7 @@ async function runCoder(input: {
   signal?:    AbortSignal;
   onLog:      (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onStream?:  (delta: string) => void;
+  onUsage?:   (usage: StepLlmMetrics) => void;
   designCtx?: DesignContext;
 }): Promise<Record<string, string>> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
@@ -809,6 +883,7 @@ RULES
 
   let firstReason = '';
   let body = '';
+  let usageAcc: StepLlmMetrics | undefined;
   await streamCall({
     slot:      'build',
     system,
@@ -818,6 +893,7 @@ RULES
     signal:    input.signal,
     onChunk:   (delta) => { body += delta; input.onStream?.(delta); },
     onFinishReason: (r) => { firstReason = r; },
+    onUsage:   (usage) => { usageAcc = mergeLlmUsage(usageAcc, usage); },
   });
 
   let parsed = parseFileMarkers(body);
@@ -842,6 +918,7 @@ ${missing.map(p => `  - ${p}`).join('\n')}`;
         timeoutMs: STEP_BUDGET.coder.timeoutMs,
         signal:    input.signal,
         onChunk:   (delta) => { retryBody += delta; input.onStream?.(delta); },
+        onUsage:   (usage) => { usageAcc = mergeLlmUsage(usageAcc, usage); },
       });
       const retryParsed = parseFileMarkers(retryBody);
       parsed = { ...parsed, ...retryParsed };
@@ -874,6 +951,7 @@ ${missing.map(p => `  - ${p}`).join('\n')}`;
   if (missing.length > 0) {
     input.onLog(`[coder] still missing after retry: ${missing.join(', ')}`, 'warn');
   }
+  if (usageAcc) input.onUsage?.(usageAcc);
   return parsed;
 }
 
@@ -887,6 +965,7 @@ async function runRepair(input: {
   errorLog:     string;
   signal?:      AbortSignal;
   onLog:        (msg: string, level?: 'info' | 'warn' | 'error') => void;
+  onUsage?:     (usage: StepLlmMetrics) => void;
 }): Promise<Record<string, string>> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   // Heuristic: pull file paths the error log references; fall back to all files.
@@ -917,6 +996,7 @@ ${input.errorLog.slice(0, 4000)}`;
     timeoutMs: STEP_BUDGET.repair.timeoutMs,
     signal:    input.signal,
     onChunk:   (delta) => { body += delta; },
+    onUsage:   input.onUsage,
   });
   const parsed = parseFileMarkers(body);
   if (Object.keys(parsed).length === 0) {
@@ -1018,6 +1098,31 @@ interface ResolvedRoute {
   provider: string;
 }
 
+function totalFileBytes(files: Record<string, string>): number {
+  return Object.values(files).reduce((sum, content) => sum + new Blob([content]).size, 0);
+}
+
+function mergeLlmUsage(
+  base: StepLlmMetrics | undefined,
+  next: StepLlmMetrics,
+): StepLlmMetrics {
+  if (!base) return next;
+  return {
+    model: base.model || next.model,
+    prompt_tokens: base.prompt_tokens + next.prompt_tokens,
+    completion_tokens: base.completion_tokens + next.completion_tokens,
+    total_tokens: base.total_tokens + next.total_tokens,
+    cost_usd:
+      typeof base.cost_usd === 'number' || typeof next.cost_usd === 'number'
+        ? (base.cost_usd ?? 0) + (next.cost_usd ?? 0)
+        : undefined,
+  };
+}
+
+function extractUsageMetric(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 function resolveRoute(slot: AgentSlot): ResolvedRoute {
   const modelId = ConfigService.resolveModel(slot);
   if (!modelId) {
@@ -1047,6 +1152,7 @@ async function callOnce(input: {
   maxTokens: number;
   timeoutMs: number;
   signal?:   AbortSignal;
+  onUsage?:  (usage: StepLlmMetrics) => void;
 }): Promise<string> {
   let out = '';
   await streamCall({
@@ -1077,6 +1183,7 @@ async function streamCall(input: {
   signal?:        AbortSignal;
   onChunk:        (delta: string) => void;
   onFinishReason?: (reason: string) => void;
+  onUsage?:       (usage: StepLlmMetrics) => void;
 }): Promise<void> {
   const route = resolveRoute(input.slot);
   const body = JSON.stringify({
@@ -1127,6 +1234,25 @@ async function streamCall(input: {
     }
     const content: string = parsed?.choices?.[0]?.message?.content ?? '';
     const finishReason: string = parsed?.choices?.[0]?.finish_reason ?? '';
+    const promptTokens = extractUsageMetric(parsed?.usage?.prompt_tokens);
+    const completionTokens = extractUsageMetric(parsed?.usage?.completion_tokens);
+    const totalTokens = extractUsageMetric(parsed?.usage?.total_tokens)
+      ?? ((promptTokens ?? 0) + (completionTokens ?? 0));
+    const costUsd =
+      extractUsageMetric(parsed?.usage?.cost_usd)
+      ?? extractUsageMetric(parsed?.usage?.total_cost)
+      ?? extractUsageMetric(parsed?.usage?.cost);
+    if (promptTokens !== undefined || completionTokens !== undefined || totalTokens > 0) {
+      input.onUsage?.({
+        model: typeof parsed?.model === 'string'
+          ? parsed.model
+          : Orchestrator.normalizeModelId(route.modelId, route.endpoint),
+        prompt_tokens: promptTokens ?? 0,
+        completion_tokens: completionTokens ?? 0,
+        total_tokens: totalTokens,
+        cost_usd: costUsd,
+      });
+    }
     if (content) input.onChunk(content);
     if (finishReason) input.onFinishReason?.(finishReason);
   } finally {
