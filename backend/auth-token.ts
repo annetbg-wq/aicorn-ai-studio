@@ -1618,9 +1618,14 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         const r = await fetch(`http://127.0.0.1:${PORT}/api/health`);
         if (r.status !== 200) throw new Error(`Expected 200, got ${r.status}`);
         const data = (await r.json()) as { status: string; provider: string };
+        const canaryWarnings: string[] = [];
+        if (data.provider === 'off') {
+          canaryWarnings.push('⚠️ Backend в режиме off — генерация не будет работать');
+        }
         res.json({
           status: 'pass', duration_ms: ms(),
           summary: `HTTP 200, provider: ${data.provider}`,
+          ...(canaryWarnings.length > 0 ? { warnings: canaryWarnings } : {}),
           details: { httpStatus: r.status, response: data },
         });
         return;
@@ -1650,7 +1655,6 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         res.json({
           status: 'pass', duration_ms: ms(),
           summary: `skeleton: ${plan.skeleton}, ${skeletonKeys.length} provided + ${deltaKeys.length} delta`,
-          llm: QUALITY_FIXTURES.architectLlm,
           output: {
             file_count: skeletonKeys.length + deltaKeys.length,
             files: [...skeletonKeys, ...deltaKeys],
@@ -1720,30 +1724,39 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         return;
       }
 
-      // 5. Compile — check that any build folder with .js assets exists
+      // 5. Compile — check build folder with .js assets; prefer buildId from Code Delta chain
       case 'compile': {
+        const reqBuildId = typeof req.query.buildId === 'string' ? req.query.buildId : null;
         const buildsDir = path.join(process.cwd(), 'builds');
         if (!fs.existsSync(buildsDir)) throw new Error('builds/ directory not found — run Code Delta first');
-        const builds = fs.readdirSync(buildsDir);
-        if (!builds.length) throw new Error('No builds found — run Code Delta first');
         let foundBuild = '';
         let assetList: Array<{ name: string; size: number }> = [];
-        for (const b of [...builds].sort().reverse()) {
-          const assetsDir = path.join(buildsDir, b, 'assets');
+        if (reqBuildId) {
+          const assetsDir = path.join(buildsDir, reqBuildId, 'assets');
           if (fs.existsSync(assetsDir)) {
             const allFiles = fs.readdirSync(assetsDir);
-            const jsFiles  = allFiles.filter(f => f.endsWith('.js'));
-            if (jsFiles.length) {
-              foundBuild = b;
-              assetList  = allFiles.map(f => ({
-                name: f,
-                size: fs.statSync(path.join(assetsDir, f)).size,
-              }));
-              break;
+            if (allFiles.some(f => f.endsWith('.js'))) {
+              foundBuild = reqBuildId;
+              assetList = allFiles.map(f => ({ name: f, size: fs.statSync(path.join(assetsDir, f)).size }));
             }
           }
+          if (!foundBuild) throw new Error(`Build ${reqBuildId} has no .js assets — Code Delta may have failed`);
+        } else {
+          const builds = fs.readdirSync(buildsDir);
+          if (!builds.length) throw new Error('No builds found — run Code Delta first');
+          for (const b of [...builds].sort().reverse()) {
+            const assetsDir = path.join(buildsDir, b, 'assets');
+            if (fs.existsSync(assetsDir)) {
+              const allFiles = fs.readdirSync(assetsDir);
+              if (allFiles.some(f => f.endsWith('.js'))) {
+                foundBuild = b;
+                assetList = allFiles.map(f => ({ name: f, size: fs.statSync(path.join(assetsDir, f)).size }));
+                break;
+              }
+            }
+          }
+          if (!foundBuild) throw new Error('No build with .js assets found — run Code Delta first');
         }
-        if (!foundBuild) throw new Error('No build with .js assets found — run Code Delta first');
         const totalAssetBytes = assetList.reduce((sum, asset) => sum + asset.size, 0);
         res.json({
           status: 'pass', duration_ms: ms(),
@@ -1758,18 +1771,24 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         return;
       }
 
-      // 6. Preview HTTP — GET /preview/{latestBuild} → 200 + HTML
+      // 6. Preview HTTP — GET /preview/{buildId} → 200 + HTML; prefer buildId from chain
       case 'preview-http': {
+        const reqBuildId = typeof req.query.buildId === 'string' ? req.query.buildId : null;
         const buildsDir = path.join(process.cwd(), 'builds');
         if (!fs.existsSync(buildsDir)) throw new Error('builds/ not found — run Code Delta first');
-        const builds = fs.readdirSync(buildsDir)
-          .filter(b => {
-            const ad = path.join(buildsDir, b, 'assets');
-            return fs.existsSync(ad) && fs.readdirSync(ad).some(f => f.endsWith('.js'));
-          })
-          .sort().reverse();
-        if (!builds.length) throw new Error('No compiled builds found — run Code Delta first');
-        const buildId = builds[0];
+        let buildId: string;
+        if (reqBuildId) {
+          buildId = reqBuildId;
+        } else {
+          const builds = fs.readdirSync(buildsDir)
+            .filter(b => {
+              const ad = path.join(buildsDir, b, 'assets');
+              return fs.existsSync(ad) && fs.readdirSync(ad).some(f => f.endsWith('.js'));
+            })
+            .sort().reverse();
+          if (!builds.length) throw new Error('No compiled builds found — run Code Delta first');
+          buildId = builds[0];
+        }
         const previewUrl = `http://127.0.0.1:${PORT}/preview/${buildId}`;
         const r = await fetch(previewUrl);
         if (r.status !== 200) throw new Error(`Expected 200, got ${r.status}`);
@@ -1817,22 +1836,33 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         return;
       }
 
-      // 8. Save Ready — verify that a completed build qualifies as save-ready
+      // 8. Save Ready — verify that a completed build qualifies as save-ready; prefer buildId from chain
       case 'save-ready': {
+        const reqBuildId = typeof req.query.buildId === 'string' ? req.query.buildId : null;
         const buildsDir = path.join(process.cwd(), 'builds');
         if (!fs.existsSync(buildsDir)) throw new Error('No builds/ directory — run Code Delta first');
-        const builds = fs.readdirSync(buildsDir);
         let savedBuild  = '';
         let assetsCount = 0;
-        for (const b of builds) {
-          const indexHtml = path.join(buildsDir, b, 'index.html');
-          const assetsDir = path.join(buildsDir, b, 'assets');
+        if (reqBuildId) {
+          const indexHtml = path.join(buildsDir, reqBuildId, 'index.html');
+          const assetsDir = path.join(buildsDir, reqBuildId, 'assets');
           if (fs.existsSync(indexHtml) && fs.existsSync(assetsDir)) {
             const jsFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
-            if (jsFiles.length) { savedBuild = b; assetsCount = jsFiles.length; break; }
+            if (jsFiles.length) { savedBuild = reqBuildId; assetsCount = jsFiles.length; }
           }
+          if (!savedBuild) throw new Error(`Build ${reqBuildId} is not save-ready — no compiled assets`);
+        } else {
+          const builds = fs.readdirSync(buildsDir);
+          for (const b of builds) {
+            const indexHtml = path.join(buildsDir, b, 'index.html');
+            const assetsDir = path.join(buildsDir, b, 'assets');
+            if (fs.existsSync(indexHtml) && fs.existsSync(assetsDir)) {
+              const jsFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
+              if (jsFiles.length) { savedBuild = b; assetsCount = jsFiles.length; break; }
+            }
+          }
+          if (!savedBuild) throw new Error('No successful build found → save-ready check failed');
         }
-        if (!savedBuild) throw new Error('No successful build found → save-ready check failed');
         const saveReadyAssets = collectBuildAssetMetrics(savedBuild);
         res.json({
           status: 'pass', duration_ms: ms(),
