@@ -16,6 +16,8 @@ import {
   Clock, BarChart2, ChevronDown, ChevronRight, Download,
 } from 'lucide-react';
 import { BenchmarkDashboard } from '../../components/BenchmarkDashboard';
+import { ConfigService } from '../../services/ConfigService';
+import { Orchestrator } from '../../services/Orchestrator';
 
 // ── Step definitions ───────────────────────────────────────────────────────────
 
@@ -29,6 +31,7 @@ const STEP_DEFS = [
   { id: 'preview-mounted',   label: 'Preview Mounted',   desc: 'main.tsx содержит postMessage({type: preview-mounted})' },
   { id: 'save-ready',        label: 'Save Ready',        desc: 'Compile вернул success: true (save-ready state)' },
   { id: 'no-premature-save', label: 'No Premature Save', desc: 'Проект не создан до явного save' },
+  { id: 'architect-real',    label: 'Architect Real',    desc: 'Реальный LLM вызов — fileTree ≥5 файлов, реальные токены' },
 ] as const;
 
 type StepId = typeof STEP_DEFS[number]['id'];
@@ -47,6 +50,7 @@ interface PreviewHttpDetails  { httpStatus: number; contentLength: number; conte
 interface PreviewMtdDetails   { lineNumber: number; line: string }
 interface SaveReadyDetails    { compileSuccess: boolean; buildId: string; assetsCount: number }
 interface NoPremSaveDetails   { projectsBeforeSave: number; totalSessions: number; correct: boolean }
+interface ArchRealDetails    { appName: string; skeleton: string; fileTree: Record<string, string>; contextContract?: string; dataModel?: string; model: string; fileCount: number }
 interface TestLlmMetrics      { model: string; prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd?: number }
 interface TestOutputMetrics   { file_count?: number; total_bytes?: number; asset_count?: number; build_size_kb?: number; preview_url?: string; files?: string[] }
 
@@ -113,13 +117,144 @@ function clearQualityPanelHistory(): void {
 
 // ── API helper ─────────────────────────────────────────────────────────────────
 
-async function callTestApi(testId: string): Promise<TestApiResult> {
-  const resp = await fetch(`/api/quality/test/${testId}`);
+async function callTestApi(testId: string, buildId?: string): Promise<TestApiResult> {
+  const url = buildId
+    ? `/api/quality/test/${testId}?buildId=${encodeURIComponent(buildId)}`
+    : `/api/quality/test/${testId}`;
+  const resp = await fetch(url);
   if (!resp.ok) {
     const text = await resp.text().catch(() => resp.statusText);
     return { status: 'fail', duration_ms: 0, error: `HTTP ${resp.status}: ${text}` };
   }
   return (await resp.json()) as TestApiResult;
+}
+
+// ── Architect Real — direct LLM call (frontend-only, no backend proxy) ─────────
+
+async function runArchitectRealTest(): Promise<TestApiResult> {
+  const t0 = Date.now();
+  const ms = () => Date.now() - t0;
+
+  let modelId: string;
+  let apiKey: string;
+  let endpoint: string;
+  let normalizedModelId: string;
+
+  try {
+    modelId = ConfigService.resolveModel('primary');
+    if (!modelId) throw new Error('Model not configured for primary slot. Open Settings → Agents.');
+    apiKey = ConfigService.getKeyForAgent('primary');
+    if (!apiKey) throw new Error('API key missing for primary slot. Open Settings → Providers.');
+    const agentCfg = ConfigService.getAgentConfig('agent_primary');
+    const provider = agentCfg.provider || 'openrouter';
+    endpoint = Orchestrator.getEndpoint(provider);
+    normalizedModelId = Orchestrator.normalizeModelId(modelId, endpoint);
+  } catch (err: unknown) {
+    return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const SYSTEM_PROMPT = `You are an app architect. Return a JSON object — no markdown fences, no extra text.
+Schema:
+{
+  "appName": "<name derived from user prompt>",
+  "skeleton": "mobile-app",
+  "fileTree": {
+    "src/path/file.tsx": "one sentence: what this file does and which data it uses"
+  },
+  "contextContract": "description of shared AppContext/state contract",
+  "dataModel": "key types e.g. Habit: { id: string, name: string, ... }"
+}
+Rules:
+- fileTree must contain ONLY delta files (files the coder will create from scratch)
+- Do NOT include skeleton files already provided: src/App.tsx, src/main.tsx, src/context/AppContext.tsx, src/hooks/useLocalStorage.ts, src/components/ui/*, src/components/BottomTabs.tsx, src/lib/cn.ts
+- Minimum 5 delta files required
+- Each fileTree value: exactly one sentence describing purpose + data used`;
+
+  const USER_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
+
+  let resp: Response;
+  try {
+    resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.origin,
+      },
+      body: JSON.stringify({
+        model: normalizedModelId,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user',   content: USER_PROMPT },
+        ],
+        stream: false,
+        temperature: 0.3,
+        max_tokens: 1200,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (err: unknown) {
+    return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
+  }
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    return { status: 'fail', duration_ms: ms(), error: `LLM ${resp.status}: ${errText.slice(0, 300)}` };
+  }
+
+  let raw: unknown;
+  try {
+    raw = await resp.json();
+  } catch (err: unknown) {
+    return { status: 'fail', duration_ms: ms(), error: `Failed to parse LLM HTTP response as JSON: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  const content: string = (raw as any)?.choices?.[0]?.message?.content ?? '';
+  const usageRaw = (raw as any)?.usage;
+  const llmModel: string = typeof (raw as any)?.model === 'string' ? (raw as any).model : normalizedModelId;
+
+  let plan: Record<string, unknown>;
+  try {
+    // Strip markdown fences if present
+    const stripped = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    plan = JSON.parse(stripped) as Record<string, unknown>;
+  } catch {
+    return { status: 'fail', duration_ms: ms(), error: `LLM returned non-JSON: ${content.slice(0, 200)}` };
+  }
+
+  const fileTree = (plan.fileTree ?? {}) as Record<string, string>;
+  const fileCount = Object.keys(fileTree).length;
+  if (fileCount < 5) {
+    return { status: 'fail', duration_ms: ms(), error: `fileTree too small: ${fileCount} files (need ≥5). Got: ${Object.keys(fileTree).join(', ')}` };
+  }
+
+  const promptTokens: number = typeof usageRaw?.prompt_tokens === 'number' ? usageRaw.prompt_tokens : 0;
+  const completionTokens: number = typeof usageRaw?.completion_tokens === 'number' ? usageRaw.completion_tokens : 0;
+  const totalTokens: number = typeof usageRaw?.total_tokens === 'number'
+    ? usageRaw.total_tokens
+    : promptTokens + completionTokens;
+  const costUsd: number | undefined =
+    typeof usageRaw?.cost_usd === 'number' ? usageRaw.cost_usd :
+    typeof usageRaw?.total_cost === 'number' ? usageRaw.total_cost :
+    typeof usageRaw?.cost === 'number' ? usageRaw.cost :
+    undefined;
+
+  return {
+    status: 'pass',
+    duration_ms: ms(),
+    summary: `${fileCount} файлов · реальный LLM output`,
+    llm: { model: llmModel, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: totalTokens, cost_usd: costUsd },
+    output: { file_count: fileCount, files: Object.keys(fileTree) },
+    details: {
+      appName:         String(plan.appName ?? ''),
+      skeleton:        String(plan.skeleton ?? ''),
+      fileTree,
+      contextContract: typeof plan.contextContract === 'string' ? plan.contextContract : undefined,
+      dataModel:       typeof plan.dataModel === 'string' ? plan.dataModel : undefined,
+      model:           llmModel,
+      fileCount,
+    } as unknown as Record<string, unknown>,
+  };
 }
 
 // ── ZIP download helper ────────────────────────────────────────────────────────
@@ -516,6 +651,42 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
     );
   }
 
+  if (testId === 'architect-real') {
+    const d = details as unknown as ArchRealDetails;
+    const deltaEntries = Object.entries(d.fileTree ?? {});
+    const fileRow = (p: string, purpose: string) => (
+      <div key={p} style={{ display: 'flex', flexDirection: 'column', paddingLeft: 12, marginBottom: 4 }}>
+        <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#60a5fa' }}>{p}</span>
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', paddingLeft: 4 }}>{purpose}</span>
+      </div>
+    );
+    return renderPanel(
+      <>
+        <KV label="appName"  value={<span style={{ color: '#e2c08d' }}>{`"${d.appName}"`}</span>} />
+        <KV label="skeleton" value={<span style={{ color: '#e2c08d' }}>{`"${d.skeleton}"`}</span>} />
+        <KV label="model"    value={<span style={{ color: '#a78bfa' }}>{d.model}</span>} />
+        {d.dataModel && (
+          <KV label="dataModel" value={
+            <code style={{ color: '#a78bfa', fontSize: 10, background: 'rgba(167,139,250,0.08)', padding: '1px 5px', borderRadius: 3 }}>
+              {d.dataModel}
+            </code>
+          } />
+        )}
+        {d.contextContract && (
+          <KV label="contextContract" value={
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>{d.contextContract}</span>
+          } />
+        )}
+        <div style={{ marginTop: 10, marginBottom: 4, padding: '2px 6px', background: 'rgba(96,165,250,0.06)', borderRadius: 3 }}>
+          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(96,165,250,0.7)' }}>
+            ✏️ delta files ({deltaEntries.length}) — реальный LLM output
+          </span>
+        </div>
+        {deltaEntries.map(([p, desc]) => fileRow(p, desc))}
+      </>
+    );
+  }
+
   // fallback
   return renderPanel(
     <>
@@ -686,6 +857,8 @@ function FlowChainTab() {
     try { return localStorage.getItem(LS_LAST_RUN_KEY); } catch { return null; }
   });
   const [brokenAt, setBrokenAt] = useState<string | null>(null);
+  // Shared buildId for Code Delta → Compile → Preview HTTP → Save Ready chain
+  const qualityBuildIdRef = React.useRef<string | null>(null);
 
   // Restore last run status from localStorage (no details — run again to see them)
   useEffect(() => {
@@ -729,7 +902,27 @@ function FlowChainTab() {
     });
     setExpanded(prev => ({ ...prev, [id]: false }));
     try {
-      const result = await callTestApi(id);
+      let result: TestApiResult;
+
+      if (id === 'architect-real') {
+        // Frontend-only LLM call — no backend proxy
+        result = await runArchitectRealTest();
+      } else {
+        // For chain tests, pass the shared buildId from Code Delta
+        const chainBuildId = (id === 'compile' || id === 'preview-http' || id === 'save-ready')
+          ? (qualityBuildIdRef.current ?? undefined)
+          : undefined;
+        result = await callTestApi(id, chainBuildId);
+      }
+
+      // After Code Delta succeeds, capture its buildId for downstream chain tests
+      if (id === 'code-delta' && result.status === 'pass') {
+        const bid = (result.details as Record<string, unknown> | undefined)?.buildId;
+        if (typeof bid === 'string') {
+          qualityBuildIdRef.current = bid;
+        }
+      }
+
       setOneState(id, {
         status:     result.status,
         duration_ms: result.duration_ms,
@@ -765,6 +958,7 @@ function FlowChainTab() {
     setRunAllActive(true);
     setBrokenAt(null);
     setExpanded(makeInitExpanded());
+    qualityBuildIdRef.current = null;
     const now = new Date().toISOString();
     setLastRunAt(now);
     try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
