@@ -134,6 +134,11 @@ function readMode(): ModeConfig {
     if (fs.existsSync(MODE_FILE)) {
       const parsed = JSON.parse(fs.readFileSync(MODE_FILE, 'utf8')) as Partial<ModeConfig>;
       if (parsed.provider === 'off' || parsed.provider === 'claude' || parsed.provider === 'codex') {
+        if (parsed.provider === 'off') {
+          // off is only valid when explicitly set by dev-agent toggle
+          // auto-reset to standard on fresh start
+          return writeMode('claude');
+        }
         return {
           provider: parsed.provider,
           claudeMode: parsed.provider === 'claude',
