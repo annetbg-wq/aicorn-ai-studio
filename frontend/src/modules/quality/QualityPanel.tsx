@@ -38,7 +38,7 @@ type TabId  = 'flow-chain' | 'benchmark';
 
 interface CanaryDetails       { httpStatus: number; response: { status: string; provider: string } }
 interface IdeaDetails         { prompt: string; length: number; valid: boolean }
-interface ArchDetails         { appName: string; skeleton: string; fileTree: Record<string, string>; dataModel?: string }
+interface ArchDetails         { appName: string; skeleton: string; skeletonFiles?: Record<string, string>; fileTree: Record<string, string>; contextContract?: string; dataModel?: string }
 interface CodeDeltaFile       { path: string; size: number; content: string }
 interface CodeDeltaDetails    { buildId: string; files: CodeDeltaFile[] }
 interface CompileAsset        { name: string; size: number }
@@ -270,7 +270,14 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
 
   if (testId === 'architecture') {
     const d = details as unknown as ArchDetails;
-    const fileEntries = Object.entries(d.fileTree ?? {});
+    const skeletonEntries = Object.entries(d.skeletonFiles ?? {});
+    const deltaEntries    = Object.entries(d.fileTree ?? {});
+    const fileRow = (path: string, purpose: string, color: string) => (
+      <div key={path} style={{ display: 'flex', flexDirection: 'column', paddingLeft: 12, marginBottom: 4 }}>
+        <span style={{ fontSize: 11, fontFamily: 'monospace', color }}>{path}</span>
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', paddingLeft: 4 }}>{purpose}</span>
+      </div>
+    );
     return renderPanel(
       <>
         <KV label="appName"  value={<span style={{ color: '#e2c08d' }}>{`"${d.appName}"`}</span>} />
@@ -282,17 +289,29 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
             </code>
           } />
         )}
-        <div style={{ marginTop: 6, marginBottom: 4 }}>
-          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>
-            fileTree ({fileEntries.length} delta files):
+        {d.contextContract && (
+          <KV label="contextContract" value={
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>{d.contextContract}</span>
+          } />
+        )}
+
+        {skeletonEntries.length > 0 && (
+          <>
+            <div style={{ marginTop: 10, marginBottom: 4, padding: '2px 6px', background: 'rgba(255,255,255,0.04)', borderRadius: 3 }}>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>
+                🔒 skeleton provided ({skeletonEntries.length} files) — import freely, do NOT overwrite
+              </span>
+            </div>
+            {skeletonEntries.map(([p, desc]) => fileRow(p, desc, 'rgba(255,255,255,0.3)'))}
+          </>
+        )}
+
+        <div style={{ marginTop: 10, marginBottom: 4, padding: '2px 6px', background: 'rgba(96,165,250,0.06)', borderRadius: 3 }}>
+          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(96,165,250,0.7)' }}>
+            ✏️ delta files ({deltaEntries.length}) — architect defines, coder writes
           </span>
         </div>
-        {fileEntries.map(([path, purpose]) => (
-          <div key={path} style={{ display: 'flex', flexDirection: 'column', paddingLeft: 12, marginBottom: 5 }}>
-            <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#60a5fa' }}>{path}</span>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', paddingLeft: 4 }}>{purpose}</span>
-          </div>
-        ))}
+        {deltaEntries.map(([p, desc]) => fileRow(p, desc, '#60a5fa'))}
       </>
     );
   }

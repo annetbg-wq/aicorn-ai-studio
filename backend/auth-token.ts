@@ -1507,13 +1507,38 @@ const QUALITY_FIXTURES = {
   appName: 'HabitFlow',
   architectPlan: {
     skeleton: 'mobile-app',
-    fileTree: {
-      'src/pages/Home.tsx':       'Главный экран: список привычек, кнопка добавить, BottomTabs внизу',
-      'src/pages/Progress.tsx':   'Статистика: стрики, процент выполнения за неделю, график',
-      'src/pages/Profile.tsx':    'Профиль: имя, цель, кнопка сброса данных',
-      'src/hooks/useHabits.ts':   'CRUD привычек через useLocalStorage. Поля: id, name, completedDates[]',
-      'src/config/app.ts':        'APP_CONFIG + STORAGE_KEYS — экспортировать STORAGE_KEYS',
+    // files already provided by the skeleton — coder can import but must NOT overwrite
+    skeletonFiles: {
+      'src/App.tsx':                        'Root router — OnboardingGuard + BottomTabs, routing pre-configured',
+      'src/main.tsx':                       'Entry point — locked, do NOT modify',
+      'src/index.css':                      'Global CSS + design tokens — locked',
+      'src/config/routes.ts':               'Route paths constants — locked',
+      'src/config/theme.ts':                'Design tokens & colors — locked',
+      'src/components/BottomTabs.tsx':      'Bottom navigation bar — reads src/config/navigation.ts',
+      'src/components/ErrorBoundary.tsx':   'Error boundary wrapper — locked',
+      'src/components/LoadingScreen.tsx':   'Full-screen loading state — locked',
+      'src/components/EmptyState.tsx':      'Empty state placeholder — locked',
+      'src/components/PaywallSheet.tsx':    'Paywall bottom-sheet — locked',
+      'src/components/ui/*':               'UI primitives: Button, Card, Input, Badge, Avatar, Dialog, Select, Sheet, Skeleton, Tabs, Progress',
+      'src/hooks/useLocalStorage.ts':       'Generic localStorage hook — locked, use via useApp()',
+      'src/hooks/useTheme.ts':              'Theme hook — locked',
+      'src/context/AppContext.tsx':         'App state — useApp() → isOnboarded, profile, completeOnboarding(), updateProfile()',
+      'src/lib/cn.ts':                      'className utility — locked',
     },
+    // delta files — architect defines, coder writes from scratch
+    fileTree: {
+      'src/config/app.ts':        'APP_CONFIG.name="HabitFlow" + STORAGE_KEYS — must export STORAGE_KEYS',
+      'src/config/navigation.ts': 'BottomTabs nav items: Home, Create, Progress, Profile',
+      'src/data/types.ts':        'Habit: { id: string, name: string, icon: string, completedDates: string[] }',
+      'src/data/seed.ts':         'SEED_HABITS — 3 sample habits for first launch',
+      'src/pages/Onboarding.tsx': 'Onboarding wizard — collect name+goal, call completeOnboarding() on submit',
+      'src/pages/Home.tsx':       'Home feed — habit list, mark-done today, add button → /create',
+      'src/pages/Detail.tsx':     'Habit detail — streak counter, calendar heat-map, delete action',
+      'src/pages/Create.tsx':     'Create habit form — name + icon picker, save via useHabits hook',
+      'src/pages/Progress.tsx':   'Progress stats — weekly completion %, streak leaderboard',
+      'src/pages/Profile.tsx':    'Profile — display name+goal, reset data button, theme toggle',
+    },
+    contextContract: 'useApp() from @/context/AppContext — NEVER useLocalStorage("onboarding") directly',
     dataModel: 'Habit: { id: string, name: string, icon: string, completedDates: string[] }',
   },
   codeOutput: {
@@ -1558,20 +1583,23 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         return;
       }
 
-      // 3. Architecture — fixture plan has skeleton and fileTree
+      // 3. Architecture — full prototype snapshot: skeleton files + delta fileTree
       case 'architecture': {
         const plan = QUALITY_FIXTURES.architectPlan;
         if (!plan.skeleton) throw new Error('Plan missing: skeleton');
-        const treeKeys = Object.keys(plan.fileTree);
-        if (!treeKeys.length) throw new Error('Plan missing: fileTree entries');
+        const deltaKeys = Object.keys(plan.fileTree);
+        const skeletonKeys = Object.keys(plan.skeletonFiles);
+        if (!deltaKeys.length) throw new Error('Plan missing: fileTree entries');
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: `skeleton: ${plan.skeleton}, ${treeKeys.length} delta file(s)`,
+          output: `skeleton: ${plan.skeleton}, ${skeletonKeys.length} provided + ${deltaKeys.length} delta`,
           details: {
-            appName:   QUALITY_FIXTURES.appName,
-            skeleton:  plan.skeleton,
-            fileTree:  { ...plan.fileTree },
-            dataModel: plan.dataModel,
+            appName:       QUALITY_FIXTURES.appName,
+            skeleton:      plan.skeleton,
+            skeletonFiles: { ...plan.skeletonFiles },
+            fileTree:      { ...plan.fileTree },
+            contextContract: plan.contextContract,
+            dataModel:     plan.dataModel,
           },
         });
         return;
