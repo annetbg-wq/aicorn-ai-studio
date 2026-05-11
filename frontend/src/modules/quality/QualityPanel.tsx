@@ -132,6 +132,21 @@ async function downloadFixtureZip(files: CodeDeltaFile[]): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+function downloadQualityReport(payload: unknown): void {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: 'application/json;charset=utf-8',
+  });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `quality-report-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ── Formatting helpers ─────────────────────────────────────────────────────────
 
 function fmtSize(bytes: number): string {
@@ -158,7 +173,7 @@ const ROOT_S: React.CSSProperties = {
   display: 'flex', flexDirection: 'column',
   height: '100%', width: '100%',
   background: '#06060a', color: 'rgba(255,255,255,0.85)',
-  fontFamily: 'inherit', overflow: 'hidden',
+  fontFamily: 'inherit', overflow: 'hidden', minHeight: 0,
 };
 
 const HEADER_S: React.CSSProperties = {
@@ -172,6 +187,7 @@ const BODY_S: React.CSSProperties = {
   flex: 1, overflowY: 'auto',
   padding: '16px 20px',
   display: 'flex', flexDirection: 'column', gap: 16,
+  minHeight: 0,
 };
 
 // ── Verdict badge ──────────────────────────────────────────────────────────────
@@ -587,6 +603,7 @@ function FlowChainTab() {
   }, []);
 
   const anyRunning = runAllActive || Object.values(testStates).some(s => s.status === 'running');
+  const hasReportData = Object.values(testStates).some(s => s.status !== 'idle');
 
   const setOneState = useCallback((id: StepId, patch: Partial<TestState>) => {
     setTestStates(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -670,12 +687,33 @@ function FlowChainTab() {
       })
     : null;
 
+  const handleDownloadReport = useCallback(() => {
+    const report = {
+      generatedAt: new Date().toISOString(),
+      lastRunAt,
+      verdict,
+      passCount,
+      failCount,
+      brokenAt,
+      tests: STEP_DEFS.map(def => ({
+        id: def.id,
+        label: def.label,
+        description: def.desc,
+        fixtureBacked: FIXTURE_BACKED_TESTS.has(def.id as StepId),
+        current: testStates[def.id as StepId],
+        history: loadTestHistory(def.id),
+      })),
+    };
+    downloadQualityReport(report);
+  }, [brokenAt, failCount, lastRunAt, passCount, testStates, verdict]);
+
   return (
     <div style={{
       background: 'rgba(255,255,255,0.03)',
       border: '1px solid rgba(255,255,255,0.07)',
       borderRadius: 12, overflow: 'hidden',
       display: 'flex', flexDirection: 'column',
+      flex: 1, minHeight: 0,
     }}>
       {/* Panel header */}
       <div style={{
@@ -723,11 +761,28 @@ function FlowChainTab() {
           >
             Clear
           </button>
+          <button
+            onClick={handleDownloadReport}
+            disabled={anyRunning || !hasReportData}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '5px 12px', borderRadius: 7,
+              border: '1px solid rgba(96,165,250,0.24)',
+              background: anyRunning || !hasReportData ? 'rgba(255,255,255,0.03)' : 'rgba(96,165,250,0.08)',
+              color: anyRunning || !hasReportData ? 'rgba(255,255,255,0.2)' : '#93c5fd',
+              fontSize: 12, fontWeight: 600,
+              cursor: anyRunning || !hasReportData ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            <Download size={12} />
+            Report
+          </button>
         </div>
       </div>
 
       {/* Test rows */}
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {STEP_DEFS.map((def, idx) => (
           <div
             key={def.id}
