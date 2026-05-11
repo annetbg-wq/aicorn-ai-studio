@@ -28,6 +28,7 @@ import {
   type SkeletonId,
   SKELETON_REGISTRY,
   buildSkeletonPromptBlock,
+  getSkeletonInstalledFiles,
   isProtectedSkeletonFile,
 } from './SkeletonRegistry';
 import { previewController } from './PreviewController';
@@ -102,14 +103,19 @@ export interface ProtoPipelineResult {
 
 export interface ArchitectPlan {
   appName:     string;
+  skeleton?:   SkeletonId;
   summary:     string;
   /**
-   * Delta files the coder MUST produce (relative to preview-workspace/src/).
-   * Skeleton-provided files MUST NOT appear here.
-   * Each entry carries `purpose` (what the file owns) and `imports`
-   * (skeleton-provided or sibling symbols the coder should import).
+   * Raw architect response: delta-only file tree keyed by file path.
+   * Keys may come back as "src/..." from the LLM and are normalized later for
+   * the coder / compiler handoff.
    */
-  deltaFiles:  Array<{ path: string; purpose: string; imports: string[] }>;
+  fileTree:    Record<string, string>;
+  /**
+   * Delta files the coder MUST produce (relative to preview-workspace/src/).
+   * Derived from fileTree so downstream coder / apply logic can stay path-safe.
+   */
+  deltaFiles:  Array<{ path: string; purpose: string }>;
   /** Optional pages the coder should wire into the router. */
   pages?:      Array<{ path: string; name: string; file: string; purpose: string }>;
   /** Free-form notes routed into the coder system prompt. */
@@ -120,6 +126,8 @@ export interface ArchitectPlan {
    * coder system prompt.
    */
   contextContract?: string;
+  /** Optional high-level data shape the app should use. */
+  dataModel?:  string;
 }
 
 // ── Step labels (RU) ───────────────────────────────────────────
@@ -466,7 +474,12 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     try {
       const repaired = await runRepair({
         prompt:      config.prompt,
-        plan:        { appName: 'app', summary: '', deltaFiles: Object.keys(config.currentFiles).map(p => ({ path: p, purpose: '', imports: [] })) },
+        plan:        {
+          appName: 'app',
+          summary: '',
+          fileTree: Object.fromEntries(Object.keys(config.currentFiles).map(p => [p, 'Repair existing delta file'])),
+          deltaFiles: Object.keys(config.currentFiles).map(p => ({ path: p, purpose: 'Repair existing delta file' })),
+        },
         skeletonId:  config.skeletonId,
         currentFiles: config.currentFiles,
         errorLog:    config.errorLog,
@@ -525,57 +538,96 @@ async function runArchitect(input: {
   designCtx?: DesignContext;
 }): Promise<ArchitectPlan> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
-  const lockedList = skeleton.lockedPrefixes.map(p => `  - ${p}`).join('\n');
+  const installedFiles = getSkeletonInstalledFiles(input.skeletonId);
+  const routeFiles = skeleton.deltaFiles
+    .filter(path => path.startsWith('src/pages/'))
+    .sort((a, b) => a.localeCompare(b));
+  const explicitExisting = new Set<string>([
+    'src/App.tsx',
+    'src/main.tsx',
+    'src/config/theme.ts',
+    'src/lib/cn.ts',
+    ...installedFiles,
+    ...routeFiles,
+  ]);
+  const alreadyExistsLines = [
+    `- src/components/ui/* (${skeleton.uiPrimitives.join(', ') || 'existing UI primitives'})`,
+    ...skeleton.providedComponents
+      .map(name => `src/components/${name}.tsx`)
+      .filter(path => explicitExisting.has(path))
+      .sort((a, b) => a.localeCompare(b))
+      .map(path => `- ${path}`),
+    ...skeleton.providedHooks
+      .map(name => `src/hooks/${name}.ts`)
+      .filter(path => explicitExisting.has(path))
+      .sort((a, b) => a.localeCompare(b))
+      .map(path => `- ${path}`),
+    explicitExisting.has('src/context/AppContext.tsx')
+      ? '- src/context/AppContext.tsx (provides useApp(), isOnboarded, completeOnboarding)'
+      : '',
+    explicitExisting.has('src/config/theme.ts')
+      ? '- src/config/theme.ts'
+      : '',
+    explicitExisting.has('src/lib/cn.ts')
+      ? '- src/lib/cn.ts'
+      : '',
+    explicitExisting.has('src/main.tsx')
+      ? '- src/main.tsx'
+      : '',
+    explicitExisting.has('src/App.tsx')
+      ? '- src/App.tsx (routing already configured)'
+      : '',
+    ...routeFiles.map(path => `- ${path} (already routed by the skeleton)`),
+  ].filter(Boolean).join('\n');
   const providedList = [
     ...skeleton.providedComponents.map(c => `component:${c}`),
     ...skeleton.providedHooks.map(h => `hook:${h}`),
     ...skeleton.uiPrimitives.map(u => `ui:${u}`),
   ].join(', ');
-  // Page slots the skeleton's router already wires — the coder MUST overwrite
-  // these so the user's app appears (otherwise the default skeleton screens
-  // — onboarding, etc. — are what the user will see).
-  const slotList = skeleton.deltaFiles
-    .filter(p => p.startsWith('src/pages/'))
-    .map(p => `  - ${p.replace(/^src\//, '')}`)
-    .join('\n') || '  (no page slots)';
+  const installedList = installedFiles.length > 0
+    ? installedFiles.map(path => `- ${path}`).join('\n')
+    : '- (none)';
 
   const system = `You are a senior product architect. The user wants a React + Tailwind app built on top of an EXISTING SKELETON.
 
 SKELETON: ${skeleton.label} (${skeleton.id})
 NAVIGATION: ${skeleton.navigation}
-ALREADY PROVIDED (do not recreate): ${providedList || '(none listed)'}
-LOCKED PATHS (do not write to these):
-${lockedList || '  (none)'}
+ALREADY PROVIDED (import/reuse, do not recreate): ${providedList || '(none listed)'}
+ALREADY EXISTS (do not include these in fileTree):
+${alreadyExistsLines || '- (none)'}
 
-PAGE SLOTS the skeleton router renders — your delta MUST OVERWRITE the slots this app uses, otherwise the user will see the skeleton's default screens (e.g. onboarding) instead of their app:
-${slotList}
+SKELETON SNAPSHOT (already on disk; use this to avoid duplicates):
+${installedList}
 ${input.designCtx ? archetypeContextForArchitect(input.designCtx) : ''}
-Your job: produce a JSON plan listing the DELTA files the coder must write to make the user's app appear. The plan MUST overwrite the page slots the app uses (pick from the list above) plus any extra components/hooks needed. Skeleton infrastructure files (router, providers, layout shell, theme tokens, base UI primitives) MUST NOT appear in deltaFiles.
+YOUR TASK: Return fileTree with ONLY the delta files this specific app needs.
+The skeleton is already installed. Do NOT include files that already exist in the skeleton.
+Typical delta for a mobile app: 2-4 pages, 1-3 hooks, 1 config update.
+Each fileTree value must be one sentence saying what the file does and which data / state it uses.
 
 Return ONLY valid JSON matching this schema:
 {
   "appName":  "<short name>",
+  "skeleton": "${skeleton.id}",
   "summary":  "<one-sentence elevator pitch>",
-  "deltaFiles": [
-    {
-      "path":    "pages/<Page>.tsx",
-      "purpose": "<what this file owns — one sentence>",
-      "imports": ["<SkeletonHook | SkeletonComponent | sibling file the coder must import>"]
-    }
-  ],
+  "fileTree": {
+    "src/pages/Home.tsx": "Main screen: what it shows and which state/data it uses",
+    "src/hooks/useSomething.ts": "Hook: what it owns and which data it persists"
+  },
   "pages": [
     { "path": "/dashboard", "name": "Dashboard", "file": "pages/Dashboard.tsx", "purpose": "..." }
   ],
   "contextContract": "<optional: cross-file contract, e.g. which hook/context to use for shared state>",
+  "dataModel": "<optional: compact entity shape, e.g. Habit: { id, name, completedDates[] }>",
   "notes": ["any cross-cutting requirement worth telling the coder"]
 }
 
 RULES
-- All paths are relative to preview-workspace/src/ — no leading "src/" or "/".
-- 3 to 12 deltaFiles. Always include the page slots the user's app needs.
-- Wire pages through the skeleton router only — do not invent a new App.tsx unless the skeleton has none.
-- Each deltaFile.imports MUST list only skeleton-provided hooks/components (from ALREADY PROVIDED above), "@/components/ui/*" primitives, or sibling files that appear elsewhere in deltaFiles. Do NOT invent imports.
+- fileTree keys may be returned as "src/..." paths, but they must describe ONLY delta files the coder should create.
+- NEVER include App.tsx, main.tsx, AppContext, theme.ts, UI primitives, or any file listed under ALREADY EXISTS.
+- Prefer product-specific pages/hooks/components/config over infrastructure files.
 - Use contextContract to describe shared state contracts (e.g. "use useApp() from AppContext, NOT useLocalStorage directly") whenever multiple files share state.
+- Use dataModel for the canonical domain entity / collection shape.
+- Keep pages[] optional; include it only if route labels / route mapping help the coder.
 - Output JSON only. No markdown fences. No prose.`;
 
   const raw = await callOnce({
@@ -592,44 +644,53 @@ RULES
     throw new Error('Architect returned non-JSON output');
   }
   const obj = parsed as Record<string, unknown>;
-  const deltaRaw = Array.isArray(obj.deltaFiles) ? obj.deltaFiles : [];
-  const deltaFiles = deltaRaw
+  const fileTreeRaw = obj.fileTree && typeof obj.fileTree === 'object' && !Array.isArray(obj.fileTree)
+    ? obj.fileTree as Record<string, unknown>
+    : {};
+  const normalizedFileTree = Object.fromEntries(
+    Object.entries(fileTreeRaw)
+      .map(([path, purpose]) => {
+        const normalizedPath = normalizeArchitectTreeKey(path);
+        const normalizedPurpose = typeof purpose === 'string' ? purpose.trim() : '';
+        if (!normalizedPath || !normalizedPurpose) return null;
+        return [normalizedPath, normalizedPurpose] as const;
+      })
+      .filter((entry): entry is readonly [string, string] => entry !== null),
+  );
+  const legacyDeltaRaw = Array.isArray(obj.deltaFiles) ? obj.deltaFiles : [];
+  const legacyDeltaFiles = legacyDeltaRaw
     .map((d) => {
       if (!d || typeof d !== 'object') return null;
       const dx = d as Record<string, unknown>;
       const path = typeof dx.path === 'string' ? normaliseDeltaPath(dx.path) : '';
       if (!path) return null;
-      const purpose = typeof dx.purpose === 'string' ? dx.purpose : '';
-      const imports = Array.isArray(dx.imports)
-        ? dx.imports.filter((i): i is string => typeof i === 'string')
-        : [];
-      return { path, purpose, imports };
+      const purpose = typeof dx.purpose === 'string' ? dx.purpose.trim() : '';
+      return purpose ? { path, purpose } : null;
     })
-    .filter((d): d is { path: string; purpose: string; imports: string[] } => d !== null);
+    .filter((d): d is { path: string; purpose: string } => d !== null);
+  const fileTree = Object.keys(normalizedFileTree).length > 0
+    ? normalizedFileTree
+    : Object.fromEntries(legacyDeltaFiles.map(file => [file.path, file.purpose]));
+  const deltaFiles = Object.entries(fileTree)
+    .map(([path, purpose]) => ({ path, purpose }))
+    .filter(file => !installedFiles.includes(`src/${file.path}`));
 
   if (deltaFiles.length === 0) {
-    throw new Error('Architect plan contains no usable deltaFiles');
+    throw new Error('Architect plan contains no usable delta fileTree entries');
   }
-
-  // Safety net: if architect plan is suspiciously thin (e.g. just a single
-  // hook), inject the skeleton's primary page slot so the user still sees
-  // a tailored screen instead of the default skeleton onboarding.
-  const hasAnyPage = deltaFiles.some(d => /(^|\/)pages\//.test(d.path));
-  if (!hasAnyPage) {
-    const firstSlot = skeleton.deltaFiles
-      .map(p => p.replace(/^src\//, ''))
-      .find(p => p.startsWith('pages/') && !/Onboarding/i.test(p));
-    if (firstSlot) {
-      deltaFiles.push({
-        path:    firstSlot,
-        purpose: 'Primary screen for the user-requested app (auto-injected)',
-        imports: [],
-      });
-      input.onLog(
-        `[architect] plan had no page slot — injected ${firstSlot} as primary screen`,
-        'warn',
-      );
-    }
+  const duplicateSkeletonFiles = Object.keys(fileTree)
+    .filter(path => installedFiles.includes(`src/${path}`));
+  if (duplicateSkeletonFiles.length > 0) {
+    input.onLog(
+      `[architect] dropped ${duplicateSkeletonFiles.length} skeleton file(s) from fileTree: ${duplicateSkeletonFiles.join(', ')}`,
+      'warn',
+    );
+  }
+  if (deltaFiles.length < Object.keys(fileTree).length) {
+    input.onLog(
+      `[architect] kept ${deltaFiles.length} delta file(s) after excluding already-installed skeleton files`,
+      'info',
+    );
   }
 
   const pagesRaw = Array.isArray(obj.pages) ? obj.pages : [];
@@ -647,13 +708,16 @@ RULES
 
   return {
     appName:  typeof obj.appName === 'string' ? obj.appName : 'App',
+    skeleton: typeof obj.skeleton === 'string' ? obj.skeleton as SkeletonId : input.skeletonId,
     summary:  typeof obj.summary === 'string' ? obj.summary : '',
+    fileTree,
     deltaFiles,
     pages,
     notes: Array.isArray(obj.notes)
       ? obj.notes.filter((n): n is string => typeof n === 'string')
       : [],
     contextContract: typeof obj.contextContract === 'string' ? obj.contextContract : undefined,
+    dataModel: typeof obj.dataModel === 'string' ? obj.dataModel : undefined,
   };
 }
 
@@ -673,24 +737,27 @@ async function runCoder(input: {
     plan: {
       appName: input.plan.appName,
       summary: input.plan.summary,
+      fileTree: input.plan.fileTree,
       deltaFiles: input.plan.deltaFiles,
       pages: input.plan.pages ?? [],
       notes: input.plan.notes ?? [],
+      dataModel: input.plan.dataModel ?? '',
     },
   });
   const fileList = input.plan.deltaFiles
-    .map(d => {
-      const importHint = d.imports && d.imports.length > 0
-        ? `  // imports: ${d.imports.join(', ')}`
-        : '';
-      return `  - ${d.path}${d.purpose ? `  // ${d.purpose}` : ''}${importHint}`;
-    })
+    .map(d => `  - ${d.path}${d.purpose ? `  // ${d.purpose}` : ''}`)
+    .join('\n');
+  const fileTreeBlock = Object.entries(input.plan.fileTree)
+    .map(([path, purpose]) => `  - ${path}${purpose ? `  // ${purpose}` : ''}`)
     .join('\n');
   const pageList = input.plan.pages && input.plan.pages.length > 0
     ? input.plan.pages.map(p => `  - ${p.path}  → ${p.file}  (${p.purpose})`).join('\n')
     : '  (none — single-screen app)';
   const notesBlock = input.plan.notes && input.plan.notes.length > 0
     ? `\nADDITIONAL REQUIREMENTS\n${input.plan.notes.map(n => `  • ${n}`).join('\n')}\n`
+    : '';
+  const dataModelBlock = input.plan.dataModel
+    ? `\nDATA MODEL\n${input.plan.dataModel}\n`
     : '';
 
   const contractBlock = [
@@ -710,12 +777,15 @@ PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
 UI PRIMITIVES: ${skeleton.uiPrimitives.join(', ') || '(see registry)'}
 ${contractBlock ? `\n${contractBlock}\n` : ''}${input.designCtx ? '\n' + designContractForCoder(input.designCtx) : ''}
 ${skeletonPromptBlock}
-YOU MUST write EXACTLY these files and only these files (imports hint shows which symbols to use):
+DELTA FILE TREE FROM ARCHITECT (source of truth):
+${fileTreeBlock || '  - (none)'}
+
+YOU MUST write EXACTLY these files and only these files:
 ${fileList}
 
 PAGES TO WIRE INTO THE ROUTER:
 ${pageList}
-${notesBlock}
+${dataModelBlock}${notesBlock}
 OUTPUT FORMAT — CRITICAL
 Emit each file enclosed in plain-text markers, nothing else around them:
 
@@ -1114,6 +1184,10 @@ function normaliseDeltaPath(p: string): string {
     .replace(/^src\/+/, '')
     .replace(/^preview-workspace\/(?:src\/)?/, '')
     .replace(/\\/g, '/');
+}
+
+function normalizeArchitectTreeKey(p: string): string {
+  return normaliseDeltaPath(p);
 }
 
 function safeParseJson(raw: string): unknown {
