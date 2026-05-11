@@ -606,6 +606,14 @@ function buildContinuationPlanPreview(plan: ProjectPlan, fallbackIntent: string)
   };
 }
 
+const E2E_BLUEPRINT_SHORTCUT_KEY = 'AIC_E2E_BLUEPRINT_SHORTCUT';
+const E2E_LIVE_GENERATION_CANARY_KEY = 'AIC_E2E_LIVE_GENERATION_CANARY';
+
+function readLocalFlag(key: string): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(key) === '1';
+}
+
 function buildLineageId(rootMessageId: string): string {
   return `lineage:${rootMessageId}`;
 }
@@ -1255,14 +1263,28 @@ export const useStudio = () => {
     });
     setStableSnapshotId(snapshotId);
     safeSetItem('STABLE_SNAPSHOT_ID', snapshotId);
-    // Mark the active generation-plan card as ready (iframe loaded without errors)
+  }, []);
+
+  const invalidatePendingProjectSaveReady = useCallback(() => {
+    setPendingProjectSaveMeta(prev => (
+      prev?.previewReady ? { ...prev, previewReady: false } : prev
+    ));
+  }, []);
+
+  const promoteFinalPreviewReady = useCallback((snapshotId: string | null) => {
+    finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
     if (currentPlanMsgIdRef.current) {
       chatUpdate(currentPlanMsgIdRef.current, { buildStatus: 'ready' });
     }
-    // Preview lifecycle — iframe loaded successfully
+    if (snapshotId) {
+      markSnapshotStable(snapshotId);
+    }
     setPreviewLifecycle('preview-ready');
+    setProjectPersistenceState(prev => (
+      pendingProjectSaveRef.current && prev !== 'exists' ? 'preview-ready' : prev
+    ));
     setPendingProjectSaveMeta(prev => prev ? { ...prev, previewReady: true } : prev);
-  }, []);
+  }, [chatUpdate, markSnapshotStable]);
 
   useEffect(() => {
     const syncPreviewState = (state: ReturnType<typeof previewController.getState>) => {
@@ -1270,35 +1292,61 @@ export const useStudio = () => {
         const nextUrl = `/preview/${state.activeRevisionId}`;
         setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
         setPreviewReady(false);
+        invalidatePendingProjectSaveReady();
         setPreviewBlockedReason(null);
+        if (state.buildStage === 'final' || state.buildStage === 'repair') {
+          setPreviewLifecycle('materializing');
+        }
         return;
       }
 
       if (state.status === 'ready' && state.activeRevisionId) {
         const nextUrl = `/preview/${state.activeRevisionId}`;
         setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
-        setPreviewReady(true);
         setPreviewBlockedReason(null);
-        if (!currentSnapshotId) {
+        if (state.buildStage === 'skeleton') {
+          setPreviewReady(false);
+          setPreviewLifecycle(prev => (prev === 'preview-ready' ? prev : 'skeleton-ready'));
+          return;
+        }
+
+        setPreviewReady(true);
+        if (finalPreviewGateRef.current.awaiting) {
+          if (!finalPreviewGateRef.current.filesCommitted) {
+            setPreviewLifecycle('materializing');
+            return;
+          }
+          if (!currentSnapshotId) {
+            return;
+          }
+        } else if (!currentSnapshotId) {
           setPreviewLifecycle('preview-ready');
-          setPendingProjectSaveMeta(prev => prev ? { ...prev, previewReady: true } : prev);
           return;
         }
         if (lastPreviewReadyRevisionRef.current === state.activeRevisionId) return;
         lastPreviewReadyRevisionRef.current = state.activeRevisionId;
-        markSnapshotStable(currentSnapshotId);
+        promoteFinalPreviewReady(currentSnapshotId);
         return;
       }
 
       if (state.status === 'failed') {
+        finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
         setPreviewReady(false);
+        invalidatePendingProjectSaveReady();
+        setPreviewLifecycle(prev => (
+          prev === 'preview-ready'
+            ? 'degraded'
+            : (prev === 'committing' || prev === 'generating' || prev === 'materializing')
+              ? 'failed'
+              : prev
+        ));
         if (state.error) setPreviewBlockedReason(state.error);
       }
     };
 
     syncPreviewState(previewController.getState());
     return previewController.subscribe(syncPreviewState);
-  }, [currentSnapshotId, markSnapshotStable]);
+  }, [currentSnapshotId, invalidatePendingProjectSaveReady, promoteFinalPreviewReady]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  SEMANTIC GLOSSARY — revision / version / snapshot disambiguation
@@ -1643,6 +1691,7 @@ export const useStudio = () => {
   const currentPlanMsgIdRef = useRef<string | null>(null);
   const commitPendingProjectSaveRef = useRef<(reason: PendingProjectSaveReason) => boolean>(() => false);
   const lastPreviewReadyRevisionRef = useRef<string | null>(null);
+  const finalPreviewGateRef = useRef({ awaiting: false, filesCommitted: false });
 
   // ── Preview lifecycle — honest completion handshake ───────────────────────
   const [previewLifecycle, setPreviewLifecycle] = useState<PreviewLifecycleStage>('idle');
@@ -1719,9 +1768,9 @@ export const useStudio = () => {
     const pending = pendingProjectSaveRef.current;
     if (!pending) return false;
     const previewReadyForSave =
-      pendingProjectSaveMeta?.previewReady
-      || previewLifecycle === 'preview-ready'
-      || previewLifecycle === 'degraded';
+      pendingProjectSaveMeta?.previewReady === true
+      && previewLifecycle === 'preview-ready'
+      && previewReady;
     if (!previewReadyForSave) {
       addLog('[Project] Save blocked: preview is not ready yet', 'warn');
       return false;
@@ -1995,20 +2044,21 @@ export const useStudio = () => {
     }
 
     return true;
-  }, [addLog, appLanguage, authUser?.id, clearDraftChatStorage, generationMode, pendingProjectSaveMeta?.previewReady, previewLifecycle, projectCost, projectTokens]);
+  }, [addLog, appLanguage, authUser?.id, clearDraftChatStorage, generationMode, pendingProjectSaveMeta?.previewReady, previewLifecycle, previewReady, projectCost, projectTokens]);
   commitPendingProjectSaveRef.current = commitPendingProjectSave;
 
   const savePendingProject = useCallback(() => {
     if (!pendingProjectSaveRef.current) return false;
-    const ready = pendingProjectSaveMeta?.previewReady
-      || previewLifecycle === 'preview-ready'
-      || previewLifecycle === 'degraded';
+    const ready =
+      pendingProjectSaveMeta?.previewReady === true
+      && previewLifecycle === 'preview-ready'
+      && previewReady;
     if (!ready) {
       addLog('[Project] Save requested before preview was ready', 'warn');
       return false;
     }
     return commitPendingProjectSave('manual-after-preview');
-  }, [addLog, commitPendingProjectSave, pendingProjectSaveMeta?.previewReady, previewLifecycle]);
+  }, [addLog, commitPendingProjectSave, pendingProjectSaveMeta?.previewReady, previewLifecycle, previewReady]);
 
   const rejectPendingProjectSave = useCallback(() => {
     const pending = pendingProjectSaveRef.current;
@@ -2212,8 +2262,14 @@ export const useStudio = () => {
     if (e.origin !== window.location.origin) return;
     if (e.data?.type !== 'iframe-error') return;
     // Preview lifecycle — mark as failed/degraded on first error after generation
+    setPreviewReady(false);
+    invalidatePendingProjectSaveReady();
     setPreviewLifecycle(prev =>
-      prev === 'committing' || prev === 'generating' ? 'failed' : prev === 'preview-ready' ? 'degraded' : prev,
+      prev === 'preview-ready'
+        ? 'degraded'
+        : (prev === 'committing' || prev === 'generating' || prev === 'materializing')
+          ? 'failed'
+          : prev,
     );
     if (isGenerating) return;                         // don't race with active generation
     if (fixAttemptsRef.current >= MAX_FIX_ATTEMPTS) {
@@ -2881,12 +2937,15 @@ export const useStudio = () => {
     // false-positive that would block the "В работу" auto-send flow.
     if ((effectiveInput.trim().length === 0 && composerContextItemsSnapshot.length === 0 && attachments.length === 0) || (isGenerating && !!abortControllerRef.current)) return;
 
-    const liveGenerationCanary =
-      typeof window !== 'undefined' &&
-      window.localStorage.getItem('AIC_E2E_LIVE_GENERATION_CANARY') === '1';
+    const liveGenerationCanary = readLocalFlag(E2E_LIVE_GENERATION_CANARY_KEY);
+    const playwrightBlueprintShortcut = readLocalFlag(E2E_BLUEPRINT_SHORTCUT_KEY);
 
-    if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1' && !liveGenerationCanary) {
-      console.log(' Test mode: hardcoded plan');
+    if (
+      import.meta.env.VITE_PLAYWRIGHT_TEST === '1' &&
+      playwrightBlueprintShortcut &&
+      !liveGenerationCanary
+    ) {
+      console.log(' Test mode: isolated hardcoded blueprint');
       // Remove previous pending plans in chat to prevent duplicate plan cards.
       dispatch({ type: 'CLEAR_PENDING_PLANS' });
       const testPlan = {
@@ -3067,6 +3126,7 @@ export const useStudio = () => {
     const generationStartMs = Date.now();
     const generationLogs: string[] = [];
     const generationErrors: string[] = [];
+    finalPreviewGateRef.current = { awaiting: true, filesCommitted: false };
 
     let messageContent: any = userPrompt || 'Use selected context pack.';
     const imageAttachments = attachments.filter(a => a.type === 'image');
@@ -3096,7 +3156,7 @@ export const useStudio = () => {
 
     // ── Language detection ────────────────────────────────────────────────────
     let userLang = /[а-яА-Я]/.test(userPrompt) ? 'ru' : 'en';
-    if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') userLang = 'ru';
+    if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1' && playwrightBlueprintShortcut) userLang = 'ru';
     const trustLanguage = appLanguage || userLang;
     const storedProjectForTrust = runProjectId ? ProjectStorage.getProject(runProjectId) : null;
     const activeBranchIdForTrust = storedProjectForTrust?.activeBranchId ?? runBranchId;
@@ -3140,6 +3200,7 @@ export const useStudio = () => {
         });
         const chosen = await waitForSurfaceChoice(controller.signal);
         if (controller.signal.aborted || chosen === null) {
+          finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
           setIsGenerating(false);
           return;
         }
@@ -3182,6 +3243,10 @@ export const useStudio = () => {
           : undefined
       )
       ?? packagedLaunchContext?.plan;
+    const founderFastPath =
+      autoStartPackagedTrendBuild &&
+      !!prebuiltPlanFromContext &&
+      !savedContinuationPlan;
     const runStartsNewLineage = effectiveExistingCodeCount === 0 || !currentActiveLineageId;
     let runLineageId = currentActiveLineageId;
     let runLineageRootMessageId = currentLineageRootMessageId;
@@ -3256,6 +3321,7 @@ export const useStudio = () => {
       consecutiveErrors.current += 1;
       lastErrorTime.current = Date.now();
       networkRetryCountRef.current = 0;
+      finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
       commandBus.dispatch({ type: 'GENERATION_FAILED', error: errorMessage });
       addLog(`${isNetworkError ? 'Connection lost' : 'Error'} #${consecutiveErrors.current}: ${errorMessage}`, 'error');
       dispatch({ type: 'REMOVE_BY_ID', id: optimisticPlanMsgId });
@@ -3283,6 +3349,9 @@ export const useStudio = () => {
     if (continuationPlanPreview) {
       plan = continuationPlanPreview;
       addLog('[Continue] Existing project continuation detected — reusing the saved project plan');
+    } else if (founderFastPath && prebuiltPlanFromContext) {
+      plan = buildContinuationPlanPreview(prebuiltPlanFromContext, userPrompt);
+      addLog('[FounderFlow] Reusing the packaged founder brief — skipped legacy plan warmup');
     } else {
       const planRoute = resolveStandardRoute('primary', { onLog: addLog });
       try {
@@ -3407,22 +3476,27 @@ export const useStudio = () => {
 
       // Vision analysis is now handled inside GenerationPipeline.run() via config.attachments.
 
-      // Classify idea for design system
-      const classification = devAgentActive || savedContinuationPlan
-        ? fallbackClassify(baseIntent)
-        : await classifyAndStore(baseIntent, effectiveApiKey);
+      let designPrompt = '';
+      if (founderFastPath) {
+        addLog('[FounderFlow] Skipped legacy design classification warm-up');
+      } else {
+        // Legacy warm-up: retained for non-founder flows until the old prompt path is removed.
+        const classification = devAgentActive || savedContinuationPlan
+          ? fallbackClassify(baseIntent)
+          : await classifyAndStore(baseIntent, effectiveApiKey);
 
-      if (devAgentActive) {
-        addLog(`[handleSend] ${devAgentProvider} dev agent active: skipped OpenRouter classification`);
-      } else if (savedContinuationPlan) {
-        addLog('[Continue] Reusing saved project plan — skipped remote design re-classification');
+        if (devAgentActive) {
+          addLog(`[handleSend] ${devAgentProvider} dev agent active: skipped OpenRouter classification`);
+        } else if (savedContinuationPlan) {
+          addLog('[Continue] Reusing saved project plan — skipped remote design re-classification');
+        }
+        designPrompt = buildDesignSystemPrompt({
+          category: classification.category,
+          style: classification.style,
+          idea: baseIntent,
+          classification,
+        });
       }
-      const designPrompt = buildDesignSystemPrompt({
-        category: classification.category,
-        style: classification.style,
-        idea: baseIntent,
-        classification,
-      });
 
       console.log('[DEBUG] pipeline input files:', Object.keys(contextWithTheme));
 
@@ -3434,7 +3508,9 @@ export const useStudio = () => {
       pendingArchitectKickoffRef.current = null;
       // Track whether this specific run is a genesis build for kickoff phase logging.
       const isGenesisRun = effectiveExistingCodeCount === 0;
-      if (isGenesisRun && !controller.signal.aborted) {
+      if (founderFastPath) {
+        addLog('[FounderFlow] Packaged founder brief already contains architecture — skipped kickoff analysis');
+      } else if (isGenesisRun && !controller.signal.aborted) {
         setKickoffPhase('prompt_received');
         addLog('[Kickoff] kickoff_prompt_received');
         try {
@@ -3498,7 +3574,11 @@ export const useStudio = () => {
             });
             // Block generation until user answers (or aborts)
             const clarAnswer = await waitForClarification(controller.signal);
-            if (controller.signal.aborted) { setIsGenerating(false); return; }
+            if (controller.signal.aborted) {
+              finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
+              setIsGenerating(false);
+              return;
+            }
             if (clarAnswer.trim()) {
               finalIntent += '\n\nUser clarification answers: ' + clarAnswer;
             }
@@ -3578,15 +3658,17 @@ export const useStudio = () => {
         },
         onStepTrack: (() => {
           // Live step-track state — mutable, not React state (no re-render cascade).
-          const STEP_ORDER: string[] = ['clarify','skeleton','pack','architect','coder','apply','build'];
+          const STEP_ORDER: string[] = founderFastPath
+            ? ['pack','architect','skeleton','coder','build','preview']
+            : ['clarify','pack','architect','skeleton','coder','build','preview'];
           const STEP_RU: Record<string, string> = {
             clarify:   'Анализирую задачу',
-            skeleton:  'Базовый скелет',
             pack:      'Дизайн-пак',
             architect: 'Архитектура',
+            skeleton:  'Выбор skeleton',
             coder:     'Кодирование',
-            apply:     'Применение',
-            build:     'Сборка',
+            build:     'Финальная сборка',
+            preview:   'Превью',
           };
           const stepState: Record<string, 'pending'|'active'|'done'|'error'> = {};
           for (const s of STEP_ORDER) stepState[s] = 'pending';
@@ -3732,6 +3814,7 @@ export const useStudio = () => {
           });
         },
         signal:   controller.signal,
+        skipClarify: founderFastPath,
         onUsage:  (usage: UsageData) => {
           reqUsage = usage;
           const cost = calcCost(buildRoute.modelId, usage);
@@ -3755,6 +3838,7 @@ export const useStudio = () => {
 
       if (result.status === 'cancelled') {
         addLog('[Generation] Cancelled by user');
+        finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
         setProgress(0);
         setCurrentPhase('');
         setPreviewLifecycle('idle');
@@ -3763,6 +3847,7 @@ export const useStudio = () => {
 
       if (result.status === 'failed') {
         const failMsg = result.error ?? result.message ?? '';
+        finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
         commandBus.dispatch({ type: 'GENERATION_FAILED', error: failMsg });
         const isParseFailure = /parse/i.test(failMsg) || failMsg.includes('No parseable');
         if (isParseFailure) {
@@ -3932,6 +4017,7 @@ export const useStudio = () => {
       if (severity === 'blocking') {
         const blockers = result.qualitySummary?.blockers ?? [];
         const reason = blockers.join('; ') || 'Quality check failed';
+        finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
         setPreviewLifecycle('blocked');
         setPreviewBlockedReason(reason);
         startTransition(() => {
@@ -3942,16 +4028,8 @@ export const useStudio = () => {
         });
         addLog(`[Preview] Blocked: ${reason}`);
       } else {
-        // Only set 'committing' if previewController hasn't already completed the compile cycle
-        // (ProtoPipeline compiles synchronously before returning, so it may already be ready)
-        if (previewController.getState().status !== 'ready') {
-          setPreviewLifecycle('committing');
-          setPreviewBlockedReason(null);
-        } else {
-          // Preview already ready — promote to preview-ready immediately
-          setPreviewLifecycle('preview-ready');
-          setPreviewBlockedReason(null);
-        }
+        setPreviewLifecycle('materializing');
+        setPreviewBlockedReason(null);
       }
 
       const projectId = runProjectId;
@@ -4020,13 +4098,14 @@ export const useStudio = () => {
           lineageRootMessageId: runLineageRootMessageId ?? null,
           reportMessageId: runReportMessageId,
         };
+        finalPreviewGateRef.current.filesCommitted = true;
         setPendingProjectSaveMeta({
           projectId,
           projectTitle,
           previewReady: false,
         });
-        // Transition to preview-ready: generation is done, preview is mounting.
-        // Project is NOT yet persisted — explicit Save is the only path to Projects.
+        // The skeleton preview may already exist, but Save stays locked until
+        // the final coder delta is mounted as the real preview.
         // Append an inline file-diff summary to the chat so the user sees what changed.
         if (systemEvents.length > 0) {
           const fileList = systemEvents.slice(0, 20).join('\n');
@@ -4038,9 +4117,19 @@ export const useStudio = () => {
             timestamp: Date.now(),
           });
         }
-        setProjectPersistenceState('preview-ready');
+        setProjectPersistenceState('draft');
         pendingSavePromptShownRef.current = false;
-        addLog(`[Project] Save ready to request after preview (${projectTitle})`);
+        addLog(`[Project] Final preview gate armed — Save unlocks only after mounted final preview (${projectTitle})`);
+        if ((result as GenerationResult).fastPathTelemetry) {
+          const telemetry = (result as GenerationResult).fastPathTelemetry!;
+          addLog(
+            `[FastPath] canonical=${telemetry.canonicalPath.join(' -> ')} | ` +
+            `package=${telemetry.steps.packageMs}ms architecture=${telemetry.steps.architectureMs}ms ` +
+            `skeleton=${telemetry.steps.skeletonMs}ms coder=${telemetry.steps.coderMs}ms ` +
+            `finalCompile=${telemetry.steps.finalCompileMs}ms previewMount=${telemetry.steps.previewMountMs}ms ` +
+            `skeletonPreview=${telemetry.timeToSkeletonPreviewMs}ms firstRealPreview=${telemetry.timeToFirstRealPreviewMs}ms`,
+          );
+        }
         packagedLaunchContextRef.current = null;
         composerContextItemsRef.current = [];
         setComposerContextItems([]);
@@ -4051,6 +4140,7 @@ export const useStudio = () => {
       if (err?.name === 'AbortError') {
         const disposition = abortDispositionRef.current;
         abortDispositionRef.current = null;
+        finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
         if (disposition === 'context-switch') {
           addLog('[Project] Active generation aborted for context switch');
         } else {
@@ -4077,6 +4167,7 @@ export const useStudio = () => {
       consecutiveErrors.current += 1;
       lastErrorTime.current = Date.now();
       networkRetryCountRef.current = 0;
+      finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
       commandBus.dispatch({ type: 'GENERATION_FAILED', error: err?.message ?? 'Unknown error' });
 
       console.error('Studio Error:', err);
@@ -4133,6 +4224,11 @@ export const useStudio = () => {
       dispatch({ type: 'REMOVE_BY_ID', id: progressMsgId });
       abortControllerRef.current = null;
       abortDispositionRef.current = null;
+      if (previewLifecycle !== 'preview-ready') {
+        finalPreviewGateRef.current = finalPreviewGateRef.current.awaiting
+          ? { awaiting: false, filesCommitted: false }
+          : finalPreviewGateRef.current;
+      }
       setIsGenerating(false);
       setKickoffPhase('idle');
       setTimeout(() => setProgress(0), 1200);
@@ -4393,6 +4489,7 @@ export const useStudio = () => {
         lastPreviewReadyRevisionRef.current = null;
 
         const buildId = crypto.randomUUID();
+        previewController.notifyCompiling(buildId, 'e2e-seed');
         const res = await fetch(`/api/preview/${buildId}/compile`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -4407,6 +4504,10 @@ export const useStudio = () => {
         try { body = await res.json(); } catch { /* ignore parse failures */ }
 
         if (!res.ok || body?.success === false) {
+          previewController.notifyFailed(
+            body?.error ?? `Preview seed compile failed (HTTP ${res.status})`,
+            buildId,
+          );
           throw new Error(body?.error ?? `Preview seed compile failed (HTTP ${res.status})`);
         }
 
@@ -4431,6 +4532,7 @@ export const useStudio = () => {
 
         setPreviewReady(true);
         setPreviewLifecycle('preview-ready');
+        previewController.notifyReady(buildId, 'e2e_seed_complete', 'e2e-seed');
         return { buildId, url: nextUrl };
       },
     };

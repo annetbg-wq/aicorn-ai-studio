@@ -484,6 +484,24 @@ export interface DependencySpec {
   resolvedVersion?: string;
 }
 
+export interface FastPathStepTimings {
+  packageMs: number;
+  architectureMs: number;
+  skeletonMs: number;
+  coderMs: number;
+  finalCompileMs: number;
+  previewMountMs: number;
+}
+
+export interface FastPathTelemetry {
+  canonicalPath: string[];
+  removedStages: string[];
+  collapsedStages: string[];
+  steps: FastPathStepTimings;
+  timeToSkeletonPreviewMs: number;
+  timeToFirstRealPreviewMs: number;
+}
+
 // ─── FileBlueprint ───────────────────────────────────────────────────────────
 
 /**
@@ -1328,6 +1346,7 @@ export interface GenerationResult {
    * Stored locally for future prompt evolution and recipe analysis.
    */
   designTelemetry?: DesignRecipeTelemetry;
+  fastPathTelemetry?: FastPathTelemetry;
   visibleReasoningTrace?: VisibleReasoningTrace;
   fullDebugTrace?:        FullDebugTrace;
 }
@@ -1337,6 +1356,9 @@ export interface GenerationResult {
 /**
  * Preview state machine stages for the active generation request.
  * A request is complete only on 'preview-ready' or a terminal stage (blocked/failed).
+ * 'skeleton-ready' is a technical intermediate mount and MUST NOT unlock save.
+ * 'degraded' means a fallback iframe may still be visible, but truth-ready/save-ready
+ * are false until the final revision compiles and mounts cleanly again.
  */
 export type PreviewLifecycleStage =
   | 'idle'
@@ -1344,6 +1366,7 @@ export type PreviewLifecycleStage =
   | 'validating'
   | 'committing'
   | 'materializing'
+  | 'skeleton-ready'
   | 'preview-ready'
   | 'blocked'
   | 'failed'
