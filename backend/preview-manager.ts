@@ -37,7 +37,7 @@ const BUILDS_WORKSPACE = path.resolve(__dirname, '..', 'builds');
 
 /** Maximum compiled builds to keep on disk (LRU). */
 const MAX_BUILDS = 20;
-const PRESERVED_PREVIEW_DIRS = ['components', 'config', 'context', 'lib', 'themes', 'hooks'];
+const PRESERVED_PREVIEW_DIRS = ['components', 'config', 'context', 'data', 'hooks', 'lib', 'pages', 'themes'];
 
 /** Root directory where skeleton source trees live: skeletons/<id>/skeleton-<id>/src */
 const SKELETONS_ROOT = path.resolve(__dirname, '..', 'skeletons');
@@ -290,7 +290,16 @@ async function compileBuild(
     console.log(`[preview-manager] Skeleton ${skeletonId} installed into src/`);
   } else {
     // 0b. Legacy cleanup — preserve skeleton infra dirs, remove unknown files.
-    const KEEP_FILES = new Set(['main.tsx', 'index.css', 'vite-env.d.ts', '__build_id.ts']);
+    // Preserve root skeleton files so a prior skeleton install can be followed by
+    // delta-only compile calls without losing App.tsx / route wiring.
+    const KEEP_FILES = new Set([
+      'App.tsx',
+      '__build_id.ts',
+      'index.css',
+      'main.tsx',
+      'route-manifest.json',
+      'vite-env.d.ts',
+    ]);
     const KEEP_DIRS  = new Set(PRESERVED_PREVIEW_DIRS);
     try {
       const items = await fsPromises.readdir(srcDir, { withFileTypes: true });

@@ -1505,11 +1505,62 @@ app.get('/api/quality/flow-chain', async (_req, res) => {
 });
 
 // ── GET /api/quality/test/:testName — individual runnable quality tests ────────
-// Each test is independent and returns { status, duration_ms, output?, error? }.
+// Each test is independent and returns { status, duration_ms, summary?, ... }.
 // Tests that need existing builds will fail gracefully if none exist.
+interface QualityLlmMetrics {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd?: number;
+}
+
+interface QualityOutputMetrics {
+  file_count?: number;
+  total_bytes?: number;
+  asset_count?: number;
+  build_size_kb?: number;
+  preview_url?: string;
+  files?: string[];
+}
+
+const QUALITY_FIXTURE_WARNING = 'Fixture данные — не реальный LLM output';
+
+function roundKb(bytes: number): number {
+  return Math.round((bytes / 1024) * 10) / 10;
+}
+
+function collectBuildAssetMetrics(buildId: string): {
+  assets: Array<{ name: string; size: number }>;
+  assetCount: number;
+  buildSizeKb: number;
+} {
+  const assetsDir = path.join(process.cwd(), 'builds', buildId, 'assets');
+  if (!fs.existsSync(assetsDir)) {
+    return { assets: [], assetCount: 0, buildSizeKb: 0 };
+  }
+  const assets = fs.readdirSync(assetsDir).map(name => ({
+    name,
+    size: fs.statSync(path.join(assetsDir, name)).size,
+  }));
+  const totalBytes = assets.reduce((sum, asset) => sum + asset.size, 0);
+  return {
+    assets,
+    assetCount: assets.length,
+    buildSizeKb: roundKb(totalBytes),
+  };
+}
+
 const QUALITY_FIXTURES = {
   idea:    'Трекер привычек: ежедневные отметки, стрик, статистика',
   appName: 'HabitFlow',
+  architectLlm: {
+    model: 'deepseek-v4-flash',
+    prompt_tokens: 1240,
+    completion_tokens: 380,
+    total_tokens: 1620,
+    cost_usd: 0.001,
+  } satisfies QualityLlmMetrics,
   architectPlan: {
     skeleton: 'mobile-app',
     // files already provided by the skeleton — coder can import but must NOT overwrite
@@ -1569,7 +1620,7 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         const data = (await r.json()) as { status: string; provider: string };
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: `HTTP 200, provider: ${data.provider}`,
+          summary: `HTTP 200, provider: ${data.provider}`,
           details: { httpStatus: r.status, response: data },
         });
         return;
@@ -1582,7 +1633,8 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         if (idea.trim().length <= 10) throw new Error(`Too short: ${idea.trim().length} chars (need > 10)`);
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: `${idea.trim().length} chars OK`,
+          summary: `${idea.trim().length} chars OK`,
+          warnings: [QUALITY_FIXTURE_WARNING],
           details: { prompt: idea, length: idea.trim().length, valid: true },
         });
         return;
@@ -1597,7 +1649,13 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         if (!deltaKeys.length) throw new Error('Plan missing: fileTree entries');
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: `skeleton: ${plan.skeleton}, ${skeletonKeys.length} provided + ${deltaKeys.length} delta`,
+          summary: `skeleton: ${plan.skeleton}, ${skeletonKeys.length} provided + ${deltaKeys.length} delta`,
+          llm: QUALITY_FIXTURES.architectLlm,
+          output: {
+            file_count: skeletonKeys.length + deltaKeys.length,
+            files: [...skeletonKeys, ...deltaKeys],
+          } satisfies QualityOutputMetrics,
+          warnings: [QUALITY_FIXTURE_WARNING],
           details: {
             appName:       QUALITY_FIXTURES.appName,
             skeleton:      plan.skeleton,
@@ -1613,14 +1671,50 @@ app.get('/api/quality/test/:testName', async (req, res) => {
       // 4. Code Delta — compile fixture files via shared queue
       case 'code-delta': {
         const buildId = `qt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
-        await runCompileJob(buildId, QUALITY_FIXTURES.codeOutput as Record<string, string>);
+        const previewCompileUrl = `http://127.0.0.1:${PORT}/api/preview/${buildId}/compile`;
+        const installResp = await fetch(previewCompileUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: {}, skeletonId: 'mobile-app' }),
+        });
+        if (!installResp.ok) {
+          const installText = await installResp.text().catch(() => installResp.statusText);
+          throw new Error(`Skeleton install failed: HTTP ${installResp.status} ${installText}`);
+        }
+        const installJson = await installResp.json() as { success?: boolean; error?: string };
+        if (installJson.success === false) {
+          throw new Error(`Skeleton install failed: ${installJson.error ?? 'unknown error'}`);
+        }
+        const compileResp = await fetch(previewCompileUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: QUALITY_FIXTURES.codeOutput }),
+        });
+        if (!compileResp.ok) {
+          const compileText = await compileResp.text().catch(() => compileResp.statusText);
+          throw new Error(`Fixture delta compile failed: HTTP ${compileResp.status} ${compileText}`);
+        }
+        const compileJson = await compileResp.json() as { success?: boolean; error?: string; url?: string };
+        if (compileJson.success === false) {
+          throw new Error(`Fixture delta compile failed: ${compileJson.error ?? 'unknown error'}`);
+        }
         const fixtureFiles = Object.entries(QUALITY_FIXTURES.codeOutput as Record<string, string>).map(
           ([filePath, content]) => ({ path: filePath, size: Buffer.byteLength(content, 'utf8'), content }),
         );
+        const totalBytes = fixtureFiles.reduce((sum, file) => sum + file.size, 0);
+        const buildAssets = collectBuildAssetMetrics(buildId);
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: `compiled OK, buildId: ${buildId}`,
-          buildId,
+          summary: `compiled OK, buildId: ${buildId}`,
+          output: {
+            file_count: fixtureFiles.length,
+            total_bytes: totalBytes,
+            asset_count: buildAssets.assetCount,
+            build_size_kb: buildAssets.buildSizeKb,
+            preview_url: compileJson.url ? `http://127.0.0.1:${PORT}${compileJson.url}` : undefined,
+            files: fixtureFiles.map(file => file.path),
+          } satisfies QualityOutputMetrics,
+          warnings: [QUALITY_FIXTURE_WARNING],
           details: { buildId, files: fixtureFiles },
         });
         return;
@@ -1650,9 +1744,15 @@ app.get('/api/quality/test/:testName', async (req, res) => {
           }
         }
         if (!foundBuild) throw new Error('No build with .js assets found — run Code Delta first');
+        const totalAssetBytes = assetList.reduce((sum, asset) => sum + asset.size, 0);
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: `build: ${foundBuild}, ${assetList.length} asset(s)`,
+          summary: `build: ${foundBuild}, ${assetList.length} asset(s)`,
+          output: {
+            asset_count: assetList.length,
+            build_size_kb: roundKb(totalAssetBytes),
+            files: assetList.map(asset => asset.name),
+          } satisfies QualityOutputMetrics,
           details: { buildId: foundBuild, assets: assetList },
         });
         return;
@@ -1679,7 +1779,11 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         const hasRootDiv = html.includes('id="root"') || html.includes("id='root'");
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: `HTTP 200, ${(html.length / 1024).toFixed(1)}KB`,
+          summary: `HTTP 200, ${(html.length / 1024).toFixed(1)}KB`,
+          output: {
+            preview_url: previewUrl,
+            build_size_kb: roundKb(html.length),
+          } satisfies QualityOutputMetrics,
           details: {
             httpStatus:        200,
             contentLength:     html.length,
@@ -1703,7 +1807,11 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         const matchedLine = lineIdx >= 0 ? lines[lineIdx].trim() : '';
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: 'postMessage({type: "preview-mounted"}) found',
+          summary: 'postMessage({type: "preview-mounted"}) found',
+          output: {
+            file_count: 1,
+            files: ['preview-workspace/src/main.tsx'],
+          } satisfies QualityOutputMetrics,
           details: { lineNumber: lineIdx + 1, line: matchedLine },
         });
         return;
@@ -1725,9 +1833,16 @@ app.get('/api/quality/test/:testName', async (req, res) => {
           }
         }
         if (!savedBuild) throw new Error('No successful build found → save-ready check failed');
+        const saveReadyAssets = collectBuildAssetMetrics(savedBuild);
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: `build: ${savedBuild} → save-ready`,
+          summary: `build: ${savedBuild} → save-ready`,
+          output: {
+            asset_count: saveReadyAssets.assetCount,
+            build_size_kb: saveReadyAssets.buildSizeKb,
+            preview_url: `http://127.0.0.1:${PORT}/preview/${savedBuild}`,
+            files: saveReadyAssets.assets.map(asset => asset.name),
+          } satisfies QualityOutputMetrics,
           details: { compileSuccess: true, buildId: savedBuild, assetsCount },
         });
         return;
@@ -1747,7 +1862,7 @@ app.get('/api/quality/test/:testName', async (req, res) => {
           throw new Error(`Quality session files should not exist: ${qualityFiles.join(', ')}`);
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: 'No premature project files created',
+          summary: 'No premature project files created',
           details: { projectsBeforeSave: 0, totalSessions, correct: true },
         });
         return;
@@ -1830,4 +1945,3 @@ export function startServer(port = PORT) {
 if (process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test') {
   startServer();
 }
-

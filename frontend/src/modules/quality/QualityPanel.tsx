@@ -47,6 +47,8 @@ interface PreviewHttpDetails  { httpStatus: number; contentLength: number; conte
 interface PreviewMtdDetails   { lineNumber: number; line: string }
 interface SaveReadyDetails    { compileSuccess: boolean; buildId: string; assetsCount: number }
 interface NoPremSaveDetails   { projectsBeforeSave: number; totalSessions: number; correct: boolean }
+interface TestLlmMetrics      { model: string; prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd?: number }
+interface TestOutputMetrics   { file_count?: number; total_bytes?: number; asset_count?: number; build_size_kb?: number; preview_url?: string; files?: string[] }
 
 // ── General types ──────────────────────────────────────────────────────────────
 
@@ -54,7 +56,10 @@ interface TestState {
   status: 'idle' | 'running' | 'pass' | 'fail';
   duration_ms: number;
   error?: string;
-  output?: string;
+  summary?: string;
+  llm?: TestLlmMetrics;
+  output?: TestOutputMetrics;
+  warnings?: string[];
   details?: Record<string, unknown>;
 }
 
@@ -68,7 +73,10 @@ interface TestHistoryRun {
 interface TestApiResult {
   status: 'pass' | 'fail';
   duration_ms: number;
-  output?: string;
+  summary?: string;
+  llm?: TestLlmMetrics;
+  output?: TestOutputMetrics;
+  warnings?: string[];
   error?: string;
   details?: Record<string, unknown>;
 }
@@ -153,6 +161,73 @@ function fmtSize(bytes: number): string {
   if (bytes < 1024)          return `${bytes}B`;
   if (bytes < 1024 * 1024)   return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function fmtDuration(ms: number): string {
+  if (ms <= 0) return '';
+  if (ms < 1000) return `${ms}ms`;
+  const sec = ms / 1000;
+  return sec >= 10 ? `${sec.toFixed(0)}s` : `${sec.toFixed(1)}s`;
+}
+
+function pluralRu(count: number, [one, few, many]: [string, string, string]): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+function fmtCost(cost?: number): string | null {
+  if (typeof cost !== 'number' || !Number.isFinite(cost)) return null;
+  if (cost < 0.01) return `~$${cost.toFixed(3)}`;
+  if (cost < 1) return `~$${cost.toFixed(2)}`;
+  return `~$${cost.toFixed(1)}`;
+}
+
+function buildTestMetaLines(state: TestState): Array<{ key: string; text: string; color?: string }> {
+  const lines: Array<{ key: string; text: string; color?: string }> = [];
+  if (state.llm) {
+    const cost = fmtCost(state.llm.cost_usd);
+    lines.push({
+      key: 'llm',
+      text:
+        `🤖 ${state.llm.model} · ${state.llm.prompt_tokens} prompt / ` +
+        `${state.llm.completion_tokens} completion tokens` +
+        (cost ? ` · ${cost}` : ''),
+      color: '#c4b5fd',
+    });
+  }
+  if (state.output) {
+    const parts: string[] = [];
+    if (typeof state.output.file_count === 'number' && typeof state.output.total_bytes === 'number') {
+      parts.push(`📁 ${state.output.file_count} ${pluralRu(state.output.file_count, ['файл', 'файла', 'файлов'])}`);
+      parts.push(`${fmtSize(state.output.total_bytes)} кода`);
+    } else if (typeof state.output.asset_count === 'number') {
+      parts.push(`📦 ${state.output.asset_count} assets`);
+    }
+    if (typeof state.output.build_size_kb === 'number') {
+      parts.push(`bundle: ${state.output.build_size_kb.toFixed(1)}KB`);
+    }
+    if (state.output.preview_url && parts.length === 0) {
+      parts.push(`🔗 ${state.output.preview_url}`);
+    }
+    if (parts.length > 0) {
+      lines.push({
+        key: 'output',
+        text: parts.join(' · '),
+        color: '#93c5fd',
+      });
+    }
+  }
+  if (state.warnings?.length) {
+    lines.push({
+      key: 'warnings',
+      text: `⚠ ${state.warnings.join(' · ')}`,
+      color: '#fbbf24',
+    });
+  }
+  return lines;
 }
 
 // ── Initial state factories ────────────────────────────────────────────────────
@@ -492,8 +567,8 @@ function TestRow({
   const durText =
     state.status === 'idle'    ? '' :
     state.status === 'running' ? '…' :
-    state.duration_ms > 0      ? `${state.duration_ms}ms` :
-    '';
+    fmtDuration(state.duration_ms);
+  const metaLines = state.status === 'running' ? [] : buildTestMetaLines(state);
 
   return (
     <div>
@@ -551,6 +626,34 @@ function TestRow({
           Run
         </button>
       </div>
+
+      {metaLines.length > 0 && (
+        <div style={{
+          padding: '0 16px 8px 40px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          background: rowBg,
+          borderLeft: leftBorder,
+        }}>
+          {metaLines.map(line => (
+            <div
+              key={line.key}
+              style={{
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: line.color ?? 'rgba(255,255,255,0.45)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              title={line.text}
+            >
+              {line.text}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Error — always visible on fail */}
       {state.status === 'fail' && state.error && (
@@ -614,7 +717,16 @@ function FlowChainTab() {
   }, []);
 
   const runSingleTest = useCallback(async (id: StepId): Promise<TestApiResult> => {
-    setOneState(id, { status: 'running', duration_ms: 0, error: undefined, output: undefined, details: undefined });
+    setOneState(id, {
+      status: 'running',
+      duration_ms: 0,
+      error: undefined,
+      summary: undefined,
+      llm: undefined,
+      output: undefined,
+      warnings: undefined,
+      details: undefined,
+    });
     setExpanded(prev => ({ ...prev, [id]: false }));
     try {
       const result = await callTestApi(id);
@@ -622,7 +734,10 @@ function FlowChainTab() {
         status:     result.status,
         duration_ms: result.duration_ms,
         error:       result.error,
+        summary:     result.summary,
+        llm:         result.llm,
         output:      result.output,
+        warnings:    result.warnings,
         details:     result.details,
       });
       // Auto-expand on pass with details
@@ -638,7 +753,7 @@ function FlowChainTab() {
       return result;
     } catch (err: unknown) {
       const error = err instanceof Error ? err.message : String(err);
-      setOneState(id, { status: 'fail', duration_ms: 0, error });
+      setOneState(id, { status: 'fail', duration_ms: 0, error, summary: undefined, llm: undefined, output: undefined, warnings: undefined });
       persistTestRun(id, { timestamp: new Date().toISOString(), status: 'fail', duration_ms: 0, error });
       return { status: 'fail', duration_ms: 0, error };
     }
