@@ -38,7 +38,7 @@ type TabId  = 'flow-chain' | 'benchmark';
 
 interface CanaryDetails       { httpStatus: number; response: { status: string; provider: string } }
 interface IdeaDetails         { prompt: string; length: number; valid: boolean }
-interface ArchDetails         { appName: string; skeleton: string; deltaFiles: string[]; pages: string[] }
+interface ArchDetails         { appName: string; skeleton: string; fileTree: Record<string, string>; dataModel?: string }
 interface CodeDeltaFile       { path: string; size: number; content: string }
 interface CodeDeltaDetails    { buildId: string; files: CodeDeltaFile[] }
 interface CompileAsset        { name: string; size: number }
@@ -270,20 +270,29 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
 
   if (testId === 'architecture') {
     const d = details as unknown as ArchDetails;
+    const fileEntries = Object.entries(d.fileTree ?? {});
     return renderPanel(
       <>
-        <KV label="appName"    value={<span style={{ color: '#e2c08d' }}>{`"${d.appName}"`}</span>} />
-        <KV label="skeleton"   value={<span style={{ color: '#e2c08d' }}>{`"${d.skeleton}"`}</span>} />
-        <KV label="deltaFiles" value={
-          <span style={{ color: 'rgba(255,255,255,0.65)' }}>
-            {`[${(d.deltaFiles ?? []).map(f => `"${f}"`).join(', ')}]`}
+        <KV label="appName"  value={<span style={{ color: '#e2c08d' }}>{`"${d.appName}"`}</span>} />
+        <KV label="skeleton" value={<span style={{ color: '#e2c08d' }}>{`"${d.skeleton}"`}</span>} />
+        {d.dataModel && (
+          <KV label="dataModel" value={
+            <code style={{ color: '#a78bfa', fontSize: 10, background: 'rgba(167,139,250,0.08)', padding: '1px 5px', borderRadius: 3 }}>
+              {d.dataModel}
+            </code>
+          } />
+        )}
+        <div style={{ marginTop: 6, marginBottom: 4 }}>
+          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>
+            fileTree ({fileEntries.length} delta files):
           </span>
-        } />
-        <KV label="pages" value={
-          <span style={{ color: 'rgba(255,255,255,0.65)' }}>
-            {`[${(d.pages ?? []).map(p => `"${p}"`).join(', ')}]`}
-          </span>
-        } />
+        </div>
+        {fileEntries.map(([path, purpose]) => (
+          <div key={path} style={{ display: 'flex', flexDirection: 'column', paddingLeft: 12, marginBottom: 5 }}>
+            <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#60a5fa' }}>{path}</span>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', paddingLeft: 4 }}>{purpose}</span>
+          </div>
+        ))}
       </>
     );
   }

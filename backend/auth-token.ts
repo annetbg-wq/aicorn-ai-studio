@@ -1506,9 +1506,15 @@ const QUALITY_FIXTURES = {
   idea:    'Трекер привычек: ежедневные отметки, стрик, статистика',
   appName: 'HabitFlow',
   architectPlan: {
-    skeleton:   'mobile-app',
-    deltaFiles: ['src/pages/Home.tsx', 'src/config/app.ts'],
-    pages:      ['Home', 'Progress', 'Profile'],
+    skeleton: 'mobile-app',
+    fileTree: {
+      'src/pages/Home.tsx':       'Главный экран: список привычек, кнопка добавить, BottomTabs внизу',
+      'src/pages/Progress.tsx':   'Статистика: стрики, процент выполнения за неделю, график',
+      'src/pages/Profile.tsx':    'Профиль: имя, цель, кнопка сброса данных',
+      'src/hooks/useHabits.ts':   'CRUD привычек через useLocalStorage. Поля: id, name, completedDates[]',
+      'src/config/app.ts':        'APP_CONFIG + STORAGE_KEYS — экспортировать STORAGE_KEYS',
+    },
+    dataModel: 'Habit: { id: string, name: string, icon: string, completedDates: string[] }',
   },
   codeOutput: {
     'src/pages/Home.tsx':
@@ -1552,20 +1558,20 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         return;
       }
 
-      // 3. Architecture — fixture plan has skeleton, deltaFiles, pages
+      // 3. Architecture — fixture plan has skeleton and fileTree
       case 'architecture': {
         const plan = QUALITY_FIXTURES.architectPlan;
         if (!plan.skeleton) throw new Error('Plan missing: skeleton');
-        if (!plan.deltaFiles?.length) throw new Error('Plan missing: deltaFiles');
-        if (!plan.pages?.length) throw new Error('Plan missing: pages');
+        const treeKeys = Object.keys(plan.fileTree);
+        if (!treeKeys.length) throw new Error('Plan missing: fileTree entries');
         res.json({
           status: 'pass', duration_ms: ms(),
-          output: `skeleton: ${plan.skeleton}, ${plan.deltaFiles.length} delta file(s)`,
+          output: `skeleton: ${plan.skeleton}, ${treeKeys.length} delta file(s)`,
           details: {
-            appName:    QUALITY_FIXTURES.appName,
-            skeleton:   plan.skeleton,
-            deltaFiles: [...plan.deltaFiles],
-            pages:      [...plan.pages],
+            appName:   QUALITY_FIXTURES.appName,
+            skeleton:  plan.skeleton,
+            fileTree:  { ...plan.fileTree },
+            dataModel: plan.dataModel,
           },
         });
         return;
