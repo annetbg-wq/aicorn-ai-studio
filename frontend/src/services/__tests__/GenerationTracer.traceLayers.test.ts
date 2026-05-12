@@ -53,6 +53,89 @@ describe('GenerationTracer trace layers', () => {
     expect(stored.visibleReasoningTrace.finalOutcome).toBe('ship_ok');
   });
 
+  it('persists structured run truth and supports post-finish telemetry updates', () => {
+    const trace = generationTracer.start({
+      intent: 'Build a habit tracker',
+      model: 'openai/gpt-4o',
+      mode: 'new',
+      projectId: 'proj-summary',
+      branchId: 'main',
+    });
+
+    trace.setRunSummary({
+      brief: 'Build a habit tracker',
+      skeleton: { id: 'mobile-app', label: 'Mobile App', archetypeId: 'consumer-feed' },
+      design: {
+        themeName: 'Trust',
+        intent: ['Mobile App', 'Theme Trust', 'Mood calm'],
+        designSummary: 'Theme Trust with calm mood.',
+      },
+      output: {
+        skeletonFiles: ['src/App.tsx'],
+        deltaFiles: ['src/pages/Home.tsx'],
+        filesCreated: ['src/pages/Home.tsx'],
+        filesUpdated: [],
+        changedFileCount: 1,
+        createdFileCount: 1,
+        deltaSizeBytes: 320,
+        keyPaths: ['src/pages/Home.tsx'],
+        compileCount: 2,
+        previewMountStatus: 'pending',
+        saveReady: false,
+      },
+      path: {
+        kind: 'real',
+        summary: 'Real generation path with live compile and preview telemetry.',
+        usesRealLlm: true,
+        usesRealRuntime: true,
+        fixtureBacked: false,
+        testEnvironment: false,
+        markers: ['packaged-founder-brief'],
+      },
+      quality: {
+        verdict: 'partial',
+        summary: 'Output proof passed, preview is still mounting.',
+        gates: [{
+          id: 'preview-mounted',
+          label: 'Preview mounted',
+          passed: false,
+          source: 'real-runtime',
+          detail: 'pending',
+        }],
+        blockers: [],
+        warnings: ['Preview is still mounting'],
+      },
+      steps: [{
+        id: 'coder',
+        label: 'Пишу код...',
+        status: 'done',
+        durationMs: 1200,
+      }],
+    });
+    trace.finish('ok', { finalOutcome: 'ship_partial' });
+
+    generationTracer.updateRunSummary(
+      { runId: trace.id, projectId: 'proj-summary', branchId: 'main' },
+      {
+        output: { previewMountStatus: 'mounted', saveReady: true, totalTimeToPreviewMs: 2400 },
+        quality: {
+          gates: [{
+            id: 'preview-mounted',
+            label: 'Preview mounted',
+            passed: true,
+            source: 'real-runtime',
+            detail: 'mounted',
+          }],
+        },
+      },
+    );
+
+    const stored = generationTracer.getRecent(1)[0];
+    expect(stored.runSummary?.output?.previewMountStatus).toBe('mounted');
+    expect(stored.runSummary?.output?.saveReady).toBe(true);
+    expect(stored.runSummary?.quality?.gates[0]).toMatchObject({ passed: true, detail: 'mounted' });
+  });
+
   it('records full debug prompt/output metadata, attempts, stop reasons, and redacts secrets', () => {
     const trace = generationTracer.start({
       intent: 'Repair the compile failure',

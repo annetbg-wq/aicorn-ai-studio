@@ -1,0 +1,8 @@
+[GET] https://zdzuaodphrlpvorutpyc.supabase.co/rest/v1/idea_feed_cache?select=ideas&feed_type=eq.niches&week_key=eq.2026-W19 => [404] 
+[GET] https://zdzuaodphrlpvorutpyc.supabase.co/rest/v1/idea_feed_cache?select=ideas&feed_type=eq.hot&date_key=eq.2026-05-10 => [404] 
+[GET] https://zdzuaodphrlpvorutpyc.supabase.co/rest/v1/idea_feed_cache?select=ideas&feed_type=eq.niches&week_key=eq.2026-W19 => [404] 
+[GET] https://zdzuaodphrlpvorutpyc.supabase.co/rest/v1/idea_feed_cache?select=ideas&feed_type=eq.hot&date_key=eq.2026-05-10 => [404] 
+[POST] http://127.0.0.1:3000/trend-archive => [200] OK
+  Request body: {"daily":"Refund Shield – Margin Recovery Cockpit for Shopify Brands, RouteZero – Instant Carbon Offset Matching for Last-Mile Fleets, EchoField – Real-Time Voice Clone for Field Service Technicians","weekly":"ClaimSight AI — Field intelligence for independent insurance adjusters, LabelGuard — Instant CPG formula compliance for small-batch producers, Numera — Visual math reasoning for teens with dyscalculia","monthly":"Зарядный Паспорт, Рецепт из Ленты, Аренда без Риска"}
+[POST] http://127.0.0.1:3000/trend-archive => [200] OK
+  Request body: {"daily":"Refund Shield, CommuteSync Green, LiveCoach","weekly":"ClaimLens: AI-driven damage estimation for independent insurance adjusters, ConsentCam: One-tap HIPAA-compliant video consent for telehealth therapists, ResinWise: Waste-reduction calculator for small-batch resin crafters","monthly":"Пенсионный Пульс, ДермаСкрин, Попутчик 2.0"}

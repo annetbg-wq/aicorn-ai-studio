@@ -1,0 +1,220 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Analytics" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Quality" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+        - button "Code Studio" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+        - button "DB Console" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+        - button "Cloud & Backend — Coming Soon" [ref=e67]:
+          - img [ref=e68]
+        - button "Packaging & Ship — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Growth & Marketing — Coming Soon" [ref=e78]:
+          - img [ref=e79]
+    - generic [ref=e86]:
+      - generic [ref=e87]:
+        - generic [ref=e88]:
+          - generic [ref=e89]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e90] [cursor=pointer]:
+            - img [ref=e91]
+            - text: New Project
+          - generic [ref=e93]: New Project
+          - generic [ref=e94]: /
+          - img [ref=e95]
+          - generic [ref=e99]: main
+          - generic [ref=e100]: ·
+          - img [ref=e101]
+          - generic [ref=e103]: "snap #0"
+        - generic [ref=e105]: Not backed up
+        - generic [ref=e106]:
+          - generic [ref=e107]:
+            - 'button "Theme: dark" [ref=e108] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e109] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e110] [cursor=pointer]'
+          - button "Settings" [ref=e111] [cursor=pointer]:
+            - img [ref=e112]
+          - button "D dev.local@aic-studio.test" [ref=e115] [cursor=pointer]:
+            - generic [ref=e116]: D
+            - generic [ref=e117]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e118] [cursor=pointer]:
+            - img [ref=e119]
+            - text: Backup to Cloud
+      - generic [ref=e122]:
+        - generic [ref=e124]:
+          - generic [ref=e126]:
+            - paragraph [ref=e132]: "Простое приложение трекер задач: список задач, добавление новой, отметить выполненной, удалить"
+            - generic [ref=e134]: ✓ 🌐 Веб-приложение
+            - generic [ref=e135]:
+              - generic [ref=e137]:
+                - generic [ref=e138]: TaskTracker
+                - generic [ref=e139]: 2 screens · theme
+              - generic [ref=e141]:
+                - generic [ref=e142]:
+                  - generic [ref=e143]: Режим быстрого прототипа
+                  - generic [ref=e144]: Используется наблюдаемое состояние ветки
+                - generic [ref=e145]: Активен режим быстрого прототипа. Архитектура ветки остаётся лёгким контекстом совместимости.
+            - generic [ref=e147]:
+              - generic [ref=e150]:
+                - paragraph [ref=e151]:
+                  - strong [ref=e152]: Анализ Architect — Приложение
+                - paragraph [ref=e153]: Приложение — первый проход прототипа
+                - paragraph [ref=e154]:
+                  - strong [ref=e155]: "Варианты сборки:"
+                  - text: →
+                  - strong [ref=e156]: Собрать core
+                  - text: — Собрать ключевые экраны и сценарии на локальных / mock-данных. Самый быстрый путь к рабочему прототипу.
+                  - strong [ref=e157]: Собрать core + backend
+                  - text: — Core UI с реальной персистентностью данных, аутентификацией и backend-связкой.
+                  - strong [ref=e158]: Собрать core + backend + AI
+                  - text: "— Полный первый проход: backend, аутентификация и AI-интеграция."
+                - paragraph [ref=e159]:
+                  - emphasis [ref=e160]: Перед первым запуском сборки вы выберете один из этих объёмов.
+              - generic [ref=e161]:
+                - button "Copy" [ref=e162] [cursor=pointer]:
+                  - img [ref=e163]
+                - button "Regenerate" [ref=e166] [cursor=pointer]:
+                  - img [ref=e167]
+                - button "Good response" [ref=e172] [cursor=pointer]:
+                  - img [ref=e173]
+                - button "Bad response" [ref=e175] [cursor=pointer]:
+                  - img [ref=e176]
+            - generic [ref=e178]:
+              - generic [ref=e180]:
+                - generic [ref=e181]: Трекер задач
+                - generic [ref=e182]: 1 screens · default theme
+              - generic [ref=e184]: Простое приложение для управления задачами на русском языке с возможностью добавления, отметки выполнения и удаления.
+            - generic [ref=e186]:
+              - generic [ref=e189]:
+                - paragraph [ref=e190]: "❌ Generation quality check failed: • App.tsx missing from output"
+                - paragraph [ref=e191]: Please try again or rephrase your prompt.
+              - generic [ref=e192]:
+                - button "Copy" [ref=e193] [cursor=pointer]:
+                  - img [ref=e194]
+                - button "Regenerate" [ref=e197] [cursor=pointer]:
+                  - img [ref=e198]
+                - button "Good response" [ref=e203] [cursor=pointer]:
+                  - img [ref=e204]
+                - button "Bad response" [ref=e206] [cursor=pointer]:
+                  - img [ref=e207]
+            - generic [ref=e209]:
+              - generic [ref=e210]:
+                - paragraph [ref=e214]: "Build failed after 3 attempts: vite build exited 1: \x1b[31mx\x1b[39m Build failed in 10.41s \x1b[31merror during build: \x1b[31m[vite:load-fallback] Could not load C:\\ai_studio\\preview-workspace\\src/hooks/useApp (imported by src/pages/Home.tsx): ENOENT: no such file or directory, open 'C:\\ai_studio\\preview-workspace\\src\\hooks\\useApp'\x1b[31m at async open (node:internal/fs/promises:637:25) at async Object.readFile (node:internal/fs/promises:1269:14) at async Object.load (file:///C:/ai_studio/preview-workspace/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:65357:25) at async PluginDriver.hookFirstAndGetPlugin (file:///C:/ai_studio/preview-workspace/node_modules/rollup/dist/es/shared/node-entry.js:22453:28) at async file:///C:/ai_studio/preview-workspace/node_modules/rollup/dist/es/shared/node-entry.js:21445:33 at async Queue.work (file:///C:/ai_studio/preview-workspace/node_modules/rollup/dist/es/shared/node-entry.js:22681:32)\x1b[39m"
+                - generic [ref=e215]:
+                  - button "Copy" [ref=e216] [cursor=pointer]:
+                    - img [ref=e217]
+                  - button "Regenerate" [ref=e220] [cursor=pointer]:
+                    - img [ref=e221]
+                  - button "Good response" [ref=e226] [cursor=pointer]:
+                    - img [ref=e227]
+                  - button "Bad response" [ref=e229] [cursor=pointer]:
+                    - img [ref=e230]
+              - button "↺ Повторить" [ref=e233] [cursor=pointer]
+            - generic [ref=e234]:
+              - generic [ref=e236]:
+                - generic [ref=e237]: SimpleCounter
+                - generic [ref=e238]: 1 screens · theme
+              - generic [ref=e240]:
+                - generic [ref=e241]:
+                  - generic [ref=e242]: Режим быстрого прототипа
+                  - generic [ref=e243]: Используется наблюдаемое состояние ветки
+                - generic [ref=e244]: Активен режим быстрого прототипа. Архитектура ветки остаётся лёгким контекстом совместимости.
+            - paragraph [ref=e345]: "Простой счётчик: число по центру, кнопки + и - по бокам, и кнопка сброса"
+            - generic [ref=e346]:
+              - generic [ref=e348]:
+                - generic [ref=e349]: SimpleCounter
+                - generic [ref=e350]: 1 screens · theme
+              - generic [ref=e352]:
+                - generic [ref=e353]:
+                  - generic [ref=e354]: Режим быстрого прототипа
+                  - generic [ref=e355]: Используется наблюдаемое состояние ветки
+                - generic [ref=e356]: Активен режим быстрого прототипа. Архитектура ветки остаётся лёгким контекстом совместимости.
+            - generic [ref=e362]: 🏗️ Проектирую архитектуру...
+          - generic [ref=e246]:
+            - generic [ref=e247]:
+              - button "AUTO" [ref=e248]
+              - button "APP" [ref=e249]
+              - button "SUPER" [ref=e250]
+              - button "ALL" [ref=e251]
+              - button "История" [ref=e253]:
+                - img [ref=e254]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e259]:
+                - img [ref=e260]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e263]:
+                - img [ref=e264]
+            - generic [ref=e366]:
+              - generic [ref=e367]: Анализ...
+              - generic [ref=e368]: 5%
+            - generic [ref=e267]:
+              - button "Attach / tools" [ref=e269]:
+                - img [ref=e270]
+              - textbox "Что строим сегодня?" [ref=e271]
+              - button "Stop generation" [active] [ref=e369]:
+                - img [ref=e370]
+        - generic [ref=e276]:
+          - generic [ref=e277]:
+            - generic [ref=e278]:
+              - button "Preview" [ref=e279] [cursor=pointer]
+              - button "Reasoning" [ref=e280] [cursor=pointer]
+              - button "Code" [ref=e281] [cursor=pointer]
+              - button "Design" [ref=e282] [cursor=pointer]
+              - button "Analytics" [ref=e283] [cursor=pointer]
+              - button "Security" [ref=e284] [cursor=pointer]
+              - button "Cloud" [ref=e285] [cursor=pointer]
+            - generic [ref=e286]:
+              - button "Select" [ref=e287] [cursor=pointer]:
+                - img [ref=e288]
+                - text: Select
+              - generic [ref=e290]:
+                - button "Desktop Chrome" [ref=e291] [cursor=pointer]:
+                  - img [ref=e292]
+                - button "iPhone 16 Pro Max" [ref=e294] [cursor=pointer]:
+                  - img [ref=e295]
+                - button "Pixel 9 Pro" [ref=e297] [cursor=pointer]:
+                  - img [ref=e298]
+                - button "iPad Pro 13" [ref=e300] [cursor=pointer]:
+                  - img [ref=e301]
+              - generic [ref=e303]:
+                - button "↑" [ref=e304] [cursor=pointer]
+                - button "↓" [ref=e305] [cursor=pointer]
+                - button "←" [ref=e306] [cursor=pointer]
+                - button "⎘" [ref=e307] [cursor=pointer]
+              - button "Export" [ref=e308] [cursor=pointer]:
+                - img [ref=e309]
+                - text: Export
+              - button "Expo" [ref=e312] [cursor=pointer]:
+                - img [ref=e313]
+                - text: Expo
+              - button "Share" [ref=e315] [cursor=pointer]:
+                - img [ref=e316]
+                - text: Share
+          - generic [ref=e325]:
+            - img [ref=e327]
+            - generic [ref=e332]: AIC-RG Studio
+            - generic [ref=e333]: Кодируем интерфейс
+            - generic [ref=e335]:
+              - generic [ref=e336]: До появления preview
+              - generic [ref=e337]: 01с
+            - generic [ref=e372]:
+              - generic [ref=e373]:
+                - generic [ref=e374]: Live reasoning
+                - button "Open" [ref=e375] [cursor=pointer]
+              - generic [ref=e376]: Understand the request · In progress
+              - generic [ref=e377]: Current generation is starting. Structured reasoning steps will appear here as soon as the run reports them.

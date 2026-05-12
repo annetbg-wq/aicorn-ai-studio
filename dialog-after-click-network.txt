@@ -1,0 +1,7 @@
+[GET] http://127.0.0.1:3000/agent-config => [200] OK
+[GET] http://127.0.0.1:3000/agent-config => [200] OK
+[GET] https://zdzuaodphrlpvorutpyc.supabase.co/rest/v1/user_projects?select=id%2Cname%2Clast_sync_at%2Cversion%2Ccode_snapshot&order=last_sync_at.desc&limit=50 => [200] 
+[GET] https://zdzuaodphrlpvorutpyc.supabase.co/rest/v1/user_projects?select=id%2Cname%2Clast_sync_at%2Cversion%2Ccode_snapshot&order=last_sync_at.desc&limit=50 => [200] 
+[GET] http://localhost:5183/esbuild.wasm => [200] OK
+[GET] https://zdzuaodphrlpvorutpyc.supabase.co/rest/v1/user_projects?select=id%2Cname%2Clast_sync_at%2Cversion%2Ccode_snapshot&order=last_sync_at.desc&limit=50 => [200] 
+[GET] https://zdzuaodphrlpvorutpyc.supabase.co/rest/v1/user_projects?select=id%2Cname%2Clast_sync_at%2Cversion%2Ccode_snapshot&order=last_sync_at.desc&limit=50 => [200] 

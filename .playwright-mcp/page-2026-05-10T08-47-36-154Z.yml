@@ -1,0 +1,12 @@
+- generic [ref=e5]:
+  - generic [ref=e6]:
+    - img [ref=e8]
+    - generic [ref=e11]:
+      - heading "AI Studio" [level=1] [ref=e12]
+      - paragraph [ref=e13]: Sign in to continue
+  - generic [ref=e14]:
+    - button "Continue with Google" [ref=e15]:
+      - img [ref=e16]
+      - text: Continue with Google
+    - button "🧪 Test Login (localhost)" [ref=e21]
+  - paragraph [ref=e22]: By signing in you agree to the terms of service

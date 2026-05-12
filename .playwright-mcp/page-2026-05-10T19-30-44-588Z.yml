@@ -1,0 +1,124 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [active] [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Analytics" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Quality" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+        - button "Code Studio" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+        - button "DB Console" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+        - button "Cloud & Backend — Coming Soon" [ref=e67]:
+          - img [ref=e68]
+        - button "Packaging & Ship — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Growth & Marketing — Coming Soon" [ref=e78]:
+          - img [ref=e79]
+      - generic: System Engine
+    - generic [ref=e244]:
+      - generic [ref=e245]:
+        - generic [ref=e246]:
+          - generic [ref=e247]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e248] [cursor=pointer]:
+            - img [ref=e249]
+            - text: New Project
+          - generic [ref=e251]: New Project
+          - generic [ref=e252]: /
+          - img [ref=e253]
+          - generic [ref=e257]: main
+          - generic [ref=e258]: ·
+          - img [ref=e259]
+          - generic [ref=e261]: "snap #0"
+        - generic [ref=e263]: Not backed up
+        - generic [ref=e264]:
+          - generic [ref=e265]:
+            - 'button "Theme: dark" [ref=e266] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e267] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e268] [cursor=pointer]'
+          - button "Settings" [ref=e269] [cursor=pointer]:
+            - img [ref=e270]
+          - button "D dev.local@aic-studio.test" [ref=e273] [cursor=pointer]:
+            - generic [ref=e274]: D
+            - generic [ref=e275]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e276] [cursor=pointer]:
+            - img [ref=e277]
+            - text: Backup to Cloud
+      - generic [ref=e280]:
+        - generic [ref=e282]:
+          - generic [ref=e284]:
+            - img [ref=e285]
+            - generic [ref=e290]: AIC-RG Studio
+            - generic [ref=e291]: Опишите идею ниже или выберите в сайдбаре
+          - generic [ref=e292]:
+            - generic [ref=e293]:
+              - button "AUTO" [ref=e294]
+              - button "APP" [ref=e295]
+              - button "SUPER" [ref=e296]
+              - button "ALL" [ref=e297]
+              - button "История" [ref=e299]:
+                - img [ref=e300]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e305]:
+                - img [ref=e306]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e309]:
+                - img [ref=e310]
+            - generic [ref=e313]:
+              - button "Attach / tools" [ref=e315]:
+                - img [ref=e316]
+              - textbox "Что строим сегодня?" [ref=e317]
+              - button [disabled] [ref=e318]:
+                - img [ref=e319]
+        - generic [ref=e322]:
+          - generic [ref=e323]:
+            - generic [ref=e324]:
+              - button "Preview" [ref=e325] [cursor=pointer]
+              - button "Reasoning" [ref=e326] [cursor=pointer]
+              - button "Code" [ref=e327] [cursor=pointer]
+              - button "Design" [ref=e328] [cursor=pointer]
+              - button "Analytics" [ref=e329] [cursor=pointer]
+              - button "Security" [ref=e330] [cursor=pointer]
+              - button "Cloud" [ref=e331] [cursor=pointer]
+            - generic [ref=e332]:
+              - button "Select" [ref=e333] [cursor=pointer]:
+                - img [ref=e334]
+                - text: Select
+              - generic [ref=e336]:
+                - button "Desktop Chrome" [ref=e337] [cursor=pointer]:
+                  - img [ref=e338]
+                - button "iPhone 16 Pro Max" [ref=e340] [cursor=pointer]:
+                  - img [ref=e341]
+                - button "Pixel 9 Pro" [ref=e343] [cursor=pointer]:
+                  - img [ref=e344]
+                - button "iPad Pro 13" [ref=e346] [cursor=pointer]:
+                  - img [ref=e347]
+              - generic [ref=e349]:
+                - button "↑" [ref=e350] [cursor=pointer]
+                - button "↓" [ref=e351] [cursor=pointer]
+                - button "←" [ref=e352] [cursor=pointer]
+                - button "⎘" [ref=e353] [cursor=pointer]
+              - button "Export" [ref=e354] [cursor=pointer]:
+                - img [ref=e355]
+                - text: Export
+              - button "Share" [ref=e358] [cursor=pointer]:
+                - img [ref=e359]
+                - text: Share
+          - generic [ref=e367]:
+            - img [ref=e369]
+            - generic [ref=e374]: AIC-RG Studio
+            - generic [ref=e375]:
+              - text: Опишите идею ниже или выберите
+              - text: в сайдбаре

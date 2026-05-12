@@ -1,0 +1,101 @@
+[
+  {
+    "id": "2026-05-12T20:56:49.680Z",
+    "date": "2026-05-12",
+    "interest": "wellness",
+    "daily": "Осанка в фокусе, Дыхательный якорь, ГидроГлаз",
+    "weekly": "Цифровой пост, Ледяной ритуал, Благодарный круг",
+    "monthly": "Вагусный ритм, Циркадный якорь, Мускульный компас",
+    "createdAt": "2026-05-12T20:56:49.680Z"
+  },
+  {
+    "id": "2026-05-12T20:56:47.901Z",
+    "date": "2026-05-12",
+    "interest": "wellness",
+    "daily": "Кортизол-Спад, Энергия-Всплеск, Сон-Возврат",
+    "weekly": "Вагус-Пульс, SnackFit: Фитнес-закуска, ЦиклоБаланс",
+    "monthly": "Циркадный щит, Нейро-зарядка, Плавный выход",
+    "createdAt": "2026-05-12T20:56:47.901Z"
+  },
+  {
+    "id": "2026-05-11T20:20:00.325Z",
+    "date": "2026-05-11",
+    "interest": "wellness",
+    "daily": "ТелоСброс, ПорядокЕды, СпокойноИДвое",
+    "weekly": "RecoveryDay, MoveMix, ClearWeek",
+    "monthly": "ChronoPlate, Resync, FlareFree",
+    "createdAt": "2026-05-11T20:20:00.325Z"
+  },
+  {
+    "id": "2026-05-11T20:19:47.106Z",
+    "date": "2026-05-11",
+    "interest": "wellness",
+    "daily": "ПолленПульс, КапляВЖару, ОсанкаМгновение",
+    "weekly": "Цифровой Шабат, ДвижОк, ВкусНастроения",
+    "monthly": "МикроРитм, ХладоДень, НоздряВдох",
+    "createdAt": "2026-05-11T20:19:47.106Z"
+  },
+  {
+    "id": "2026-05-10T21:47:51.846Z",
+    "date": "2026-05-10",
+    "interest": "wellness",
+    "daily": "MoodMirror, HydraSense, PosturePulse",
+    "weekly": "ЭмоСброс, Холодный старт, Тихая неделя",
+    "monthly": "FlexFit Micro, VisionCalm, MenoRhythm",
+    "createdAt": "2026-05-10T21:47:51.846Z"
+  },
+  {
+    "id": "2026-05-10T18:40:34.373Z",
+    "date": "2026-05-10",
+    "interest": "wellness",
+    "daily": "ScreenEase, HeatSleep, MoveSpots",
+    "weekly": "BreathReset, GutLoop, ShiftSync",
+    "monthly": "Право на отдых, Циркадиан, nutrition consistency Growth Path",
+    "createdAt": "2026-05-10T18:40:34.373Z"
+  },
+  {
+    "id": "2026-05-10T18:40:19.496Z",
+    "date": "2026-05-10",
+    "interest": "wellness",
+    "daily": "SunriseLens, ZemlyaStep, Pozvonochnik",
+    "weekly": "ЦиклПитание, ЛедянаяНеделя, ЗакатЭкран",
+    "monthly": "Сонный Архитектор, МикроПауза, Белковый Компас",
+    "createdAt": "2026-05-10T18:40:19.496Z"
+  },
+  {
+    "id": "2026-05-10T08:47:05.145Z",
+    "date": "2026-05-10",
+    "interest": null,
+    "daily": "Refund Shield, CommuteSync Green, LiveCoach",
+    "weekly": "ClaimLens: AI-driven damage estimation for independent insurance adjusters, ConsentCam: One-tap HIPAA-compliant video consent for telehealth therapists, ResinWise: Waste-reduction calculator for small-batch resin crafters",
+    "monthly": "Пенсионный Пульс, ДермаСкрин, Попутчик 2.0",
+    "createdAt": "2026-05-10T08:47:05.145Z"
+  },
+  {
+    "id": "2026-05-10T08:46:57.813Z",
+    "date": "2026-05-10",
+    "interest": null,
+    "daily": "Refund Shield – Margin Recovery Cockpit for Shopify Brands, RouteZero – Instant Carbon Offset Matching for Last-Mile Fleets, EchoField – Real-Time Voice Clone for Field Service Technicians",
+    "weekly": "ClaimSight AI — Field intelligence for independent insurance adjusters, LabelGuard — Instant CPG formula compliance for small-batch producers, Numera — Visual math reasoning for teens with dyscalculia",
+    "monthly": "Зарядный Паспорт, Рецепт из Ленты, Аренда без Риска",
+    "createdAt": "2026-05-10T08:46:57.813Z"
+  },
+  {
+    "id": "2026-05-09T18:31:51.385Z",
+    "date": "2026-05-09",
+    "interest": null,
+    "daily": "EcoBox: Sustainable Grocery Subscription, Mindscape: Virtual Reality Therapy Platform, SyncSpace: Remote Work Collaboration Tool",
+    "weekly": "FluentConnect: Interactive ESL Tools, EcoPack Innovator: Smart Packaging Solutions, MindMate: Personalized Mental Health Companion",
+    "monthly": "EcoSmart Home, TeamSync, MindEase",
+    "createdAt": "2026-05-09T18:31:51.385Z"
+  },
+  {
+    "id": "2026-05-09T18:31:44.785Z",
+    "date": "2026-05-09",
+    "interest": null,
+    "daily": "EcoBox: Sustainable Grocery Subscription, Mindscape: Virtual Reality Therapy Platform, SyncSpace: Remote Work Collaboration Tool",
+    "weekly": "FluentConnect: Interactive ESL Tools, EcoPack Innovator: Smart Packaging Solutions, MindMate: Personalized Mental Health Companion",
+    "monthly": "CareLearn, EcoCart, FocusSphere",
+    "createdAt": "2026-05-09T18:31:44.785Z"
+  }
+]

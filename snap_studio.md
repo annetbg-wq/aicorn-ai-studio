@@ -1,0 +1,93 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Analytics" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Quality" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+        - button "Code Studio" [active] [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+        - button "DB Console" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+        - button "Cloud & Backend — Coming Soon" [ref=e67]:
+          - img [ref=e68]
+        - button "Packaging & Ship — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Growth & Marketing — Coming Soon" [ref=e78]:
+          - img [ref=e79]
+      - generic: Code Studio
+    - generic [ref=e244]:
+      - generic [ref=e245]:
+        - generic [ref=e246]: ⚙ Stability Terminal
+        - generic [ref=e247]: Admin — Dev Tools
+      - generic [ref=e249]:
+        - generic [ref=e250]:
+          - generic [ref=e251]: Stability Terminal
+          - generic [ref=e254]: bridge:3000
+          - generic [ref=e255]: Standard
+          - button "⎘ Copy Report" [ref=e256] [cursor=pointer]
+        - generic [ref=e257]:
+          - generic [ref=e258]: Connectors
+          - generic [ref=e259]:
+            - generic [ref=e260] [cursor=pointer]:
+              - generic [ref=e262]:
+                - generic [ref=e263]: Standard (Deepseek)
+                - generic [ref=e264]: agents mode
+              - generic [ref=e265]: ACTIVE
+            - generic [ref=e268] [cursor=pointer]:
+              - generic [ref=e269]: Claude CLI
+              - generic [ref=e270]: 2.1.92 (Claude Code)
+            - generic [ref=e273] [cursor=pointer]:
+              - generic [ref=e274]: Codex (GPT)
+              - generic [ref=e275]: codex-cli 0.130.0-alpha.5
+        - generic [ref=e276]:
+          - generic [ref=e277]:
+            - generic [ref=e278]: Stability
+            - generic [ref=e279]: 100%
+            - generic [ref=e280]: last 0 requests
+          - generic [ref=e282]: No requests yet
+        - generic [ref=e303]:
+          - generic [ref=e304]:
+            - generic [ref=e305]: Process Log
+            - generic [ref=e306]: 4 lines
+            - button "↓ Follow" [ref=e307] [cursor=pointer]
+            - button "⎘ Copy Report" [ref=e308] [cursor=pointer]
+            - button "Clear" [ref=e309] [cursor=pointer]
+          - generic [ref=e310]:
+            - generic [ref=e311]:
+              - generic [ref=e312]: 00:43:14
+              - generic [ref=e313]: INF
+              - generic [ref=e314]: "[connector]"
+              - generic [ref=e315]: Stability Terminal started
+            - generic [ref=e316]:
+              - generic [ref=e317]: 00:43:14
+              - generic [ref=e318]: INF
+              - generic [ref=e319]: "[connector]"
+              - generic [ref=e320]: Stability Terminal started
+            - generic [ref=e321]:
+              - generic [ref=e322]: 00:43:18
+              - generic [ref=e323]: OK
+              - generic [ref=e324]: "[connector]"
+              - generic [ref=e325]: "Claude CLI: available (2.1.92 (Claude Code))"
+            - generic [ref=e326]:
+              - generic [ref=e327]: 00:43:18
+              - generic [ref=e328]: OK
+              - generic [ref=e329]: "[connector]"
+              - generic [ref=e330]: "Codex (GPT): available (codex-cli 0.130.0-alpha.5)"
+        - generic [ref=e331] [cursor=pointer]:
+          - generic [ref=e332]: Sessions
+          - generic [ref=e333]: "0"
+          - generic [ref=e334]: ▸ expand

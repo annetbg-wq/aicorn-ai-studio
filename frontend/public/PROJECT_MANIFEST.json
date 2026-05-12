@@ -107,6 +107,9 @@
     "modules/code-studio-internal/DEV_ONLY.md",
     "modules/code-studio-internal/index.ts",
     "modules/engine/EngineWorkspace.tsx",
+    "modules/quality/QualityPanel.tsx",
+    "modules/quality/__tests__/QualityPanel.architect-real.test.ts",
+    "modules/quality/__tests__/QualityPanel.flow-chain.test.tsx",
     "pages/LoginPage.tsx",
     "pages/ProjectsPage.tsx",
     "scripts/generateManifest.ts",
@@ -140,6 +143,7 @@
     "services/ConfigService.ts",
     "services/ContentService.ts",
     "services/DeployService.ts",
+    "services/DesignContract.ts",
     "services/DesignDiffService.ts",
     "services/designSystem/categories.ts",
     "services/designSystem/classifier.ts",
@@ -228,7 +232,9 @@
     "services/__tests__/ChatArchitectureService.test.ts",
     "services/__tests__/ComparisonScorecardService.visual-quality.test.ts",
     "services/__tests__/compileGuard.test.ts",
+    "services/__tests__/DesignContract.test.ts",
     "services/__tests__/diffReviewFlow.test.ts",
+    "services/__tests__/GenerationQualityService.test.ts",
     "services/__tests__/GenerationTracer.designTelemetry.test.ts",
     "services/__tests__/GenerationTracer.traceLayers.test.ts",
     "services/__tests__/HookProviderValidator.test.ts",
@@ -259,6 +265,7 @@
     "setupTests.ts",
     "shared/appLanguage.ts",
     "shared/designSystem.ts",
+    "shared/outputTruth.ts",
     "shared/previewBridgePaths.ts",
     "shared/projectModel.ts",
     "shared/safePaths.ts",
@@ -315,5 +322,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-05-09T18:16:23.211Z"
+  "last_scan_timestamp": "2026-05-12T21:02:11.833Z"
 }

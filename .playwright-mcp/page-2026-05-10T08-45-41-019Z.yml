@@ -1,0 +1,163 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Analytics" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Quality" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+        - button "Code Studio" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+        - button "DB Console" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+        - button "Cloud & Backend — Coming Soon" [ref=e67]:
+          - img [ref=e68]
+        - button "Packaging & Ship — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Growth & Marketing — Coming Soon" [ref=e78]:
+          - img [ref=e79]
+    - generic [ref=e810]:
+      - generic [ref=e811]:
+        - generic [ref=e812]:
+          - generic [ref=e813]: AIC-RG STUDIO PRO
+          - button "New Project" [ref=e814] [cursor=pointer]:
+            - img [ref=e815]
+            - text: New Project
+          - generic [ref=e817]: Clinic Inbox Triage Copilot
+          - generic [ref=e818]: /
+          - img [ref=e819]
+          - generic [ref=e823]: main
+          - generic [ref=e824]: ·
+          - img [ref=e825]
+          - generic [ref=e827]: "snap #0"
+        - generic [ref=e829]: Not backed up
+        - generic [ref=e830]:
+          - generic [ref=e831]:
+            - 'button "Theme: dark" [ref=e832] [cursor=pointer]'
+            - 'button "Theme: medium" [ref=e833] [cursor=pointer]'
+            - 'button "Theme: light" [ref=e834] [cursor=pointer]'
+          - button "Settings" [ref=e835] [cursor=pointer]:
+            - img [ref=e836]
+          - button "D dev.local@aic-studio.test" [ref=e839] [cursor=pointer]:
+            - generic [ref=e840]: D
+            - generic [ref=e841]: dev.local@aic-studio.test
+          - button "Backup to Cloud" [ref=e842] [cursor=pointer]:
+            - img [ref=e843]
+            - text: Backup to Cloud
+      - generic [ref=e846]:
+        - generic [ref=e957]:
+          - generic [ref=e959]:
+            - generic [ref=e964]:
+              - paragraph [ref=e965]: Founder-ready brief для продуктового архитектора
+              - paragraph [ref=e966]: "Название: AI-триаж входящих для клиник Суть: AI-рабочее пространство, которое превращает сообщения пациентов в приоритетные задачи для небольших клиник. Целевая аудитория: Администраторы клиник и медсестры, которые разбирают перегруженные входящие от пациентов. Рыночный угол: Клиники вынуждены отвечать пациентам быстрее без роста штата. Чем идея интересна: Идея быстро показывает операционный ROI и может стартовать как легкий local-first workflow."
+              - paragraph [ref=e967]: Используй этот структурированный brief как стартовый контекст. Не создавай сохраненный проект, пока не появится live preview и пользователь явно не нажмет Save.
+            - generic [ref=e968]:
+              - generic [ref=e969]: Что строим?
+              - generic [ref=e970]:
+                - button "🌐 Веб-приложение" [ref=e971] [cursor=pointer]
+                - button "⚡ Супер-апп" [ref=e972] [cursor=pointer]
+          - generic [ref=e974]:
+            - generic [ref=e975]:
+              - button "AUTO" [ref=e976]
+              - button "APP" [ref=e977]
+              - button "SUPER" [ref=e978]
+              - button "ALL" [ref=e979]
+              - button "История" [ref=e981]:
+                - img [ref=e982]
+                - text: История
+              - button "Undo (Ctrl+Z)" [disabled] [ref=e987]:
+                - img [ref=e988]
+              - button "Redo (Ctrl+Shift+Z)" [disabled] [ref=e991]:
+                - img [ref=e992]
+            - generic [ref=e998]:
+              - generic [ref=e999]: Анализ...
+              - generic [ref=e1000]: 5%
+            - generic [ref=e1001]:
+              - generic [ref=e1002]:
+                - generic [ref=e1003]: TREND
+                - generic [ref=e1004]: Clinic Inbox Triage Copilot
+                - button "Remove context" [ref=e1005]:
+                  - img [ref=e1006]
+              - button "Clear" [ref=e1009]
+            - generic [ref=e1010]:
+              - button "Attach / tools" [ref=e1012]:
+                - img [ref=e1013]
+              - textbox "Что строим сегодня?" [ref=e1014]: "Founder-ready brief для продуктового архитектора Название: AI-триаж входящих для клиник Суть: AI-рабочее пространство, которое превращает сообщения пациентов в приоритетные задачи для небольших клиник. Целевая аудитория: Администраторы клиник и медсестры, которые разбирают перегруженные входящие от пациентов. Рыночный угол: Клиники вынуждены отвечать пациентам быстрее без роста штата. Чем идея интересна: Идея быстро показывает операционный ROI и может стартовать как легкий local-first workflow. Используй этот структурированный brief как стартовый контекст. Не создавай сохраненный проект, пока не появится live preview и пользователь явно не нажмет Save."
+              - button "Stop generation" [ref=e1015]:
+                - img [ref=e1016]
+        - generic [ref=e888]:
+          - generic [ref=e889]:
+            - generic [ref=e890]:
+              - button "Preview" [ref=e891] [cursor=pointer]
+              - button "Reasoning" [ref=e892] [cursor=pointer]
+              - button "Code" [ref=e893] [cursor=pointer]
+              - button "Design" [ref=e894] [cursor=pointer]
+              - button "Analytics" [ref=e895] [cursor=pointer]
+              - button "Security" [ref=e896] [cursor=pointer]
+              - button "Cloud" [ref=e897] [cursor=pointer]
+            - generic [ref=e898]:
+              - button "Select" [ref=e899] [cursor=pointer]:
+                - img [ref=e900]
+                - text: Select
+              - generic [ref=e902]:
+                - button "Desktop Chrome" [ref=e903] [cursor=pointer]:
+                  - img [ref=e904]
+                - button "iPhone 16 Pro Max" [ref=e906] [cursor=pointer]:
+                  - img [ref=e907]
+                - button "Pixel 9 Pro" [ref=e909] [cursor=pointer]:
+                  - img [ref=e910]
+                - button "iPad Pro 13" [ref=e912] [cursor=pointer]:
+                  - img [ref=e913]
+              - generic [ref=e915]:
+                - button "↑" [ref=e916] [cursor=pointer]
+                - button "↓" [ref=e917] [cursor=pointer]
+                - button "←" [ref=e918] [cursor=pointer]
+                - button "⎘" [ref=e919] [cursor=pointer]
+              - button "Export" [ref=e920] [cursor=pointer]:
+                - img [ref=e921]
+                - text: Export
+              - button "Share" [ref=e924] [cursor=pointer]:
+                - img [ref=e925]
+                - text: Share
+          - generic [ref=e1019]:
+            - generic [ref=e1021]:
+              - generic [ref=e1022]:
+                - button [ref=e1023] [cursor=pointer]:
+                  - img [ref=e1024]
+                - generic [ref=e1027] [cursor=pointer]: 41%
+                - button [ref=e1028] [cursor=pointer]:
+                  - img [ref=e1029]
+                - button [ref=e1033] [cursor=pointer]:
+                  - img [ref=e1034]
+              - iframe [ref=e1043]:
+                - main [ref=f2e3]:
+                  - generic [ref=f2e4]:
+                    - paragraph [ref=f2e5]: Studio ready
+                    - heading "Start your next project" [level=1] [ref=f2e6]
+                    - paragraph [ref=f2e7]: Describe the app, page, or workflow you want to build. The generated preview will appear here.
+                    - button "Describe your idea" [ref=f2e8] [cursor=pointer]
+            - generic [ref=e1044]:
+              - img [ref=e1046]
+              - generic [ref=e1051]: AIC-RG Studio
+              - generic [ref=e1052]: Кодируем интерфейс
+              - generic [ref=e1054]:
+                - generic [ref=e1055]: До появления preview
+                - generic [ref=e1056]: 01с
+              - generic [ref=e1058]:
+                - generic [ref=e1059]:
+                  - generic [ref=e1060]: Live reasoning
+                  - button "Open" [ref=e1061] [cursor=pointer]
+                - generic [ref=e1062]: Understand the request · In progress
+                - generic [ref=e1063]: Current generation is starting. Structured reasoning steps will appear here as soon as the run reports them.

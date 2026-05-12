@@ -553,7 +553,7 @@ function globPatternToRegExp(pattern: string): RegExp {
   return new RegExp(`^${source}$`, 'i');
 }
 
-function pathMatchesPattern(path: string, pattern: string): boolean {
+export function pathMatchesSkeletonPattern(path: string, pattern: string): boolean {
   const normalizedPath = normalizeSkeletonPath(path);
   const normalizedPattern = normalizeSkeletonPath(pattern);
   if (!normalizedPath || !normalizedPattern) return false;
@@ -566,7 +566,7 @@ function pathMatchesPattern(path: string, pattern: string): boolean {
 export function isProtectedSkeletonFile(skeletonId: SkeletonId, path: string): boolean {
   const manifest = SKELETON_MANIFESTS[skeletonId];
   if (!manifest) return false;
-  return manifest.protectedFiles.some(pattern => pathMatchesPattern(path, pattern));
+  return manifest.protectedFiles.some(pattern => pathMatchesSkeletonPattern(path, pattern));
 }
 
 /**

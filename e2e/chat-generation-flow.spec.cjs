@@ -520,6 +520,9 @@ test.describe('Chat → generation → blueprint → preview', () => {
   test('plan confirmation hands off to a real compiled preview without crashing', async ({ page }) => {
     // 1. Open studio
     await openEngine(page);
+    await page.evaluate(() => {
+      localStorage.setItem('AIC_E2E_BLUEPRINT_SHORTCUT', '1');
+    });
     await waitForE2EPreviewHook(page);
 
     // 2. Send prompt — plan card appears immediately, no clarifier step
@@ -572,6 +575,9 @@ test.describe('Chat → generation → blueprint → preview', () => {
   // ── Double-click regression ───────────────────────────────────────────────
   test('double-click on confirm does not duplicate dispatch', async ({ page }) => {
     await openEngine(page);
+    await page.evaluate(() => {
+      localStorage.setItem('AIC_E2E_BLUEPRINT_SHORTCUT', '1');
+    });
     await typeInChat(page, 'todo app with supabase');
 
     await expect(page.locator('[data-testid="generation-plan-card"]')).toBeVisible({ timeout: 60_000 });
