@@ -8,6 +8,8 @@ import { llmGet } from './LLMProxy';
 export interface Model {
   id: string;
   name: string;
+  /** Per-token price strings from OpenRouter catalog (USD per token, e.g. "0.00000014") */
+  pricing?: { prompt: string; completion: string };
 }
 
 /**
@@ -69,6 +71,9 @@ export async function fetchModels(
       .map((m: any) => ({
         id: m.id,
         name: m.name ?? m.id,
+        pricing: m.pricing && m.pricing.prompt !== undefined && m.pricing.completion !== undefined
+          ? { prompt: String(m.pricing.prompt), completion: String(m.pricing.completion) }
+          : undefined,
       }))
       .sort((a: { id: string; name: string }, b: { id: string; name: string }) => a.name.localeCompare(b.name));
 

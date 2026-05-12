@@ -117,6 +117,8 @@ interface QualityCompareRunSide {
   status: QualityCompareProfileStatus;
   result?: TestApiResult;
   realText: QualityRealTextSection[];
+  /** Per-token pricing looked up from the OpenRouter catalog at run time */
+  pricing?: { promptPerToken: number; completionPerToken: number };
 }
 
 interface QualityCompareRunRecord {
@@ -806,9 +808,23 @@ function pluralRu(count: number, [one, few, many]: [string, string, string]): st
 
 function fmtCost(cost?: number): string | null {
   if (typeof cost !== 'number' || !Number.isFinite(cost)) return null;
-  if (cost < 0.01) return `~$${cost.toFixed(3)}`;
-  if (cost < 1) return `~$${cost.toFixed(2)}`;
+  if (cost === 0) return '$0.000000';
+  if (cost < 0.001) return `~$${cost.toFixed(6)}`;
+  if (cost < 0.01)  return `~$${cost.toFixed(4)}`;
+  if (cost < 1)     return `~$${cost.toFixed(2)}`;
   return `~$${cost.toFixed(1)}`;
+}
+
+/** Compute cost for one compare side: prefers API-returned cost_usd, falls back to token × pricing. */
+function computeCompareSideCost(
+  llm: TestLlmMetrics | undefined,
+  pricing: { promptPerToken: number; completionPerToken: number } | undefined,
+): number | undefined {
+  if (!llm) return undefined;
+  if (typeof llm.cost_usd === 'number' && llm.cost_usd > 0) return llm.cost_usd;
+  if (!pricing) return undefined;
+  const cost = llm.prompt_tokens * pricing.promptPerToken + llm.completion_tokens * pricing.completionPerToken;
+  return cost > 0 ? cost : undefined;
 }
 
 function buildTestMetaLines(state: TestState): Array<{ key: string; text: string; color?: string }> {
@@ -1757,8 +1773,99 @@ function CompareResultPanel({
   }
 
   const sides = [record.left, record.right].filter(Boolean) as QualityCompareRunSide[];
+  const [leftSide, rightSide] = sides;
+
+  // Compute effective costs (API-returned or estimated from pricing)
+  const leftCost  = computeCompareSideCost(leftSide?.result?.llm,  leftSide?.pricing);
+  const rightCost = computeCompareSideCost(rightSide?.result?.llm, rightSide?.pricing);
+
+  const hasAnyLlm = sides.some(s => !!s.result?.llm);
+
+  /** Returns percentage difference (B vs A). Negative means B is smaller. */
+  const pctDiff = (a: number | undefined, b: number | undefined): number | undefined => {
+    if (a === undefined || b === undefined || a === 0) return undefined;
+    return ((b - a) / a) * 100;
+  };
+
+  /** Returns per-side diff badge. lower = better (for latency, tokens, cost). */
+  const diffBadge = (pct: number | undefined, label: string): { a: string | null; b: string | null } => {
+    if (pct === undefined || Math.abs(pct) < 3) return { a: null, b: null };
+    const bBetter = pct < 0;
+    const tag = `← ${Math.abs(pct).toFixed(0)}% ${label}`;
+    return bBetter ? { a: null, b: tag } : { a: tag, b: null };
+  };
+
+  const speedBadge = diffBadge(pctDiff(leftSide?.result?.duration_ms, rightSide?.result?.duration_ms), 'faster');
+  const tokenBadge = diffBadge(pctDiff(leftSide?.result?.llm?.total_tokens, rightSide?.result?.llm?.total_tokens), 'fewer tkns');
+  const costBadge  = diffBadge(pctDiff(leftCost, rightCost), 'cheaper');
+
+  const CmpRow = ({ label, aVal, aB, bVal, bB }: { label: string; aVal: string; aB: string | null; bVal: string; bB: string | null }) => (
+    <div style={{ display: 'flex', gap: 8, fontSize: 11, marginBottom: 4, alignItems: 'baseline' }}>
+      <span style={{ color: 'rgba(255,255,255,0.32)', width: 92, flexShrink: 0, fontFamily: 'monospace' }}>{label}</span>
+      <span style={{ flex: 1, fontFamily: 'monospace', color: 'rgba(255,255,255,0.8)' }}>
+        {aVal}{aB && <span style={{ marginLeft: 5, fontSize: 10, color: '#4ade80' }}>{aB}</span>}
+      </span>
+      <span style={{ flex: 1, fontFamily: 'monospace', color: 'rgba(255,255,255,0.8)' }}>
+        {bVal}{bB && <span style={{ marginLeft: 5, fontSize: 10, color: '#4ade80' }}>{bB}</span>}
+      </span>
+    </div>
+  );
+
   return (
     <div style={panelStyle}>
+      {/* ── Metrics comparison table ─────────────────────────────── */}
+      <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(0,0,0,0.18)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.05)' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <div style={{ width: 92, flexShrink: 0 }} />
+          {sides.map((side, idx) => (
+            <div key={idx} style={{ flex: 1, fontSize: 10, color: '#c084fc', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {idx === 0 ? 'A' : 'B'} · {side.status.label}
+            </div>
+          ))}
+        </div>
+        {/* Latency row — always shown */}
+        <CmpRow
+          label="latency"
+          aVal={leftSide?.result?.duration_ms !== undefined ? fmtDuration(leftSide.result.duration_ms) : '—'}
+          aB={speedBadge.a}
+          bVal={rightSide?.result?.duration_ms !== undefined ? fmtDuration(rightSide.result.duration_ms) : '—'}
+          bB={speedBadge.b}
+        />
+        {/* Token + cost rows — only when at least one side has LLM data */}
+        {hasAnyLlm && (
+          <>
+            <CmpRow
+              label="prompt tkns"
+              aVal={leftSide?.result?.llm ? String(leftSide.result.llm.prompt_tokens) : '—'}
+              aB={null}
+              bVal={rightSide?.result?.llm ? String(rightSide.result.llm.prompt_tokens) : '—'}
+              bB={null}
+            />
+            <CmpRow
+              label="output tkns"
+              aVal={leftSide?.result?.llm ? String(leftSide.result.llm.completion_tokens) : '—'}
+              aB={tokenBadge.a}
+              bVal={rightSide?.result?.llm ? String(rightSide.result.llm.completion_tokens) : '—'}
+              bB={tokenBadge.b}
+            />
+            <CmpRow
+              label="cost (est.)"
+              aVal={fmtCost(leftCost) ?? '—'}
+              aB={costBadge.a}
+              bVal={fmtCost(rightCost) ?? '—'}
+              bB={costBadge.b}
+            />
+          </>
+        )}
+        {!hasAnyLlm && (
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', marginTop: 2 }}>
+            N/A — no token usage for runtime checks
+          </div>
+        )}
+      </div>
+
+      {/* ── Side cards ────────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         {sides.map((side, idx) => {
           const result = side.result;
@@ -2001,11 +2108,20 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
       const result = id === 'architect-real'
         ? await runArchitectRealTest({ route: profile.route, model: profile.model })
         : await runSingleTest(id);
+      // Look up per-token pricing from the cached OpenRouter catalog (may be undefined for CLI routes)
+      const modelEntry = openRouterModels.find(m => m.id === profile.model.trim());
+      const pricing = modelEntry?.pricing
+        ? {
+            promptPerToken:     parseFloat(modelEntry.pricing.prompt)     || 0,
+            completionPerToken: parseFloat(modelEntry.pricing.completion) || 0,
+          }
+        : undefined;
       return {
         profile,
         status,
         result,
         realText: result.details ? buildQualityRealTextSections(id, result.details) : [],
+        pricing,
       };
     };
 
@@ -2023,7 +2139,7 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
         right,
       },
     }));
-  }, [cliStatus, compareBlockedReason, compareProfiles.left, compareProfiles.right, primaryProvider, runSingleTest]);
+  }, [cliStatus, compareBlockedReason, compareProfiles.left, compareProfiles.right, openRouterModels, primaryProvider, runSingleTest]);
 
   const handleRunAll = useCallback(async () => {
     setRunAllActive(true);
