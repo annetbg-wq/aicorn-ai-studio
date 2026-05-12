@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "start": "node launcher.mjs",
     "dev:frontend": "npm run dev --prefix frontend",
     "dev:backend": "npx tsx backend/auth-token.ts",
     "dev:agent": "npm run dev:backend",
