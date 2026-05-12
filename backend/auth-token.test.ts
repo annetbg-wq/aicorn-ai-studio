@@ -2,12 +2,19 @@ import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildQualityLlmPrompt,
   DEFAULT_CLAUDE_MODEL,
   resolveClaudeModel,
   runClaudePrompt,
 } from './auth-token';
 
 describe('auth-token Claude runner', () => {
+  it('formats quality prompt with system and user sections', () => {
+    expect(buildQualityLlmPrompt('system rules', 'user ask')).toBe(
+      '[System]\nsystem rules\n\n[User]\nuser ask',
+    );
+  });
+
   it('uses expected default model', () => {
     expect(DEFAULT_CLAUDE_MODEL).toBe('claude-sonnet-4-6');
     expect(resolveClaudeModel(undefined)).toBe('claude-sonnet-4-6');

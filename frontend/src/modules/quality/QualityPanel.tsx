@@ -13,11 +13,13 @@ import React, { useState, useCallback, useEffect } from 'react';
 import JSZip from 'jszip';
 import {
   FlaskConical, Play, Loader2, CheckCircle2, XCircle, Circle,
-  Clock, BarChart2, ChevronDown, ChevronRight, Download,
+  Clock, BarChart2, ChevronDown, ChevronRight, Download, GitCompare, FileText,
 } from 'lucide-react';
 import { BenchmarkDashboard } from '../../components/BenchmarkDashboard';
 import { ConfigService } from '../../services/ConfigService';
 import { Orchestrator } from '../../services/Orchestrator';
+import { fetchModelsWithCache, type Model } from '../../services/ModelRegistry';
+import { getDevAgentCliStatus } from '../code-studio-internal/ClaudeDevBridge';
 import {
   analyzeArchitectPlanTruth,
   type OutputStructureContractSummary,
@@ -52,11 +54,11 @@ interface CodeDeltaFile       { path: string; size: number; content: string }
 interface CodeDeltaDetails    { buildId: string; files: CodeDeltaFile[]; structure?: OutputStructureContractSummary; skeletonDelta?: OutputSkeletonDeltaSummary }
 interface CompileAsset        { name: string; size: number }
 interface CompileDetails      { buildId: string; assets: CompileAsset[] }
-interface PreviewHttpDetails  { httpStatus: number; contentLength: number; contentLengthStr: string; hasRootDiv: boolean; buildId: string }
+interface PreviewHttpDetails  { httpStatus: number; contentLength: number; contentLengthStr: string; hasRootDiv: boolean; buildId: string; htmlExcerpt?: string }
 interface PreviewMtdDetails   { lineNumber: number; line: string }
 interface SaveReadyDetails    { compileSuccess: boolean; buildId: string; assetsCount: number; structure?: OutputStructureContractSummary; skeletonDelta?: OutputSkeletonDeltaSummary }
 interface NoPremSaveDetails   { projectsBeforeSave: number; totalSessions: number; correct: boolean }
-interface ArchRealDetails    { appName: string; skeleton: string; fileTree: Record<string, string>; contextContract?: string; dataModel?: string; model: string; fileCount: number }
+interface ArchRealDetails    { appName: string; skeleton: string; fileTree: Record<string, string>; contextContract?: string; dataModel?: string; model: string; fileCount: number; prompt?: string; rawResponse?: string; finishReason?: string | null; routeLabel?: string; repairAttempted?: boolean }
 interface TestLlmMetrics      { model: string; prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd?: number }
 interface TestOutputMetrics   { file_count?: number; total_bytes?: number; asset_count?: number; build_size_kb?: number; preview_url?: string; files?: string[] }
 
@@ -91,6 +93,42 @@ interface TestApiResult {
   details?: Record<string, unknown>;
 }
 
+type QualityCompareRoute = 'standard-api' | 'openrouter' | 'claude-cli' | 'codex-cli';
+
+export interface QualityRealTextSection {
+  id: string;
+  label: string;
+  content: string;
+}
+
+interface QualityCompareProfile {
+  route: QualityCompareRoute;
+  model: string;
+}
+
+interface QualityCompareProfileStatus {
+  ready: boolean;
+  label: string;
+  reason?: string;
+}
+
+interface QualityCompareRunSide {
+  profile: QualityCompareProfile;
+  status: QualityCompareProfileStatus;
+  result?: TestApiResult;
+  realText: QualityRealTextSection[];
+}
+
+interface QualityCompareRunRecord {
+  state: 'idle' | 'running' | 'done';
+  supported: boolean;
+  reason?: string;
+  left?: QualityCompareRunSide;
+  right?: QualityCompareRunSide;
+}
+
+type DevAgentCliStatus = Awaited<ReturnType<typeof getDevAgentCliStatus>>;
+
 // ── localStorage helpers ───────────────────────────────────────────────────────
 
 const LS_TEST_KEY     = (id: string) => `quality.test.${id}`;
@@ -124,6 +162,69 @@ function getTruthKind(id: StepId): QualityTruthKind {
   if (FIXTURE_BACKED_TESTS.has(id)) return 'fixture-backed';
   if (REAL_LLM_TESTS.has(id)) return 'real-llm';
   return 'real-runtime';
+}
+
+const QUALITY_COMPARE_ROUTE_LABELS: Record<QualityCompareRoute, string> = {
+  'standard-api': 'Standard API',
+  openrouter: 'OpenRouter',
+  'claude-cli': 'Claude CLI',
+  'codex-cli': 'Codex CLI',
+};
+
+function getPrimaryProviderForQuality(): string {
+  return ConfigService.getAgentConfig('agent_primary').provider || 'openrouter';
+}
+
+function describeQualityCompareProfile(profile: QualityCompareProfile, primaryProvider = getPrimaryProviderForQuality()): string {
+  if (profile.route === 'standard-api') {
+    return `${QUALITY_COMPARE_ROUTE_LABELS[profile.route]} · ${primaryProvider}`;
+  }
+  return QUALITY_COMPARE_ROUTE_LABELS[profile.route];
+}
+
+function getQualityCompareSupport(id: StepId): { supported: boolean; reason?: string } {
+  if (REAL_LLM_TESTS.has(id)) return { supported: true };
+  if (FIXTURE_BACKED_TESTS.has(id)) {
+    return { supported: false, reason: 'Fixture-backed checks are deterministic and do not route through a real LLM.' };
+  }
+  return { supported: false, reason: 'Runtime-backed checks validate the built app, so model routing does not change this item.' };
+}
+
+function getQualityCompareProfileStatus(
+  profile: QualityCompareProfile,
+  cliStatus: DevAgentCliStatus | null,
+  primaryProvider = getPrimaryProviderForQuality(),
+): QualityCompareProfileStatus {
+  const model = profile.model.trim();
+  const label = describeQualityCompareProfile(profile, primaryProvider);
+
+  if (!model) {
+    return { ready: false, label, reason: 'Select or enter a model first.' };
+  }
+
+  if (profile.route === 'standard-api') {
+    const key = ConfigService.getKeyForAgent('primary');
+    return key
+      ? { ready: true, label }
+      : { ready: false, label, reason: `Add a ${primaryProvider} key in Settings → Providers.` };
+  }
+
+  if (profile.route === 'openrouter') {
+    const key = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
+    return key
+      ? { ready: true, label }
+      : { ready: false, label, reason: 'Add an OpenRouter key in Settings → Providers.' };
+  }
+
+  const cliKey = profile.route === 'codex-cli' ? 'codex' : 'claude';
+  const cli = cliStatus?.[cliKey];
+  return cli?.available
+    ? { ready: true, label }
+    : { ready: false, label, reason: cli?.reason || `${label} is not available on this machine.` };
+}
+
+function areQualityCompareProfilesEqual(left: QualityCompareProfile, right: QualityCompareProfile): boolean {
+  return left.route === right.route && left.model.trim() === right.model.trim();
 }
 
 function loadTestHistory(id: string): TestHistoryRun[] {
@@ -162,13 +263,45 @@ async function callTestApi(testId: string, buildId?: string): Promise<TestApiRes
   return (await resp.json()) as TestApiResult;
 }
 
-// ── Architect Real — direct LLM call (frontend-only, no backend proxy) ─────────
+// ── Architect Real — direct LLM call (standard/openrouter) + local CLI proxy ───
+
+const QUALITY_ARCHITECT_SYSTEM_PROMPT = `You are an app architect. Return a JSON object — no markdown fences, no extra text.
+Schema:
+{
+  "appName": "<name derived from user prompt>",
+  "skeleton": "mobile-app",
+  "fileTree": {
+    "src/path/file.tsx": "one sentence: what this file does and which data it uses"
+  },
+  "contextContract": "description of shared AppContext/state contract",
+  "dataModel": "key types e.g. Habit: { id: string, name: string, ... }"
+}
+Rules:
+- fileTree must contain ONLY delta files (files the coder will create from scratch)
+- Do NOT include skeleton files already provided: src/App.tsx, src/main.tsx, src/context/AppContext.tsx, src/hooks/useLocalStorage.ts, src/components/ui/*, src/components/BottomTabs.tsx, src/lib/cn.ts
+- Minimum 5 delta files required
+- Each fileTree value: exactly one sentence describing purpose + data used`;
+
+const QUALITY_ARCHITECT_USER_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
 
 interface ArchitectCompletionMeta {
   content: string;
   usageRaw?: Record<string, unknown>;
   llmModel: string;
   finishReason: string | null;
+}
+
+export interface ArchitectRunnerProfile {
+  route: QualityCompareRoute;
+  model?: string;
+}
+
+interface ArchitectExecutionConfig {
+  provider: string;
+  apiKey: string;
+  endpoint: string;
+  model: string;
+  routeLabel: string;
 }
 
 function stripJsonMarkdownFences(raw: string): string {
@@ -280,7 +413,7 @@ export function extractArchitectCompletionMeta(raw: unknown, fallbackModel: stri
     content: typeof data?.output_text === 'string' ? data.output_text : '',
     usageRaw: typeof data?.usage === 'object' && data?.usage !== null ? data.usage as Record<string, unknown> : undefined,
     llmModel: typeof data?.model === 'string' ? data.model : fallbackModel,
-    finishReason: null,
+    finishReason: typeof data?.finish_reason === 'string' ? data.finish_reason : null,
   };
 }
 
@@ -314,6 +447,50 @@ function shouldRetryArchitectAttempt(input: {
   );
 }
 
+function resolveArchitectExecutionConfig(profile?: ArchitectRunnerProfile): ArchitectExecutionConfig {
+  const route = profile?.route ?? 'standard-api';
+  const requestedModel = profile?.model?.trim() || ConfigService.resolveModel('primary');
+
+  if (!requestedModel) {
+    throw new Error('Model not configured for quality compare. Open Settings → Agents or enter a model in Compare.');
+  }
+
+  if (route === 'standard-api') {
+    const apiKey = ConfigService.getKeyForAgent('primary');
+    if (!apiKey) throw new Error('API key missing for primary slot. Open Settings → Providers.');
+    const provider = getPrimaryProviderForQuality();
+    const endpoint = Orchestrator.getEndpoint(provider);
+    return {
+      provider,
+      apiKey,
+      endpoint,
+      model: Orchestrator.normalizeModelId(requestedModel, endpoint),
+      routeLabel: describeQualityCompareProfile({ route, model: requestedModel }, provider),
+    };
+  }
+
+  if (route === 'openrouter') {
+    const apiKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
+    if (!apiKey) throw new Error('OpenRouter API key missing. Open Settings → Providers.');
+    const endpoint = Orchestrator.getEndpoint('openrouter');
+    return {
+      provider: 'openrouter',
+      apiKey,
+      endpoint,
+      model: Orchestrator.normalizeModelId(requestedModel, endpoint),
+      routeLabel: QUALITY_COMPARE_ROUTE_LABELS.openrouter,
+    };
+  }
+
+  return {
+    provider: route,
+    apiKey: '',
+    endpoint: '/api/quality/llm-run',
+    model: requestedModel,
+    routeLabel: QUALITY_COMPARE_ROUTE_LABELS[route],
+  };
+}
+
 async function requestArchitectCompletion(input: {
   provider: string;
   apiKey: string;
@@ -339,6 +516,18 @@ async function requestArchitectCompletion(input: {
         messages: [{ role: 'user', content: input.userPrompt }],
         temperature: 0.2,
         max_tokens: input.maxTokens,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } else if (input.provider === 'claude-cli' || input.provider === 'codex-cli') {
+    resp = await fetch(input.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: input.provider === 'codex-cli' ? 'codex' : 'claude',
+        model: input.model,
+        systemPrompt: input.systemPrompt,
+        userPrompt: input.userPrompt,
       }),
       signal: AbortSignal.timeout(60_000),
     });
@@ -384,62 +573,33 @@ async function requestArchitectCompletion(input: {
   return extractArchitectCompletionMeta(raw, input.model);
 }
 
-export async function runArchitectRealTest(): Promise<TestApiResult> {
+export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Promise<TestApiResult> {
   const t0 = Date.now();
   const ms = () => Date.now() - t0;
 
-  let modelId: string;
-  let apiKey: string;
-  let endpoint: string;
-  let normalizedModelId: string;
-  let provider: string;
-
+  let config: ArchitectExecutionConfig;
   try {
-    modelId = ConfigService.resolveModel('primary');
-    if (!modelId) throw new Error('Model not configured for primary slot. Open Settings → Agents.');
-    apiKey = ConfigService.getKeyForAgent('primary');
-    if (!apiKey) throw new Error('API key missing for primary slot. Open Settings → Providers.');
-    const agentCfg = ConfigService.getAgentConfig('agent_primary');
-    provider = agentCfg.provider || 'openrouter';
-    endpoint = Orchestrator.getEndpoint(provider);
-    normalizedModelId = Orchestrator.normalizeModelId(modelId, endpoint);
+    config = resolveArchitectExecutionConfig(profile);
   } catch (err: unknown) {
     return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
   }
 
-  const SYSTEM_PROMPT = `You are an app architect. Return a JSON object — no markdown fences, no extra text.
-Schema:
-{
-  "appName": "<name derived from user prompt>",
-  "skeleton": "mobile-app",
-  "fileTree": {
-    "src/path/file.tsx": "one sentence: what this file does and which data it uses"
-  },
-  "contextContract": "description of shared AppContext/state contract",
-  "dataModel": "key types e.g. Habit: { id: string, name: string, ... }"
-}
-Rules:
-- fileTree must contain ONLY delta files (files the coder will create from scratch)
-- Do NOT include skeleton files already provided: src/App.tsx, src/main.tsx, src/context/AppContext.tsx, src/hooks/useLocalStorage.ts, src/components/ui/*, src/components/BottomTabs.tsx, src/lib/cn.ts
-- Minimum 5 delta files required
-- Each fileTree value: exactly one sentence describing purpose + data used`;
-
-  const USER_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
-
   let completion: ArchitectCompletionMeta;
   try {
     completion = await requestArchitectCompletion({
-      provider,
-      apiKey,
-      endpoint,
-      model: normalizedModelId,
-      systemPrompt: SYSTEM_PROMPT,
-      userPrompt: USER_PROMPT,
+      provider: config.provider,
+      apiKey: config.apiKey,
+      endpoint: config.endpoint,
+      model: config.model,
+      systemPrompt: QUALITY_ARCHITECT_SYSTEM_PROMPT,
+      userPrompt: QUALITY_ARCHITECT_USER_PROMPT,
       maxTokens: 1800,
     });
   } catch (err: unknown) {
     return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
   }
+
+  let repairAttempted = false;
 
   const validatePlan = (plan: Record<string, unknown>) => {
     const fileTree = (plan.fileTree ?? {}) as Record<string, string>;
@@ -479,15 +639,16 @@ Rules:
     finishReason: completion.finishReason,
     blockers: validation?.planTruth.blockers ?? [],
   })) {
+    repairAttempted = true;
     try {
       const repaired = await requestArchitectCompletion({
-        provider,
-        apiKey,
-        endpoint,
-        model: normalizedModelId,
-        systemPrompt: SYSTEM_PROMPT,
+        provider: config.provider,
+        apiKey: config.apiKey,
+        endpoint: config.endpoint,
+        model: config.model,
+        systemPrompt: QUALITY_ARCHITECT_SYSTEM_PROMPT,
         userPrompt: buildArchitectRepairPrompt({
-          originalPrompt: USER_PROMPT,
+          originalPrompt: QUALITY_ARCHITECT_USER_PROMPT,
           brokenContent: completion.content,
           blockers: validation?.planTruth.blockers ?? [],
         }),
@@ -517,11 +678,29 @@ Rules:
       status: 'fail',
       duration_ms: ms(),
       error: `${truncatedHint} Raw excerpt: ${completion.content.slice(0, 200)}`,
+      details: {
+        prompt: QUALITY_ARCHITECT_USER_PROMPT,
+        rawResponse: completion.content,
+        finishReason: completion.finishReason,
+        routeLabel: config.routeLabel,
+        repairAttempted,
+      },
     };
   }
 
   if (!validation?.planTruth.passed) {
-    return { status: 'fail', duration_ms: ms(), error: validation?.planTruth.blockers.join(' ') || 'Architect plan failed validation.' };
+    return {
+      status: 'fail',
+      duration_ms: ms(),
+      error: validation?.planTruth.blockers.join(' ') || 'Architect plan failed validation.',
+      details: {
+        prompt: QUALITY_ARCHITECT_USER_PROMPT,
+        rawResponse: completion.content,
+        finishReason: completion.finishReason,
+        routeLabel: config.routeLabel,
+        repairAttempted,
+      },
+    };
   }
   const fileCount = Object.keys(validation.fileTree).length;
   const usageRaw = completion.usageRaw;
@@ -560,6 +739,11 @@ Rules:
       dataModel:       typeof plan.dataModel === 'string' ? plan.dataModel : undefined,
       model:           llmModel,
       fileCount,
+      prompt:          QUALITY_ARCHITECT_USER_PROMPT,
+      rawResponse:     completion.content,
+      finishReason:    completion.finishReason,
+      routeLabel:      config.routeLabel,
+      repairAttempted,
     } as unknown as Record<string, unknown>,
   };
 }
@@ -832,10 +1016,214 @@ function StructureProof({
   );
 }
 
+function buildStructureProofText(
+  structure?: OutputStructureContractSummary,
+  skeletonDelta?: OutputSkeletonDeltaSummary,
+): string {
+  const lines: string[] = [];
+  if (structure) {
+    lines.push(`richness: ${structure.richness}`);
+    lines.push(structure.summary);
+    if (structure.missingOutputClasses.length > 0) {
+      lines.push(`missing output classes: ${structure.missingOutputClasses.join(', ')}`);
+    }
+    if (structure.missingDeltaClasses.length > 0) {
+      lines.push(`missing delta classes: ${structure.missingDeltaClasses.join(', ')}`);
+    }
+    for (const bucket of structure.buckets.filter(bucket => bucket.totalCount > 0 || bucket.deltaCount > 0).slice(0, 8)) {
+      lines.push(`${bucket.label}: total ${bucket.totalCount}, delta ${bucket.deltaCount}`);
+      if (bucket.keyPaths.length > 0) {
+        lines.push(`  ${bucket.keyPaths.join(' | ')}`);
+      }
+    }
+  }
+  if (skeletonDelta) {
+    lines.push(
+      `skeleton ${skeletonDelta.skeletonFileCount} · delta ${skeletonDelta.deltaFileCount} · modified ${skeletonDelta.modifiedExistingCount} · new ${skeletonDelta.newFileCount}`,
+    );
+    if (skeletonDelta.keyModifiedPaths.length > 0) {
+      lines.push(`modified existing: ${skeletonDelta.keyModifiedPaths.join(' | ')}`);
+    }
+    if (skeletonDelta.keyNewPaths.length > 0) {
+      lines.push(`new files: ${skeletonDelta.keyNewPaths.join(' | ')}`);
+    }
+  }
+  return lines.join('\n').trim();
+}
+
+export function buildQualityRealTextSections(
+  testId: StepId,
+  details: Record<string, unknown>,
+): QualityRealTextSection[] {
+  if (testId === 'canary') {
+    const d = details as unknown as CanaryDetails;
+    return [
+      {
+        id: 'response',
+        label: 'Health response',
+        content: JSON.stringify(d.response ?? {}, null, 2),
+      },
+      {
+        id: 'observed',
+        label: 'Observed text',
+        content: `HTTP ${d.httpStatus}\nstatus=${d.response?.status ?? '—'}\nprovider=${d.response?.provider ?? '—'}`,
+      },
+    ];
+  }
+
+  if (testId === 'idea-validate') {
+    const d = details as unknown as IdeaDetails;
+    return [
+      {
+        id: 'prompt',
+        label: 'Validated prompt',
+        content: String(d.prompt ?? ''),
+      },
+    ];
+  }
+
+  if (testId === 'architecture') {
+    const d = details as unknown as ArchDetails;
+    return [
+      {
+        id: 'skeleton',
+        label: 'Skeleton manifest',
+        content: Object.entries(d.skeletonFiles ?? {})
+          .map(([path, desc]) => `${path}\n  ${desc}`)
+          .join('\n\n'),
+      },
+      {
+        id: 'delta',
+        label: 'Delta manifest',
+        content: Object.entries(d.fileTree ?? {})
+          .map(([path, desc]) => `${path}\n  ${desc}`)
+          .join('\n\n'),
+      },
+      {
+        id: 'contracts',
+        label: 'Contracts',
+        content: [
+          d.contextContract ? `contextContract:\n${d.contextContract}` : null,
+          d.dataModel ? `dataModel:\n${d.dataModel}` : null,
+        ].filter(Boolean).join('\n\n'),
+      },
+    ].filter(section => section.content.trim().length > 0);
+  }
+
+  if (testId === 'code-delta') {
+    const d = details as unknown as CodeDeltaDetails;
+    return [
+      ...((d.files ?? []).slice(0, 4).map(file => ({
+        id: `file:${file.path}`,
+        label: file.path,
+        content: file.content.slice(0, 1800),
+      }))),
+      {
+        id: 'structure',
+        label: 'Structure proof',
+        content: buildStructureProofText(d.structure, d.skeletonDelta),
+      },
+    ].filter(section => section.content.trim().length > 0);
+  }
+
+  if (testId === 'compile') {
+    const d = details as unknown as CompileDetails;
+    return [
+      {
+        id: 'assets',
+        label: 'Compiled assets',
+        content: (d.assets ?? []).map(asset => `${asset.name} (${fmtSize(asset.size)})`).join('\n'),
+      },
+    ].filter(section => section.content.trim().length > 0);
+  }
+
+  if (testId === 'preview-http') {
+    const d = details as unknown as PreviewHttpDetails;
+    return [
+      {
+        id: 'html',
+        label: 'Preview HTML excerpt',
+        content: d.htmlExcerpt ?? `HTTP ${d.httpStatus}\nbytes=${d.contentLength}\nhasRootDiv=${String(d.hasRootDiv)}`,
+      },
+    ];
+  }
+
+  if (testId === 'preview-mounted') {
+    const d = details as unknown as PreviewMtdDetails;
+    return [{ id: 'mounted', label: 'Matched line', content: d.line }];
+  }
+
+  if (testId === 'save-ready') {
+    const d = details as unknown as SaveReadyDetails;
+    return [
+      {
+        id: 'save-ready',
+        label: 'Save-ready proof',
+        content: [
+          `buildId=${d.buildId}`,
+          `assetsCount=${d.assetsCount}`,
+          buildStructureProofText(d.structure, d.skeletonDelta),
+        ].filter(Boolean).join('\n\n'),
+      },
+    ];
+  }
+
+  if (testId === 'no-premature-save') {
+    const d = details as unknown as NoPremSaveDetails;
+    return [
+      {
+        id: 'sessions',
+        label: 'Session audit',
+        content: JSON.stringify({
+          projectsBeforeSave: d.projectsBeforeSave,
+          totalSessions: d.totalSessions,
+          correct: d.correct,
+        }, null, 2),
+      },
+    ];
+  }
+
+  if (testId === 'architect-real') {
+    const d = details as unknown as ArchRealDetails;
+    return [
+      d.prompt ? { id: 'prompt', label: 'Prompt', content: d.prompt } : null,
+      d.rawResponse ? { id: 'raw-response', label: 'Raw model response', content: d.rawResponse } : null,
+      {
+        id: 'validated-plan',
+        label: 'Validated plan',
+        content: Object.entries(d.fileTree ?? {})
+          .map(([path, desc]) => `${path}\n  ${desc}`)
+          .join('\n\n'),
+      },
+      {
+        id: 'contracts',
+        label: 'Contracts',
+        content: [
+          d.routeLabel ? `route: ${d.routeLabel}` : null,
+          d.contextContract ? `contextContract:\n${d.contextContract}` : null,
+          d.dataModel ? `dataModel:\n${d.dataModel}` : null,
+          typeof d.finishReason === 'string' ? `finishReason: ${d.finishReason}` : null,
+          d.repairAttempted ? 'repairAttempted: true' : null,
+        ].filter(Boolean).join('\n\n'),
+      },
+    ].filter((section): section is QualityRealTextSection => Boolean(section && section.content.trim().length > 0));
+  }
+
+  return [
+    {
+      id: 'json',
+      label: 'Raw details',
+      content: JSON.stringify(details, null, 2),
+    },
+  ];
+}
+
 // ── Detail panel ───────────────────────────────────────────────────────────────
 
 function DetailPanel({ testId, details }: { testId: StepId; details: Record<string, unknown> }) {
   const [downloading, setDownloading] = useState(false);
+  const [showRealText, setShowRealText] = useState(false);
+  const realTextSections = buildQualityRealTextSections(testId, details);
 
   const panelStyle: React.CSSProperties = {
     padding: '6px 16px 10px 40px',
@@ -861,6 +1249,43 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
     <div style={panelStyle}>
       {sep}
       {content}
+      {realTextSections.length > 0 && (
+        <div style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <button
+            onClick={() => setShowRealText(prev => !prev)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 10px',
+              borderRadius: 6,
+              border: '1px solid rgba(96,165,250,0.24)',
+              background: showRealText ? 'rgba(96,165,250,0.12)' : 'rgba(255,255,255,0.03)',
+              color: showRealText ? '#93c5fd' : 'rgba(255,255,255,0.65)',
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            <FileText size={11} />
+            {showRealText ? 'Hide real text' : 'Show real text'}
+          </button>
+          {showRealText && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+              {realTextSections.map(section => (
+                <div key={section.id} style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ padding: '6px 10px', fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.06em', background: 'rgba(255,255,255,0.03)' }}>
+                    {section.label}
+                  </div>
+                  <pre style={{ margin: 0, padding: '10px 12px', fontSize: 10, lineHeight: 1.5, color: 'rgba(255,255,255,0.78)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace' }}>
+                    {section.content}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {isFixtureBacked && (
         <div style={{
           marginTop: 10,
@@ -1108,6 +1533,7 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
 
 function TestRow({
   def, state, onRun, anyRunning, expanded, onToggle,
+  compareEnabled = false, onCompare, compareDisabledReason, compareRunning = false, hasCompareResult = false, comparePanel = null,
 }: {
   def: typeof STEP_DEFS[number];
   state: TestState;
@@ -1115,6 +1541,12 @@ function TestRow({
   anyRunning: boolean;
   expanded: boolean;
   onToggle: () => void;
+  compareEnabled?: boolean;
+  onCompare?: () => void;
+  compareDisabledReason?: string | null;
+  compareRunning?: boolean;
+  hasCompareResult?: boolean;
+  comparePanel?: React.ReactNode;
 }) {
   const canExpand = state.status === 'pass' && !!state.details;
 
@@ -1203,6 +1635,36 @@ function TestRow({
         >
           Run
         </button>
+        {compareEnabled && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onCompare?.(); }}
+            disabled={anyRunning || compareRunning || Boolean(compareDisabledReason)}
+            title={compareDisabledReason ?? (hasCompareResult ? 'Run compare again' : 'Compare this test')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '3px 10px',
+              borderRadius: 5,
+              flexShrink: 0,
+              border: '1px solid rgba(168,85,247,0.2)',
+              background: compareRunning
+                ? 'rgba(168,85,247,0.12)'
+                : hasCompareResult
+                  ? 'rgba(168,85,247,0.1)'
+                  : 'rgba(255,255,255,0.03)',
+              color: anyRunning || compareDisabledReason
+                ? 'rgba(255,255,255,0.24)'
+                : '#c084fc',
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: anyRunning || compareRunning || compareDisabledReason ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {compareRunning ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <GitCompare size={11} />}
+            Compare
+          </button>
+        )}
       </div>
 
       {metaLines.length > 0 && (
@@ -1250,13 +1712,113 @@ function TestRow({
       {expanded && canExpand && (
         <DetailPanel testId={def.id as StepId} details={state.details!} />
       )}
+      {comparePanel}
+    </div>
+  );
+}
+
+function CompareResultPanel({
+  record,
+  testId,
+}: {
+  record: QualityCompareRunRecord;
+  testId: StepId;
+}) {
+  if (record.state === 'idle') return null;
+
+  const panelStyle: React.CSSProperties = {
+    padding: '6px 16px 12px 40px',
+    background: 'rgba(124,58,237,0.05)',
+    borderLeft: '2px solid rgba(168,85,247,0.18)',
+  };
+
+  if (!record.supported) {
+    return (
+      <div style={panelStyle}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#c084fc', marginBottom: 4 }}>
+          Compare unavailable for this item
+        </div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>
+          {record.reason}
+        </div>
+      </div>
+    );
+  }
+
+  if (record.state === 'running') {
+    return (
+      <div style={panelStyle}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#c084fc' }}>
+          <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
+          Comparing {testId} across runner profiles…
+        </div>
+      </div>
+    );
+  }
+
+  const sides = [record.left, record.right].filter(Boolean) as QualityCompareRunSide[];
+  return (
+    <div style={panelStyle}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {sides.map((side, idx) => {
+          const result = side.result;
+          const pass = result?.status === 'pass';
+          return (
+            <div key={`${side.status.label}-${idx}`} style={{
+              flex: '1 1 280px',
+              minWidth: 0,
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: 10,
+              background: 'rgba(0,0,0,0.16)',
+              overflow: 'hidden',
+            }}>
+              <div style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  {idx === 0 ? 'Profile A' : 'Profile B'}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#c084fc', marginTop: 2 }}>
+                  {side.status.label}
+                </div>
+              </div>
+              <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11 }}>
+                  <span style={{ color: 'rgba(255,255,255,0.45)' }}>status</span>
+                  <span style={{ color: pass ? '#4ade80' : '#f87171', fontWeight: 700 }}>
+                    {result?.status?.toUpperCase() ?? 'FAIL'}
+                  </span>
+                </div>
+                {result?.summary && (
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)' }}>{result.summary}</div>
+                )}
+                {result?.error && (
+                  <div style={{ fontSize: 11, color: '#f87171' }}>{result.error}</div>
+                )}
+                {side.realText.length > 0 && (
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {side.realText.slice(0, 2).map(section => (
+                      <div key={section.id}>
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', marginBottom: 4 }}>
+                          {section.label}
+                        </div>
+                        <pre style={{ margin: 0, maxHeight: 140, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 10, lineHeight: 1.45, color: 'rgba(255,255,255,0.76)', fontFamily: 'monospace' }}>
+                          {section.content}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 // ── FlowChainTab ───────────────────────────────────────────────────────────────
 
-function FlowChainTab() {
+function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
   const [testStates,   setTestStates]   = useState<Record<StepId, TestState>>(makeInitStates);
   const [expanded,     setExpanded]     = useState<Record<StepId, boolean>>(makeInitExpanded);
   const [runAllActive, setRunAllActive] = useState(false);
@@ -1264,6 +1826,17 @@ function FlowChainTab() {
     try { return localStorage.getItem(LS_LAST_RUN_KEY); } catch { return null; }
   });
   const [brokenAt, setBrokenAt] = useState<string | null>(null);
+  const primaryProvider = getPrimaryProviderForQuality();
+  const baseModel = selectedModel || ConfigService.resolveModel('primary') || '';
+  const [compareEnabled, setCompareEnabled] = useState(false);
+  const [compareProfiles, setCompareProfiles] = useState<{ left: QualityCompareProfile; right: QualityCompareProfile }>({
+    left: { route: 'standard-api', model: baseModel },
+    right: { route: 'openrouter', model: baseModel },
+  });
+  const [compareRecords, setCompareRecords] = useState<Record<StepId, QualityCompareRunRecord>>({} as Record<StepId, QualityCompareRunRecord>);
+  const [cliStatus, setCliStatus] = useState<DevAgentCliStatus | null>(null);
+  const [openRouterModels, setOpenRouterModels] = useState<Model[]>([]);
+  const [openRouterModelsLoading, setOpenRouterModelsLoading] = useState(false);
   // Shared buildId for Code Delta → Compile → Preview HTTP → Save Ready chain
   const qualityBuildIdRef = React.useRef<string | null>(null);
 
@@ -1285,6 +1858,30 @@ function FlowChainTab() {
     setTestStates(restored);
   }, []);
 
+  useEffect(() => {
+    if (!compareEnabled || cliStatus) return;
+    void getDevAgentCliStatus()
+      .then(setCliStatus)
+      .catch(() => {
+        setCliStatus({
+          claude: { available: false, version: null, reason: 'bridge_unreachable' },
+          codex: { available: false, version: null, reason: 'bridge_unreachable' },
+        });
+      });
+  }, [compareEnabled, cliStatus]);
+
+  useEffect(() => {
+    if (!compareEnabled) return;
+    if (compareProfiles.left.route !== 'openrouter' && compareProfiles.right.route !== 'openrouter') return;
+    if (openRouterModels.length > 0 || openRouterModelsLoading) return;
+    const openRouterKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
+    if (!openRouterKey) return;
+    setOpenRouterModelsLoading(true);
+    void fetchModelsWithCache('openrouter', openRouterKey)
+      .then(setOpenRouterModels)
+      .finally(() => setOpenRouterModelsLoading(false));
+  }, [compareEnabled, compareProfiles.left.route, compareProfiles.right.route, openRouterModels.length, openRouterModelsLoading]);
+
   const anyRunning = runAllActive || Object.values(testStates).some(s => s.status === 'running');
   const hasReportData = Object.values(testStates).some(s => s.status !== 'idle');
 
@@ -1292,9 +1889,24 @@ function FlowChainTab() {
     setTestStates(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }, []);
 
+  const setCompareProfile = useCallback((side: 'left' | 'right', patch: Partial<QualityCompareProfile>) => {
+    setCompareProfiles(prev => ({
+      ...prev,
+      [side]: { ...prev[side], ...patch },
+    }));
+  }, []);
+
   const handleToggle = useCallback((id: StepId) => {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
   }, []);
+
+  const leftCompareStatus = getQualityCompareProfileStatus(compareProfiles.left, cliStatus, primaryProvider);
+  const rightCompareStatus = getQualityCompareProfileStatus(compareProfiles.right, cliStatus, primaryProvider);
+  const compareBlockedReason =
+    !leftCompareStatus.ready ? `Profile A: ${leftCompareStatus.reason}` :
+    !rightCompareStatus.ready ? `Profile B: ${rightCompareStatus.reason}` :
+    areQualityCompareProfilesEqual(compareProfiles.left, compareProfiles.right) ? 'Choose two different compare profiles.' :
+    null;
 
   const runSingleTest = useCallback(async (id: StepId): Promise<TestApiResult> => {
     setOneState(id, {
@@ -1361,10 +1973,63 @@ function FlowChainTab() {
 
   const handleRunOne = useCallback((id: StepId) => { void runSingleTest(id); }, [runSingleTest]);
 
+  const handleRunCompare = useCallback(async (id: StepId) => {
+    const support = getQualityCompareSupport(id);
+    if (!support.supported) {
+      setCompareRecords(prev => ({
+        ...prev,
+        [id]: {
+          state: 'done',
+          supported: false,
+          reason: support.reason,
+        },
+      }));
+      return;
+    }
+    if (compareBlockedReason) return;
+
+    setCompareRecords(prev => ({
+      ...prev,
+      [id]: {
+        state: 'running',
+        supported: true,
+      },
+    }));
+
+    const runSide = async (profile: QualityCompareProfile): Promise<QualityCompareRunSide> => {
+      const status = getQualityCompareProfileStatus(profile, cliStatus, primaryProvider);
+      const result = id === 'architect-real'
+        ? await runArchitectRealTest({ route: profile.route, model: profile.model })
+        : await runSingleTest(id);
+      return {
+        profile,
+        status,
+        result,
+        realText: result.details ? buildQualityRealTextSections(id, result.details) : [],
+      };
+    };
+
+    const [left, right] = await Promise.all([
+      runSide(compareProfiles.left),
+      runSide(compareProfiles.right),
+    ]);
+
+    setCompareRecords(prev => ({
+      ...prev,
+      [id]: {
+        state: 'done',
+        supported: true,
+        left,
+        right,
+      },
+    }));
+  }, [cliStatus, compareBlockedReason, compareProfiles.left, compareProfiles.right, primaryProvider, runSingleTest]);
+
   const handleRunAll = useCallback(async () => {
     setRunAllActive(true);
     setBrokenAt(null);
     setExpanded(makeInitExpanded());
+    setCompareRecords({} as Record<StepId, QualityCompareRunRecord>);
     qualityBuildIdRef.current = null;
     const now = new Date().toISOString();
     setLastRunAt(now);
@@ -1382,6 +2047,7 @@ function FlowChainTab() {
     clearQualityPanelHistory();
     setTestStates(makeInitStates());
     setExpanded(makeInitExpanded());
+    setCompareRecords({} as Record<StepId, QualityCompareRunRecord>);
     setRunAllActive(false);
     setLastRunAt(null);
     setBrokenAt(null);
@@ -1454,6 +2120,81 @@ function FlowChainTab() {
     downloadQualityReport(report);
   }, [architectureTruth, blockingRealGateSummary, brokenAt, codeDeltaTruth, failCount, fixtureSummary, lastRunAt, passCount, realLlmSummary, realRuntimeSummary, testStates, verdict]);
 
+  const renderCompareProfileEditor = (
+    side: 'left' | 'right',
+    title: string,
+    profile: QualityCompareProfile,
+    status: QualityCompareProfileStatus,
+  ) => (
+    <div style={{
+      flex: '1 1 280px',
+      minWidth: 0,
+      borderRadius: 10,
+      border: '1px solid rgba(168,85,247,0.18)',
+      background: 'rgba(124,58,237,0.06)',
+      padding: 12,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 8,
+    }}>
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        {title}
+      </div>
+      <select
+        value={profile.route}
+        onChange={e => setCompareProfile(side, { route: e.target.value as QualityCompareRoute })}
+        style={{
+          width: '100%',
+          padding: '8px 10px',
+          borderRadius: 8,
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          color: 'rgba(255,255,255,0.82)',
+          fontSize: 12,
+          outline: 'none',
+        }}
+      >
+        <option value="standard-api">{`Standard API (${primaryProvider})`}</option>
+        <option value="openrouter">OpenRouter</option>
+        <option value="claude-cli">Claude CLI</option>
+        <option value="codex-cli">Codex CLI</option>
+      </select>
+      <input
+        list={profile.route === 'openrouter' ? 'quality-openrouter-models' : undefined}
+        value={profile.model}
+        onChange={e => setCompareProfile(side, { model: e.target.value })}
+        placeholder={
+          profile.route === 'claude-cli' ? 'claude-sonnet-4-6' :
+          profile.route === 'codex-cli' ? 'gpt-5.1-codex' :
+          profile.route === 'openrouter' ? 'openrouter model id…' :
+          `${primaryProvider} model id…`
+        }
+        style={{
+          width: '100%',
+          padding: '8px 10px',
+          borderRadius: 8,
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          color: 'rgba(255,255,255,0.82)',
+          fontSize: 12,
+          outline: 'none',
+        }}
+      />
+      <div style={{ fontSize: 11, color: status.ready ? '#86efac' : '#fbbf24' }}>
+        {status.ready ? status.label : `${status.label} · ${status.reason}`}
+      </div>
+      {profile.route === 'openrouter' && (
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)' }}>
+          {openRouterModelsLoading
+            ? 'Loading OpenRouter catalog…'
+            : openRouterModels.length > 0
+              ? `${openRouterModels.length} OpenRouter models available as suggestions.`
+              : 'OpenRouter suggestions appear when an OpenRouter key is configured.'}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div style={{
       background: 'rgba(255,255,255,0.03)',
@@ -1475,6 +2216,23 @@ function FlowChainTab() {
           Quality Tests
         </span>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => setCompareEnabled(prev => !prev)}
+            disabled={anyRunning}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '5px 12px', borderRadius: 7,
+              border: '1px solid rgba(168,85,247,0.28)',
+              background: compareEnabled ? 'rgba(168,85,247,0.14)' : 'rgba(255,255,255,0.04)',
+              color: compareEnabled ? '#c084fc' : 'rgba(255,255,255,0.62)',
+              fontSize: 12, fontWeight: 600,
+              cursor: anyRunning ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            <GitCompare size={12} />
+            Compare models
+          </button>
           <button
             onClick={() => void handleRunAll()}
             disabled={anyRunning}
@@ -1528,6 +2286,44 @@ function FlowChainTab() {
         </div>
       </div>
 
+      {compareEnabled && (
+        <div style={{
+          padding: '12px 16px',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          background: 'rgba(124,58,237,0.04)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                LLM compare
+              </div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 4 }}>
+                Hidden by default. Enable it only when you want per-item runner comparisons without cluttering the main quality list.
+              </div>
+            </div>
+            {compareBlockedReason && (
+              <div style={{ fontSize: 11, color: '#fbbf24' }}>{compareBlockedReason}</div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {renderCompareProfileEditor('left', 'Profile A', compareProfiles.left, leftCompareStatus)}
+            {renderCompareProfileEditor('right', 'Profile B', compareProfiles.right, rightCompareStatus)}
+          </div>
+          {openRouterModels.length > 0 && (
+            <datalist id="quality-openrouter-models">
+              {openRouterModels.slice(0, 250).map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </datalist>
+          )}
+        </div>
+      )}
+
       {/* Test rows */}
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {STEP_DEFS.map((def, idx) => (
@@ -1542,6 +2338,17 @@ function FlowChainTab() {
               anyRunning={anyRunning}
               expanded={expanded[def.id as StepId]}
               onToggle={() => handleToggle(def.id as StepId)}
+              compareEnabled={compareEnabled}
+              onCompare={() => void handleRunCompare(def.id as StepId)}
+              compareDisabledReason={compareBlockedReason}
+              compareRunning={compareRecords[def.id as StepId]?.state === 'running'}
+              hasCompareResult={Boolean(compareRecords[def.id as StepId] && compareRecords[def.id as StepId].state === 'done')}
+              comparePanel={compareRecords[def.id as StepId] ? (
+                <CompareResultPanel
+                  testId={def.id as StepId}
+                  record={compareRecords[def.id as StepId]}
+                />
+              ) : null}
             />
           </div>
         ))}
@@ -1626,7 +2433,7 @@ export function QualityPanel({ apiKey = '', selectedModel = '' }: QualityPanelPr
       </div>
 
       <div style={BODY_S}>
-        {tab === 'flow-chain' && <FlowChainTab />}
+        {tab === 'flow-chain' && <FlowChainTab selectedModel={selectedModel} />}
         {tab === 'benchmark'  && <BenchmarkDashboard apiKey={apiKey} selectedModel={selectedModel} />}
       </div>
     </div>
