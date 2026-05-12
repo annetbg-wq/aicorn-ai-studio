@@ -3,7 +3,7 @@
  * Shows: project name (left) · sync status + last-saved time (center) · Backup button (right).
  */
 
-import React from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Upload, Loader2, CheckCircle2, WifiOff, GitBranch, GitCommit, CheckCircle, Settings, Plus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -62,6 +62,61 @@ export const EngineTopBar: React.FC<EngineTopBarProps> = ({
   onNewProject, onSettings, currentTheme = 'dark', setTheme = () => {},
 }) => {
   const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
+
+  // ── Backend status indicator ──────────────────────────────────────────────
+  type BackendStatus = 'green' | 'yellow' | 'red';
+  const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+  const [showConnectPopup, setShowConnectPopup] = useState(false);
+  const connectBtnRef = useRef<HTMLButtonElement>(null);
+
+  const checkBackend = useCallback(async () => {
+    try {
+      const r = await fetch('http://127.0.0.1:3000/api/health', {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!r.ok) { setBackendStatus('red'); return; }
+      const data = await r.json() as { provider?: string };
+      setBackendStatus(data.provider === 'off' ? 'yellow' : 'green');
+    } catch {
+      setBackendStatus('red');
+    }
+  }, []);
+
+  useEffect(() => {
+    checkBackend();
+    const id = setInterval(checkBackend, 10_000);
+    return () => clearInterval(id);
+  }, [checkBackend]);
+
+  const handleConnect = useCallback(async () => {
+    if (backendStatus === 'red') {
+      setShowConnectPopup(v => !v);
+      return;
+    }
+    if (backendStatus === 'yellow') {
+      try {
+        await fetch('http://127.0.0.1:3000/api/mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: 'standard' }),
+        });
+      } catch { /* ignore */ }
+      await checkBackend();
+    }
+  }, [backendStatus, checkBackend]);
+
+  // Close popup when clicking outside
+  useEffect(() => {
+    if (!showConnectPopup) return;
+    const close = (e: MouseEvent) => {
+      if (connectBtnRef.current && !connectBtnRef.current.contains(e.target as Node)) {
+        setShowConnectPopup(false);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [showConnectPopup]);
+
   const bg       = isDark ? 'rgba(8,8,12,0.95)'          : 'rgba(250,250,252,0.95)';
   const border   = isDark ? 'rgba(255,255,255,0.05)'     : 'rgba(0,0,0,0.06)';
   const text     = isDark ? 'rgba(255,255,255,0.55)'     : 'rgba(0,0,0,0.45)';
@@ -119,6 +174,73 @@ export const EngineTopBar: React.FC<EngineTopBarProps> = ({
           boxShadow:  cloudAvailable ? '0 0 6px #4ade8066' : 'none',
           flexShrink: 0, marginRight: 8,
         }} />
+
+        {/* Backend status dot + Connect button */}
+        {backendStatus !== null && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginRight: 8, position: 'relative' }}>
+            <div
+              title={
+                backendStatus === 'green'  ? 'Backend: доступен' :
+                backendStatus === 'yellow' ? 'Backend: provider выключен' :
+                'Backend: недоступен'
+              }
+              style={{
+                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                background: backendStatus === 'green' ? '#4ade80' : backendStatus === 'yellow' ? '#fbbf24' : '#f87171',
+                boxShadow:  backendStatus === 'green' ? '0 0 6px #4ade8066' :
+                            backendStatus === 'yellow' ? '0 0 6px #fbbf2466' :
+                            '0 0 6px #f8717166',
+              }}
+            />
+            {(backendStatus === 'yellow' || backendStatus === 'red') && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  ref={connectBtnRef}
+                  onClick={handleConnect}
+                  style={{
+                    fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 5,
+                    border: `1px solid ${backendStatus === 'yellow' ? 'rgba(251,191,36,0.4)' : 'rgba(248,113,113,0.4)'}`,
+                    background: backendStatus === 'yellow' ? 'rgba(251,191,36,0.1)' : 'rgba(248,113,113,0.1)',
+                    color: backendStatus === 'yellow' ? '#fbbf24' : '#f87171',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  Подключить
+                </button>
+                {showConnectPopup && (
+                  <div style={{
+                    position: 'absolute', top: 'calc(100% + 6px)', left: 0,
+                    background: isDark ? '#1a1a2e' : '#fff',
+                    border: `1px solid ${isDark ? 'rgba(248,113,113,0.3)' : 'rgba(248,113,113,0.4)'}`,
+                    borderRadius: 8, padding: '10px 12px', zIndex: 9999,
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                    minWidth: 260,
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#f87171', marginBottom: 6 }}>
+                      Backend не запущен
+                    </div>
+                    <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)', marginBottom: 8, lineHeight: 1.5 }}>
+                      Запустите в терминале:
+                    </div>
+                    <div style={{
+                      fontFamily: 'monospace', fontSize: 11,
+                      background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                      borderRadius: 5, padding: '6px 8px',
+                      color: isDark ? '#a5f3fc' : '#0369a1',
+                      userSelect: 'all',
+                    }}>
+                      npm start
+                    </div>
+                    <div style={{ fontSize: 10, color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', marginTop: 6 }}>
+                      в папке c:\ai_studio
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Project */}
         <span style={{ fontSize: 12, fontWeight: 600, color: textMain, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>

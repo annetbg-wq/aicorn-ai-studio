@@ -1748,6 +1748,40 @@ app.post('/api/quality/llm-run', async (req, res) => {
   }
 });
 
+// ── POST /api/mode — set provider (accepts 'standard' as alias for 'claude') ──
+app.post('/api/mode', (req, res) => {
+  const { provider: raw } = req.body as { provider?: string };
+  // 'standard' maps to 'claude' (exit off-mode, use default active provider)
+  const provider = raw === 'standard' ? 'claude' : raw;
+  if (provider !== 'off' && provider !== 'claude' && provider !== 'codex') {
+    return res.status(400).json({ error: 'provider must be off, claude, codex, or standard' });
+  }
+  const newMode = writeMode(provider as DevAgentProvider);
+  currentMode = newMode;
+  res.json({ ok: true, provider: newMode.provider });
+});
+
+// ── GET /api/launcher-status — reads launcher-status.json if present ──────────
+const LAUNCHER_STATUS_FILE = path.join(process.cwd(), 'launcher-status.json');
+
+app.get('/api/launcher-status', (_req, res) => {
+  try {
+    if (!fs.existsSync(LAUNCHER_STATUS_FILE)) {
+      return res.json({ available: false, reason: 'launcher not running' });
+    }
+    const data = JSON.parse(fs.readFileSync(LAUNCHER_STATUS_FILE, 'utf8'));
+    res.json({ available: true, ...data });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── POST /api/restart-backend — graceful exit so launcher auto-restarts ───────
+app.post('/api/restart-backend', (_req, res) => {
+  res.json({ ok: true, message: 'Backend restarting…' });
+  setTimeout(() => process.exit(0), 300);
+});
+
 // ── Trend Topic Archive ───────────────────────────────────────────────────────
 // Each generation session appends one record: the topic names (appName) surfaced
 // for daily / weekly / monthly, stored as comma-joined strings.
