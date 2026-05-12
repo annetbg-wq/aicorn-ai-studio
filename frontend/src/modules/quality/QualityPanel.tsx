@@ -19,9 +19,11 @@ import { BenchmarkDashboard } from '../../components/BenchmarkDashboard';
 import { ConfigService } from '../../services/ConfigService';
 import { Orchestrator } from '../../services/Orchestrator';
 import { fetchModelsWithCache, type Model } from '../../services/ModelRegistry';
+import { ProtoPipeline } from '../../services/ProtoPipeline';
 import { getDevAgentCliStatus } from '../code-studio-internal/ClaudeDevBridge';
 import {
   analyzeArchitectPlanTruth,
+  type OutputTruthResult,
   type OutputStructureContractSummary,
   type OutputSkeletonDeltaSummary,
 } from '../../shared/outputTruth';
@@ -61,6 +63,38 @@ interface NoPremSaveDetails   { projectsBeforeSave: number; totalSessions: numbe
 interface ArchRealDetails    { appName: string; skeleton: string; fileTree: Record<string, string>; contextContract?: string; dataModel?: string; model: string; fileCount: number; prompt?: string; rawResponse?: string; finishReason?: string | null; routeLabel?: string; repairAttempted?: boolean }
 interface TestLlmMetrics      { model: string; prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd?: number }
 interface TestOutputMetrics   { file_count?: number; total_bytes?: number; asset_count?: number; build_size_kb?: number; preview_url?: string; files?: string[] }
+interface QualityWorkspaceSnapshot {
+  skeletonId: string | null;
+  routeCount: number;
+  workspaceFiles: Record<string, string>;
+  deltaFiles: Record<string, string>;
+  outputTruth: OutputTruthResult;
+}
+interface QualityCompareSourceFile {
+  path: string;
+  size: number;
+  content: string;
+  origin: 'skeleton' | 'delta';
+}
+interface QualityCompareRunMetrics {
+  generation_ms: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd?: number;
+  costEstimated?: boolean;
+}
+interface QualityCompareSuiteData {
+  buildId: string;
+  previewUrl?: string;
+  prompt: string;
+  skeletonId: string | null;
+  workspace?: QualityWorkspaceSnapshot;
+  sourceFiles: QualityCompareSourceFile[];
+  codeSections: QualityRealTextSection[];
+  metrics: QualityCompareRunMetrics;
+  tests: Record<StepId, TestApiResult>;
+}
 
 // ── General types ──────────────────────────────────────────────────────────────
 
@@ -93,7 +127,7 @@ interface TestApiResult {
   details?: Record<string, unknown>;
 }
 
-type QualityCompareRoute = 'standard-api' | 'openrouter' | 'claude-cli' | 'codex-cli';
+export type QualityCompareRoute = 'standard-api' | 'openrouter' | 'claude-cli' | 'codex-cli';
 
 export interface QualityRealTextSection {
   id: string;
@@ -101,7 +135,7 @@ export interface QualityRealTextSection {
   content: string;
 }
 
-interface QualityCompareProfile {
+export interface QualityCompareProfile {
   route: QualityCompareRoute;
   model: string;
 }
@@ -112,13 +146,14 @@ interface QualityCompareProfileStatus {
   reason?: string;
 }
 
-interface QualityCompareRunSide {
+export interface QualityCompareRunSide {
   profile: QualityCompareProfile;
   status: QualityCompareProfileStatus;
   result?: TestApiResult;
   realText: QualityRealTextSection[];
   /** Per-token pricing looked up from the OpenRouter catalog at run time */
   pricing?: { promptPerToken: number; completionPerToken: number };
+  suite?: QualityCompareSuiteData;
 }
 
 interface QualityCompareRunRecord {
@@ -184,14 +219,6 @@ function describeQualityCompareProfile(profile: QualityCompareProfile, primaryPr
   return QUALITY_COMPARE_ROUTE_LABELS[profile.route];
 }
 
-function getQualityCompareSupport(id: StepId): { supported: boolean; reason?: string } {
-  if (REAL_LLM_TESTS.has(id)) return { supported: true };
-  if (FIXTURE_BACKED_TESTS.has(id)) {
-    return { supported: false, reason: 'Fixture-backed checks are deterministic and do not route through a real LLM.' };
-  }
-  return { supported: false, reason: 'Runtime-backed checks validate the built app, so model routing does not change this item.' };
-}
-
 function getQualityCompareProfileStatus(
   profile: QualityCompareProfile,
   cliStatus: DevAgentCliStatus | null,
@@ -223,6 +250,49 @@ function getQualityCompareProfileStatus(
   return cli?.available
     ? { ready: true, label }
     : { ready: false, label, reason: cli?.reason || `${label} is not available on this machine.` };
+}
+
+function buildQualityCompareRouteOverrides(
+  profile: QualityCompareProfile,
+  primaryProvider = getPrimaryProviderForQuality(),
+): Partial<Record<'spec' | 'primary' | 'build' | 'fix' | 'qa', {
+  modelId: string;
+  apiKey: string;
+  endpoint: string;
+  provider: string;
+}>> {
+  const modelId = profile.model.trim();
+  if (!modelId) {
+    throw new Error('Compare profile model is required.');
+  }
+
+  if (profile.route === 'standard-api') {
+    const apiKey = ConfigService.getKeyForAgent('primary');
+    if (!apiKey) throw new Error(`API key missing for ${primaryProvider}.`);
+    const endpoint = Orchestrator.getEndpoint(primaryProvider);
+    const route = { modelId, apiKey, endpoint, provider: primaryProvider };
+    return { spec: route, primary: route, build: route, fix: route, qa: route };
+  }
+
+  if (profile.route === 'openrouter') {
+    const apiKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
+    if (!apiKey) throw new Error('OpenRouter key missing.');
+    const route = {
+      modelId,
+      apiKey,
+      endpoint: Orchestrator.getEndpoint('openrouter'),
+      provider: 'openrouter',
+    };
+    return { spec: route, primary: route, build: route, fix: route, qa: route };
+  }
+
+  const route = {
+    modelId,
+    apiKey: '',
+    endpoint: '/api/quality/llm-run',
+    provider: profile.route,
+  };
+  return { spec: route, primary: route, build: route, fix: route, qa: route };
 }
 
 function areQualityCompareProfilesEqual(left: QualityCompareProfile, right: QualityCompareProfile): boolean {
@@ -752,7 +822,10 @@ export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Pr
 
 // ── ZIP download helper ────────────────────────────────────────────────────────
 
-async function downloadFixtureZip(files: CodeDeltaFile[]): Promise<void> {
+export async function downloadSourceZip(
+  files: Array<{ path: string; content: string }>,
+  filename: string,
+): Promise<void> {
   const zip = new JSZip();
   for (const f of files) {
     zip.file(f.path, f.content);
@@ -761,11 +834,22 @@ async function downloadFixtureZip(files: CodeDeltaFile[]): Promise<void> {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = 'real-delta-code.zip';
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+async function downloadFixtureZip(files: CodeDeltaFile[]): Promise<void> {
+  await downloadSourceZip(files, 'real-delta-code.zip');
+}
+
+export async function downloadQualityCompareSourceZip(
+  files: Array<{ path: string; content: string }>,
+  filename: string,
+): Promise<void> {
+  await downloadSourceZip(files, filename);
 }
 
 function downloadQualityReport(payload: unknown): void {
@@ -815,16 +899,368 @@ function fmtCost(cost?: number): string | null {
   return `~$${cost.toFixed(1)}`;
 }
 
-/** Compute cost for one compare side: prefers API-returned cost_usd, falls back to token × pricing. */
-function computeCompareSideCost(
-  llm: TestLlmMetrics | undefined,
+const QUALITY_COMPARE_FALLBACK_PRICING_PER_MILLION: Record<string, { input: number; output: number }> = {
+  'anthropic/claude-3.5-sonnet':         { input: 3.00, output: 15.00 },
+  'anthropic/claude-sonnet-4-5':         { input: 3.00, output: 15.00 },
+  'anthropic/claude-sonnet-4-6':         { input: 3.00, output: 15.00 },
+  'anthropic/claude-3-opus':             { input: 15.00, output: 75.00 },
+  'anthropic/claude-opus-4-6':           { input: 15.00, output: 75.00 },
+  'anthropic/claude-3.5-haiku':          { input: 0.80, output: 4.00 },
+  'anthropic/claude-haiku-4-5-20251001': { input: 0.80, output: 4.00 },
+  'openai/gpt-4o':                       { input: 2.50, output: 10.00 },
+  'openai/gpt-4o-mini':                  { input: 0.15, output: 0.60 },
+  'openai/o1-preview':                   { input: 15.00, output: 60.00 },
+  'openai/o1-mini':                      { input: 3.00, output: 12.00 },
+  'openai/o3-mini':                      { input: 1.10, output: 4.40 },
+  'google/gemini-2.0-pro-exp-02-05:free':{ input: 0.00, output: 0.00 },
+  'google/gemini-2.0-flash-001':         { input: 0.10, output: 0.40 },
+  'deepseek/deepseek-r1':                { input: 0.55, output: 2.19 },
+  'deepseek/deepseek-chat':              { input: 0.14, output: 0.28 },
+  'deepseek/deepseek-v3':                { input: 0.14, output: 0.28 },
+  'meta-llama/llama-3.3-70b-instruct':   { input: 0.59, output: 0.79 },
+  'meta-llama/llama-3.1-8b-instruct:free': { input: 0.00, output: 0.00 },
+  'mistralai/mistral-large':             { input: 2.00, output: 6.00 },
+  'qwen/qwen-2.5-coder-32b-instruct':    { input: 0.07, output: 0.16 },
+  'claude-sonnet-4-6':                   { input: 3.00, output: 15.00 },
+  'gpt-5.1-codex':                       { input: 1.50, output: 6.00 },
+};
+
+function normalizePricingLookupKey(modelId: string): string {
+  return modelId.trim().toLowerCase();
+}
+
+function resolveComparePricing(
+  modelId: string,
+  openRouterModels: Model[],
+): { promptPerToken: number; completionPerToken: number } | undefined {
+  const normalized = normalizePricingLookupKey(modelId);
+  const fromCatalog = openRouterModels.find(model => {
+    const id = normalizePricingLookupKey(model.id);
+    if (id === normalized) return true;
+    if (id.endsWith(`/${normalized}`)) return true;
+    if (normalized.endsWith(`/${id}`)) return true;
+    return false;
+  });
+  if (fromCatalog?.pricing) {
+    return {
+      promptPerToken: parseFloat(fromCatalog.pricing.prompt) || 0,
+      completionPerToken: parseFloat(fromCatalog.pricing.completion) || 0,
+    };
+  }
+  const fallback = QUALITY_COMPARE_FALLBACK_PRICING_PER_MILLION[normalized];
+  if (!fallback) return undefined;
+  return {
+    promptPerToken: fallback.input / 1_000_000,
+    completionPerToken: fallback.output / 1_000_000,
+  };
+}
+
+async function fetchQualityWorkspaceSnapshot(): Promise<QualityWorkspaceSnapshot> {
+  const resp = await fetch('/api/quality/workspace-snapshot');
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => resp.statusText);
+    throw new Error(`workspace snapshot ${resp.status}: ${text}`);
+  }
+  return await resp.json() as QualityWorkspaceSnapshot;
+}
+
+function buildCompareSourceFiles(snapshot: QualityWorkspaceSnapshot): QualityCompareSourceFile[] {
+  const deltaPathSet = new Set(Object.keys(snapshot.deltaFiles));
+  return Object.entries(snapshot.workspaceFiles)
+    .map(([path, content]) => ({
+      path,
+      content,
+      size: new Blob([content]).size,
+      origin: deltaPathSet.has(path) ? 'delta' as const : 'skeleton' as const,
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function buildCompareCodeSections(snapshot: QualityWorkspaceSnapshot): QualityRealTextSection[] {
+  return buildCompareSourceFiles(snapshot)
+    .filter(file => file.origin === 'delta')
+    .slice(0, 3)
+    .map(file => ({
+      id: `code:${file.path}`,
+      label: file.path,
+      content: file.content.slice(0, 1800),
+    }));
+}
+
+function sumCompareSuiteMetrics(
+  steps: Array<{ llm?: TestLlmMetrics }>,
   pricing: { promptPerToken: number; completionPerToken: number } | undefined,
-): number | undefined {
-  if (!llm) return undefined;
-  if (typeof llm.cost_usd === 'number' && llm.cost_usd > 0) return llm.cost_usd;
-  if (!pricing) return undefined;
-  const cost = llm.prompt_tokens * pricing.promptPerToken + llm.completion_tokens * pricing.completionPerToken;
-  return cost > 0 ? cost : undefined;
+  generationMs: number,
+): QualityCompareRunMetrics {
+  const total = steps.reduce((acc, step) => {
+    if (!step.llm) return acc;
+    acc.prompt_tokens += step.llm.prompt_tokens;
+    acc.completion_tokens += step.llm.completion_tokens;
+    acc.total_tokens += step.llm.total_tokens;
+    if (typeof step.llm.cost_usd === 'number') {
+      acc.cost_usd = (acc.cost_usd ?? 0) + step.llm.cost_usd;
+    }
+    return acc;
+  }, {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    cost_usd: undefined as number | undefined,
+  });
+  const estimatedCost = total.cost_usd === undefined && pricing
+    ? (total.prompt_tokens * pricing.promptPerToken) + (total.completion_tokens * pricing.completionPerToken)
+    : undefined;
+  return {
+    generation_ms: generationMs,
+    prompt_tokens: total.prompt_tokens,
+    completion_tokens: total.completion_tokens,
+    total_tokens: total.total_tokens,
+    cost_usd: total.cost_usd ?? estimatedCost,
+    costEstimated: total.cost_usd === undefined && estimatedCost !== undefined,
+  };
+}
+
+export async function runQualityCompareSuite(input: {
+  profile: QualityCompareProfile;
+  cliStatus: DevAgentCliStatus | null;
+  primaryProvider?: string;
+  openRouterModels?: Model[];
+  comparePrompt?: string;
+  pipelineRun?: typeof ProtoPipeline.run;
+  fetchWorkspaceSnapshot?: () => Promise<QualityWorkspaceSnapshot>;
+  testApiRunner?: (testId: StepId, buildId?: string) => Promise<TestApiResult>;
+}): Promise<QualityCompareRunSide> {
+  const {
+    profile,
+    cliStatus,
+    primaryProvider = getPrimaryProviderForQuality(),
+    openRouterModels = [],
+    comparePrompt = QUALITY_ARCHITECT_USER_PROMPT,
+    pipelineRun = ProtoPipeline.run,
+    fetchWorkspaceSnapshot = fetchQualityWorkspaceSnapshot,
+    testApiRunner = callTestApi,
+  } = input;
+
+  const status = getQualityCompareProfileStatus(profile, cliStatus, primaryProvider);
+  const pricing = resolveComparePricing(profile.model.trim(), openRouterModels);
+
+  const makeCompareFailureResult = (error: string, duration_ms = 0): TestApiResult => ({
+    status: 'fail',
+    duration_ms,
+    error,
+  });
+
+  const buildFailureMap = (error: string, duration_ms = 0): Record<StepId, TestApiResult> =>
+    Object.fromEntries(
+      STEP_DEFS.map(def => [def.id as StepId, makeCompareFailureResult(error, duration_ms)]),
+    ) as Record<StepId, TestApiResult>;
+
+  if (!status.ready) {
+    const result = makeCompareFailureResult(status.reason || 'Compare profile is not ready.');
+    return {
+      profile,
+      status,
+      result,
+      realText: [],
+      pricing,
+      suite: {
+        buildId: 'compare-not-ready',
+        prompt: comparePrompt,
+        skeletonId: null,
+        sourceFiles: [],
+        codeSections: [],
+        metrics: {
+          generation_ms: 0,
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+        },
+        tests: buildFailureMap(result.error || 'Compare profile is not ready.'),
+      },
+    };
+  }
+
+  const buildId = `qcmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const startedAt = Date.now();
+
+  const pipelineResult = await pipelineRun({
+    prompt: comparePrompt,
+    skeletonId: 'mobile-app',
+    buildId,
+    routeOverrides: buildQualityCompareRouteOverrides(profile, primaryProvider),
+    onStep: () => {},
+    onLog: () => {},
+    onCoderStream: () => {},
+  });
+
+  const llmSteps = Object.values(pipelineResult.stepResults ?? {})
+    .filter((step): step is NonNullable<typeof step> => Boolean(step))
+    .filter(step => Boolean(step.llm))
+    .map(step => ({ llm: step.llm as TestLlmMetrics }));
+  const generationMs = Date.now() - startedAt;
+  const metrics = sumCompareSuiteMetrics(llmSteps, pricing, generationMs);
+
+  if (!pipelineResult.success) {
+    const error = pipelineResult.error ?? 'Compare generation failed.';
+    return {
+      profile,
+      status,
+      result: makeCompareFailureResult(error, generationMs),
+      realText: [],
+      pricing,
+      suite: {
+        buildId,
+        prompt: comparePrompt,
+        skeletonId: 'mobile-app',
+        sourceFiles: [],
+        codeSections: [],
+        metrics,
+        tests: buildFailureMap(error, generationMs),
+      },
+    };
+  }
+
+  const runTestSafe = async (testId: StepId, buildIdParam?: string): Promise<TestApiResult> => {
+    try {
+      return await testApiRunner(testId, buildIdParam);
+    } catch (err: unknown) {
+      return makeCompareFailureResult(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const workspace = await fetchWorkspaceSnapshot();
+  const sourceFiles = buildCompareSourceFiles(workspace);
+  const codeSections = buildCompareCodeSections(workspace);
+  const totalDeltaBytes = Object.values(workspace.deltaFiles).reduce((sum, content) => sum + new Blob([content]).size, 0);
+  const blockersText = workspace.outputTruth.blockers.map(blocker => blocker.message).join(' | ');
+  const architectStepDuration = pipelineResult.runTelemetry?.steps.find(step => step.id === 'architect')?.durationMs ?? 0;
+  const buildStepDuration = pipelineResult.runTelemetry?.steps.find(step => step.id === 'build')?.durationMs ?? generationMs;
+  const skeletonFiles = Object.fromEntries(
+    (pipelineResult.runTelemetry?.skeletonFiles ?? [])
+      .map(filePath => [filePath, 'Provided by selected skeleton base.'] as const),
+  );
+
+  const ideaValidateResult: TestApiResult = {
+    status: 'pass',
+    duration_ms: 0,
+    summary: `${comparePrompt.trim().length} chars OK`,
+    details: {
+      prompt: comparePrompt,
+      length: comparePrompt.trim().length,
+      valid: true,
+    },
+  };
+
+  const architectureResult: TestApiResult = {
+    status: 'pass',
+    duration_ms: architectStepDuration,
+    summary: `skeleton: ${pipelineResult.plan?.skeleton ?? workspace.skeletonId ?? 'mobile-app'}, ${Object.keys(skeletonFiles).length} provided + ${Object.keys(pipelineResult.plan?.fileTree ?? {}).length} delta`,
+    llm: pipelineResult.stepResults?.architect?.llm,
+    output: {
+      file_count: Object.keys(skeletonFiles).length + Object.keys(pipelineResult.plan?.fileTree ?? {}).length,
+      files: [
+        ...Object.keys(skeletonFiles),
+        ...Object.keys(pipelineResult.plan?.fileTree ?? {}),
+      ],
+    },
+    details: {
+      appName: pipelineResult.plan?.appName ?? 'App',
+      skeleton: pipelineResult.plan?.skeleton ?? workspace.skeletonId ?? 'mobile-app',
+      skeletonFiles,
+      fileTree: pipelineResult.plan?.fileTree ?? {},
+      contextContract: pipelineResult.plan?.contextContract,
+      dataModel: pipelineResult.plan?.dataModel,
+    },
+  };
+
+  const architectRealResult: TestApiResult = {
+    status: 'pass',
+    duration_ms: architectStepDuration,
+    summary: `${Object.keys(pipelineResult.plan?.fileTree ?? {}).length} файлов · полный dual-run`,
+    llm: pipelineResult.stepResults?.architect?.llm,
+    output: {
+      file_count: Object.keys(pipelineResult.plan?.fileTree ?? {}).length,
+      files: Object.keys(pipelineResult.plan?.fileTree ?? {}),
+    },
+    details: {
+      appName: pipelineResult.plan?.appName ?? 'App',
+      skeleton: pipelineResult.plan?.skeleton ?? workspace.skeletonId ?? 'mobile-app',
+      fileTree: pipelineResult.plan?.fileTree ?? {},
+      contextContract: pipelineResult.plan?.contextContract,
+      dataModel: pipelineResult.plan?.dataModel,
+      model: pipelineResult.stepResults?.architect?.llm?.model ?? profile.model,
+      fileCount: Object.keys(pipelineResult.plan?.fileTree ?? {}).length,
+      prompt: comparePrompt,
+      rawResponse: pipelineResult.plan?.rawResponse,
+      routeLabel: status.label,
+    },
+  };
+
+  const codeDeltaFiles = Object.entries(workspace.deltaFiles).map(([filePath, content]) => ({
+    path: filePath,
+    size: new Blob([content]).size,
+    content,
+  }));
+  const codeDeltaResult: TestApiResult = workspace.outputTruth.passed
+    ? {
+        status: 'pass',
+        duration_ms: buildStepDuration,
+        summary: `${codeDeltaFiles.length} delta files · ${sourceFiles.length} total with skeleton`,
+        output: {
+          file_count: codeDeltaFiles.length,
+          total_bytes: totalDeltaBytes,
+          files: codeDeltaFiles.map(file => file.path),
+        },
+        details: {
+          buildId: pipelineResult.buildId,
+          files: codeDeltaFiles,
+          structure: workspace.outputTruth.structure,
+          skeletonDelta: workspace.outputTruth.skeletonDelta,
+        },
+      }
+    : {
+        status: 'fail',
+        duration_ms: generationMs,
+        error: blockersText || 'Output truth contract failed.',
+        details: {
+          buildId: pipelineResult.buildId,
+          files: codeDeltaFiles,
+          structure: workspace.outputTruth.structure,
+          skeletonDelta: workspace.outputTruth.skeletonDelta,
+        },
+      };
+
+  const tests: Record<StepId, TestApiResult> = {
+    canary: await runTestSafe('canary'),
+    'idea-validate': ideaValidateResult,
+    architecture: architectureResult,
+    'code-delta': codeDeltaResult,
+    compile: await runTestSafe('compile', pipelineResult.buildId),
+    'preview-http': await runTestSafe('preview-http', pipelineResult.buildId),
+    'preview-mounted': await runTestSafe('preview-mounted'),
+    'save-ready': await runTestSafe('save-ready', pipelineResult.buildId),
+    'no-premature-save': await runTestSafe('no-premature-save'),
+    'architect-real': architectRealResult,
+  };
+
+  return {
+    profile,
+    status,
+    result: tests['architect-real'],
+    realText: buildQualityRealTextSections('architect-real', architectRealResult.details ?? {}),
+    pricing,
+    suite: {
+      buildId: pipelineResult.buildId,
+      previewUrl: pipelineResult.url,
+      prompt: comparePrompt,
+      skeletonId: workspace.skeletonId,
+      workspace,
+      sourceFiles,
+      codeSections,
+      metrics,
+      tests,
+    },
+  };
 }
 
 function buildTestMetaLines(state: TestState): Array<{ key: string; text: string; color?: string }> {
@@ -1774,12 +2210,11 @@ function CompareResultPanel({
 
   const sides = [record.left, record.right].filter(Boolean) as QualityCompareRunSide[];
   const [leftSide, rightSide] = sides;
-
-  // Compute effective costs (API-returned or estimated from pricing)
-  const leftCost  = computeCompareSideCost(leftSide?.result?.llm,  leftSide?.pricing);
-  const rightCost = computeCompareSideCost(rightSide?.result?.llm, rightSide?.pricing);
-
-  const hasAnyLlm = sides.some(s => !!s.result?.llm);
+  const leftMetrics = leftSide?.suite?.metrics;
+  const rightMetrics = rightSide?.suite?.metrics;
+  const leftCost = leftMetrics?.cost_usd;
+  const rightCost = rightMetrics?.cost_usd;
+  const hasAnyLlm = sides.some(side => (side.suite?.metrics.total_tokens ?? 0) > 0 || !!side.result?.llm);
 
   /** Returns percentage difference (B vs A). Negative means B is smaller. */
   const pctDiff = (a: number | undefined, b: number | undefined): number | undefined => {
@@ -1795,8 +2230,8 @@ function CompareResultPanel({
     return bBetter ? { a: null, b: tag } : { a: tag, b: null };
   };
 
-  const speedBadge = diffBadge(pctDiff(leftSide?.result?.duration_ms, rightSide?.result?.duration_ms), 'faster');
-  const tokenBadge = diffBadge(pctDiff(leftSide?.result?.llm?.total_tokens, rightSide?.result?.llm?.total_tokens), 'fewer tkns');
+  const speedBadge = diffBadge(pctDiff(leftMetrics?.generation_ms, rightMetrics?.generation_ms), 'faster');
+  const tokenBadge = diffBadge(pctDiff(leftMetrics?.total_tokens, rightMetrics?.total_tokens), 'fewer tkns');
   const costBadge  = diffBadge(pctDiff(leftCost, rightCost), 'cheaper');
 
   const CmpRow = ({ label, aVal, aB, bVal, bB }: { label: string; aVal: string; aB: string | null; bVal: string; bB: string | null }) => (
@@ -1826,35 +2261,49 @@ function CompareResultPanel({
         </div>
         {/* Latency row — always shown */}
         <CmpRow
-          label="latency"
-          aVal={leftSide?.result?.duration_ms !== undefined ? fmtDuration(leftSide.result.duration_ms) : '—'}
+          label="run total"
+          aVal={leftMetrics?.generation_ms !== undefined ? fmtDuration(leftMetrics.generation_ms) : '—'}
           aB={speedBadge.a}
-          bVal={rightSide?.result?.duration_ms !== undefined ? fmtDuration(rightSide.result.duration_ms) : '—'}
+          bVal={rightMetrics?.generation_ms !== undefined ? fmtDuration(rightMetrics.generation_ms) : '—'}
           bB={speedBadge.b}
+        />
+        <CmpRow
+          label="step"
+          aVal={leftSide?.result?.duration_ms !== undefined ? fmtDuration(leftSide.result.duration_ms) : '—'}
+          aB={null}
+          bVal={rightSide?.result?.duration_ms !== undefined ? fmtDuration(rightSide.result.duration_ms) : '—'}
+          bB={null}
         />
         {/* Token + cost rows — only when at least one side has LLM data */}
         {hasAnyLlm && (
           <>
             <CmpRow
               label="prompt tkns"
-              aVal={leftSide?.result?.llm ? String(leftSide.result.llm.prompt_tokens) : '—'}
+              aVal={leftMetrics ? String(leftMetrics.prompt_tokens) : '—'}
               aB={null}
-              bVal={rightSide?.result?.llm ? String(rightSide.result.llm.prompt_tokens) : '—'}
+              bVal={rightMetrics ? String(rightMetrics.prompt_tokens) : '—'}
               bB={null}
             />
             <CmpRow
               label="output tkns"
-              aVal={leftSide?.result?.llm ? String(leftSide.result.llm.completion_tokens) : '—'}
+              aVal={leftMetrics ? String(leftMetrics.completion_tokens) : '—'}
+              aB={null}
+              bVal={rightMetrics ? String(rightMetrics.completion_tokens) : '—'}
+              bB={null}
+            />
+            <CmpRow
+              label="total tkns"
+              aVal={leftMetrics ? String(leftMetrics.total_tokens) : '—'}
               aB={tokenBadge.a}
-              bVal={rightSide?.result?.llm ? String(rightSide.result.llm.completion_tokens) : '—'}
+              bVal={rightMetrics ? String(rightMetrics.total_tokens) : '—'}
               bB={tokenBadge.b}
             />
             <CmpRow
-              label="cost (est.)"
+              label="budget"
               aVal={fmtCost(leftCost) ?? '—'}
-              aB={costBadge.a}
+              aB={costBadge.a ?? (leftMetrics?.costEstimated ? 'estimated' : null)}
               bVal={fmtCost(rightCost) ?? '—'}
-              bB={costBadge.b}
+              bB={costBadge.b ?? (rightMetrics?.costEstimated ? 'estimated' : null)}
             />
           </>
         )}
@@ -1870,6 +2319,9 @@ function CompareResultPanel({
         {sides.map((side, idx) => {
           const result = side.result;
           const pass = result?.status === 'pass';
+          const sourceFiles = side.suite?.sourceFiles ?? [];
+          const skeletonDelta = side.suite?.workspace?.outputTruth.skeletonDelta;
+          const sourceFilename = `quality-compare-${idx === 0 ? 'A' : 'B'}-${side.profile.model.replace(/[^\w.-]+/g, '-') || 'model'}.zip`;
           return (
             <div key={`${side.status.label}-${idx}`} style={{
               flex: '1 1 280px',
@@ -1900,6 +2352,45 @@ function CompareResultPanel({
                 {result?.error && (
                   <div style={{ fontSize: 11, color: '#f87171' }}>{result.error}</div>
                 )}
+                {side.suite && (
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.62)' }}>
+                      {sourceFiles.length} source files
+                      {skeletonDelta ? ` · skeleton ${skeletonDelta.skeletonFileCount} · delta ${skeletonDelta.deltaFileCount}` : ''}
+                    </div>
+                    {skeletonDelta && (
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.42)', lineHeight: 1.5 }}>
+                        {skeletonDelta.keyModifiedPaths.length > 0 && (
+                          <div>modified: {skeletonDelta.keyModifiedPaths.join(', ')}</div>
+                        )}
+                        {skeletonDelta.keyNewPaths.length > 0 && (
+                          <div>new: {skeletonDelta.keyNewPaths.join(', ')}</div>
+                        )}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => void downloadSourceZip(sourceFiles, sourceFilename)}
+                      disabled={sourceFiles.length === 0}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        width: 'fit-content',
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        border: '1px solid rgba(96,165,250,0.22)',
+                        background: sourceFiles.length === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(96,165,250,0.08)',
+                        color: sourceFiles.length === 0 ? 'rgba(255,255,255,0.24)' : '#93c5fd',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: sourceFiles.length === 0 ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      <Download size={11} />
+                      Download full source
+                    </button>
+                  </div>
+                )}
                 {side.realText.length > 0 && (
                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {side.realText.slice(0, 2).map(section => (
@@ -1908,6 +2399,20 @@ function CompareResultPanel({
                           {section.label}
                         </div>
                         <pre style={{ margin: 0, maxHeight: 140, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 10, lineHeight: 1.45, color: 'rgba(255,255,255,0.76)', fontFamily: 'monospace' }}>
+                          {section.content}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {side.suite && side.suite.codeSections.length > 0 && (
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {side.suite.codeSections.slice(0, 2).map(section => (
+                      <div key={section.id}>
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', marginBottom: 4 }}>
+                          Code · {section.label}
+                        </div>
+                        <pre style={{ margin: 0, maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 10, lineHeight: 1.45, color: 'rgba(255,255,255,0.76)', fontFamily: 'monospace' }}>
                           {section.content}
                         </pre>
                       </div>
@@ -1941,6 +2446,7 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
     right: { route: 'openrouter', model: baseModel },
   });
   const [compareRecords, setCompareRecords] = useState<Record<StepId, QualityCompareRunRecord>>({} as Record<StepId, QualityCompareRunRecord>);
+  const [activeCompareStepId, setActiveCompareStepId] = useState<StepId | null>(null);
   const [cliStatus, setCliStatus] = useState<DevAgentCliStatus | null>(null);
   const [openRouterModels, setOpenRouterModels] = useState<Model[]>([]);
   const [openRouterModelsLoading, setOpenRouterModelsLoading] = useState(false);
@@ -1979,7 +2485,6 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
 
   useEffect(() => {
     if (!compareEnabled) return;
-    if (compareProfiles.left.route !== 'openrouter' && compareProfiles.right.route !== 'openrouter') return;
     if (openRouterModels.length > 0 || openRouterModelsLoading) return;
     const openRouterKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
     if (!openRouterKey) return;
@@ -1987,7 +2492,7 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
     void fetchModelsWithCache('openrouter', openRouterKey)
       .then(setOpenRouterModels)
       .finally(() => setOpenRouterModelsLoading(false));
-  }, [compareEnabled, compareProfiles.left.route, compareProfiles.right.route, openRouterModels.length, openRouterModelsLoading]);
+  }, [compareEnabled, openRouterModels.length, openRouterModelsLoading]);
 
   const anyRunning = runAllActive || Object.values(testStates).some(s => s.status === 'running');
   const hasReportData = Object.values(testStates).some(s => s.status !== 'idle');
@@ -2080,72 +2585,87 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
 
   const handleRunOne = useCallback((id: StepId) => { void runSingleTest(id); }, [runSingleTest]);
 
+  const makeCompareFailureResult = useCallback((error: string, duration_ms = 0): TestApiResult => ({
+    status: 'fail',
+    duration_ms,
+    error,
+  }), []);
+
+  const runCompareSuite = useCallback(async (profile: QualityCompareProfile): Promise<QualityCompareRunSide> => (
+    runQualityCompareSuite({
+      profile,
+      cliStatus,
+      primaryProvider,
+      openRouterModels,
+    })
+  ), [cliStatus, openRouterModels, primaryProvider]);
+
   const handleRunCompare = useCallback(async (id: StepId) => {
-    const support = getQualityCompareSupport(id);
-    if (!support.supported) {
-      setCompareRecords(prev => ({
-        ...prev,
-        [id]: {
-          state: 'done',
-          supported: false,
-          reason: support.reason,
-        },
-      }));
-      return;
-    }
     if (compareBlockedReason) return;
+    setActiveCompareStepId(id);
 
-    setCompareRecords(prev => ({
-      ...prev,
-      [id]: {
-        state: 'running',
-        supported: true,
-      },
-    }));
+    const runningRecords = Object.fromEntries(
+      STEP_DEFS.map(def => [def.id as StepId, { state: 'running', supported: true }]),
+    ) as Record<StepId, QualityCompareRunRecord>;
+    setCompareRecords(runningRecords);
 
-    const runSide = async (profile: QualityCompareProfile): Promise<QualityCompareRunSide> => {
-      const status = getQualityCompareProfileStatus(profile, cliStatus, primaryProvider);
-      const result = id === 'architect-real'
-        ? await runArchitectRealTest({ route: profile.route, model: profile.model })
-        : await runSingleTest(id);
-      // Look up per-token pricing from the cached OpenRouter catalog (may be undefined for CLI routes)
-      const modelEntry = openRouterModels.find(m => m.id === profile.model.trim());
-      const pricing = modelEntry?.pricing
-        ? {
-            promptPerToken:     parseFloat(modelEntry.pricing.prompt)     || 0,
-            completionPerToken: parseFloat(modelEntry.pricing.completion) || 0,
-          }
-        : undefined;
-      return {
-        profile,
-        status,
-        result,
-        realText: result.details ? buildQualityRealTextSections(id, result.details) : [],
-        pricing,
-      };
-    };
+    try {
+      const left = await runCompareSuite(compareProfiles.left);
+      const right = await runCompareSuite(compareProfiles.right);
 
-    const [left, right] = await Promise.all([
-      runSide(compareProfiles.left),
-      runSide(compareProfiles.right),
-    ]);
+      const nextRecords = Object.fromEntries(
+        STEP_DEFS.map(def => {
+          const stepId = def.id as StepId;
+          const leftResult = left.suite?.tests[stepId] ?? makeCompareFailureResult('Missing compare result.');
+          const rightResult = right.suite?.tests[stepId] ?? makeCompareFailureResult('Missing compare result.');
+          return [stepId, {
+            state: 'done',
+            supported: true,
+            left: {
+              ...left,
+              result: leftResult,
+              realText: leftResult.details ? buildQualityRealTextSections(stepId, leftResult.details) : [],
+            },
+            right: {
+              ...right,
+              result: rightResult,
+              realText: rightResult.details ? buildQualityRealTextSections(stepId, rightResult.details) : [],
+            },
+          } satisfies QualityCompareRunRecord];
+        }),
+      ) as Record<StepId, QualityCompareRunRecord>;
 
-    setCompareRecords(prev => ({
-      ...prev,
-      [id]: {
-        state: 'done',
-        supported: true,
-        left,
-        right,
-      },
-    }));
-  }, [cliStatus, compareBlockedReason, compareProfiles.left, compareProfiles.right, openRouterModels, primaryProvider, runSingleTest]);
+      setCompareRecords(nextRecords);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err.message : String(err);
+      const failedRecords = Object.fromEntries(
+        STEP_DEFS.map(def => [def.id as StepId, {
+          state: 'done',
+          supported: true,
+          left: {
+            profile: compareProfiles.left,
+            status: leftCompareStatus,
+            result: makeCompareFailureResult(error),
+            realText: [],
+          },
+          right: {
+            profile: compareProfiles.right,
+            status: rightCompareStatus,
+            result: makeCompareFailureResult(error),
+            realText: [],
+          },
+        } satisfies QualityCompareRunRecord]),
+      ) as unknown as Record<StepId, QualityCompareRunRecord>;
+      setCompareRecords(failedRecords);
+    }
+  }, [compareBlockedReason, compareProfiles.left, compareProfiles.right, leftCompareStatus, makeCompareFailureResult, rightCompareStatus, runCompareSuite]);
 
   const handleRunAll = useCallback(async () => {
     setRunAllActive(true);
     setBrokenAt(null);
     setExpanded(makeInitExpanded());
     setCompareRecords({} as Record<StepId, QualityCompareRunRecord>);
+    setActiveCompareStepId(null);
     qualityBuildIdRef.current = null;
     const now = new Date().toISOString();
     setLastRunAt(now);
@@ -2164,6 +2684,7 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
     setTestStates(makeInitStates());
     setExpanded(makeInitExpanded());
     setCompareRecords({} as Record<StepId, QualityCompareRunRecord>);
+    setActiveCompareStepId(null);
     setRunAllActive(false);
     setLastRunAt(null);
     setBrokenAt(null);
@@ -2459,7 +2980,7 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
               compareDisabledReason={compareBlockedReason}
               compareRunning={compareRecords[def.id as StepId]?.state === 'running'}
               hasCompareResult={Boolean(compareRecords[def.id as StepId] && compareRecords[def.id as StepId].state === 'done')}
-              comparePanel={compareRecords[def.id as StepId] ? (
+              comparePanel={compareEnabled && activeCompareStepId === def.id && compareRecords[def.id as StepId] ? (
                 <CompareResultPanel
                   testId={def.id as StepId}
                   record={compareRecords[def.id as StepId]}

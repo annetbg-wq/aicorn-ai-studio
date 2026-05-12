@@ -41,7 +41,7 @@ import {
   describeViolations,
   type DesignContext,
 } from './DesignContract';
-import type { FastPathTelemetry } from '../shared/projectModel';
+import type { FastPathTelemetry, GenerationRunTelemetry } from '../shared/projectModel';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -107,6 +107,7 @@ export interface ProtoPipelineConfig {
   attachments?: PipelineAttachment[];
   skipClarify?: boolean;
   signal?:      AbortSignal;
+  routeOverrides?: Partial<Record<AgentSlot, ResolvedRoute>>;
   /** Step lifecycle events for the progress UI. */
   onStep:       (e: StepEvent) => void;
   /** Free-form log output (debug pane, telemetry). */
@@ -126,12 +127,14 @@ export interface ProtoPipelineResult {
   error?:             string;
   stepResults?:       Partial<Record<StepId, StepExecutionMetrics>>;
   fastPathTelemetry?: FastPathTelemetry;
+  runTelemetry?:      GenerationRunTelemetry;
 }
 
 export interface ArchitectPlan {
   appName:     string;
   skeleton?:   SkeletonId;
   summary:     string;
+  rawResponse?: string;
   /**
    * Raw architect response: delta-only file tree keyed by file path.
    * Keys may come back as "src/..." from the LLM and are normalized later for
@@ -185,6 +188,7 @@ interface CompileResultTiming {
   compileMs: number;
   previewMountMs: number;
   totalMs: number;
+  previewMounted: boolean;
 }
 
 // ── Implementation ────────────────────────────────────────────────────────────
@@ -271,13 +275,60 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       timeToFirstRealPreviewMs: 0,
     };
     const stepResults: Partial<Record<StepId, StepExecutionMetrics>> = {};
+    const stepTimeline: GenerationRunTelemetry['steps'] = [];
+    const stepStartedAt = new Map<StepId, number>();
+    let compileCount = 0;
+    let finalPreviewMounted = false;
+    const updateStepTimeline = (
+      step: StepId,
+      status: StepStatus,
+      detail?: string,
+      metrics?: StepExecutionMetrics,
+    ) => {
+      const index = stepTimeline.findIndex(entry => entry.id === step);
+      if (status === 'active') {
+        stepStartedAt.set(step, Date.now());
+      }
+      const durationMs = status === 'active'
+        ? stepTimeline[index]?.durationMs
+        : Math.max(0, Date.now() - (stepStartedAt.get(step) ?? Date.now()));
+      const nextEntry = {
+        id: step,
+        label: STEP_LABEL[step],
+        status,
+        detail,
+        durationMs,
+        llm: metrics?.llm,
+        output: metrics?.output,
+        warnings: metrics?.warnings,
+      } satisfies GenerationRunTelemetry['steps'][number];
+      if (index === -1) {
+        stepTimeline.push(nextEntry);
+      } else {
+        stepTimeline[index] = {
+          ...stepTimeline[index],
+          ...nextEntry,
+          detail: detail ?? stepTimeline[index].detail,
+          durationMs: durationMs ?? stepTimeline[index].durationMs,
+          llm: metrics?.llm ?? stepTimeline[index].llm,
+          output: metrics?.output ?? stepTimeline[index].output,
+          warnings: metrics?.warnings ?? stepTimeline[index].warnings,
+        };
+      }
+      if (status !== 'active') {
+        stepStartedAt.delete(step);
+      }
+    };
     const emit = (
       step: StepId,
       status: StepStatus,
       detail?: string,
       metrics?: StepExecutionMetrics,
     ) =>
-      config.onStep({ step, status, label: STEP_LABEL[step], detail, ...metrics });
+      (
+        updateStepTimeline(step, status, detail, metrics),
+        config.onStep({ step, status, label: STEP_LABEL[step], detail, ...metrics })
+      );
     const fail = (step: StepId, error: string): ProtoPipelineResult => {
       log(`[ProtoPipeline] ${step} failed: ${error}`, 'error');
       emit(step, 'error', error);
@@ -293,7 +344,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     if (!config.skipClarify) {
       emit('clarify', 'active');
       try {
-        const enrichment = await summarizeIntent(config.prompt, config.signal);
+        const enrichment = await summarizeIntent(config.prompt, config.signal, config.routeOverrides);
         if (enrichment) {
           clarifiedPrompt = enrichment;
           log(`[clarify] intent normalised`);
@@ -337,13 +388,14 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     let architectUsage: StepLlmMetrics | undefined;
     const architectStartedAt = Date.now();
     try {
-      plan = await runArchitect({
-        prompt:     clarifiedPrompt,
-        skeletonId: config.skeletonId,
-        signal:     config.signal,
-        onLog:      log,
-        onUsage:    (usage) => { architectUsage = usage; },
-        designCtx,
+        plan = await runArchitect({
+          prompt:     clarifiedPrompt,
+          skeletonId: config.skeletonId,
+          signal:     config.signal,
+          routeOverrides: config.routeOverrides,
+          onLog:      log,
+          onUsage:    (usage) => { architectUsage = usage; },
+          designCtx,
       });
     } catch (err) {
       if (isAbort(err)) return fail('architect', 'aborted');
@@ -365,6 +417,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     // ── Step 4 — Skeleton install (validates the selected base) ───────────
     emit('skeleton', 'active');
     try {
+      compileCount += 1;
       const skeletonTiming = await compile(
         config.buildId,
         {},
@@ -386,14 +439,15 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     let coderUsage: StepLlmMetrics | undefined;
     const coderStartedAt = Date.now();
     try {
-      deltaFiles = await runCoder({
-        prompt:     clarifiedPrompt,
-        plan,
-        skeletonId: config.skeletonId,
-        signal:     config.signal,
-        onLog:      log,
-        onStream:   config.onCoderStream,
-        onUsage:    (usage) => { coderUsage = usage; },
+        deltaFiles = await runCoder({
+          prompt:     clarifiedPrompt,
+          plan,
+          skeletonId: config.skeletonId,
+          signal:     config.signal,
+          routeOverrides: config.routeOverrides,
+          onLog:      log,
+          onStream:   config.onCoderStream,
+          onUsage:    (usage) => { coderUsage = usage; },
         designCtx,
       });
     } catch (err) {
@@ -457,6 +511,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     let buildOk = false;
     for (let attempt = 0; attempt <= MAX_REPAIR_PASSES; attempt++) {
       try {
+        compileCount += 1;
         const buildTiming = await compile(
           config.buildId,
           currentFiles,
@@ -466,6 +521,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         );
         fastPathTelemetry.steps.finalCompileMs = buildTiming.compileMs;
         fastPathTelemetry.steps.previewMountMs = buildTiming.previewMountMs;
+        finalPreviewMounted = buildTiming.previewMounted;
         buildOk = true;
         break;
       } catch (err) {
@@ -481,6 +537,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
             currentFiles,
             errorLog:    lastBuildErr,
             signal:      config.signal,
+            routeOverrides: config.routeOverrides,
             onLog:       log,
           });
           currentFiles = { ...currentFiles, ...repaired };
@@ -518,6 +575,36 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       `skeletonPreview=${fastPathTelemetry.timeToSkeletonPreviewMs}ms firstRealPreview=${fastPathTelemetry.timeToFirstRealPreviewMs}ms`,
     );
 
+    const runTelemetry: GenerationRunTelemetry = {
+      brief: clarifiedPrompt.slice(0, 600),
+      appName: plan.appName,
+      planSummary: plan.summary,
+      skeletonId: config.skeletonId,
+      skeletonLabel: SKELETON_REGISTRY[config.skeletonId].label,
+      skeletonFiles: getSkeletonInstalledFiles(config.skeletonId),
+      deltaFiles: Object.keys(currentFiles),
+      archetypeId: designCtx.archetype?.id ?? undefined,
+      archetypeName: designCtx.archetype?.name ?? undefined,
+      domainId: designCtx.domain?.id ?? undefined,
+      domainName: designCtx.domain?.name ?? undefined,
+      themeName: designCtx.theme.name,
+      designIntent: [
+        designCtx.archetype ? `${designCtx.archetype.name} (${designCtx.archetype.id})` : null,
+        designCtx.domain ? `${designCtx.domain.name} (${designCtx.domain.id})` : null,
+        `Theme ${designCtx.theme.name}`,
+        `Mood ${designCtx.intent.mood}`,
+        `Contrast ${designCtx.intent.contrast}`,
+        `Radius ${designCtx.intent.radius}`,
+      ].filter((item): item is string => Boolean(item)),
+      architectSummary: plan.summary,
+      designSummary: `Theme ${designCtx.theme.name} with ${designCtx.intent.mood} mood, ${designCtx.intent.contrast} contrast, ${designCtx.intent.radius} radius.`,
+      steps: stepTimeline,
+      compileCount,
+      finalPreviewMounted,
+      timeToSkeletonPreviewMs: fastPathTelemetry.timeToSkeletonPreviewMs,
+      timeToFirstRealPreviewMs: fastPathTelemetry.timeToFirstRealPreviewMs,
+    };
+
     return {
       success: true,
       buildId: config.buildId,
@@ -526,6 +613,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       plan,
       stepResults,
       fastPathTelemetry,
+      runTelemetry,
     };
   }
 
@@ -574,8 +662,12 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
 // the run() pipeline uses internally so the architect always sees high-signal
 // input regardless of how the user phrased the request.
 
-async function summarizeIntent(prompt: string, signal?: AbortSignal): Promise<string | null> {
-  const route = resolveRouteOrSkip('spec');
+async function summarizeIntent(
+  prompt: string,
+  signal?: AbortSignal,
+  routeOverrides?: RouteOverrideMap,
+): Promise<string | null> {
+  const route = resolveRouteOrSkip('spec', routeOverrides);
   if (!route) return null;
 
   const system = `Rewrite the user's product idea as a single dense paragraph.
@@ -590,6 +682,7 @@ Do not add new features. Do not ask questions. Output the paragraph only.`;
       maxTokens: STEP_BUDGET.clarify.maxTokens,
       timeoutMs: STEP_BUDGET.clarify.timeoutMs,
       signal,
+      routeOverrides,
     });
     const cleaned = out.trim().replace(/^["']|["']$/g, '');
     return cleaned.length > 20 ? cleaned : null;
@@ -605,6 +698,7 @@ async function runArchitect(input: {
   prompt:     string;
   skeletonId: SkeletonId;
   signal?:    AbortSignal;
+  routeOverrides?: RouteOverrideMap;
   onLog:      (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onUsage?:   (usage: StepLlmMetrics) => void;
   designCtx?: DesignContext;
@@ -709,6 +803,7 @@ RULES
     maxTokens: STEP_BUDGET.architect.maxTokens,
     timeoutMs: STEP_BUDGET.architect.timeoutMs,
     signal:    input.signal,
+    routeOverrides: input.routeOverrides,
     onUsage:   input.onUsage,
   });
 
@@ -783,6 +878,7 @@ RULES
     appName:  typeof obj.appName === 'string' ? obj.appName : 'App',
     skeleton: typeof obj.skeleton === 'string' ? obj.skeleton as SkeletonId : input.skeletonId,
     summary:  typeof obj.summary === 'string' ? obj.summary : '',
+    rawResponse: raw,
     fileTree,
     deltaFiles,
     pages,
@@ -801,6 +897,7 @@ async function runCoder(input: {
   plan:       ArchitectPlan;
   skeletonId: SkeletonId;
   signal?:    AbortSignal;
+  routeOverrides?: RouteOverrideMap;
   onLog:      (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onStream?:  (delta: string) => void;
   onUsage?:   (usage: StepLlmMetrics) => void;
@@ -891,6 +988,7 @@ RULES
     maxTokens: STEP_BUDGET.coder.maxTokens,
     timeoutMs: STEP_BUDGET.coder.timeoutMs,
     signal:    input.signal,
+    routeOverrides: input.routeOverrides,
     onChunk:   (delta) => { body += delta; input.onStream?.(delta); },
     onFinishReason: (r) => { firstReason = r; },
     onUsage:   (usage) => { usageAcc = mergeLlmUsage(usageAcc, usage); },
@@ -917,6 +1015,7 @@ ${missing.map(p => `  - ${p}`).join('\n')}`;
         maxTokens: STEP_BUDGET.coder.maxTokens,
         timeoutMs: STEP_BUDGET.coder.timeoutMs,
         signal:    input.signal,
+        routeOverrides: input.routeOverrides,
         onChunk:   (delta) => { retryBody += delta; input.onStream?.(delta); },
         onUsage:   (usage) => { usageAcc = mergeLlmUsage(usageAcc, usage); },
       });
@@ -964,6 +1063,7 @@ async function runRepair(input: {
   currentFiles: Record<string, string>;
   errorLog:     string;
   signal?:      AbortSignal;
+  routeOverrides?: RouteOverrideMap;
   onLog:        (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onUsage?:     (usage: StepLlmMetrics) => void;
 }): Promise<Record<string, string>> {
@@ -995,6 +1095,7 @@ ${input.errorLog.slice(0, 4000)}`;
     maxTokens: STEP_BUDGET.repair.maxTokens,
     timeoutMs: STEP_BUDGET.repair.timeoutMs,
     signal:    input.signal,
+    routeOverrides: input.routeOverrides,
     onChunk:   (delta) => { body += delta; },
     onUsage:   input.onUsage,
   });
@@ -1064,6 +1165,7 @@ async function compile(
     compileMs,
     previewMountMs,
     totalMs: compileMs + previewMountMs,
+    previewMounted: ready,
   };
 }
 
@@ -1098,6 +1200,8 @@ interface ResolvedRoute {
   provider: string;
 }
 
+type RouteOverrideMap = Partial<Record<AgentSlot, ResolvedRoute>>;
+
 function totalFileBytes(files: Record<string, string>): number {
   return Object.values(files).reduce((sum, content) => sum + new Blob([content]).size, 0);
 }
@@ -1123,7 +1227,21 @@ function extractUsageMetric(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function resolveRoute(slot: AgentSlot): ResolvedRoute {
+function resolveRoute(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRoute {
+  const override = overrides?.[slot];
+  if (override) {
+    const modelId = override.modelId?.trim();
+    const endpoint = override.endpoint?.trim();
+    if (!modelId || !endpoint) {
+      throw new Error(`Invalid route override for slot "${slot}"`);
+    }
+    return {
+      modelId,
+      apiKey: override.apiKey ?? '',
+      endpoint,
+      provider: override.provider,
+    };
+  }
   const modelId = ConfigService.resolveModel(slot);
   if (!modelId) {
     throw new Error(
@@ -1141,8 +1259,8 @@ function resolveRoute(slot: AgentSlot): ResolvedRoute {
   return { modelId, apiKey, endpoint, provider };
 }
 
-function resolveRouteOrSkip(slot: AgentSlot): ResolvedRoute | null {
-  try { return resolveRoute(slot); } catch { return null; }
+function resolveRouteOrSkip(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRoute | null {
+  try { return resolveRoute(slot, overrides); } catch { return null; }
 }
 
 async function callOnce(input: {
@@ -1152,6 +1270,7 @@ async function callOnce(input: {
   maxTokens: number;
   timeoutMs: number;
   signal?:   AbortSignal;
+  routeOverrides?: RouteOverrideMap;
   onUsage?:  (usage: StepLlmMetrics) => void;
 }): Promise<string> {
   let out = '';
@@ -1181,11 +1300,12 @@ async function streamCall(input: {
   maxTokens:      number;
   timeoutMs:      number;
   signal?:        AbortSignal;
+  routeOverrides?: RouteOverrideMap;
   onChunk:        (delta: string) => void;
   onFinishReason?: (reason: string) => void;
   onUsage?:       (usage: StepLlmMetrics) => void;
 }): Promise<void> {
-  const route = resolveRoute(input.slot);
+  const route = resolveRoute(input.slot, input.routeOverrides);
   const body = JSON.stringify({
     model:       Orchestrator.normalizeModelId(route.modelId, route.endpoint),
     messages:    [
@@ -1209,7 +1329,19 @@ async function streamCall(input: {
 
   try {
     if (input.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const resp = await llmFetch(route.endpoint, headers, body);
+    const resp = route.provider === 'claude-cli' || route.provider === 'codex-cli'
+      ? await fetch('/api/quality/llm-run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: route.provider === 'codex-cli' ? 'codex' : 'claude',
+            model: route.modelId,
+            systemPrompt: input.system,
+            userPrompt: input.user,
+          }),
+          signal: ctrl.signal,
+        })
+      : await llmFetch(route.endpoint, headers, body);
     if (!resp.ok) {
       const errText = await resp.text().catch(() => '');
       throw new Error(`LLM ${resp.status}: ${errText.slice(0, 300)}`);
@@ -1232,16 +1364,21 @@ async function streamCall(input: {
         `Unparseable LLM response (first 200 chars): ${raw.slice(0, 200)} — ${(err as Error).message}`,
       );
     }
-    const content: string = parsed?.choices?.[0]?.message?.content ?? '';
-    const finishReason: string = parsed?.choices?.[0]?.finish_reason ?? '';
-    const promptTokens = extractUsageMetric(parsed?.usage?.prompt_tokens);
-    const completionTokens = extractUsageMetric(parsed?.usage?.completion_tokens);
-    const totalTokens = extractUsageMetric(parsed?.usage?.total_tokens)
+    const usage = parsed?.usage;
+    const content: string = route.provider === 'claude-cli' || route.provider === 'codex-cli'
+      ? parsed?.output_text ?? ''
+      : parsed?.choices?.[0]?.message?.content ?? '';
+    const finishReason: string = route.provider === 'claude-cli' || route.provider === 'codex-cli'
+      ? parsed?.finish_reason ?? ''
+      : parsed?.choices?.[0]?.finish_reason ?? '';
+    const promptTokens = extractUsageMetric(usage?.prompt_tokens);
+    const completionTokens = extractUsageMetric(usage?.completion_tokens);
+    const totalTokens = extractUsageMetric(usage?.total_tokens)
       ?? ((promptTokens ?? 0) + (completionTokens ?? 0));
     const costUsd =
-      extractUsageMetric(parsed?.usage?.cost_usd)
-      ?? extractUsageMetric(parsed?.usage?.total_cost)
-      ?? extractUsageMetric(parsed?.usage?.cost);
+      extractUsageMetric(usage?.cost_usd)
+      ?? extractUsageMetric(usage?.total_cost)
+      ?? extractUsageMetric(usage?.cost);
     if (promptTokens !== undefined || completionTokens !== undefined || totalTokens > 0) {
       input.onUsage?.({
         model: typeof parsed?.model === 'string'

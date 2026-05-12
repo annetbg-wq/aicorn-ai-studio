@@ -701,6 +701,12 @@ export function buildQualityLlmPrompt(systemPrompt: string, userPrompt: string):
   return `[System]\n${systemPrompt}\n\n[User]\n${userPrompt}`;
 }
 
+function estimateTokenCount(text: string): number {
+  const normalized = text.trim();
+  if (!normalized) return 0;
+  return Math.max(1, Math.ceil(normalized.length / 4));
+}
+
 /** OpenAI-compatible endpoints for each provider */
 const STANDARD_PROVIDER_ENDPOINTS: Record<string, string> = {
   openrouter: 'https://openrouter.ai/api/v1/chat/completions',
@@ -1928,6 +1934,15 @@ app.get('/api/quality/test/:testName', async (req, res) => {
   }
 });
 
+app.get('/api/quality/workspace-snapshot', (_req, res) => {
+  try {
+    const snapshot = inspectLivePreviewWorkspace();
+    res.json(snapshot);
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 app.post('/api/quality/llm-run', async (req, res) => {
   try {
     const body = (req.body ?? {}) as {
@@ -1963,11 +1978,20 @@ app.post('/api/quality/llm-run', async (req, res) => {
       buildQualityLlmPrompt(systemPrompt, userPrompt),
       resolvedModel,
     );
+    const promptTokens = estimateTokenCount(buildQualityLlmPrompt(systemPrompt, userPrompt));
+    const completionTokens = estimateTokenCount(responseText);
 
     res.json({
       provider,
       model: resolvedModel,
       output_text: responseText,
+      usage: {
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: promptTokens + completionTokens,
+        estimated: true,
+      },
+      finish_reason: 'stop',
     });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
