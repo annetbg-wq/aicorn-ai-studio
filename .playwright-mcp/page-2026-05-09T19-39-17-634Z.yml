@@ -1,0 +1,176 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Analytics" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Quality" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+        - button "Code Studio" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+        - button "DB Console" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+        - button "Cloud & Backend — Coming Soon" [ref=e67]:
+          - img [ref=e68]
+        - button "Packaging & Ship — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Growth & Marketing — Coming Soon" [ref=e78]:
+          - img [ref=e79]
+    - generic [ref=e83]:
+      - generic [ref=e84]:
+        - generic [ref=e87]: Cloud Sync
+        - generic [ref=e88]: AIC-RG Studio
+        - heading "Панель студии" [level=1] [ref=e89]
+        - paragraph [ref=e90]: Платформа полного цикла разработки продукта. Выберите модуль для начала работы.
+      - generic [ref=e91]:
+        - generic [ref=e93]: Сущности пользователя
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - generic [ref=e97]:
+              - img [ref=e99]
+              - generic [ref=e102]:
+                - generic [ref=e103]: Проекты
+                - generic [ref=e104]: Ваше рабочее пространство. Все проекты, ревизии и ветки.
+            - generic [ref=e105]:
+              - button "Все проекты" [ref=e106] [cursor=pointer]
+              - button "+ Новый проект" [ref=e107] [cursor=pointer]:
+                - generic [ref=e108]: +
+                - text: Новый проект
+          - generic [ref=e110]:
+            - generic [ref=e111]:
+              - generic [ref=e112]: Project
+              - generic [ref=e113]: Last Activity
+              - generic [ref=e114]: Branch
+              - generic [ref=e115]: Rev
+              - generic [ref=e116]: Last Good
+            - generic [ref=e117] [cursor=pointer]:
+              - generic [ref=e118]: SpeakEasy
+              - generic [ref=e119]: May 3
+              - generic [ref=e120]:
+                - img [ref=e121]
+                - text: main
+              - generic [ref=e124]: —
+              - generic [ref=e125]: —
+            - generic [ref=e126] [cursor=pointer]:
+              - generic [ref=e127]: Community Events App
+              - generic [ref=e128]: May 2
+              - generic [ref=e129]:
+                - img [ref=e130]
+                - text: main
+              - generic [ref=e133]: —
+              - generic [ref=e134]: —
+            - generic [ref=e135] [cursor=pointer]:
+              - generic [ref=e136]: Сон и восстановление
+              - generic [ref=e137]: May 2
+              - generic [ref=e138]:
+                - img [ref=e139]
+                - text: main
+              - generic [ref=e142]: —
+              - generic [ref=e143]: —
+            - generic [ref=e144] [cursor=pointer]:
+              - generic [ref=e145]: Founder-ready brief для продуктового архитектора Название
+              - generic [ref=e146]: May 2
+              - generic [ref=e147]:
+                - img [ref=e148]
+                - text: main
+              - generic [ref=e151]: —
+              - generic [ref=e152]: —
+      - generic [ref=e153]:
+        - generic [ref=e155]: Рыночная аналитика
+        - generic [ref=e157] [cursor=pointer]:
+          - generic [ref=e158]:
+            - img [ref=e160]
+            - generic [ref=e163]:
+              - generic [ref=e164]: Трендовые ниши
+              - generic [ref=e165]: Идеи дня, недели, месяца и отдельный банк идей
+          - button "Открыть" [ref=e166]:
+            - text: Открыть
+            - img [ref=e167]
+      - generic [ref=e170]: Модули платформы
+      - generic [ref=e172]:
+        - generic [ref=e173] [cursor=pointer]:
+          - generic [ref=e174]:
+            - img [ref=e176]
+            - generic [ref=e181]: АКТИВЕН
+          - generic [ref=e182]:
+            - generic [ref=e183]: System Engine
+            - generic [ref=e184]: AI-powered code generation, multi-file orchestration, real-time preview, and agentic workflows.
+          - generic [ref=e185]:
+            - generic [ref=e187]:
+              - generic [ref=e188]: API Wallet
+              - generic [ref=e189]: $0.0000
+            - generic [ref=e192]:
+              - generic [ref=e193]: Context Health
+              - generic [ref=e194]: 0%
+        - generic [ref=e196]:
+          - generic [ref=e197]:
+            - img [ref=e199]
+            - generic [ref=e204]: СКОРО
+          - generic [ref=e205]:
+            - generic [ref=e206]: Product Architect
+            - generic [ref=e207]: Define requirements, map user journeys, and structure system architecture from idea to spec.
+        - generic [ref=e208] [cursor=pointer]:
+          - generic [ref=e209]:
+            - img [ref=e211]
+            - generic [ref=e217]: АКТИВЕН
+          - generic [ref=e218]:
+            - generic [ref=e219]: Figma Platinum
+            - generic [ref=e220]: Подключите дизайн-систему, синхронизируйте токены, активируйте Digital Twin — из Figma в живой интерактивный код одним кликом.
+          - generic [ref=e221]:
+            - generic [ref=e222]:
+              - generic [ref=e223]: 🪞
+              - generic [ref=e224]: Digital Twin
+            - generic [ref=e225]:
+              - generic [ref=e226]: 🎨
+              - generic [ref=e227]: Design DNA
+            - generic [ref=e228]:
+              - generic [ref=e229]: ⚡
+              - generic [ref=e230]: Deep Scan
+        - generic [ref=e231] [cursor=pointer]:
+          - generic [ref=e232]:
+            - img [ref=e234]
+            - generic [ref=e238]: АКТИВЕН
+          - generic [ref=e239]:
+            - generic [ref=e240]: Code Studio
+            - generic [ref=e241]: AI-powered IDE with integrated preview. Edit code, see changes live, let AI fix issues — all in one place.
+        - generic [ref=e242]:
+          - generic [ref=e243]:
+            - img [ref=e245]
+            - generic [ref=e247]: СКОРО
+          - generic [ref=e248]:
+            - generic [ref=e249]: Cloud & Backend
+            - generic [ref=e250]: Provision infrastructure, manage databases, deploy serverless functions and APIs at scale.
+          - generic [ref=e251]:
+            - generic [ref=e252]:
+              - generic [ref=e253]: DB Storage
+              - generic [ref=e254]: — MB
+            - generic [ref=e255]:
+              - generic [ref=e256]: Active Users
+              - generic [ref=e257]: —
+        - generic [ref=e258]:
+          - generic [ref=e259]:
+            - img [ref=e261]
+            - generic [ref=e266]: СКОРО
+          - generic [ref=e267]:
+            - generic [ref=e268]: Packaging & Ship
+            - generic [ref=e269]: Bundle, test, set up CI/CD pipelines, versioning, and one-click deploy to production.
+        - generic [ref=e270]:
+          - generic [ref=e271]:
+            - img [ref=e273]
+            - generic [ref=e276]: СКОРО
+          - generic [ref=e277]:
+            - generic [ref=e278]: Growth & Marketing
+            - generic [ref=e279]: Analytics, A/B testing, SEO optimisation, landing pages, and user acquisition funnels.
+      - generic [ref=e280]: AIC-RG Studio — Профессиональная платформа v3

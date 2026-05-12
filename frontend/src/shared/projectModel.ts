@@ -502,6 +502,63 @@ export interface FastPathTelemetry {
   timeToFirstRealPreviewMs: number;
 }
 
+export type GenerationRunStepId =
+  | 'clarify'
+  | 'skeleton'
+  | 'pack'
+  | 'architect'
+  | 'coder'
+  | 'apply'
+  | 'build'
+  | 'preview';
+
+export interface GenerationRunStepTelemetry {
+  id: GenerationRunStepId;
+  label: string;
+  status: 'pending' | 'active' | 'done' | 'error';
+  detail?: string;
+  durationMs?: number;
+  llm?: {
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    cost_usd?: number;
+  };
+  output?: {
+    file_count?: number;
+    total_bytes?: number;
+    asset_count?: number;
+    build_size_kb?: number;
+    preview_url?: string;
+    files?: string[];
+  };
+  warnings?: string[];
+}
+
+export interface GenerationRunTelemetry {
+  brief: string;
+  appName?: string;
+  planSummary?: string;
+  skeletonId: string;
+  skeletonLabel: string;
+  skeletonFiles: string[];
+  deltaFiles: string[];
+  archetypeId?: string;
+  archetypeName?: string;
+  domainId?: string;
+  domainName?: string;
+  themeName?: string;
+  designIntent: string[];
+  architectSummary?: string;
+  designSummary?: string;
+  steps: GenerationRunStepTelemetry[];
+  compileCount: number;
+  finalPreviewMounted: boolean;
+  timeToSkeletonPreviewMs?: number;
+  timeToFirstRealPreviewMs?: number;
+}
+
 // ─── FileBlueprint ───────────────────────────────────────────────────────────
 
 /**
@@ -863,6 +920,14 @@ export interface GenerationQualitySummary {
     hasRepairHints:       boolean;
     multiPageDeclared:    boolean;
     dependenciesDeclared: boolean;
+    outputProofPassed:    boolean;
+    nonTrivialDelta:      boolean;
+    hasFeatureInteractions: boolean;
+    hasMeaningfulScreenStructure: boolean;
+    outputStructurePassed: boolean;
+    deltaStructurePassed: boolean;
+    architecturalRichnessPassed: boolean;
+    placeholderStructureClean: boolean;
   };
   /** Hard failures — missing entry, guard failures, incomplete output. */
   blockers: string[];
@@ -1075,6 +1140,106 @@ export interface TraceRouteRecord extends TraceSafeModelLabel {
   keySource?:      string;
   fallbackReason?: string;
   reason?:         string;
+}
+
+export type TraceRunTruthKind = 'real' | 'fixture' | 'test';
+export type TraceTruthSource = 'fixture-backed' | 'real-runtime' | 'real-llm';
+export type TracePreviewMountStatus = 'mounted' | 'missing' | 'blocked' | 'pending';
+
+export interface TraceRunPathSummary {
+  kind: TraceRunTruthKind;
+  summary: string;
+  usesRealLlm: boolean;
+  usesRealRuntime: boolean;
+  fixtureBacked: boolean;
+  testEnvironment: boolean;
+  markers: string[];
+}
+
+export interface TraceQualityGateSummary {
+  id: string;
+  label: string;
+  passed: boolean;
+  source: TraceTruthSource;
+  detail?: string;
+}
+
+export interface TraceRunSummary {
+  brief: string;
+  appName?: string;
+  skeleton?: {
+    id: string;
+    label: string;
+    archetypeId?: string;
+    archetypeName?: string;
+    domainId?: string;
+    domainName?: string;
+  };
+  design?: {
+    themeName?: string;
+    intent: string[];
+    architectSummary?: string;
+    designSummary?: string;
+  };
+  output?: {
+    skeletonFiles: string[];
+    deltaFiles: string[];
+    filesCreated: string[];
+    filesUpdated: string[];
+    changedFileCount: number;
+    createdFileCount: number;
+    deltaSizeBytes: number;
+    keyPaths: string[];
+    structure?: {
+      richness: 'rich' | 'adequate' | 'weak';
+      summary: string;
+      routeExpectation: 'single-route' | 'multi-route';
+      requiredOutputClasses: string[];
+      requiredDeltaClasses: string[];
+      missingOutputClasses: string[];
+      missingDeltaClasses: string[];
+      buckets: Array<{
+        id: string;
+        label: string;
+        meaning: string;
+        totalCount: number;
+        deltaCount: number;
+        meaningfulDeltaCount: number;
+        skeletonCount: number;
+        modifiedCount: number;
+        newCount: number;
+        keyPaths: string[];
+      }>;
+    };
+    skeletonDelta?: {
+      skeletonFileCount: number;
+      deltaFileCount: number;
+      meaningfulDeltaCount: number;
+      modifiedExistingCount: number;
+      newFileCount: number;
+      keySkeletonPaths: string[];
+      keyDeltaPaths: string[];
+      keyModifiedPaths: string[];
+      keyNewPaths: string[];
+    };
+    compileCount: number;
+    previewMountStatus: TracePreviewMountStatus;
+    totalTimeToPreviewMs?: number;
+    saveReady: boolean;
+  };
+  path: TraceRunPathSummary;
+  quality?: {
+    verdict: 'pass' | 'partial' | 'fail';
+    summary: string;
+    gates: TraceQualityGateSummary[];
+    blockers: string[];
+    warnings: string[];
+    visualVerdict?: VisualQualityVerdict;
+    visualBand?: VisualQualityBand;
+    visualReasons?: string[];
+  };
+  steps: GenerationRunStepTelemetry[];
+  noTelemetryReason?: string;
 }
 
 export interface TracePromptRecord {
@@ -1347,6 +1512,7 @@ export interface GenerationResult {
    */
   designTelemetry?: DesignRecipeTelemetry;
   fastPathTelemetry?: FastPathTelemetry;
+  runTelemetry?: GenerationRunTelemetry;
   visibleReasoningTrace?: VisibleReasoningTrace;
   fullDebugTrace?:        FullDebugTrace;
 }

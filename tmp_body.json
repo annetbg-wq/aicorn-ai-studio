@@ -1,0 +1,1 @@
+{"files":{"src/pages/Home.tsx":"import React from 'react';\nimport { Button, Card } from '@/components/ui/index';\n\nexport default function Home(){return(<Card><Button>X</Button></Card>);}"}}

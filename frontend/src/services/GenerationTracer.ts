@@ -19,6 +19,7 @@
  */
 
 import type {
+  GenerationRunStepTelemetry,
   DesignRecipeTelemetry,
   FullDebugTrace,
   FullDebugTraceEvent,
@@ -26,6 +27,7 @@ import type {
   TraceParserDecision,
   TracePromptRecord,
   TraceRouteRecord,
+  TraceRunSummary,
   TraceRunOutcome,
   TraceSafeModelLabel,
   TraceStepKind,
@@ -79,6 +81,8 @@ export interface GenerationTrace {
   errorSummary?: string;
   /** Optional local-only design telemetry for recipe learning. */
   designTelemetry?: DesignRecipeTelemetry;
+  /** Structured run truth consumed by Reasoning / Analytics UI. */
+  runSummary?: TraceRunSummary;
   /** Safe user-facing trace for normal product UX. */
   visibleReasoningTrace: VisibleReasoningTrace;
   /** Rich forensic trace for debugging and export. */
@@ -306,6 +310,143 @@ function sanitizeLabels(labels?: TraceSafeModelLabel): TraceSafeModelLabel | und
   };
 }
 
+function sanitizeRunStepTelemetry(step: GenerationRunStepTelemetry): GenerationRunStepTelemetry {
+  return {
+    id: step.id,
+    label: sanitizeText(step.label, 120),
+    status: step.status,
+    detail: step.detail ? sanitizeText(step.detail, 200) : undefined,
+    durationMs: step.durationMs,
+    llm: step.llm
+      ? {
+          model: sanitizeText(step.llm.model, 120),
+          prompt_tokens: step.llm.prompt_tokens,
+          completion_tokens: step.llm.completion_tokens,
+          total_tokens: step.llm.total_tokens,
+          cost_usd: step.llm.cost_usd,
+        }
+      : undefined,
+    output: step.output
+      ? {
+          file_count: step.output.file_count,
+          total_bytes: step.output.total_bytes,
+          asset_count: step.output.asset_count,
+          build_size_kb: step.output.build_size_kb,
+          preview_url: step.output.preview_url ? sanitizeText(step.output.preview_url, 200) : undefined,
+          files: step.output.files?.slice(0, 100).map(file => sanitizeText(file, 200)),
+        }
+      : undefined,
+    warnings: step.warnings?.slice(0, 20).map(warning => sanitizeText(warning, 200)),
+  };
+}
+
+function sanitizeRunSummary(summary?: TraceRunSummary): TraceRunSummary | undefined {
+  if (!summary) return undefined;
+  return {
+    brief: sanitizeText(summary.brief, 300),
+    appName: summary.appName ? sanitizeText(summary.appName, 120) : undefined,
+    skeleton: summary.skeleton
+      ? {
+          id: sanitizeText(summary.skeleton.id, 120),
+          label: sanitizeText(summary.skeleton.label, 120),
+          archetypeId: summary.skeleton.archetypeId ? sanitizeText(summary.skeleton.archetypeId, 120) : undefined,
+          archetypeName: summary.skeleton.archetypeName ? sanitizeText(summary.skeleton.archetypeName, 120) : undefined,
+          domainId: summary.skeleton.domainId ? sanitizeText(summary.skeleton.domainId, 120) : undefined,
+          domainName: summary.skeleton.domainName ? sanitizeText(summary.skeleton.domainName, 120) : undefined,
+        }
+      : undefined,
+    design: summary.design
+      ? {
+          themeName: summary.design.themeName ? sanitizeText(summary.design.themeName, 120) : undefined,
+          intent: (summary.design.intent ?? []).slice(0, 20).map(item => sanitizeText(item, 160)),
+          architectSummary: summary.design.architectSummary ? sanitizeText(summary.design.architectSummary, MAX_TEXT_EXCERPT) : undefined,
+          designSummary: summary.design.designSummary ? sanitizeText(summary.design.designSummary, MAX_TEXT_EXCERPT) : undefined,
+        }
+      : undefined,
+    output: summary.output
+      ? {
+          skeletonFiles: (summary.output.skeletonFiles ?? []).slice(0, 200).map(file => sanitizeText(file, 200)),
+          deltaFiles: (summary.output.deltaFiles ?? []).slice(0, 200).map(file => sanitizeText(file, 200)),
+          filesCreated: (summary.output.filesCreated ?? []).slice(0, 200).map(file => sanitizeText(file, 200)),
+          filesUpdated: (summary.output.filesUpdated ?? []).slice(0, 200).map(file => sanitizeText(file, 200)),
+          changedFileCount: summary.output.changedFileCount,
+          createdFileCount: summary.output.createdFileCount,
+          deltaSizeBytes: summary.output.deltaSizeBytes,
+          keyPaths: (summary.output.keyPaths ?? []).slice(0, 40).map(file => sanitizeText(file, 200)),
+          structure: summary.output.structure
+            ? {
+                richness: summary.output.structure.richness,
+                summary: sanitizeText(summary.output.structure.summary, 200),
+                routeExpectation: summary.output.structure.routeExpectation,
+                requiredOutputClasses: (summary.output.structure.requiredOutputClasses ?? []).slice(0, 20).map(item => sanitizeText(item, 80)),
+                requiredDeltaClasses: (summary.output.structure.requiredDeltaClasses ?? []).slice(0, 20).map(item => sanitizeText(item, 80)),
+                missingOutputClasses: (summary.output.structure.missingOutputClasses ?? []).slice(0, 20).map(item => sanitizeText(item, 80)),
+                missingDeltaClasses: (summary.output.structure.missingDeltaClasses ?? []).slice(0, 20).map(item => sanitizeText(item, 80)),
+                buckets: (summary.output.structure.buckets ?? []).slice(0, 12).map(bucket => ({
+                  id: sanitizeText(bucket.id, 80),
+                  label: sanitizeText(bucket.label, 80),
+                  meaning: sanitizeText(bucket.meaning, 160),
+                  totalCount: bucket.totalCount,
+                  deltaCount: bucket.deltaCount,
+                  meaningfulDeltaCount: bucket.meaningfulDeltaCount,
+                  skeletonCount: bucket.skeletonCount,
+                  modifiedCount: bucket.modifiedCount,
+                  newCount: bucket.newCount,
+                  keyPaths: (bucket.keyPaths ?? []).slice(0, 8).map(file => sanitizeText(file, 200)),
+                })),
+              }
+            : undefined,
+          skeletonDelta: summary.output.skeletonDelta
+            ? {
+                skeletonFileCount: summary.output.skeletonDelta.skeletonFileCount,
+                deltaFileCount: summary.output.skeletonDelta.deltaFileCount,
+                meaningfulDeltaCount: summary.output.skeletonDelta.meaningfulDeltaCount,
+                modifiedExistingCount: summary.output.skeletonDelta.modifiedExistingCount,
+                newFileCount: summary.output.skeletonDelta.newFileCount,
+                keySkeletonPaths: (summary.output.skeletonDelta.keySkeletonPaths ?? []).slice(0, 12).map(file => sanitizeText(file, 200)),
+                keyDeltaPaths: (summary.output.skeletonDelta.keyDeltaPaths ?? []).slice(0, 12).map(file => sanitizeText(file, 200)),
+                keyModifiedPaths: (summary.output.skeletonDelta.keyModifiedPaths ?? []).slice(0, 12).map(file => sanitizeText(file, 200)),
+                keyNewPaths: (summary.output.skeletonDelta.keyNewPaths ?? []).slice(0, 12).map(file => sanitizeText(file, 200)),
+              }
+            : undefined,
+          compileCount: summary.output.compileCount,
+          previewMountStatus: summary.output.previewMountStatus,
+          totalTimeToPreviewMs: summary.output.totalTimeToPreviewMs,
+          saveReady: summary.output.saveReady,
+        }
+      : undefined,
+    path: {
+      kind: summary.path.kind,
+      summary: sanitizeText(summary.path.summary, 240),
+      usesRealLlm: summary.path.usesRealLlm,
+      usesRealRuntime: summary.path.usesRealRuntime,
+      fixtureBacked: summary.path.fixtureBacked,
+      testEnvironment: summary.path.testEnvironment,
+      markers: (summary.path.markers ?? []).slice(0, 20).map(item => sanitizeText(item, 120)),
+    },
+    quality: summary.quality
+      ? {
+          verdict: summary.quality.verdict,
+          summary: sanitizeText(summary.quality.summary, 240),
+          gates: (summary.quality.gates ?? []).slice(0, 40).map(gate => ({
+            id: sanitizeText(gate.id, 80),
+            label: sanitizeText(gate.label, 120),
+            passed: gate.passed,
+            source: gate.source,
+            detail: gate.detail ? sanitizeText(gate.detail, 200) : undefined,
+          })),
+          blockers: (summary.quality.blockers ?? []).slice(0, 20).map(item => sanitizeText(item, 200)),
+          warnings: (summary.quality.warnings ?? []).slice(0, 20).map(item => sanitizeText(item, 200)),
+          visualVerdict: summary.quality.visualVerdict,
+          visualBand: summary.quality.visualBand,
+          visualReasons: summary.quality.visualReasons?.slice(0, 20).map(item => sanitizeText(item, 200)),
+        }
+      : undefined,
+    steps: (summary.steps ?? []).slice(0, 20).map(sanitizeRunStepTelemetry),
+    noTelemetryReason: summary.noTelemetryReason ? sanitizeText(summary.noTelemetryReason, 200) : undefined,
+  };
+}
+
 function buildLegacyVisibleTrace(trace: Pick<GenerationTrace, 'id' | 'startedAt' | 'spans'>): VisibleReasoningTrace {
   const steps: VisibleReasoningStep[] = trace.spans.map((span, index) => ({
     id: `${trace.id}:legacy:${index}`,
@@ -381,6 +522,7 @@ function normalizeStoredTrace(trace: GenerationTrace): GenerationTrace {
       model: sanitizeText(trace.model, 120),
       errorSummary: trace.errorSummary ? sanitizeText(trace.errorSummary, 240) : undefined,
       spans: (trace.spans ?? []).map(span => sanitizeUnknown(span) as TraceSpan),
+      runSummary: sanitizeRunSummary(trace.runSummary),
       visibleReasoningTrace: {
         ...trace.visibleReasoningTrace,
         runId: sanitizeText(trace.visibleReasoningTrace.runId, 120),
@@ -403,6 +545,7 @@ function normalizeStoredTrace(trace: GenerationTrace): GenerationTrace {
     model: sanitizeText(trace.model, 120),
     errorSummary: trace.errorSummary ? sanitizeText(trace.errorSummary, 240) : undefined,
     spans: (trace.spans ?? []).map(span => sanitizeUnknown(span) as TraceSpan),
+    runSummary: sanitizeRunSummary(trace.runSummary),
     visibleReasoningTrace: buildLegacyVisibleTrace(trace),
     fullDebugTrace: buildLegacyDebugTrace(trace),
   };
@@ -565,6 +708,10 @@ export class TraceHandle {
 
   setDesignSummary(summary: string): void {
     this._trace.fullDebugTrace.designSummary = sanitizeText(summary, MAX_TEXT_EXCERPT);
+  }
+
+  setRunSummary(summary: TraceRunSummary): void {
+    this._trace.runSummary = sanitizeRunSummary(summary);
   }
 
   /**
@@ -1118,6 +1265,115 @@ class GenerationTracerClass {
     this._active = null;
   }
 
+  updateRunSummary(
+    lookup: FullDebugTraceLookup,
+    patch: {
+      brief?: TraceRunSummary['brief'];
+      appName?: TraceRunSummary['appName'];
+      steps?: TraceRunSummary['steps'];
+      noTelemetryReason?: TraceRunSummary['noTelemetryReason'];
+      design?: Partial<NonNullable<TraceRunSummary['design']>>;
+      output?: Partial<NonNullable<TraceRunSummary['output']>>;
+      path?: Partial<TraceRunSummary['path']>;
+      quality?: Partial<NonNullable<TraceRunSummary['quality']>>;
+    },
+  ): void {
+    const mergeSummary = (base: TraceRunSummary | undefined, fallbackBrief: string): TraceRunSummary => {
+      const mergedDesign = base?.design || patch.design
+        ? {
+            intent: patch.design?.intent ?? base?.design?.intent ?? [],
+            ...(base?.design ?? {}),
+            ...(patch.design ?? {}),
+          }
+        : undefined;
+      const mergedOutput = base?.output || patch.output
+        ? {
+            skeletonFiles: [],
+            deltaFiles: [],
+            filesCreated: [],
+            filesUpdated: [],
+            changedFileCount: 0,
+            createdFileCount: 0,
+            deltaSizeBytes: 0,
+            keyPaths: [],
+            structure: undefined,
+            skeletonDelta: undefined,
+            compileCount: 0,
+            previewMountStatus: 'pending' as const,
+            saveReady: false,
+            ...(base?.output ?? {}),
+            ...(patch.output ?? {}),
+          }
+        : undefined;
+      const mergedPathBase = {
+        kind: 'real' as const,
+        summary: 'Real generation trace recorded.',
+        usesRealLlm: false,
+        usesRealRuntime: false,
+        fixtureBacked: false,
+        testEnvironment: false,
+        markers: [] as string[],
+        ...(base?.path ?? {}),
+        ...(patch.path ?? {}),
+      };
+      const mergedPath = {
+        ...mergedPathBase,
+        markers: patch.path?.markers ?? base?.path?.markers ?? [],
+      };
+      const mergedQuality = base?.quality || patch.quality
+        ? (() => {
+            const mergedQualityBase = {
+              verdict: 'partial' as const,
+              summary: '',
+              gates: [],
+              blockers: [],
+              warnings: [],
+              ...(base?.quality ?? {}),
+              ...(patch.quality ?? {}),
+            };
+            return {
+              ...mergedQualityBase,
+              gates: patch.quality?.gates ?? base?.quality?.gates ?? [],
+              blockers: patch.quality?.blockers ?? base?.quality?.blockers ?? [],
+              warnings: patch.quality?.warnings ?? base?.quality?.warnings ?? [],
+            };
+          })()
+        : undefined;
+      return sanitizeRunSummary({
+        brief: patch.brief ?? base?.brief ?? fallbackBrief,
+        appName: patch.appName ?? base?.appName,
+        skeleton: base?.skeleton,
+        design: mergedDesign,
+        output: mergedOutput,
+        path: mergedPath,
+        quality: mergedQuality,
+        steps: patch.steps ?? base?.steps ?? [],
+        noTelemetryReason: patch.noTelemetryReason ?? base?.noTelemetryReason,
+      })!;
+    };
+
+    const activeSnapshot = this._active?.snapshot();
+    if (activeSnapshot && traceMatchesLookup(activeSnapshot, lookup) && this._active) {
+      this._active.setRunSummary(mergeSummary(activeSnapshot.runSummary, activeSnapshot.intent));
+    }
+
+    const traces = loadTraces();
+    let changed = false;
+    const nextTraces = traces.map(trace => {
+      if (!traceMatchesLookup(trace, lookup)) return trace;
+      changed = true;
+      return {
+        ...trace,
+        runSummary: mergeSummary(trace.runSummary, trace.intent),
+      };
+    });
+    if (!changed) return;
+    saveTraces(nextTraces);
+    try {
+      window.dispatchEvent(new CustomEvent('studio-trace'));
+    } catch { /* test environment */ }
+  }
+
   /**
    * Format a trace as a human-readable string for display or export.
    */
@@ -1137,6 +1393,12 @@ class GenerationTracerClass {
       lines.push(
         `  Design:   ${trace.designTelemetry.recipe.category}/${trace.designTelemetry.recipe.style}`
         + ` → ${trace.designTelemetry.outcome.visualVerdict} (${trace.designTelemetry.outcome.visualScore})`,
+      );
+    }
+    if (trace.runSummary) {
+      lines.push(
+        `  Run:      ${trace.runSummary.path.kind} | ${trace.runSummary.path.summary}`
+        + (trace.runSummary.output ? ` | files=${trace.runSummary.output.changedFileCount}` : ''),
       );
     }
     if (trace.visibleReasoningTrace.steps.length > 0) {

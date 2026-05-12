@@ -287,7 +287,7 @@ export default function App() {
     if (id === 'figma')     setView('figma');
     if (id === 'architect') setView('architect');
     if (id === 'projects')  setView('projects');
-    if (id === 'benchmark')    setView('benchmark');
+    if (id === 'benchmark')    setView('quality');
     if (id === 'quality')      setView('quality');
     if (id === 'code-studio' && creatorMode) setView('code-studio');
     if (id === 'db-console')   setView('db-console');
@@ -440,7 +440,7 @@ export default function App() {
     : view === 'figma'      ? 'figma'
     : view === 'architect'  ? 'architect'
     : view === 'projects'   ? 'projects'
-    : view === 'benchmark'    ? 'benchmark'
+    : view === 'benchmark'    ? 'quality'
     : view === 'quality'      ? 'quality'
     : view === 'code-studio' && creatorMode ? 'code-studio'
     : view === 'db-console'  ? 'db-console'
@@ -648,23 +648,14 @@ export default function App() {
           </div>
         )}
 
-        {view === 'benchmark' && (
+        {(view === 'quality' || view === 'benchmark') && (
           <div className="flex flex-1 overflow-hidden"
                style={{ animation: 'viewFadeIn 0.28s ease' }}>
             <Suspense fallback={<PageLoader />}>
-              <BenchmarkDashboard
+              <QualityPanel
                 apiKey={studio.apiKey ?? ''}
                 selectedModel={studio.selectedModel ?? ''}
               />
-            </Suspense>
-          </div>
-        )}
-
-        {view === 'quality' && (
-          <div className="flex flex-1 overflow-hidden"
-               style={{ animation: 'viewFadeIn 0.28s ease' }}>
-            <Suspense fallback={<PageLoader />}>
-              <QualityPanel />
             </Suspense>
           </div>
         )}

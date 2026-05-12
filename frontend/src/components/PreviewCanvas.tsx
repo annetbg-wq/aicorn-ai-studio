@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { visualEditBridge, type VisualEditMode, type SelectedElement } from '../services/VisualEditBridge';
 import type { FileMap } from '../hooks/useStudio';
-import type { VisibleReasoningTrace, VisibleReasoningStep } from '../shared/projectModel';
+import type { TraceRunSummary, VisibleReasoningTrace, VisibleReasoningStep } from '../shared/projectModel';
 import { generationTracer } from '../services/GenerationTracer';
 import type { GenerationTrace, TraceSpan } from '../services/GenerationTracer';
 
@@ -832,6 +832,7 @@ const CodePanel: React.FC<{
   const names = Object.keys(files);
   const displayFile = files[activeFile] !== undefined ? activeFile : (names[0] ?? activeFile);
   const code  = files[displayFile] ?? '';
+  const runSummary = binding.trace?.runSummary ?? null;
 
   const copy = () => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(()=>setCopied(false),2000); };
   const add  = () => { const n=prompt('File name'); if(n?.trim()){setFiles({...files,[n.trim()]:''});setActiveFile(n.trim());} };
@@ -880,6 +881,18 @@ const CodePanel: React.FC<{
         {binding.diagnostic && (
           <WorkspaceDiagnosticPanel diagnostic={binding.diagnostic} testId="code-diagnostic-banner" compact />
         )}
+        {runSummary?.output && (
+          <div
+            data-testid="code-structure-summary"
+            style={{
+              padding: '10px 16px',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              background: 'rgba(255,255,255,0.02)',
+            }}
+          >
+            <OutputStructureSummary output={runSummary.output} compact testId="code-structure-summary-body" />
+          </div>
+        )}
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0 }}>
           <span style={{ fontSize:11, color:'rgba(255,255,255,0.28)', fontFamily:'monospace' }}>{displayFile}</span>
           <button onClick={copy} style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 12px', borderRadius:7, background:'none', border:'none', cursor:'pointer', fontSize:11, color:copied?'#30d158':'rgba(255,255,255,0.3)' }}>
@@ -925,6 +938,176 @@ const SpanRow: React.FC<{ span: TraceSpan; depth: number }> = ({ span, depth }) 
         <SpanRow key={`${ch.name}:${ch.startMs}:${i}`} span={ch} depth={depth + 1} />
       ))}
     </>
+  );
+};
+
+function formatMetricMs(value?: number): string {
+  if (value === undefined || Number.isNaN(value)) return '—';
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`;
+}
+
+function formatMetricBytes(value?: number): string {
+  if (value === undefined || value <= 0) return '—';
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${value} B`;
+}
+
+function sourceLabel(source: NonNullable<NonNullable<TraceRunSummary['quality']>['gates']>[number]['source']): string {
+  if (source === 'real-llm') return 'real-llm';
+  if (source === 'fixture-backed') return 'fixture';
+  return 'real-runtime';
+}
+
+const MetricCard: React.FC<{ label: string; value: string | number; accent?: string; isDark?: boolean }> = ({ label, value, accent, isDark = true }) => (
+  <div style={{ borderRadius: 12, padding: '10px 12px', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.04)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.08)'}` }}>
+    <div style={{ fontSize: 9, color: isDark ? 'rgba(255,255,255,0.32)' : 'rgba(15,23,42,0.42)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
+    <div style={{ fontSize: 15, fontWeight: 700, color: accent ?? (isDark ? 'rgba(255,255,255,0.88)' : '#0f172a') }}>{value}</div>
+  </div>
+);
+
+const SummaryCard: React.FC<{
+  title: string;
+  isDark?: boolean;
+  children: React.ReactNode;
+}> = ({ title, isDark = true, children }) => (
+  <div style={{ borderRadius: 14, padding: '12px 14px', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.75)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.08)'}` }}>
+    <div style={{ fontSize: 10, fontWeight: 700, color: isDark ? 'rgba(255,255,255,0.34)' : 'rgba(15,23,42,0.46)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+      {title}
+    </div>
+    {children}
+  </div>
+);
+
+const PathPills: React.FC<{ items: string[]; tone?: 'neutral' | 'warn'; isDark?: boolean }> = ({ items, tone = 'neutral', isDark = true }) => {
+  if (items.length === 0) return <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.32)' : 'rgba(15,23,42,0.42)' }}>—</div>;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {items.map(item => (
+        <span
+          key={item}
+          style={{
+            fontSize: 10,
+            fontFamily: 'monospace',
+            padding: '4px 8px',
+            borderRadius: 999,
+            background: tone === 'warn' ? 'rgba(245,158,11,0.12)' : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)'),
+            color: tone === 'warn' ? '#fbbf24' : (isDark ? 'rgba(255,255,255,0.74)' : '#334155'),
+            border: `1px solid ${tone === 'warn' ? 'rgba(245,158,11,0.2)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)')}`,
+          }}
+        >
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+};
+
+const OUTPUT_RICHNESS_ACCENT: Record<'rich' | 'adequate' | 'weak', { bg: string; border: string; color: string }> = {
+  rich: { bg: 'rgba(34,197,94,0.14)', border: 'rgba(34,197,94,0.24)', color: '#86efac' },
+  adequate: { bg: 'rgba(245,158,11,0.14)', border: 'rgba(245,158,11,0.24)', color: '#fbbf24' },
+  weak: { bg: 'rgba(239,68,68,0.14)', border: 'rgba(239,68,68,0.24)', color: '#fca5a5' },
+};
+
+const OutputStructureSummary: React.FC<{
+  output?: NonNullable<TraceRunSummary['output']>;
+  isDark?: boolean;
+  compact?: boolean;
+  testId?: string;
+}> = ({ output, isDark = true, compact = false, testId }) => {
+  if (!output?.structure && !output?.skeletonDelta) {
+    return <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.32)' : '#64748b' }}>No structural summary captured.</div>;
+  }
+
+  const structure = output?.structure;
+  const skeletonDelta = output?.skeletonDelta;
+  const richness = structure?.richness ?? 'weak';
+  const accent = OUTPUT_RICHNESS_ACCENT[richness];
+  const visibleBuckets = (structure?.buckets ?? [])
+    .filter(bucket => bucket.totalCount > 0 || bucket.deltaCount > 0)
+    .slice(0, compact ? 4 : 6);
+
+  return (
+    <div data-testid={testId}>
+      {structure && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              padding: '4px 8px',
+              borderRadius: 999,
+              background: accent.bg,
+              border: `1px solid ${accent.border}`,
+              color: accent.color,
+            }}>
+              {richness}
+            </span>
+            <span style={{ fontSize: compact ? 11 : 12, color: isDark ? 'rgba(255,255,255,0.74)' : '#334155' }}>
+              {structure.summary}
+            </span>
+          </div>
+
+          {(structure.missingOutputClasses.length > 0 || structure.missingDeltaClasses.length > 0) && (
+            <div style={{ marginBottom: 8, fontSize: 11, color: '#fbbf24' }}>
+              {[
+                structure.missingOutputClasses.length > 0 ? `missing output: ${structure.missingOutputClasses.join(', ')}` : null,
+                structure.missingDeltaClasses.length > 0 ? `missing delta: ${structure.missingDeltaClasses.join(', ')}` : null,
+              ].filter(Boolean).join(' · ')}
+            </div>
+          )}
+        </>
+      )}
+
+      {skeletonDelta && (
+        <div style={{ display: 'grid', gridTemplateColumns: compact ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+          <MetricCard label="Skeleton used" value={skeletonDelta.skeletonFileCount} isDark={isDark} />
+          <MetricCard label="Delta files" value={skeletonDelta.deltaFileCount} isDark={isDark} />
+          <MetricCard label="Modified base" value={skeletonDelta.modifiedExistingCount} isDark={isDark} />
+          <MetricCard label="New files" value={skeletonDelta.newFileCount} isDark={isDark} />
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {visibleBuckets.map(bucket => (
+          <div
+            key={bucket.id}
+            style={{
+              borderRadius: 12,
+              padding: compact ? '8px 10px' : '10px 12px',
+              background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.03)',
+              border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.08)'}`,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: isDark ? 'rgba(255,255,255,0.84)' : '#0f172a' }}>{bucket.label}</span>
+              <span style={{ fontSize: 10, color: isDark ? 'rgba(255,255,255,0.4)' : '#64748b' }}>
+                total {bucket.totalCount} · delta {bucket.deltaCount} · new {bucket.newCount} · modified {bucket.modifiedCount}
+              </span>
+            </div>
+            <div style={{ fontSize: 10, color: isDark ? 'rgba(255,255,255,0.5)' : '#475569', marginBottom: 6 }}>
+              {bucket.meaning}
+            </div>
+            <PathPills items={bucket.keyPaths} isDark={isDark} />
+          </div>
+        ))}
+      </div>
+
+      {skeletonDelta && (
+        <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 10 }}>
+          <div>
+            <div style={{ fontSize: 10, color: isDark ? 'rgba(255,255,255,0.34)' : '#64748b', marginBottom: 6 }}>New paths</div>
+            <PathPills items={skeletonDelta.keyNewPaths} isDark={isDark} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: isDark ? 'rgba(255,255,255,0.34)' : '#64748b', marginBottom: 6 }}>Modified existing paths</div>
+            <PathPills items={skeletonDelta.keyModifiedPaths} isDark={isDark} />
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -990,6 +1173,8 @@ const AnalyticsPanel: React.FC<{ binding: WorkspaceBinding }> = ({ binding }) =>
   const errored = rowTraces.filter(t => t.outcome === 'error').length;
   const avgE2e  = rowTraces.filter(t => t.e2eMs !== undefined).reduce((a, t) => a + (t.e2eMs ?? 0), 0) / (rowTraces.length || 1);
   const avgTtft = rowTraces.filter(t => t.ttftMs !== undefined).reduce((a, t) => a + (t.ttftMs ?? 0), 0) / (rowTraces.filter(t => t.ttftMs !== undefined).length || 1);
+  const currentTrace = binding.trace ?? rows[0]?.trace ?? null;
+  const currentSummary = currentTrace?.runSummary;
   const scopeLabel =
     binding.scope === 'current-run'
       ? 'Current run'
@@ -1009,7 +1194,6 @@ const AnalyticsPanel: React.FC<{ binding: WorkspaceBinding }> = ({ binding }) =>
         {scopeLabel} · project {binding.projectId || 'none'} · branch {binding.branchId} · run {binding.runId ?? 'none'}
       </div>
 
-      {/* Summary stats */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:16 }}>
         {[
           { l:'Scoped', v: rows.length },
@@ -1024,20 +1208,135 @@ const AnalyticsPanel: React.FC<{ binding: WorkspaceBinding }> = ({ binding }) =>
         ))}
       </div>
 
-      {/* TTFT */}
       {rows.length > 0 && avgTtft > 0 && (
         <div style={{ marginBottom:12, padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)', fontSize:10, color:'rgba(255,255,255,0.4)' }}>
           Avg time-to-first-token: <strong style={{ color:'rgba(255,255,255,0.7)' }}>{Math.round(avgTtft)}ms</strong>
         </div>
       )}
 
-      {/* Trace list */}
+      {currentTrace && !currentSummary && (
+        <div
+          data-testid="analytics-no-telemetry"
+          style={{ marginBottom: 14, padding: '11px 13px', borderRadius: 12, border: '1px solid rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.08)', color: 'rgba(255,255,255,0.74)', fontSize: 12 }}
+        >
+          no telemetry for this run
+        </div>
+      )}
+
+      {currentSummary && (
+        <>
+          {currentSummary.noTelemetryReason && (
+            <div
+              data-testid="analytics-no-telemetry"
+              style={{ marginBottom: 14, padding: '11px 13px', borderRadius: 12, border: '1px solid rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.08)', color: 'rgba(255,255,255,0.74)', fontSize: 12 }}
+            >
+              {currentSummary.noTelemetryReason}
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 14 }}>
+            <MetricCard label="Time to preview" value={formatMetricMs(currentSummary.output?.totalTimeToPreviewMs ?? currentTrace?.e2eMs)} />
+            <MetricCard label="Changed files" value={currentSummary.output?.changedFileCount ?? 0} />
+            <MetricCard label="Created files" value={currentSummary.output?.createdFileCount ?? 0} />
+            <MetricCard label="Delta size" value={formatMetricBytes(currentSummary.output?.deltaSizeBytes)} />
+            <MetricCard label="Compile count" value={currentSummary.output?.compileCount ?? 0} />
+            <MetricCard label="Preview / save" value={`${currentSummary.output?.previewMountStatus ?? 'missing'} / ${currentSummary.output?.saveReady ? 'ready' : 'locked'}`} accent={currentSummary.output?.saveReady ? '#22c55e' : '#f59e0b'} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
+            <SummaryCard title="Selected base">
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.86)', fontWeight: 600 }}>
+                {currentSummary.skeleton?.label ?? 'Unknown skeleton'}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11, color: 'rgba(255,255,255,0.48)' }}>
+                {[
+                  currentSummary.skeleton?.id,
+                  currentSummary.skeleton?.archetypeName ?? currentSummary.skeleton?.archetypeId,
+                  currentSummary.design?.themeName,
+                ].filter(Boolean).join(' · ')}
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.36)', marginBottom: 6 }}>Skeleton files</div>
+                <PathPills items={(currentSummary.output?.skeletonFiles ?? []).slice(0, 8)} />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.36)', marginBottom: 6 }}>Delta files</div>
+                <PathPills items={(currentSummary.output?.deltaFiles ?? []).slice(0, 8)} />
+              </div>
+            </SummaryCard>
+
+            <SummaryCard title="Run truth">
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>{currentSummary.path.summary}</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                <span style={{ fontSize: 10, padding: '4px 8px', borderRadius: 999, background: 'rgba(59,130,246,0.14)', color: '#93c5fd' }}>{currentSummary.path.kind}</span>
+                <span style={{ fontSize: 10, padding: '4px 8px', borderRadius: 999, background: currentSummary.path.usesRealLlm ? 'rgba(34,197,94,0.14)' : 'rgba(255,255,255,0.08)', color: currentSummary.path.usesRealLlm ? '#86efac' : 'rgba(255,255,255,0.54)' }}>real-llm {currentSummary.path.usesRealLlm ? 'yes' : 'no'}</span>
+                <span style={{ fontSize: 10, padding: '4px 8px', borderRadius: 999, background: currentSummary.path.usesRealRuntime ? 'rgba(34,197,94,0.14)' : 'rgba(255,255,255,0.08)', color: currentSummary.path.usesRealRuntime ? '#86efac' : 'rgba(255,255,255,0.54)' }}>real-runtime {currentSummary.path.usesRealRuntime ? 'yes' : 'no'}</span>
+                <span style={{ fontSize: 10, padding: '4px 8px', borderRadius: 999, background: currentSummary.path.fixtureBacked ? 'rgba(245,158,11,0.14)' : 'rgba(255,255,255,0.08)', color: currentSummary.path.fixtureBacked ? '#fbbf24' : 'rgba(255,255,255,0.54)' }}>fixture {currentSummary.path.fixtureBacked ? 'yes' : 'no'}</span>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.36)', marginBottom: 6 }}>Markers</div>
+                <PathPills items={currentSummary.path.markers} tone={currentSummary.path.testEnvironment ? 'warn' : 'neutral'} />
+              </div>
+            </SummaryCard>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
+            <SummaryCard title="Key paths">
+              <PathPills items={currentSummary.output?.keyPaths ?? []} />
+            </SummaryCard>
+
+            <SummaryCard title="Output structure">
+              <OutputStructureSummary output={currentSummary.output} testId="analytics-structure-summary" />
+            </SummaryCard>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
+            <SummaryCard title="Quality breakdown">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: currentSummary.quality?.verdict === 'pass' ? '#22c55e' : currentSummary.quality?.verdict === 'partial' ? '#f59e0b' : '#ef4444' }}>
+                  {(currentSummary.quality?.verdict ?? 'partial').toUpperCase()}
+                </span>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.56)' }}>{currentSummary.quality?.summary ?? 'No quality summary captured.'}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(currentSummary.quality?.gates ?? []).slice(0, 8).map(gate => (
+                  <div key={gate.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                    <span style={{ color: gate.passed ? '#22c55e' : '#ef4444', fontWeight: 700 }}>{gate.passed ? 'PASS' : 'FAIL'}</span>
+                    <span style={{ color: 'rgba(255,255,255,0.82)' }}>{gate.label}</span>
+                    <span style={{ color: 'rgba(255,255,255,0.34)', marginLeft: 'auto' }}>{sourceLabel(gate.source)}</span>
+                  </div>
+                ))}
+              </div>
+            </SummaryCard>
+          </div>
+
+          <SummaryCard title="Step timings">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(currentSummary.steps ?? []).map(step => (
+                <div key={step.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto auto', gap: 10, fontSize: 11, alignItems: 'center' }}>
+                  <div style={{ color: 'rgba(255,255,255,0.82)' }}>
+                    {step.label}
+                    {step.detail ? <span style={{ color: 'rgba(255,255,255,0.4)' }}> · {step.detail}</span> : null}
+                  </div>
+                  <div style={{ color: 'rgba(255,255,255,0.5)' }}>{formatMetricMs(step.durationMs)}</div>
+                  <div style={{ color: step.status === 'done' ? '#22c55e' : step.status === 'error' ? '#ef4444' : '#f59e0b', fontWeight: 600 }}>{step.status}</div>
+                </div>
+              ))}
+            </div>
+          </SummaryCard>
+        </>
+      )}
+
       {rows.length === 0 ? (
         <div style={{ textAlign:'center', padding:40, color:'rgba(255,255,255,0.2)', fontSize:12 }}>
           No traces for the current project / branch scope.
         </div>
       ) : (
-        rows.map(row => <TraceCard key={row.key} row={row} />)
+        <>
+          <div style={{ margin: '14px 0 8px', fontSize: 10, color: 'rgba(255,255,255,0.32)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Trace archive
+          </div>
+          {rows.map(row => <TraceCard key={row.key} row={row} />)}
+        </>
       )}
 
       {rows.length > 0 && (
@@ -1475,6 +1774,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
     hasCurrentTraceSteps
       ? currentTraceVisibleReasoning
       : diagnosticReasoningTrace ?? pendingCurrentRunTrace;
+  const runSummary = workspaceBinding.trace?.runSummary ?? null;
   const reasoningScopeLabel = getWorkspaceScopeLabel(workspaceBinding);
   const hasFullDebugTrace = !!(
     workspaceBinding.runId
@@ -2255,6 +2555,80 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                       testId={hasCurrentTraceSteps ? 'reasoning-diagnostic-banner' : 'reasoning-diagnostic'}
                       compact
                     />
+                  </div>
+                )}
+
+                {runSummary && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
+                    <SummaryCard title="Brief" isDark={isDark}>
+                      <div style={{ fontSize: 12, color: isDark ? 'rgba(255,255,255,0.84)' : '#0f172a', lineHeight: 1.5 }}>
+                        {runSummary.brief}
+                      </div>
+                    </SummaryCard>
+
+                    <SummaryCard title="Skeleton / archetype" isDark={isDark}>
+                      <div style={{ fontSize: 12, color: isDark ? 'rgba(255,255,255,0.84)' : '#0f172a', fontWeight: 600 }}>
+                        {runSummary.skeleton?.label ?? 'No skeleton recorded'}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: isDark ? 'rgba(255,255,255,0.42)' : '#64748b' }}>
+                        {[
+                          runSummary.skeleton?.id,
+                          runSummary.skeleton?.archetypeName ?? runSummary.skeleton?.archetypeId,
+                          runSummary.skeleton?.domainName ?? runSummary.skeleton?.domainId,
+                        ].filter(Boolean).join(' · ')}
+                      </div>
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: 10, color: isDark ? 'rgba(255,255,255,0.34)' : '#64748b', marginBottom: 6 }}>Skeleton files</div>
+                        <PathPills items={(runSummary.output?.skeletonFiles ?? []).slice(0, 6)} isDark={isDark} />
+                      </div>
+                    </SummaryCard>
+
+                    <SummaryCard title="Design intent / packs" isDark={isDark}>
+                      <div style={{ fontSize: 12, color: isDark ? 'rgba(255,255,255,0.74)' : '#334155', marginBottom: 8 }}>
+                        {runSummary.design?.designSummary ?? 'No design pack telemetry recorded.'}
+                      </div>
+                      <PathPills items={runSummary.design?.intent ?? []} isDark={isDark} />
+                    </SummaryCard>
+
+                    <SummaryCard title="Output truth" isDark={isDark}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
+                        <MetricCard label="Changed" value={runSummary.output?.changedFileCount ?? 0} isDark={isDark} />
+                        <MetricCard label="Created" value={runSummary.output?.createdFileCount ?? 0} isDark={isDark} />
+                        <MetricCard label="Delta size" value={formatMetricBytes(runSummary.output?.deltaSizeBytes)} isDark={isDark} />
+                        <MetricCard label="Compile count" value={runSummary.output?.compileCount ?? 0} isDark={isDark} />
+                      </div>
+                      <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.42)' : '#64748b', marginBottom: 6 }}>
+                        Preview {runSummary.output?.previewMountStatus ?? 'missing'} · save {runSummary.output?.saveReady ? 'ready' : 'locked'}
+                      </div>
+                      <OutputStructureSummary output={runSummary.output} isDark={isDark} compact testId="reasoning-structure-summary" />
+                    </SummaryCard>
+
+                    <SummaryCard title="Quality / verdict" isDark={isDark}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: runSummary.quality?.verdict === 'pass' ? '#22c55e' : runSummary.quality?.verdict === 'partial' ? '#f59e0b' : '#ef4444' }}>
+                          {(runSummary.quality?.verdict ?? 'partial').toUpperCase()}
+                        </span>
+                        <span style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.56)' : '#475569' }}>
+                          {runSummary.quality?.summary ?? 'No quality summary captured.'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {(runSummary.quality?.gates ?? []).slice(0, 6).map(gate => (
+                          <div key={gate.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                            <span style={{ color: gate.passed ? '#22c55e' : '#ef4444', fontWeight: 700 }}>{gate.passed ? 'PASS' : 'FAIL'}</span>
+                            <span style={{ color: isDark ? 'rgba(255,255,255,0.82)' : '#0f172a' }}>{gate.label}</span>
+                            <span style={{ marginLeft: 'auto', color: isDark ? 'rgba(255,255,255,0.34)' : '#64748b' }}>{sourceLabel(gate.source)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </SummaryCard>
+
+                    <SummaryCard title="Run path" isDark={isDark}>
+                      <div style={{ fontSize: 12, color: isDark ? 'rgba(255,255,255,0.78)' : '#334155', marginBottom: 8 }}>
+                        {runSummary.path.summary}
+                      </div>
+                      <PathPills items={[runSummary.path.kind, ...runSummary.path.markers]} tone={runSummary.path.testEnvironment ? 'warn' : 'neutral'} isDark={isDark} />
+                    </SummaryCard>
                   </div>
                 )}
 

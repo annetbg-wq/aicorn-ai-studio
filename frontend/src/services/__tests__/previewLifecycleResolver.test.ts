@@ -293,7 +293,7 @@ describe('resolvePreviewUI — legacy fields', () => {
   });
 
   it('always includes lifecycleStage', () => {
-    for (const s of ['idle', 'generating', 'preview-ready', 'blocked', 'failed', 'degraded']) {
+    for (const s of ['idle', 'generating', 'skeleton-ready', 'preview-ready', 'blocked', 'failed', 'degraded']) {
       const result = resolvePreviewUI(makeInputs({ lifecycleStage: s }));
       expect(result.lifecycleStage).toBe(s);
     }

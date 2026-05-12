@@ -1,0 +1,248 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [active] [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Analytics" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Quality" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+        - button "Code Studio" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+        - button "DB Console" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+        - button "Cloud & Backend — Coming Soon" [ref=e67]:
+          - img [ref=e68]
+        - button "Packaging & Ship — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Growth & Marketing — Coming Soon" [ref=e78]:
+          - img [ref=e79]
+      - generic: Трендовые ниши
+    - generic [ref=e244]:
+      - generic [ref=e245]:
+        - generic [ref=e246]:
+          - img [ref=e248]
+          - heading "Трендовые ниши" [level=1] [ref=e251]
+        - button "Домой" [ref=e252] [cursor=pointer]:
+          - img [ref=e253]
+          - text: Домой
+      - generic [ref=e256]:
+        - generic [ref=e258]: Рыночная аналитика
+        - generic [ref=e260]:
+          - heading "Трендовые ниши" [level=2] [ref=e262]
+          - button "Обновить" [ref=e263] [cursor=pointer]:
+            - img [ref=e264]
+            - text: Обновить
+        - generic [ref=e269]:
+          - generic [ref=e270]:
+            - generic [ref=e271]:
+              - img [ref=e272]
+              - text: Интерес
+            - button "Игры" [ref=e275] [cursor=pointer]
+            - button "Медицина" [ref=e276] [cursor=pointer]
+            - button "Финтех" [ref=e277] [cursor=pointer]
+            - button "Здоровье" [ref=e278] [cursor=pointer]
+            - button "Соцсервисы" [ref=e279] [cursor=pointer]
+            - button "Продуктивность" [ref=e280] [cursor=pointer]
+            - button "Обучение" [ref=e281] [cursor=pointer]
+            - button "Коммерция" [ref=e282] [cursor=pointer]
+            - button "ИИ" [ref=e283] [cursor=pointer]
+            - button "Инструменты разработки" [ref=e284] [cursor=pointer]
+          - generic [ref=e285]: Выбери один интерес — после этого подборки дня, недели и месяца будут заново сгенерированы под него.
+          - generic [ref=e286]: В диалог — обсудить идею с архитектором в чате. В работу — сразу упаковать идею и передать в код.
+        - generic [ref=e287]:
+          - button "Идеи дня / Идеи недели / Идеи месяца" [ref=e288] [cursor=pointer]
+          - button "Банк идей" [ref=e289] [cursor=pointer]
+          - button "Архив тем" [ref=e290] [cursor=pointer]
+        - generic [ref=e291]:
+          - generic [ref=e292]:
+            - heading "Идеи дня" [level=3] [ref=e295]
+            - generic [ref=e296]:
+              - generic [ref=e297]:
+                - generic [ref=e298]:
+                  - generic [ref=e299]:
+                    - generic [ref=e300]: AI-триаж входящих для клиник
+                    - generic [ref=e301]:
+                      - generic [ref=e302]: Медицина
+                      - generic [ref=e303]: ИИ
+                      - generic [ref=e304]: Продуктивность
+                  - button "Сохранить идею" [ref=e305] [cursor=pointer]:
+                    - img [ref=e306]
+                - generic [ref=e308]: AI-рабочее пространство, которое превращает сообщения пациентов в приоритетные задачи для небольших клиник.
+                - generic [ref=e309]: Клиники вынуждены отвечать пациентам быстрее без роста штата.
+                - generic [ref=e310]:
+                  - button "В диалог" [ref=e311] [cursor=pointer]:
+                    - img [ref=e312]
+                    - text: В диалог
+                  - button "В работу" [ref=e315] [cursor=pointer]:
+                    - img [ref=e316]
+                    - text: В работу
+              - generic [ref=e318]:
+                - generic [ref=e319]:
+                  - generic [ref=e320]:
+                    - generic [ref=e321]: Cashflow Guard для фрилансеров
+                    - generic [ref=e322]:
+                      - generic [ref=e323]: Финтех
+                      - generic [ref=e324]: Продуктивность
+                      - generic [ref=e325]: ИИ
+                  - button "Сохранить идею" [ref=e326] [cursor=pointer]:
+                    - img [ref=e327]
+                - generic [ref=e329]: Mobile-first финансовый помощник, который прогнозирует кассовые разрывы и подсказывает действия по инвойсам.
+                - generic [ref=e330]: Соло-специалистам нужны практичные cashflow-подсказки без тяжелого бухгалтерского ПО.
+                - generic [ref=e331]:
+                  - button "В диалог" [ref=e332] [cursor=pointer]:
+                    - img [ref=e333]
+                    - text: В диалог
+                  - button "В работу" [ref=e336] [cursor=pointer]:
+                    - img [ref=e337]
+                    - text: В работу
+              - generic [ref=e339]:
+                - generic [ref=e340]:
+                  - generic [ref=e341]:
+                    - generic [ref=e342]: Creator Loop Lab для indie games
+                    - generic [ref=e343]:
+                      - generic [ref=e344]: Игры
+                      - generic [ref=e345]: Соцсервисы
+                      - generic [ref=e346]: ИИ
+                  - button "Сохранить идею" [ref=e347] [cursor=pointer]:
+                    - img [ref=e348]
+                - generic [ref=e350]: Инструмент, который превращает playtest-клипы и комментарии игроков в эксперименты на удержание.
+                - generic [ref=e351]: Командам игр нужны быстрые feedback loops, потому что discovery все сильнее зависит от short-form видео.
+                - generic [ref=e352]:
+                  - button "В диалог" [ref=e353] [cursor=pointer]:
+                    - img [ref=e354]
+                    - text: В диалог
+                  - button "В работу" [ref=e357] [cursor=pointer]:
+                    - img [ref=e358]
+                    - text: В работу
+          - generic [ref=e360]:
+            - heading "Идеи недели" [level=3] [ref=e363]
+            - generic [ref=e364]:
+              - generic [ref=e365]:
+                - generic [ref=e366]:
+                  - generic [ref=e367]:
+                    - generic [ref=e368]: Recovery Coach для офисных специалистов
+                    - generic [ref=e369]:
+                      - generic [ref=e370]: Здоровье
+                      - generic [ref=e371]: Медицина
+                      - generic [ref=e372]: ИИ
+                  - button "Сохранить идею" [ref=e373] [cursor=pointer]:
+                    - img [ref=e374]
+                - generic [ref=e376]: Персональный wellness-планировщик, который замечает паттерны выгорания и ставит micro-recovery.
+                - generic [ref=e377]: Wellness-бюджеты уходят от библиотек контента к измеримым behavioral loops.
+                - generic [ref=e378]:
+                  - button "В диалог" [ref=e379] [cursor=pointer]:
+                    - img [ref=e380]
+                    - text: В диалог
+                  - button "В работу" [ref=e383] [cursor=pointer]:
+                    - img [ref=e384]
+                    - text: В работу
+              - generic [ref=e386]:
+                - generic [ref=e387]:
+                  - generic [ref=e388]:
+                    - generic [ref=e389]: Social Proof Studio для локального бизнеса
+                    - generic [ref=e390]:
+                      - generic [ref=e391]: Соцсервисы
+                      - generic [ref=e392]: Коммерция
+                      - generic [ref=e393]: ИИ
+                  - button "Сохранить идею" [ref=e394] [cursor=pointer]:
+                    - img [ref=e395]
+                - generic [ref=e397]: Приложение, которое превращает отзывы, фото и чеки в аккуратные social posts и офферы.
+                - generic [ref=e398]: Малому бизнесу нужен постоянный контент, но agency workflow слишком дорогой.
+                - generic [ref=e399]:
+                  - button "В диалог" [ref=e400] [cursor=pointer]:
+                    - img [ref=e401]
+                    - text: В диалог
+                  - button "В работу" [ref=e404] [cursor=pointer]:
+                    - img [ref=e405]
+                    - text: В работу
+              - generic [ref=e407]:
+                - generic [ref=e408]:
+                  - generic [ref=e409]:
+                    - generic [ref=e410]: Study Sprint OS
+                    - generic [ref=e411]:
+                      - generic [ref=e412]: Обучение
+                      - generic [ref=e413]: Продуктивность
+                      - generic [ref=e414]: ИИ
+                  - button "Сохранить идею" [ref=e415] [cursor=pointer]:
+                    - img [ref=e416]
+                - generic [ref=e418]: Адаптивный учебный планировщик, который превращает экзамены, конспекты и слабые темы в недельные sprint boards.
+                - generic [ref=e419]: Пользователям нужен AI, который планирует выполнение, а не только отвечает на вопросы.
+                - generic [ref=e420]:
+                  - button "В диалог" [ref=e421] [cursor=pointer]:
+                    - img [ref=e422]
+                    - text: В диалог
+                  - button "В работу" [ref=e425] [cursor=pointer]:
+                    - img [ref=e426]
+                    - text: В работу
+          - generic [ref=e428]:
+            - heading "Идеи месяца" [level=3] [ref=e431]
+            - generic [ref=e432]:
+              - generic [ref=e433]:
+                - generic [ref=e434]:
+                  - generic [ref=e435]:
+                    - generic [ref=e436]: Release Risk Map для малых команд
+                    - generic [ref=e437]:
+                      - generic [ref=e438]: Инструменты разработки
+                      - generic [ref=e439]: ИИ
+                      - generic [ref=e440]: Продуктивность
+                  - button "Сохранить идею" [ref=e441] [cursor=pointer]:
+                    - img [ref=e442]
+                - generic [ref=e444]: Dev tool, который собирает commits, tests и user reports в карту уверенности релиза.
+                - generic [ref=e445]: AI code generation ускоряет output, значит командам нужен легкий release judgment.
+                - generic [ref=e446]:
+                  - button "В диалог" [ref=e447] [cursor=pointer]:
+                    - img [ref=e448]
+                    - text: В диалог
+                  - button "В работу" [ref=e451] [cursor=pointer]:
+                    - img [ref=e452]
+                    - text: В работу
+              - generic [ref=e454]:
+                - generic [ref=e455]:
+                  - generic [ref=e456]:
+                    - generic [ref=e457]: Return Saver для micro-commerce
+                    - generic [ref=e458]:
+                      - generic [ref=e459]: Коммерция
+                      - generic [ref=e460]: Финтех
+                      - generic [ref=e461]: ИИ
+                  - button "Сохранить идею" [ref=e462] [cursor=pointer]:
+                    - img [ref=e463]
+                - generic [ref=e465]: Операционное приложение, которое прогнозирует рискованные заказы и подсказывает сообщения для предотвращения возвратов.
+                - generic [ref=e466]: Возвраты и chargebacks особенно болезненны для малых продавцов с тонкой маржой.
+                - generic [ref=e467]:
+                  - button "В диалог" [ref=e468] [cursor=pointer]:
+                    - img [ref=e469]
+                    - text: В диалог
+                  - button "В работу" [ref=e472] [cursor=pointer]:
+                    - img [ref=e473]
+                    - text: В работу
+              - generic [ref=e475]:
+                - generic [ref=e476]:
+                  - generic [ref=e477]:
+                    - generic [ref=e478]: Family Care Vault
+                    - generic [ref=e479]:
+                      - generic [ref=e480]: Медицина
+                      - generic [ref=e481]: Здоровье
+                      - generic [ref=e482]: Продуктивность
+                  - button "Сохранить идею" [ref=e483] [cursor=pointer]:
+                    - img [ref=e484]
+                - generic [ref=e486]: Общий health admin hub для лекарств, визитов, care notes и передачи документов.
+                - generic [ref=e487]: Семьи все чаще координируют care удаленно и нуждаются в надежном shared admin tool.
+                - generic [ref=e488]:
+                  - button "В диалог" [ref=e489] [cursor=pointer]:
+                    - img [ref=e490]
+                    - text: В диалог
+                  - button "В работу" [ref=e493] [cursor=pointer]:
+                    - img [ref=e494]
+                    - text: В работу

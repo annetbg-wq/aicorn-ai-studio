@@ -1,0 +1,13 @@
+[GET] http://127.0.0.1:3000/provider-key/openrouter => [FAILED] net::ERR_ABORTED
+[GET] http://127.0.0.1:5183/esbuild.wasm => [200] OK
+[GET] http://127.0.0.1:3000/provider-key/openrouter => [FAILED] net::ERR_ABORTED
+[GET] http://127.0.0.1:3000/provider-key/openrouter => [200] OK
+[GET] http://127.0.0.1:5183/esbuild.wasm => [200] OK
+[POST] https://openrouter.ai/api/v1/chat/completions => [200] OK
+[POST] http://127.0.0.1:5183/api/preview/fdf7793c-6f7a-4b3b-82ec-8c1471d288c5/compile => [200] OK
+[GET] http://127.0.0.1:5183/preview/fdf7793c-6f7a-4b3b-82ec-8c1471d288c5 => [404] Not Found
+[POST] https://openrouter.ai/api/v1/chat/completions => [200] OK
+[POST] http://127.0.0.1:5183/api/preview/fdf7793c-6f7a-4b3b-82ec-8c1471d288c5/compile => [200] OK
+[POST] https://openrouter.ai/api/v1/chat/completions => [200] OK
+[POST] http://127.0.0.1:5183/api/preview/fdf7793c-6f7a-4b3b-82ec-8c1471d288c5/compile => [200] OK
+[POST] https://zdzuaodphrlpvorutpyc.supabase.co/rest/v1/generation_metrics?columns=%22generation_id%22%2C%22intent%22%2C%22model_id%22%2C%22duration_ms%22%2C%22file_count%22%2C%22parse_success%22%2C%22fallback_used%22%2C%22compile_success%22%2C%22autofix_needed%22%2C%22autofix_success%22%2C%22error_message%22 => [404] 

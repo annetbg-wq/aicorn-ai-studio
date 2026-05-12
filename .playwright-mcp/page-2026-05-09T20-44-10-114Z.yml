@@ -1,0 +1,58 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [active] [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Analytics" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Quality" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+        - button "Code Studio" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+        - button "DB Console" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+        - button "Cloud & Backend — Coming Soon" [ref=e67]:
+          - img [ref=e68]
+        - button "Packaging & Ship — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Growth & Marketing — Coming Soon" [ref=e78]:
+          - img [ref=e79]
+      - generic: Projects
+    - generic [ref=e337]:
+      - generic [ref=e338]:
+        - heading "Projects" [level=1] [ref=e339]:
+          - img [ref=e340]
+          - text: Projects
+        - generic [ref=e342]:
+          - img [ref=e343]
+          - textbox "Search projects..." [ref=e346]
+      - generic [ref=e347]:
+        - tablist [ref=e348]:
+          - tab "Overview" [selected] [ref=e349]:
+            - img [ref=e350]
+            - text: Overview
+          - tab "History" [ref=e352]:
+            - img [ref=e353]
+            - text: History
+          - tab "Revisions" [ref=e356]:
+            - img [ref=e357]
+            - text: Revisions
+        - tabpanel "Overview" [ref=e361]:
+          - generic [ref=e362]:
+            - generic [ref=e363] [cursor=pointer]:
+              - img [ref=e364]
+              - generic [ref=e365]: New Project
+            - generic [ref=e366]:
+              - img [ref=e367]
+              - paragraph [ref=e369]: No projects found

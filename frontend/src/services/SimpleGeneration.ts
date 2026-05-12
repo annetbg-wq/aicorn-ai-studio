@@ -32,6 +32,8 @@ import { Orchestrator } from './Orchestrator';
 import { llmFetchStream } from './LLMProxy';
 import { revisionManager } from './RevisionManager';
 import { metricsService } from './MetricsService';
+import { GenerationQualityService } from './benchmark/GenerationQualityService';
+import { VisualQualityService } from './benchmark/VisualQualityService';
 import type {
   LLMMessage,
   FileOperation,
@@ -45,6 +47,7 @@ import type {
   ArtistLayerSpec,
   RedesignIntent,
   VisualPolishMode,
+  RouteSpec,
 } from '../shared/projectModel';
 import type { AgentExecutionRoute } from './buildAgentRouting';
 import type { AdmissionDecision } from './EditAdmissionService';
@@ -106,6 +109,7 @@ export interface PipelineRunConfig {
   generationMode?:       'landing' | 'app' | 'superapp';
   prebuiltPlan?:         ProjectPlan;
   reuseSavedPlanForContinuation?: boolean;
+  skipClarify?:          boolean;
   attachments?: Array<{
     type:        string;
     name:        string;
@@ -249,7 +253,20 @@ Return ONLY JSON, no markdown, matching this exact shape:
       } catch { /* ignore */ }
     }
 
-    let result: { success: boolean; files?: Record<string, string>; error?: string; url?: string; plan?: { appName: string; summary: string; deltaFiles: Array<{ path: string; purpose: string }>; pages?: Array<{ path: string; name: string; file: string; purpose: string }> } };
+    let result: {
+      success: boolean;
+      files?: Record<string, string>;
+      error?: string;
+      url?: string;
+      fastPathTelemetry?: import('../shared/projectModel').FastPathTelemetry;
+      runTelemetry?: import('../shared/projectModel').GenerationRunTelemetry;
+      plan?: {
+        appName: string;
+        summary: string;
+        deltaFiles: Array<{ path: string; purpose: string }>;
+        pages?: Array<{ path: string; name: string; file: string; purpose: string }>;
+      };
+    };
     try {
       result = await ProtoPipeline.run({
         prompt:     config.intent,
@@ -265,6 +282,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
             textContent: a.textContent,
           })),
         signal: config.signal,
+        skipClarify: config.skipClarify,
         onLog:  (m) => log(m),
         onCoderStream: (delta) => {
           try { config.onStream(delta); } catch { /* ignore */ }
@@ -343,7 +361,27 @@ Return ONLY JSON, no markdown, matching this exact shape:
 
     const finished = new Date().toISOString();
     const filesArray = Object.entries(result.files ?? {});
-    const graph = synthesiseGraph(buildId, config, filesArray, startedAt, finished);
+    const graph = synthesiseGraph(buildId, config, filesArray, startedAt, finished, result.plan);
+    const changePackage = emptyChangePackage(graph, ops);
+    const baseResult = {
+      id:            crypto.randomUUID(),
+      status:        'completed',
+      graph,
+      operations:    ops,
+      message:       result.plan ? `✅ ${result.plan.appName}: ${result.plan.summary}` : '✅ Готово',
+      phase:         'idle',
+      usedModel:     config.buildRoute?.modelId || config.modelId || 'unknown',
+      selfCorrected: false,
+      iterations:    1,
+      durationMs:    Date.now() - startMs,
+      createdAt:     finished,
+      planTheme:     'dark-slate',
+      changePackage,
+      fastPathTelemetry: result.fastPathTelemetry,
+      runTelemetry:  result.runTelemetry,
+    } as unknown as GenerationResult;
+    const visualQualitySummary = VisualQualityService.evaluate(baseResult);
+    const qualitySummary = GenerationQualityService.evaluate(baseResult);
 
     metricsService.logGeneration({
       generation_id:   crypto.randomUUID(),
@@ -360,19 +398,9 @@ Return ONLY JSON, no markdown, matching this exact shape:
     });
 
     return {
-      id:            crypto.randomUUID(),
-      status:        'completed',
-      graph,
-      operations:    ops,
-      message:       result.plan ? `✅ ${result.plan.appName}: ${result.plan.summary}` : '✅ Готово',
-      phase:         'idle',
-      usedModel:     config.buildRoute?.modelId || config.modelId || 'unknown',
-      selfCorrected: false,
-      iterations:    1,
-      durationMs:    Date.now() - startMs,
-      createdAt:     finished,
-      planTheme:     'dark-slate',
-      changePackage: emptyChangePackage(graph, ops),
+      ...baseResult,
+      qualitySummary,
+      visualQualitySummary,
     } as unknown as GenerationResult;
   }
 
@@ -607,30 +635,101 @@ function emptyChangePackage(graph: ProjectGraph, ops: FileOperation[]): ChangePa
   };
 }
 
+function normalizeGeneratedPath(input: string): string {
+  const normalized = input.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
+  return normalized.startsWith('src/') ? normalized : `src/${normalized}`;
+}
+
+function inferGeneratedRole(path: string): ProjectGraph['files'][number]['role'] {
+  if (/\/App\.tsx$/i.test(path)) return 'entry';
+  if (/\/(?:pages|screens)\//.test(path)) return 'page';
+  if (/\/components\//.test(path)) return 'component';
+  if (/\/hooks\//.test(path)) return 'hook';
+  if (/\/config\//.test(path)) return 'config';
+  if (/\/services\//.test(path)) return 'service';
+  if (/\/(?:data|context|lib)\//.test(path)) return path.endsWith('.css') ? 'style' : 'util';
+  return 'component';
+}
+
+function buildRoutesFromPlan(plan?: {
+  pages?: Array<{ path?: string; name?: string; file?: string; purpose?: string }>;
+}): RouteSpec[] {
+  if (!plan?.pages?.length) return [];
+  return plan.pages.reduce<RouteSpec[]>((routes, page) => {
+    const pagePath = typeof page.path === 'string' ? page.path : '';
+    const filePath = typeof page.file === 'string' ? normalizeGeneratedPath(page.file) : '';
+    const title = typeof page.name === 'string' ? page.name : '';
+    if (!pagePath || !filePath || !title) {
+      return routes;
+    }
+    routes.push({
+      id: pagePath,
+      path: pagePath,
+      fileBlueprintId: filePath,
+      filePath,
+      title,
+      isIndex: pagePath === '/',
+      isProtected: false,
+      params: [],
+      children: [],
+    });
+    return routes;
+  }, []);
+}
+
 function synthesiseGraph(
   buildId: string,
   config: PipelineRunConfig,
   files: Array<[string, string]>,
   createdAt: string,
   updatedAt: string,
+  plan?: {
+    appName: string;
+    summary: string;
+    deltaFiles: Array<{ path: string; purpose: string }>;
+    pages?: Array<{ path: string; name: string; file: string; purpose: string }>;
+  },
 ): ProjectGraph {
+  const routes = buildRoutesFromPlan(plan);
+  const fileBlueprints = files.map(([path, content], i) => {
+    const normalizedPath = normalizeGeneratedPath(path);
+    return {
+      id: normalizedPath,
+      path: normalizedPath,
+      content,
+      kind: 'component' as const,
+      role: inferGeneratedRole(normalizedPath),
+      language: normalizedPath.endsWith('.css')
+        ? 'css'
+        : normalizedPath.endsWith('.ts')
+          ? 'ts'
+          : 'tsx',
+      exports: [],
+      dependencies: [],
+      hash: `${buildId}:${i}`,
+      generatedAt: updatedAt,
+      generatedBy: 'ai',
+      isProtected: false,
+      userZones: [],
+    };
+  }) as unknown as ProjectGraph['files'];
+
   return {
     version: 1 as const,
     id: crypto.randomUUID(),
     projectId: config.projectId ?? '',
     revisionId: buildId,
-    manifest: emptyManifest(config.intent),
-    files: files.map(([path, content], i) => ({
-      id: `f_${i}`,
-      path: `src/${path}`,
-      content,
-      kind: 'component' as const,
-      role: 'page' as const,
-    })) as unknown as ProjectGraph['files'],
-    routes: [],
+    manifest: {
+      ...emptyManifest(config.intent),
+      name: plan?.appName || config.intent.slice(0, 60) || 'app',
+      description: plan?.summary || config.intent,
+      isMultiPage: routes.length > 1,
+    } as ProductManifest,
+    files: fileBlueprints,
+    routes,
     features: [],
     externalDependencies: [],
-    entryFileId: '',
+    entryFileId: fileBlueprints.find((file) => /\/App\.tsx$/i.test(file.path))?.id ?? '',
     createdAt,
     updatedAt,
   };

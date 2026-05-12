@@ -54,6 +54,7 @@ import { BenchmarkService } from '../services/benchmark/BenchmarkService';
 import { revisionManager } from '../services/RevisionManager';
 import { previewController } from '../services/PreviewController';
 import { normalizePath } from '../services/PreviewWriteGateway';
+import { generationTracer } from '../services/GenerationTracer';
 import { safeSetItem } from '../lib/safeStorage';
 import { getLocalDevAgentProvider, isLocalDevAgentEnabled } from '../services/devAgentMode';
 import { buildFileDiff, type FileDiff } from '../components/DiffPreview';
@@ -69,10 +70,15 @@ import {
   projectGraphToFileMap,
   fileMapToProjectGraph,
   type GenerationReport,
+  type GenerationRunTelemetry,
   type GenerationResult,
   type ProjectGraph,
   type PreviewLifecycleStage,
+  type TraceRouteRecord,
+  type TraceRunSummary,
+  type TraceStepKind,
 } from '../shared/projectModel';
+import { analyzeOutputTruth } from '../shared/outputTruth';
 import { useFigmaState } from './useFigmaState';
 import { useSettingsState } from './useSettingsState';
 import {
@@ -443,6 +449,267 @@ export function buildGenerationReport(input: {
             .filter(([, d]) => d.length > 0),
         )
       : undefined,
+  };
+}
+
+function buildTraceRouteRecord(role: string, route: AgentExecutionRoute): TraceRouteRecord {
+  return {
+    role,
+    provider: route.provider,
+    model: route.modelId,
+    slot: route.slot,
+    route: `${route.provider}:${route.slot}`,
+    fallbackReason: route.fallbackReason,
+    reason: route.reason,
+  };
+}
+
+function mapTelemetryStepToTraceKind(stepId: GenerationRunTelemetry['steps'][number]['id']): TraceStepKind {
+  switch (stepId) {
+    case 'clarify':
+      return 'intent_understanding';
+    case 'pack':
+      return 'design_direction';
+    case 'architect':
+      return 'architect_plan';
+    case 'coder':
+      return 'coder_generation';
+    case 'apply':
+    case 'skeleton':
+      return 'candidate_materialize';
+    case 'build':
+      return 'fast_gate';
+    case 'preview':
+      return 'ship_decision';
+    default:
+      return 'reviewer_result';
+  }
+}
+
+function buildRunPathSummary(input: {
+  testEnvironment: boolean;
+  devAgentProvider: string;
+  founderFastPath: boolean;
+  usesRealLlm: boolean;
+  usesRealRuntime: boolean;
+  usedSavedPlan: boolean;
+}): TraceRunSummary['path'] {
+  const markers: string[] = [];
+  if (input.testEnvironment) markers.push('test-env');
+  if (input.devAgentProvider && input.devAgentProvider !== 'off') markers.push(`dev-agent:${input.devAgentProvider}`);
+  if (input.founderFastPath) markers.push('packaged-founder-brief');
+  if (input.usedSavedPlan) markers.push('saved-plan-reuse');
+  const kind = input.testEnvironment ? 'test' : 'real';
+  const summary = input.testEnvironment
+    ? 'Test environment run with live generation telemetry.'
+    : 'Real generation path with live compile and preview telemetry.';
+  return {
+    kind,
+    summary,
+    usesRealLlm: input.usesRealLlm,
+    usesRealRuntime: input.usesRealRuntime,
+    fixtureBacked: false,
+    testEnvironment: input.testEnvironment,
+    markers,
+  };
+}
+
+function buildTraceRunSummary(input: {
+  brief: string;
+  telemetry?: GenerationRunTelemetry;
+  filesSnapshot: FileMap;
+  finalFiles?: FileMap;
+  qualitySummary?: GenerationResult['qualitySummary'];
+  visualQualitySummary?: GenerationResult['visualQualitySummary'];
+  previewLifecycle: PreviewLifecycleStage;
+  saveReady: boolean;
+  path: TraceRunSummary['path'];
+  noTelemetryReason?: string;
+}): TraceRunSummary {
+  const finalFiles = input.finalFiles ?? {};
+  const visiblePaths = Object.keys(finalFiles).filter(path => !path.startsWith('_'));
+  const filesCreated = visiblePaths.filter(path => input.filesSnapshot[path] === undefined);
+  const filesUpdated = visiblePaths.filter(path => (
+    input.filesSnapshot[path] !== undefined && input.filesSnapshot[path] !== finalFiles[path]
+  ));
+  const changedPaths = [...filesCreated, ...filesUpdated];
+  const deltaSizeBytes = changedPaths.reduce((total, path) => total + (finalFiles[path]?.length ?? 0), 0);
+  const derivedRouteCount = visiblePaths.filter(path => /\/(?:pages|screens|routes)\//.test(path)).length;
+  const outputTruth = analyzeOutputTruth({
+    files: finalFiles,
+    changedPaths,
+    routeCount: derivedRouteCount,
+    previewEntryFile: 'src/App.tsx',
+    skeletonId: input.telemetry?.skeletonId,
+    skeletonPaths: input.telemetry?.skeletonFiles,
+  });
+  const previewMountStatus =
+    input.previewLifecycle === 'blocked'
+      ? 'blocked'
+      : input.previewLifecycle === 'preview-ready'
+        ? 'mounted'
+        : input.telemetry?.finalPreviewMounted
+          ? 'mounted'
+          : input.previewLifecycle === 'materializing' || input.previewLifecycle === 'committing'
+            ? 'pending'
+            : 'missing';
+  const quality = input.qualitySummary
+    ? {
+        verdict: (
+          input.qualitySummary.severity === 'blocking'
+            ? 'fail'
+            : input.qualitySummary.severity === 'warning' || input.visualQualitySummary?.verdict === 'weak'
+              ? 'partial'
+              : 'pass'
+        ) as 'pass' | 'partial' | 'fail',
+        summary: [
+          input.qualitySummary.summary,
+          input.visualQualitySummary
+            ? `Visual ${input.visualQualitySummary.verdict} (${input.visualQualitySummary.score})`
+            : null,
+        ].filter(Boolean).join(' · '),
+        gates: [
+          {
+            id: 'architect-llm',
+            label: 'Architect LLM',
+            passed: !!input.telemetry?.steps.find(step => step.id === 'architect' && !!step.llm),
+            source: 'real-llm' as const,
+            detail: input.telemetry?.steps.find(step => step.id === 'architect')?.llm?.model,
+          },
+          {
+            id: 'coder-llm',
+            label: 'Coder LLM',
+            passed: !!input.telemetry?.steps.find(step => step.id === 'coder' && !!step.llm),
+            source: 'real-llm' as const,
+            detail: input.telemetry?.steps.find(step => step.id === 'coder')?.llm?.model,
+          },
+          {
+            id: 'entry-file',
+            label: 'Preview entry present',
+            passed: input.qualitySummary.checks.previewEntryPresent,
+            source: 'real-runtime' as const,
+          },
+          {
+            id: 'integrity',
+            label: 'Integrity guard',
+            passed: input.qualitySummary.checks.guardIntegrityPassed,
+            source: 'real-runtime' as const,
+          },
+          {
+            id: 'runtime',
+            label: 'Runtime guard',
+            passed: input.qualitySummary.checks.guardRuntimePassed,
+            source: 'real-runtime' as const,
+          },
+          {
+            id: 'output-proof',
+            label: 'Output proof',
+            passed: input.qualitySummary.checks.outputProofPassed,
+            source: 'real-runtime' as const,
+          },
+          {
+            id: 'structure-contract',
+            label: 'Structure contract',
+            passed: input.qualitySummary.checks.outputStructurePassed,
+            source: 'real-runtime' as const,
+          },
+          {
+            id: 'skeleton-delta',
+            label: 'Skeleton vs delta',
+            passed: input.qualitySummary.checks.deltaStructurePassed,
+            source: 'real-runtime' as const,
+          },
+          {
+            id: 'architectural-richness',
+            label: 'Architectural richness',
+            passed: input.qualitySummary.checks.architecturalRichnessPassed,
+            source: 'real-runtime' as const,
+          },
+          {
+            id: 'placeholder-block',
+            label: 'Placeholder block',
+            passed: input.qualitySummary.checks.placeholderStructureClean,
+            source: 'real-runtime' as const,
+          },
+          {
+            id: 'non-trivial-delta',
+            label: 'Non-trivial delta',
+            passed: input.qualitySummary.checks.nonTrivialDelta,
+            source: 'real-runtime' as const,
+          },
+          {
+            id: 'preview-mounted',
+            label: 'Preview mounted',
+            passed: previewMountStatus === 'mounted',
+            source: 'real-runtime' as const,
+            detail: previewMountStatus,
+          },
+          {
+            id: 'save-ready',
+            label: 'Save ready',
+            passed: input.saveReady,
+            source: 'real-runtime' as const,
+            detail: input.saveReady ? 'ready' : 'locked',
+          },
+        ],
+        blockers: input.qualitySummary.blockers ?? [],
+        warnings: input.qualitySummary.warnings ?? [],
+        visualVerdict: input.visualQualitySummary?.verdict,
+        visualBand: input.visualQualitySummary?.band,
+        visualReasons: input.visualQualitySummary?.reasons ?? [],
+      }
+    : undefined;
+
+  return {
+    brief: input.brief,
+    appName: input.telemetry?.appName,
+    skeleton: input.telemetry
+      ? {
+          id: input.telemetry.skeletonId,
+          label: input.telemetry.skeletonLabel,
+          archetypeId: input.telemetry.archetypeId,
+          archetypeName: input.telemetry.archetypeName,
+          domainId: input.telemetry.domainId,
+          domainName: input.telemetry.domainName,
+        }
+      : undefined,
+    design: input.telemetry
+      ? {
+          themeName: input.telemetry.themeName,
+          intent: input.telemetry.designIntent,
+          architectSummary: input.telemetry.architectSummary,
+          designSummary: input.telemetry.designSummary,
+        }
+      : undefined,
+    output: {
+      skeletonFiles: input.telemetry?.skeletonFiles ?? [],
+      deltaFiles: input.telemetry?.deltaFiles ?? changedPaths,
+      filesCreated,
+      filesUpdated,
+      changedFileCount: changedPaths.length,
+      createdFileCount: filesCreated.length,
+      deltaSizeBytes,
+      keyPaths: (changedPaths.length > 0 ? changedPaths : visiblePaths).slice(0, 8),
+      structure: {
+        richness: outputTruth.structure.richness,
+        summary: outputTruth.structure.summary,
+        routeExpectation: outputTruth.structure.routeExpectation,
+        requiredOutputClasses: outputTruth.structure.requiredOutputClasses,
+        requiredDeltaClasses: outputTruth.structure.requiredDeltaClasses,
+        missingOutputClasses: outputTruth.structure.missingOutputClasses,
+        missingDeltaClasses: outputTruth.structure.missingDeltaClasses,
+        buckets: outputTruth.structure.buckets,
+      },
+      skeletonDelta: outputTruth.skeletonDelta,
+      compileCount: input.telemetry?.compileCount ?? 0,
+      previewMountStatus,
+      totalTimeToPreviewMs: input.telemetry?.timeToFirstRealPreviewMs,
+      saveReady: input.saveReady,
+    },
+    path: input.path,
+    quality,
+    steps: input.telemetry?.steps ?? [],
+    noTelemetryReason: input.noTelemetryReason,
   };
 }
 
@@ -1284,6 +1551,24 @@ export const useStudio = () => {
       pendingProjectSaveRef.current && prev !== 'exists' ? 'preview-ready' : prev
     ));
     setPendingProjectSaveMeta(prev => prev ? { ...prev, previewReady: true } : prev);
+    if (currentTraceLookupRef.current.runId) {
+      generationTracer.updateRunSummary(
+        {
+          runId: currentTraceLookupRef.current.runId,
+          projectId: currentTraceLookupRef.current.projectId,
+          branchId: currentTraceLookupRef.current.branchId,
+        },
+        {
+          output: {
+            previewMountStatus: 'mounted',
+            saveReady: true,
+            totalTimeToPreviewMs: currentTraceLookupRef.current.startedMs
+              ? Date.now() - currentTraceLookupRef.current.startedMs
+              : undefined,
+          },
+        },
+      );
+    }
   }, [chatUpdate, markSnapshotStable]);
 
   useEffect(() => {
@@ -1689,6 +1974,12 @@ export const useStudio = () => {
   const pendingArchitectKickoffRef = useRef<PendingArchitectKickoffSelection | null>(null);
   // Tracks the active generation-plan message ID so markSnapshotStable can set buildStatus:'ready'
   const currentPlanMsgIdRef = useRef<string | null>(null);
+  const currentTraceLookupRef = useRef<{
+    runId: string | null;
+    projectId: string | null;
+    branchId: string | null;
+    startedMs: number | null;
+  }>({ runId: null, projectId: null, branchId: null, startedMs: null });
   const commitPendingProjectSaveRef = useRef<(reason: PendingProjectSaveReason) => boolean>(() => false);
   const lastPreviewReadyRevisionRef = useRef<string | null>(null);
   const finalPreviewGateRef = useRef({ awaiting: false, filesCommitted: false });
@@ -3445,6 +3736,49 @@ export const useStudio = () => {
     );
     console.log('[useStudio] routes resolved — primary:', primaryRoute.modelId, 'build:', buildRoute.modelId);
 
+    const traceHandle = generationTracer.start({
+      intent: userPrompt || 'Use selected context pack.',
+      model: buildRoute.modelId || primaryRoute.modelId || 'unknown',
+      mode: effectiveExistingCodeCount === 0 ? 'new' : 'edit',
+      projectId: runProjectId,
+      branchId: runBranchId,
+    });
+    currentTraceLookupRef.current = {
+      runId: traceHandle.id,
+      projectId: runProjectId,
+      branchId: runBranchId,
+      startedMs: generationStartMs,
+    };
+    traceHandle.setRoutes([
+      buildTraceRouteRecord('primary', primaryRoute),
+      buildTraceRouteRecord('build', buildRoute),
+      buildTraceRouteRecord('fix', fixRoute),
+      buildTraceRouteRecord('spec', specRoute),
+      buildTraceRouteRecord('qa', qaRoute),
+    ]);
+    const kickoffStepId = traceHandle.beginStep({
+      kind: 'intent_understanding',
+      summary: [
+        userPrompt || 'Use selected context pack.',
+        `Mode: ${effectiveExistingCodeCount === 0 ? 'new' : 'edit'}`,
+        `Source: ${effectiveSource}`,
+        `Project: ${resolvedGenerationMode}`,
+      ].join(' · '),
+      labels: {
+        provider: primaryRoute.provider,
+        model: primaryRoute.modelId,
+        slot: primaryRoute.slot,
+        route: `${primaryRoute.provider}:${primaryRoute.slot}`,
+      },
+      metadata: {
+        source: effectiveSource,
+        generationMode: resolvedGenerationMode,
+        projectId: runProjectId,
+        branchId: runBranchId,
+      },
+    });
+    let traceFinalized = false;
+
     // ── Draft journal: record generation start ────────────────────────────────
     const _journalDraftSessionId = _draftSessionIdRef.current;
     const _journalRunId = crypto.randomUUID();
@@ -3467,9 +3801,9 @@ export const useStudio = () => {
 
     let finalIntent = baseIntent;
 
+    const filesSnapshot = { ...files };
     try {
       let optimisticFiles: FileMap | null = null;
-      const filesSnapshot = { ...files };
       const systemEvents: string[] = [];
       let reqUsage: UsageData = { promptTokens: 0, completionTokens: 0 };
       let capturedAppName = '';
@@ -3588,6 +3922,38 @@ export const useStudio = () => {
         }
       }
 
+      traceHandle.setArchitectSummary(plan.summary || plan.appName || userPrompt);
+      traceHandle.finishStep(kickoffStepId, {
+        summary: founderFastPath
+          ? 'Using the packaged founder brief and moving directly into the generation pipeline.'
+          : savedContinuationPlan
+            ? 'Reused the saved project plan and continuation context for this run.'
+            : `Prepared the run brief${plan.appName ? ` for ${plan.appName}` : ''} and locked the generation context.`,
+        labels: {
+          provider: primaryRoute.provider,
+          model: primaryRoute.modelId,
+          slot: primaryRoute.slot,
+          route: `${primaryRoute.provider}:${primaryRoute.slot}`,
+        },
+      });
+      const traceStepIds = new Map<string, string>();
+      const finishTracePipelineStep = (
+        stepId: string,
+        status: 'completed' | 'failed',
+        detail?: string,
+        warnings?: string[],
+      ) => {
+        const currentStepId = traceStepIds.get(stepId);
+        if (!currentStepId) return;
+        traceHandle.finishStep(currentStepId, {
+          status,
+          summary: detail ?? stepId,
+          errorSummary: status === 'failed' ? detail : warnings?.[0],
+          metadata: warnings && warnings.length > 0 ? { warnings } : undefined,
+        });
+        traceStepIds.delete(stepId);
+      };
+
       const runOnce = (intentArg: string, buildRouteOverride?: AgentExecutionRoute) => GenerationPipeline.run({
         intent:       intentArg,
         history,
@@ -3616,6 +3982,7 @@ export const useStudio = () => {
         prebuiltPlan: prebuiltPlanFromContext,
         reuseSavedPlanForContinuation: !!savedContinuationPlan,
         onStream: (streamText) => {
+          traceHandle.markFirstToken();
           // Update streamingCode on the plan card (replaces old last-message overwrite)
           startTransition(() => {
             updatePlan({ streamingCode: streamText });
@@ -3674,6 +4041,36 @@ export const useStudio = () => {
           for (const s of STEP_ORDER) stepState[s] = 'pending';
 
           return (e: import('../services/ProtoPipeline').StepEvent) => {
+            const traceKind = mapTelemetryStepToTraceKind(e.step);
+            const existingTraceStepId = traceStepIds.get(e.step);
+            if (e.status === 'active' && !existingTraceStepId) {
+              traceStepIds.set(e.step, traceHandle.beginStep({
+                kind: traceKind,
+                summary: e.detail ? `${e.label} — ${e.detail}` : e.label,
+                labels:
+                  e.step === 'coder' || e.step === 'build'
+                    ? {
+                        provider: buildRoute.provider,
+                        model: buildRoute.modelId,
+                        slot: buildRoute.slot,
+                        route: `${buildRoute.provider}:${buildRoute.slot}`,
+                      }
+                    : {
+                        provider: primaryRoute.provider,
+                        model: primaryRoute.modelId,
+                        slot: primaryRoute.slot,
+                        route: `${primaryRoute.provider}:${primaryRoute.slot}`,
+                      },
+                metadata: {
+                  pipelineStep: e.step,
+                  detail: e.detail,
+                },
+              }));
+            } else if (e.status === 'done') {
+              finishTracePipelineStep(e.step, 'completed', e.detail ?? e.label, e.warnings);
+            } else if (e.status === 'error') {
+              finishTracePipelineStep(e.step, 'failed', e.detail ?? e.label, e.warnings);
+            }
             stepState[e.step] = e.status;
             const detail = e.detail ? ` — ${e.detail}` : '';
             const rows = STEP_ORDER.map(s => {
@@ -3817,6 +4214,7 @@ export const useStudio = () => {
         skipClarify: founderFastPath,
         onUsage:  (usage: UsageData) => {
           reqUsage = usage;
+          traceHandle.addTokens(usage.promptTokens, usage.completionTokens);
           const cost = calcCost(buildRoute.modelId, usage);
           setSessionCost(prev => prev + cost);
           setSessionTokens(prev => prev + usage.promptTokens + usage.completionTokens);
@@ -3824,7 +4222,7 @@ export const useStudio = () => {
         language: appLanguage,
       });
 
-      let result;
+      let result: GenerationResult;
       try {
         result = await runOnce(finalIntent);
       } catch (firstErr: any) {
@@ -3838,6 +4236,31 @@ export const useStudio = () => {
 
       if (result.status === 'cancelled') {
         addLog('[Generation] Cancelled by user');
+        traceHandle.appendStep({
+          kind: 'ship_decision',
+          status: 'warning',
+          summary: 'The generation run was cancelled before promotion.',
+        });
+        traceHandle.setRunSummary(buildTraceRunSummary({
+          brief: userPrompt || 'Use selected context pack.',
+          telemetry: result.runTelemetry,
+          filesSnapshot,
+          qualitySummary: result.qualitySummary,
+          visualQualitySummary: result.visualQualitySummary,
+          previewLifecycle: 'idle',
+          saveReady: false,
+          path: buildRunPathSummary({
+            testEnvironment: import.meta.env.VITE_PLAYWRIGHT_TEST === '1',
+            devAgentProvider,
+            founderFastPath,
+            usesRealLlm: !!result.runTelemetry?.steps.some(step => !!step.llm),
+            usesRealRuntime: (result.runTelemetry?.compileCount ?? 0) > 0,
+            usedSavedPlan: !!savedContinuationPlan,
+          }),
+          noTelemetryReason: result.runTelemetry ? undefined : 'no telemetry for this run',
+        }));
+        traceHandle.finish('warn', { finalOutcome: 'cancelled', stopReason: 'cancelled_by_user' });
+        traceFinalized = true;
         finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
         setProgress(0);
         setCurrentPhase('');
@@ -3847,6 +4270,36 @@ export const useStudio = () => {
 
       if (result.status === 'failed') {
         const failMsg = result.error ?? result.message ?? '';
+        traceHandle.appendStep({
+          kind: 'reviewer_result',
+          status: 'failed',
+          summary: 'Generation failed before a promotable preview was available.',
+          errorSummary: failMsg,
+        });
+        traceHandle.setRunSummary(buildTraceRunSummary({
+          brief: userPrompt || 'Use selected context pack.',
+          telemetry: result.runTelemetry,
+          filesSnapshot,
+          qualitySummary: result.qualitySummary,
+          visualQualitySummary: result.visualQualitySummary,
+          previewLifecycle: 'failed',
+          saveReady: false,
+          path: buildRunPathSummary({
+            testEnvironment: import.meta.env.VITE_PLAYWRIGHT_TEST === '1',
+            devAgentProvider,
+            founderFastPath,
+            usesRealLlm: !!result.runTelemetry?.steps.some(step => !!step.llm),
+            usesRealRuntime: (result.runTelemetry?.compileCount ?? 0) > 0,
+            usedSavedPlan: !!savedContinuationPlan,
+          }),
+          noTelemetryReason: result.runTelemetry ? undefined : 'no telemetry for this run',
+        }));
+        traceHandle.finish('error', {
+          errorSummary: failMsg,
+          stopReason: 'generation_failed',
+          finalOutcome: 'ship_fail',
+        });
+        traceFinalized = true;
         finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
         commandBus.dispatch({ type: 'GENERATION_FAILED', error: failMsg });
         const isParseFailure = /parse/i.test(failMsg) || failMsg.includes('No parseable');
@@ -3931,6 +4384,38 @@ export const useStudio = () => {
       benchmark.warnings.forEach(w => addLog(`[Benchmark] ⚠ ${w}`));
       if (!benchmark.passed) {
         benchmark.blockers.forEach(b => addLog(`[Benchmark] ❌ ${b}`));
+        traceHandle.appendStep({
+          kind: 'fast_gate',
+          status: 'failed',
+          summary: 'Run-level benchmark gate rejected the generated output.',
+          errorSummary: benchmark.blockers.join('; '),
+        });
+        traceHandle.setRunSummary(buildTraceRunSummary({
+          brief: userPrompt || 'Use selected context pack.',
+          telemetry: result.runTelemetry,
+          filesSnapshot,
+          finalFiles,
+          qualitySummary: result.qualitySummary,
+          visualQualitySummary: result.visualQualitySummary,
+          previewLifecycle: 'failed',
+          saveReady: false,
+          path: buildRunPathSummary({
+            testEnvironment: import.meta.env.VITE_PLAYWRIGHT_TEST === '1',
+            devAgentProvider,
+            founderFastPath,
+            usesRealLlm: !!result.runTelemetry?.steps.some(step => !!step.llm),
+            usesRealRuntime: (result.runTelemetry?.compileCount ?? 0) > 0,
+            usedSavedPlan: !!savedContinuationPlan,
+          }),
+          noTelemetryReason: result.runTelemetry ? undefined : 'no telemetry for this run',
+        }));
+        traceHandle.finish('error', {
+          fileCount: Object.keys(finalFiles).length,
+          errorSummary: benchmark.blockers.join('; '),
+          stopReason: 'benchmark_failed',
+          finalOutcome: 'ship_fail',
+        });
+        traceFinalized = true;
         startTransition(() => {
           chatAppend({
             role: 'assistant',
@@ -3947,6 +4432,29 @@ export const useStudio = () => {
         setPreviewLifecycle('failed');
         return;
       }
+
+      if (result.runTelemetry?.designSummary) {
+        traceHandle.setDesignSummary(result.runTelemetry.designSummary);
+      }
+      traceHandle.setRunSummary(buildTraceRunSummary({
+        brief: userPrompt || 'Use selected context pack.',
+        telemetry: result.runTelemetry,
+        filesSnapshot,
+        finalFiles,
+        qualitySummary: result.qualitySummary,
+        visualQualitySummary: result.visualQualitySummary,
+        previewLifecycle: result.qualitySummary?.severity === 'blocking' ? 'blocked' : 'materializing',
+        saveReady: false,
+        path: buildRunPathSummary({
+          testEnvironment: import.meta.env.VITE_PLAYWRIGHT_TEST === '1',
+          devAgentProvider,
+          founderFastPath,
+          usesRealLlm: !!result.runTelemetry?.steps.some(step => !!step.llm),
+          usesRealRuntime: (result.runTelemetry?.compileCount ?? 0) > 0,
+          usedSavedPlan: !!savedContinuationPlan,
+        }),
+        noTelemetryReason: result.runTelemetry ? undefined : 'no telemetry for this run',
+      }));
 
       // Non-critical UI updates — startTransition lets React apply them as one batch
       // without intermediate renders that could leave the iframe in an inconsistent state.
@@ -4017,6 +4525,19 @@ export const useStudio = () => {
       if (severity === 'blocking') {
         const blockers = result.qualitySummary?.blockers ?? [];
         const reason = blockers.join('; ') || 'Quality check failed';
+        traceHandle.appendStep({
+          kind: 'ship_decision',
+          status: 'failed',
+          summary: 'Generated files stayed below the promotion bar, so preview promotion was blocked.',
+          errorSummary: reason,
+        });
+        traceHandle.finish('error', {
+          fileCount: Object.keys(finalFiles).length,
+          errorSummary: reason,
+          stopReason: 'quality_blocked',
+          finalOutcome: 'ship_fail',
+        });
+        traceFinalized = true;
         finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
         setPreviewLifecycle('blocked');
         setPreviewBlockedReason(reason);
@@ -4028,6 +4549,19 @@ export const useStudio = () => {
         });
         addLog(`[Preview] Blocked: ${reason}`);
       } else {
+        traceHandle.appendStep({
+          kind: 'ship_decision',
+          status: 'completed',
+          summary: 'Generated files compiled successfully and are moving into live preview mount.',
+        });
+        traceHandle.finish('ok', {
+          fileCount: Object.keys(finalFiles).length,
+          finalOutcome:
+            result.qualitySummary?.severity === 'warning' || result.visualQualitySummary?.verdict === 'weak'
+              ? 'ship_partial'
+              : 'ship_ok',
+        });
+        traceFinalized = true;
         setPreviewLifecycle('materializing');
         setPreviewBlockedReason(null);
       }
@@ -4141,6 +4675,20 @@ export const useStudio = () => {
         const disposition = abortDispositionRef.current;
         abortDispositionRef.current = null;
         finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
+        if (!traceFinalized) {
+          traceHandle.appendStep({
+            kind: 'ship_decision',
+            status: 'warning',
+            summary: disposition === 'context-switch'
+              ? 'The run was cancelled because the workspace context changed.'
+              : 'The run was stopped by the user before promotion.',
+          });
+          traceHandle.finish('warn', {
+            stopReason: disposition === 'context-switch' ? 'context_switch_abort' : 'user_abort',
+            finalOutcome: 'cancelled',
+          });
+          traceFinalized = true;
+        }
         if (disposition === 'context-switch') {
           addLog('[Project] Active generation aborted for context switch');
         } else {
@@ -4172,6 +4720,37 @@ export const useStudio = () => {
 
       console.error('Studio Error:', err);
       addLog(`${isNetworkError ? 'Connection lost' : 'Error'} #${consecutiveErrors.current}: ${err?.message ?? 'Unknown error'}`, 'error');
+      if (!traceFinalized) {
+        traceHandle.appendStep({
+          kind: 'reviewer_result',
+          status: 'failed',
+          summary: 'Generation crashed before the run summary could be completed.',
+          errorSummary: err?.message ?? 'Unknown error',
+        });
+        traceHandle.setRunSummary(buildTraceRunSummary({
+          brief: userPrompt || 'Use selected context pack.',
+          filesSnapshot,
+          qualitySummary: undefined,
+          visualQualitySummary: undefined,
+          previewLifecycle: 'failed',
+          saveReady: false,
+          path: buildRunPathSummary({
+            testEnvironment: import.meta.env.VITE_PLAYWRIGHT_TEST === '1',
+            devAgentProvider,
+            founderFastPath,
+            usesRealLlm: false,
+            usesRealRuntime: false,
+            usedSavedPlan: !!savedContinuationPlan,
+          }),
+          noTelemetryReason: 'no telemetry for this run',
+        }));
+        traceHandle.finish('error', {
+          errorSummary: err?.message ?? 'Unknown error',
+          stopReason: isNetworkError ? 'network_error' : 'runtime_error',
+          finalOutcome: 'ship_fail',
+        });
+        traceFinalized = true;
+      }
       if (_journalDraftSessionId) {
         draftArtifactJournal.appendRecord(_journalDraftSessionId, {
           stepType: 'generation_error',
@@ -4228,6 +4807,13 @@ export const useStudio = () => {
         finalPreviewGateRef.current = finalPreviewGateRef.current.awaiting
           ? { awaiting: false, filesCommitted: false }
           : finalPreviewGateRef.current;
+      }
+      if (!traceFinalized) {
+        traceHandle.finish('warn', {
+          stopReason: 'run_closed_without_outcome',
+          finalOutcome: 'superseded',
+        });
+        traceFinalized = true;
       }
       setIsGenerating(false);
       setKickoffPhase('idle');

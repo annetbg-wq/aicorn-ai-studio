@@ -1,0 +1,70 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Analytics" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Quality" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+        - button "Code Studio" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+        - button "DB Console" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+        - button "Cloud & Backend — Coming Soon" [ref=e67]:
+          - img [ref=e68]
+        - button "Packaging & Ship — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Growth & Marketing — Coming Soon" [ref=e78]:
+          - img [ref=e79]
+    - generic [ref=e244]:
+      - generic [ref=e245]:
+        - generic [ref=e246]:
+          - img [ref=e248]
+          - heading "Трендовые ниши" [level=1] [ref=e251]
+        - button "Домой" [ref=e252] [cursor=pointer]:
+          - img [ref=e253]
+          - text: Домой
+      - generic [ref=e256]:
+        - generic [ref=e258]: Рыночная аналитика
+        - generic [ref=e260]:
+          - heading "Трендовые ниши" [level=2] [ref=e262]
+          - button "Загружаю идеи" [disabled] [ref=e263]:
+            - img [ref=e264]
+            - text: Загружаю идеи
+        - generic [ref=e266]:
+          - generic [ref=e267]:
+            - generic [ref=e268]:
+              - img [ref=e269]
+              - text: Интерес
+            - button "Игры" [ref=e272] [cursor=pointer]
+            - button "Медицина" [ref=e273] [cursor=pointer]
+            - button "Финтех" [ref=e274] [cursor=pointer]
+            - button "Здоровье" [ref=e275] [cursor=pointer]
+            - button "Соцсервисы" [ref=e276] [cursor=pointer]
+            - button "Продуктивность" [ref=e277] [cursor=pointer]
+            - button "Обучение" [ref=e278] [cursor=pointer]
+            - button "Коммерция" [ref=e279] [cursor=pointer]
+            - button "ИИ" [ref=e280] [cursor=pointer]
+            - button "Инструменты разработки" [ref=e281] [cursor=pointer]
+          - generic [ref=e282]: Выбери один интерес — после этого подборки дня, недели и месяца будут заново сгенерированы под него.
+          - generic [ref=e283]: В диалог — обсудить идею с архитектором в чате. В работу — сразу упаковать идею и передать в код.
+        - generic [ref=e284]:
+          - button "Идеи дня / Идеи недели / Идеи месяца" [ref=e285] [cursor=pointer]
+          - button "Банк идей" [ref=e286] [cursor=pointer]
+          - button "Архив тем" [ref=e287] [cursor=pointer]
+        - generic [ref=e288]:
+          - heading "Идеи дня" [level=3] [ref=e292]
+          - heading "Идеи недели" [level=3] [ref=e360]
+          - heading "Идеи месяца" [level=3] [ref=e428]

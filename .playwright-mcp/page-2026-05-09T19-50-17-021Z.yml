@@ -1,0 +1,6 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - paragraph [ref=e5]: Studio ready
+    - heading "Start your next project" [level=1] [ref=e6]
+    - paragraph [ref=e7]: Describe the app, page, or workflow you want to build. The generated preview will appear here.
+    - button "Describe your idea" [ref=e8] [cursor=pointer]

@@ -20,6 +20,17 @@ export interface GenerationFileProgress {
   totalExpected: number;
 }
 
+export type PreviewBuildStage =
+  | 'unknown'
+  | 'skeleton'
+  | 'final'
+  | 'repair'
+  | 'candidate'
+  | 'persisted'
+  | 'restore'
+  | 'rollback'
+  | 'e2e-seed';
+
 export interface PreviewState {
   status: 'idle' | 'generating' | 'compiling' | 'ready' | 'failed';
   fileProgress?: GenerationFileProgress;
@@ -28,6 +39,7 @@ export interface PreviewState {
   expectingBuildId?: string;
   error?: string;
   lastReadyAt?: number;
+  buildStage?: PreviewBuildStage;
   /**
    * Fine-grained materialize diagnostic. Updated at each checkpoint inside
    * compileCandidate → triggerCompile → waitForReady → mount.
@@ -79,15 +91,16 @@ export class PreviewController {
     });
   }
 
-  notifyCompiling(revisionId?: string): void {
+  notifyCompiling(revisionId?: string, buildStage: PreviewBuildStage = 'unknown'): void {
     this.setState({
       status: 'compiling',
       activeRevisionId: revisionId,
       expectingBuildId: revisionId,
       error: undefined,
       fileProgress: undefined,
+      buildStage,
     });
-    previewLog('controller_compiling', { buildId: revisionId });
+    previewLog('controller_compiling', { buildId: revisionId, buildStage });
   }
 
   /**
@@ -95,7 +108,11 @@ export class PreviewController {
    * which makes this the single authoritative ready source — stale or unrelated
    * callers cannot promote a foreign build.
    */
-  notifyReady(revisionId?: string, source: string = 'unknown'): void {
+  notifyReady(
+    revisionId?: string,
+    source: string = 'unknown',
+    buildStage?: PreviewBuildStage,
+  ): void {
     const expecting = this.state.expectingBuildId;
     if (expecting && revisionId && revisionId !== expecting) {
       previewLog('notify_ready_rejected', {
@@ -114,8 +131,13 @@ export class PreviewController {
       error: undefined,
       lastReadyAt: Date.now(),
       fileProgress: undefined,
+      buildStage: buildStage ?? this.state.buildStage ?? 'unknown',
     });
-    previewLog('ready_set', { source, buildId: revisionId });
+    previewLog('ready_set', {
+      source,
+      buildId: revisionId,
+      buildStage: buildStage ?? this.state.buildStage ?? 'unknown',
+    });
   }
 
   notifyFailed(error: string, revisionId?: string): void {

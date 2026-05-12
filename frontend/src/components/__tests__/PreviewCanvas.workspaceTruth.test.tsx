@@ -119,6 +119,142 @@ describe('PreviewCanvas workspace truth', () => {
     expect(screen.queryByTestId('reasoning-empty')).not.toBeInTheDocument();
   });
 
+  it('renders structured reasoning and analytics truth for a completed run', () => {
+    const trace = generationTracer.start({
+      intent: 'Build a habit tracker',
+      model: 'test-model',
+      mode: 'new',
+      projectId: 'project-a',
+      branchId: 'main',
+    });
+    trace.appendStep({
+      kind: 'coder_generation',
+      summary: 'Generated the dashboard shell and habit list.',
+    });
+    trace.setRunSummary({
+      brief: 'Build a habit tracker',
+      skeleton: {
+        id: 'mobile-app',
+        label: 'Mobile App',
+        archetypeId: 'consumer-feed',
+      },
+      design: {
+        themeName: 'Trust',
+        intent: ['Mobile App', 'Theme Trust', 'Mood calm'],
+        designSummary: 'Theme Trust with calm mood.',
+      },
+      output: {
+        skeletonFiles: ['src/App.tsx', 'src/main.tsx'],
+        deltaFiles: ['src/pages/Home.tsx', 'src/pages/Progress.tsx'],
+        filesCreated: ['src/pages/Home.tsx'],
+        filesUpdated: ['src/pages/Progress.tsx'],
+        changedFileCount: 2,
+        createdFileCount: 1,
+        deltaSizeBytes: 2048,
+        keyPaths: ['src/pages/Home.tsx', 'src/pages/Progress.tsx'],
+        structure: {
+          richness: 'rich',
+          summary: 'Rich output: pages, data, config, hooks, and reusable UI are present.',
+          routeExpectation: 'multi-route',
+          requiredOutputClasses: ['root-shell', 'pages-routes', 'components', 'hooks-state', 'config-navigation', 'data-layer', 'styles-theme'],
+          requiredDeltaClasses: ['pages-routes', 'config-navigation', 'data-layer'],
+          missingOutputClasses: [],
+          missingDeltaClasses: [],
+          buckets: [
+            {
+              id: 'pages-routes',
+              label: 'Pages / routes',
+              meaning: 'User-facing screens and routed product flows.',
+              totalCount: 2,
+              deltaCount: 2,
+              meaningfulDeltaCount: 2,
+              skeletonCount: 0,
+              modifiedCount: 1,
+              newCount: 1,
+              keyPaths: ['src/pages/Home.tsx', 'src/pages/Progress.tsx'],
+            },
+            {
+              id: 'data-layer',
+              label: 'Data / types',
+              meaning: 'Types, entities, seed data, models, or data-source files.',
+              totalCount: 1,
+              deltaCount: 1,
+              meaningfulDeltaCount: 1,
+              skeletonCount: 0,
+              modifiedCount: 0,
+              newCount: 1,
+              keyPaths: ['src/data/types.ts'],
+            },
+          ],
+        },
+        skeletonDelta: {
+          skeletonFileCount: 8,
+          deltaFileCount: 2,
+          meaningfulDeltaCount: 2,
+          modifiedExistingCount: 1,
+          newFileCount: 1,
+          keySkeletonPaths: ['src/App.tsx', 'src/main.tsx'],
+          keyDeltaPaths: ['src/pages/Home.tsx', 'src/pages/Progress.tsx'],
+          keyModifiedPaths: ['src/pages/Progress.tsx'],
+          keyNewPaths: ['src/pages/Home.tsx'],
+        },
+        compileCount: 2,
+        previewMountStatus: 'mounted',
+        totalTimeToPreviewMs: 3400,
+        saveReady: true,
+      },
+      path: {
+        kind: 'real',
+        summary: 'Real generation path with live compile and preview telemetry.',
+        usesRealLlm: true,
+        usesRealRuntime: true,
+        fixtureBacked: false,
+        testEnvironment: false,
+        markers: ['packaged-founder-brief'],
+      },
+      quality: {
+        verdict: 'pass',
+        summary: 'Output proof passed and the preview mounted cleanly.',
+        gates: [{
+          id: 'preview-mounted',
+          label: 'Preview mounted',
+          passed: true,
+          source: 'real-runtime',
+        }],
+        blockers: [],
+        warnings: [],
+      },
+      steps: [{
+        id: 'coder',
+        label: 'Пишу код...',
+        status: 'done',
+        durationMs: 1200,
+        detail: '2 файлов',
+      }],
+    });
+    trace.finish('ok', { finalOutcome: 'ship_ok' });
+
+    render(<PreviewCanvas {...baseProps} previewLifecycle="preview-ready" />);
+
+    fireEvent.click(screen.getByTestId('preview-tab-reasoning'));
+    expect(screen.getByText('Build a habit tracker')).toBeInTheDocument();
+    expect(screen.getAllByText('Mobile App').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('src/pages/Home.tsx').length).toBeGreaterThan(0);
+    expect(screen.getByText(/real generation path/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('preview-tab-analytics'));
+    expect(screen.getByText('Time to preview')).toBeInTheDocument();
+    expect(screen.getByText('Changed files')).toBeInTheDocument();
+    expect(screen.getAllByText('Preview mounted').length).toBeGreaterThan(0);
+    const analyticsStructure = screen.getByTestId('analytics-structure-summary');
+    expect(analyticsStructure).toHaveTextContent(/rich output/i);
+    expect(within(analyticsStructure).getByText('Skeleton used')).toBeInTheDocument();
+    expect(screen.queryByTestId('analytics-no-telemetry')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('preview-tab-code'));
+    expect(screen.getByTestId('code-structure-summary')).toHaveTextContent(/modified base/i);
+  });
+
   it('keeps failed current-run reasoning visible after failure', () => {
     finishTrace({
       projectId: 'project-a',

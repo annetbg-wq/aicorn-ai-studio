@@ -15,12 +15,6 @@ createRoot(rootElement).render(
   </StrictMode>,
 );
 
-// Notify the studio host that this preview build has mounted.
-// The studio waits for this postMessage in `waitForIframeMounted` to flip
-// the iframe state from "compiling" → "ready". We post twice — once on the
-// next animation frame (when the React tree is committed) and once after a
-// short delay, in case the host's listener attached late or messages were
-// dropped during navigation.
 function notifyMounted(): void {
   if (typeof window === 'undefined' || window.parent === window) return;
   try {
@@ -33,10 +27,10 @@ function notifyMounted(): void {
 requestAnimationFrame(() => {
   notifyMounted();
   setTimeout(notifyMounted, 100);
+  setTimeout(notifyMounted, 500);
+  setTimeout(notifyMounted, 1500);
 });
 
-// Surface runtime errors to the host so the studio can mark the build as failed
-// instead of waiting for the mount timeout.
 window.addEventListener('error', (e) => {
   if (window.parent === window) return;
   try {

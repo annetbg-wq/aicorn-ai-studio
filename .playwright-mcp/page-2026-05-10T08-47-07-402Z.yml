@@ -1,0 +1,239 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - button "Home Dashboard" [ref=e7] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e14]:
+        - button "System Engine" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Трендовые ниши" [ref=e23] [cursor=pointer]:
+          - img [ref=e24]
+        - button "Projects" [ref=e28] [cursor=pointer]:
+          - img [ref=e29]
+        - button "Product Architect" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - button "Figma Platinum" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Analytics" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - button "Quality" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+        - button "Code Studio" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+        - button "DB Console" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+        - button "Cloud & Backend — Coming Soon" [ref=e67]:
+          - img [ref=e68]
+        - button "Packaging & Ship — Coming Soon" [ref=e71]:
+          - img [ref=e72]
+        - button "Growth & Marketing — Coming Soon" [ref=e78]:
+          - img [ref=e79]
+    - generic [ref=e244]:
+      - generic [ref=e245]:
+        - generic [ref=e246]:
+          - img [ref=e248]
+          - heading "Трендовые ниши" [level=1] [ref=e251]
+        - button "Домой" [ref=e252] [cursor=pointer]:
+          - img [ref=e253]
+          - text: Домой
+      - generic [ref=e256]:
+        - generic [ref=e258]: Рыночная аналитика
+        - generic [ref=e260]:
+          - heading "Трендовые ниши" [level=2] [ref=e262]
+          - button "Обновить" [ref=e493] [cursor=pointer]:
+            - img [ref=e494]
+            - text: Обновить
+        - generic [ref=e266]:
+          - generic [ref=e267]:
+            - generic [ref=e268]:
+              - img [ref=e269]
+              - text: Интерес
+            - button "Игры" [ref=e272] [cursor=pointer]
+            - button "Медицина" [ref=e273] [cursor=pointer]
+            - button "Финтех" [ref=e274] [cursor=pointer]
+            - button "Здоровье" [ref=e275] [cursor=pointer]
+            - button "Соцсервисы" [ref=e276] [cursor=pointer]
+            - button "Продуктивность" [ref=e277] [cursor=pointer]
+            - button "Обучение" [ref=e278] [cursor=pointer]
+            - button "Коммерция" [ref=e279] [cursor=pointer]
+            - button "ИИ" [ref=e280] [cursor=pointer]
+            - button "Инструменты разработки" [ref=e281] [cursor=pointer]
+          - generic [ref=e282]: Выбери один интерес — после этого подборки дня, недели и месяца будут заново сгенерированы под него.
+          - generic [ref=e283]: В диалог — обсудить идею с архитектором в чате. В работу — сразу упаковать идею и передать в код.
+        - generic [ref=e284]:
+          - button "Идеи дня / Идеи недели / Идеи месяца" [ref=e285] [cursor=pointer]
+          - button "Банк идей" [ref=e286] [cursor=pointer]
+          - button "Архив тем" [ref=e287] [cursor=pointer]
+        - generic [ref=e288]:
+          - generic [ref=e289]:
+            - heading "Идеи дня" [level=3] [ref=e292]
+            - generic [ref=e293]:
+              - generic [ref=e499]:
+                - generic [ref=e500]:
+                  - generic [ref=e501]:
+                    - generic [ref=e502]: Refund Shield
+                    - generic [ref=e503]:
+                      - generic [ref=e504]: Продуктивность
+                      - generic [ref=e505]: ИИ
+                  - button "Сохранить идею" [ref=e506] [cursor=pointer]:
+                    - img [ref=e507]
+                - generic [ref=e509]: A real-time fraud detection and margin recovery cockpit for Shopify brands losing revenue to return abuse and policy loopholes. It surfaces hidden return patterns and automates policy enforcement, turning a cost center into a profit lever.
+                - generic [ref=e510]: Brands lose 10-15% of revenue to return fraud; Refund Shield can recover 3-5% of GMV in the first 90 days, directly improving unit economics.
+                - generic [ref=e511]:
+                  - button "В диалог" [disabled] [ref=e512]:
+                    - img [ref=e513]
+                    - text: В диалог
+                  - button "В работу" [disabled] [ref=e516]:
+                    - img [ref=e517]
+                    - text: В работу
+              - generic [ref=e680]:
+                - generic [ref=e681]:
+                  - generic [ref=e682]:
+                    - generic [ref=e683]: CommuteSync Green
+                    - generic [ref=e684]:
+                      - generic [ref=e685]: Продуктивность
+                      - generic [ref=e686]: ИИ
+                  - button "Сохранить идею" [ref=e687] [cursor=pointer]:
+                    - img [ref=e688]
+                - generic [ref=e690]: A lightweight, employer-subsidized commute orchestration platform for Indian tech parks and SEZs that pools auto-rickshaws, e-bikes, and corporate shuttles into a single carbon-optimized trip planner. It reduces daily commute costs by 40% and cuts Scope 3 emissions for ESG reporting.
+                - generic [ref=e691]: HR heads and ESG officers need verifiable commute emissions data for regulatory compliance (BRSR, SEBI) while employees demand cheaper, greener rides. CommuteSync Green delivers both with zero upfront cost to the employer.
+                - generic [ref=e692]:
+                  - button "В диалог" [disabled] [ref=e693]:
+                    - img [ref=e694]
+                    - text: В диалог
+                  - button "В работу" [disabled] [ref=e697]:
+                    - img [ref=e698]
+                    - text: В работу
+              - generic [ref=e700]:
+                - generic [ref=e701]:
+                  - generic [ref=e702]:
+                    - generic [ref=e703]: LiveCoach
+                    - generic [ref=e704]:
+                      - generic [ref=e705]: Продуктивность
+                      - generic [ref=e706]: ИИ
+                  - button "Сохранить идею" [ref=e707] [cursor=pointer]:
+                    - img [ref=e708]
+                - generic [ref=e710]: A real-time sales coach for live commerce hosts on platforms like YouTube Shopping and TikTok Shop that whispers product details, objection handlers, and upsell cues into their earpiece based on viewer sentiment and chat velocity. It turns average hosts into top performers without extra training.
+                - generic [ref=e711]: A host using LiveCoach sees 22% higher conversion and 35% longer viewer retention in A/B tests. D2C brands pay for the subscription because it directly ties to higher revenue per stream.
+                - generic [ref=e712]:
+                  - button "В диалог" [disabled] [ref=e713]:
+                    - img [ref=e714]
+                    - text: В диалог
+                  - button "В работу" [disabled] [ref=e717]:
+                    - img [ref=e718]
+                    - text: В работу
+          - generic [ref=e357]:
+            - heading "Идеи недели" [level=3] [ref=e360]
+            - generic [ref=e361]:
+              - generic [ref=e720]:
+                - generic [ref=e721]:
+                  - generic [ref=e722]:
+                    - generic [ref=e723]: "ClaimLens: AI-driven damage estimation for independent insurance adjusters"
+                    - generic [ref=e724]:
+                      - generic [ref=e725]: Продуктивность
+                      - generic [ref=e726]: ИИ
+                  - button "Сохранить идею" [ref=e727] [cursor=pointer]:
+                    - img [ref=e728]
+                - generic [ref=e730]: ClaimLens is a mobile-first tool that uses computer vision and local weather data to auto-generate property damage estimates for adjusters working catastrophe zones. It feels fresh because it addresses the post-hurricane claims surge with real-time, defensible estimates that reduce manual photo review by hours per claim.
+                - generic [ref=e731]: Adjusters are overwhelmed by the 2026 hurricane season's record frequency; ClaimLens cuts estimate time from 90 minutes to 12, directly increasing their daily claim capacity and paycheck.
+                - generic [ref=e732]:
+                  - button "В диалог" [disabled] [ref=e733]:
+                    - img [ref=e734]
+                    - text: В диалог
+                  - button "В работу" [disabled] [ref=e737]:
+                    - img [ref=e738]
+                    - text: В работу
+              - generic [ref=e740]:
+                - generic [ref=e741]:
+                  - generic [ref=e742]:
+                    - generic [ref=e743]: "ConsentCam: One-tap HIPAA-compliant video consent for telehealth therapists"
+                    - generic [ref=e744]:
+                      - generic [ref=e745]: Продуктивность
+                      - generic [ref=e746]: ИИ
+                  - button "Сохранить идею" [ref=e747] [cursor=pointer]:
+                    - img [ref=e748]
+                - generic [ref=e750]: ConsentCam is a lightweight tool that lets therapists record a single, standardized informed-consent video, then share a patient-specific QR code that logs acknowledgment with audit trail. It feels fresh because the 2026 HIPAA modernization rule now requires video-based consent for all interstate telehealth, and most therapists are still using PDFs or verbal agreements.
+                - generic [ref=e751]: The 2026 HIPAA rule took effect April 1; therapists face fines up to $50k per unrecorded consent. ConsentCam costs less than one hour of a compliance lawyer's time and eliminates that risk.
+                - generic [ref=e752]:
+                  - button "В диалог" [disabled] [ref=e753]:
+                    - img [ref=e754]
+                    - text: В диалог
+                  - button "В работу" [disabled] [ref=e757]:
+                    - img [ref=e758]
+                    - text: В работу
+              - generic [ref=e760]:
+                - generic [ref=e761]:
+                  - generic [ref=e762]:
+                    - generic [ref=e763]: "ResinWise: Waste-reduction calculator for small-batch resin crafters"
+                    - generic [ref=e764]:
+                      - generic [ref=e765]: Продуктивность
+                      - generic [ref=e766]: ИИ
+                  - button "Сохранить идею" [ref=e767] [cursor=pointer]:
+                    - img [ref=e768]
+                - generic [ref=e770]: ResinWise is a web app that scans a crafter's mold photos and calculates exact epoxy resin volume needed, factoring in pigment density and cure shrinkage. It feels fresh because the 2026 EPA microplastic disposal regulations now apply to hobbyist resin waste, and crafters are panicking over fines for improper curing or disposal.
+                - generic [ref=e771]: Starting May 2026, local waste authorities in 12 states began fining households for improper resin disposal. ResinWise helps a crafter save $200/month in wasted resin and avoid $500 fines, all while selling their creations with a 'zero-waste certified' badge.
+                - generic [ref=e772]:
+                  - button "В диалог" [disabled] [ref=e773]:
+                    - img [ref=e774]
+                    - text: В диалог
+                  - button "В работу" [disabled] [ref=e777]:
+                    - img [ref=e778]
+                    - text: В работу
+          - generic [ref=e425]:
+            - heading "Идеи месяца" [level=3] [ref=e428]
+            - generic [ref=e429]:
+              - generic [ref=e780]:
+                - generic [ref=e781]:
+                  - generic [ref=e782]:
+                    - generic [ref=e783]: Пенсионный Пульс
+                    - generic [ref=e784]:
+                      - generic [ref=e785]: Финтех
+                      - generic [ref=e786]: Продуктивность
+                  - button "Сохранить идею" [ref=e787] [cursor=pointer]:
+                    - img [ref=e788]
+                - generic [ref=e790]: Мобильное приложение, которое автоматически собирает и анализирует пенсионные счета из разных стран ЕС, предлагая персонализированные сценарии выхода на пенсию с учётом трансграничной мобильности.
+                - generic [ref=e791]: С 1 мая 2026 года вступила в силу обновлённая директива ЕС PEPP (Pan-European Personal Pension Product), которая обязала все страны-члены обеспечить цифровой обмен данными о пенсионных правах между национальными фондами. В Google Trends запрос 'EU pension tracking app' вырос на 340% за последние 4 недели, а на Reddit (r/eupersonalfinance) тема 'lost pensions across borders' набирает 500+ комментариев в день.
+                - generic [ref=e792]:
+                  - button "В диалог" [disabled] [ref=e793]:
+                    - img [ref=e794]
+                    - text: В диалог
+                  - button "В работу" [disabled] [ref=e797]:
+                    - img [ref=e798]
+                    - text: В работу
+              - generic [ref=e800]:
+                - generic [ref=e801]:
+                  - generic [ref=e802]:
+                    - generic [ref=e803]: ДермаСкрин
+                    - generic [ref=e804]:
+                      - generic [ref=e805]: Медицина
+                      - generic [ref=e806]: Здоровье
+                      - generic [ref=e807]: ИИ
+                  - button "Сохранить идею" [ref=e808] [cursor=pointer]:
+                    - img [ref=e809]
+                - generic [ref=e811]: Приложение для ежедневного сканирования кожи с помощью камеры смартфона и ИИ-анализа, которое предупреждает о ранних признаках меланомы и отслеживает динамику родинок с точностью дерматоскопа.
+                - generic [ref=e812]: "В апреле 2026 года FDA одобрило первую категорию ИИ-алгоритмов для скрининга меланомы без врача (класс II с особыми контролем), а в TikTok хештег #skincancercheck набрал 2.3 млрд просмотров за март-апрель, причём 40% видео — от пользователей 25–45 лет, которые снимают свои родинки и просят совета в комментариях. Запрос 'melanoma self-check app' в США вырос на 180% за месяц."
+                - generic [ref=e813]:
+                  - button "В диалог" [disabled] [ref=e814]:
+                    - img [ref=e815]
+                    - text: В диалог
+                  - button "В работу" [disabled] [ref=e818]:
+                    - img [ref=e819]
+                    - text: В работу
+              - generic [ref=e821]:
+                - generic [ref=e822]:
+                  - generic [ref=e823]:
+                    - generic [ref=e824]: Попутчик 2.0
+                    - generic [ref=e825]:
+                      - generic [ref=e826]: Продуктивность
+                      - generic [ref=e827]: Соцсервисы
+                  - button "Сохранить идею" [ref=e828] [cursor=pointer]:
+                    - img [ref=e829]
+                - generic [ref=e831]: Приложение для динамического поиска попутчиков на ежедневные поездки на работу, интегрированное с корпоративными календарями и учитывающее реальные маршруты, а не фиксированные точки.
+                - generic [ref=e832]: В марте 2026 года Uber запустил пилот Uber Commute в 5 городах США, но быстро свернул из-за низкой маржинальности; параллельно в ЕС вступил в силу закон 'Right to Disconnect 2.0', который требует от работодателей компенсировать транспортные расходы при гибридной работе. В Reddit (r/fuckcars и r/Atlanta) тема 'carpool for hybrid workers' стабильно в топе с 200+ комментариями в день, а Google Trends показывает рост запроса 'carpool app work commute' на 210% в США за последние 2 месяца.
+                - generic [ref=e833]:
+                  - button "В диалог" [disabled] [ref=e834]:
+                    - img [ref=e835]
+                    - text: В диалог
+                  - button "В работу" [disabled] [ref=e838]:
+                    - img [ref=e839]
+                    - text: В работу

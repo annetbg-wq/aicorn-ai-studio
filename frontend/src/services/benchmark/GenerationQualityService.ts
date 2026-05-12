@@ -33,11 +33,13 @@
  *   - changePackage.repairHints is non-empty
  *
  * Does NOT call BenchmarkGate.check() or BaselineStore.
- * Does NOT scan raw file content strings as its primary logic.
+ * Adds a bounded output-proof scan to reject placeholder, fallback, and trivial deltas
+ * before preview-ready/save-ready can unlock.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import type { GenerationResult, GenerationQualitySummary } from '../../shared/projectModel';
+import { analyzeOutputTruth } from '../../shared/outputTruth';
 
 // Re-export so callers can import the type from this module if they prefer.
 export type { GenerationQualitySummary } from '../../shared/projectModel';
@@ -53,7 +55,7 @@ export const GenerationQualityService = {
    * changePackage.warnings, changePackage.repairHints.
    *
    * Never calls BenchmarkGate, BaselineStore, or any golden-intent runner.
-   * Never performs raw code string scanning as the primary check logic.
+     * Uses a bounded output-proof scan only for hard fail placeholder/fallback detection.
    *
    * safe to call on any GenerationResult regardless of status.
    */
@@ -109,6 +111,25 @@ export const GenerationQualityService = {
     // ── 5. Multi-page and dependencies ───────────────────────────────────────
     const multiPageDeclared    = (cp.routeManifest?.isMultiPage ?? false) || graphRoutes.length > 1;
     const dependenciesDeclared = (cp.dependencies ?? []).length > 0;
+    const changedPaths = result.operations.flatMap(op =>
+      op.op === 'rename' ? [op.to] : [op.name],
+    );
+    const outputTruth = analyzeOutputTruth({
+      files: Object.fromEntries(result.graph.files.map(file => [file.path, file.content ?? ''])),
+      changedPaths,
+      routeCount: totalRouteCount,
+      previewEntryFile: declaredEntry,
+      skeletonId: result.runTelemetry?.skeletonId,
+      skeletonPaths: result.runTelemetry?.skeletonFiles,
+    });
+    const outputProofPassed = outputTruth.passed;
+    const nonTrivialDelta = outputTruth.blockers.every(blocker => blocker.code !== 'delta-too-small');
+    const hasFeatureInteractions = outputTruth.interactiveFiles.length > 0;
+    const hasMeaningfulScreenStructure = outputTruth.meaningfulPageFiles.length > 0;
+    const outputStructurePassed = outputTruth.outputStructurePassed;
+    const deltaStructurePassed = outputTruth.deltaStructurePassed;
+    const architecturalRichnessPassed = outputTruth.architecturalRichnessPassed;
+    const placeholderStructureClean = outputTruth.placeholderStructureClean;
 
     // ── Blockers (hard failures) ──────────────────────────────────────────────
     const blockers: string[] = [];
@@ -137,6 +158,14 @@ export const GenerationQualityService = {
       const reasons = (cp.guardResults?.runtime?.reasons ?? []).map(r => r.code).join(', ');
       blockers.push(`runtime guard failed${reasons ? `: ${reasons}` : ''}`);
     }
+
+    outputTruth.blockers.forEach((blocker) => {
+      blockers.push(
+        blocker.paths && blocker.paths.length > 0
+          ? `${blocker.message} (${blocker.paths.join(', ')})`
+          : blocker.message,
+      );
+    });
 
     // ── Warning messages to surface ───────────────────────────────────────────
     // Soft issues — do NOT block preview or project save.
@@ -179,10 +208,26 @@ export const GenerationQualityService = {
         hasRepairHints,
         multiPageDeclared,
         dependenciesDeclared,
+        outputProofPassed,
+        nonTrivialDelta,
+        hasFeatureInteractions,
+        hasMeaningfulScreenStructure,
+        outputStructurePassed,
+        deltaStructurePassed,
+        architecturalRichnessPassed,
+        placeholderStructureClean,
       },
       blockers,
       warnings: warnMessages,
-      summary,
+      summary: passed
+        ? [
+            outputTruth.structure.richness === 'rich' ? 'rich output' : 'adequate output',
+            `${fileCount} file(s)`,
+            hasRoutesInfo ? `${totalRouteCount} route(s)` : null,
+            `${outputTruth.skeletonDelta.newFileCount} new / ${outputTruth.skeletonDelta.modifiedExistingCount} modified`,
+            warnMessages.length > 0 ? `${warnMessages.length} warning(s)` : null,
+          ].filter(Boolean).join(', ')
+        : summary,
     };
   },
 };
