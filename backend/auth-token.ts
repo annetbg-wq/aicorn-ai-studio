@@ -1362,159 +1362,6 @@ app.delete('/pending-import', (_req, res) => {
   }
 });
 
-// ── GET /api/quality/flow-chain — fixture-based step chain test ───────────────
-// Runs the 8-step flow chain using hardcoded fixtures (no LLM).
-// Returns a JSON report identical in shape to flow-chain-report.json.
-app.get('/api/quality/flow-chain', async (_req, res) => {
-  const chainStart = Date.now();
-  const buildId    = `quality-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-
-  const FIXTURES = {
-    idea: 'Трекер привычек: ежедневные отметки, стрик, статистика',
-    architectPlan: {
-      skeleton:   'mobile-app',
-      deltaFiles: ['src/pages/Home.tsx', 'src/config/app.ts'],
-      pages:      ['Home', 'Progress', 'Profile'],
-    },
-    codeOutput: {
-      'src/pages/Home.tsx':
-        "import React from 'react';\nexport default function Home(){return <div className='p-4'><h1>Test</h1></div>;}",
-      'src/config/app.ts':
-        "export const APP_CONFIG={name:'Test'}as const;\nexport const STORAGE_KEYS={theme:'app.v1.theme',profile:'app.v1.profile'}as const;",
-    },
-  };
-
-  interface StepEntry {
-    step: string;
-    status: 'pass' | 'fail' | 'skip';
-    duration_ms: number;
-    input?: unknown;
-    output?: unknown;
-    error?: string;
-  }
-
-  const steps: StepEntry[] = [];
-  let compileSuccess = false;
-
-  async function runStep(
-    name: string,
-    fn: () => Promise<{ input?: unknown; output?: unknown }>,
-  ): Promise<boolean> {
-    const t0: number = Date.now();
-    const entry: StepEntry = { step: name, status: 'skip', duration_ms: 0 };
-    try {
-      const r = await fn();
-      entry.status = 'pass';
-      entry.output = r.output;
-      entry.input  = r.input;
-    } catch (e: unknown) {
-      entry.status = 'fail';
-      entry.error  = (e instanceof Error ? e.message : String(e));
-    }
-    entry.duration_ms = Date.now() - t0;
-    steps.push(entry);
-    return entry.status === 'pass';
-  }
-
-  // Step 1 — idea
-  await runStep('idea', async () => {
-    const idea = FIXTURES.idea;
-    if (!idea?.trim()) throw new Error('Idea is empty');
-    return { input: idea, output: `validated: "${idea.slice(0, 50)}"` };
-  });
-
-  // Step 2 — architecture
-  await runStep('architecture', async () => {
-    const plan = FIXTURES.architectPlan;
-    if (!plan.skeleton)          throw new Error('Plan missing: skeleton');
-    if (!plan.deltaFiles?.length) throw new Error('Plan missing: deltaFiles');
-    if (!plan.pages?.length)     throw new Error('Plan missing: pages');
-    return {
-      input:  plan,
-      output: `skeleton: ${plan.skeleton}, ${plan.deltaFiles.length} delta file(s)`,
-    };
-  });
-
-  // Step 3 — code_delta: actually run Vite build via shared compile queue
-  await runStep('code_delta', async () => {
-    await runCompileJob(buildId, FIXTURES.codeOutput);
-    compileSuccess = true;
-    return {
-      input:  Object.keys(FIXTURES.codeOutput),
-      output: `files compiled, buildId: ${buildId}`,
-    };
-  });
-
-  // Step 4 — compile: verify .js assets were written to disk
-  await runStep('compile', async () => {
-    const assetsDir = path.join(process.cwd(), 'builds', buildId, 'assets');
-    if (!fs.existsSync(assetsDir))
-      throw new Error(`assets/ dir not found: builds/${buildId}/assets`);
-    const jsFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
-    if (!jsFiles.length) throw new Error('No .js files found in assets/');
-    return { input: assetsDir, output: `${jsFiles.length} JS asset(s)` };
-  });
-
-  // Step 5 — preview: HTTP GET /preview/:buildId → expect 200 + HTML
-  await runStep('preview', async () => {
-    const previewUrl = `http://localhost:${PORT}/preview/${buildId}`;
-    const r = await fetch(previewUrl);
-    if (r.status !== 200) throw new Error(`Expected HTTP 200, got ${r.status}`);
-    const html = await r.text();
-    if (!html.includes('<html') && !html.includes('<!DOCTYPE') && !html.includes('<script'))
-      throw new Error(`Response does not look like HTML (${html.length} bytes)`);
-    return { input: previewUrl, output: `HTTP 200, ${html.length} bytes` };
-  });
-
-  // Step 6 — preview_mounted: canonical main.tsx must contain postMessage
-  await runStep('preview_mounted', async () => {
-    const mainPath = path.join(process.cwd(), 'preview-workspace', 'src', 'main.tsx');
-    if (!fs.existsSync(mainPath)) throw new Error('main.tsx not found in preview-workspace/src/');
-    const content = fs.readFileSync(mainPath, 'utf-8');
-    if (!content.includes('preview-mounted'))
-      throw new Error('postMessage({type: "preview-mounted"}) not found in main.tsx');
-    return { input: mainPath, output: 'postMessage({type: "preview-mounted"}) found in main.tsx' };
-  });
-
-  // Step 7 — save_ready: confirm compile succeeded
-  await runStep('save_ready', async () => {
-    if (!compileSuccess) throw new Error('Compile did not succeed');
-    return { output: 'compile success = true → save-ready state confirmed' };
-  });
-
-  // Step 8 — saved_project: no session file must exist for this buildId
-  await runStep('saved_project', async () => {
-    const sessionsDir = path.join(process.cwd(), 'backend', 'sessions');
-    if (fs.existsSync(sessionsDir)) {
-      const entries = fs.readdirSync(sessionsDir);
-      const found = entries.find(e => e.includes(buildId));
-      if (found) throw new Error(`Unexpected session file created: ${found}`);
-    }
-    return { output: 'No project file created before explicit save (correct)' };
-  });
-
-  // ── Build report ────────────────────────────────────────────────────────────
-  const totalMs       = Date.now() - chainStart;
-  const failed        = steps.filter(s => s.status === 'fail').length;
-  const passed        = steps.filter(s => s.status === 'pass').length;
-  const verdict       = failed === 0 ? 'PASS' : passed > 0 ? 'PARTIAL' : 'FAIL';
-  const brokenAt      = steps.find(s => s.status === 'fail')?.step ?? null;
-  const handoffErrors = steps.filter(s => s.status === 'fail').map(s => `${s.step}: ${s.error}`);
-
-  const perStep: Record<string, number> = {};
-  for (const s of steps) perStep[s.step] = s.duration_ms;
-
-  res.json({
-    verdict,
-    buildId,
-    timestamp: new Date().toISOString(),
-    steps,
-    timings: { total_ms: totalMs, per_step: perStep },
-    handoff_errors: handoffErrors,
-    broken_at: brokenAt,
-  });
-});
-
 // ── GET /api/quality/test/:testName — individual runnable quality tests ────────
 // Each test is independent and returns { status, duration_ms, summary?, ... }.
 // Tests that need existing builds will fail gracefully if none exist.
@@ -1534,8 +1381,6 @@ interface QualityOutputMetrics {
   preview_url?: string;
   files?: string[];
 }
-
-const QUALITY_FIXTURE_WARNING = 'Fixture данные — не реальный LLM output';
 
 function roundKb(bytes: number): number {
   return Math.round((bytes / 1024) * 10) / 10;
@@ -1582,60 +1427,6 @@ function collectBuildAssetMetrics(buildId: string): {
   };
 }
 
-const QUALITY_FIXTURES = {
-  idea:    'Трекер привычек: ежедневные отметки, стрик, статистика',
-  appName: 'HabitFlow',
-  architectLlm: {
-    model: 'deepseek-v4-flash',
-    prompt_tokens: 1240,
-    completion_tokens: 380,
-    total_tokens: 1620,
-    cost_usd: 0.001,
-  } satisfies QualityLlmMetrics,
-  architectPlan: {
-    skeleton: 'mobile-app',
-    // files already provided by the skeleton — coder can import but must NOT overwrite
-    skeletonFiles: {
-      'src/App.tsx':                        'Root router — OnboardingGuard + BottomTabs, routing pre-configured',
-      'src/main.tsx':                       'Entry point — locked, do NOT modify',
-      'src/index.css':                      'Global CSS + design tokens — locked',
-      'src/config/routes.ts':               'Route paths constants — locked',
-      'src/config/theme.ts':                'Design tokens & colors — locked',
-      'src/components/BottomTabs.tsx':      'Bottom navigation bar — reads src/config/navigation.ts',
-      'src/components/ErrorBoundary.tsx':   'Error boundary wrapper — locked',
-      'src/components/LoadingScreen.tsx':   'Full-screen loading state — locked',
-      'src/components/EmptyState.tsx':      'Empty state placeholder — locked',
-      'src/components/PaywallSheet.tsx':    'Paywall bottom-sheet — locked',
-      'src/components/ui/*':               'UI primitives: Button, Card, Input, Badge, Avatar, Dialog, Select, Sheet, Skeleton, Tabs, Progress',
-      'src/hooks/useLocalStorage.ts':       'Generic localStorage hook — locked, use via useApp()',
-      'src/hooks/useTheme.ts':              'Theme hook — locked',
-      'src/context/AppContext.tsx':         'App state — useApp() → isOnboarded, profile, completeOnboarding(), updateProfile()',
-      'src/lib/cn.ts':                      'className utility — locked',
-    },
-    // delta files — architect defines, coder writes from scratch
-    fileTree: {
-      'src/config/app.ts':        'APP_CONFIG.name="HabitFlow" + STORAGE_KEYS — must export STORAGE_KEYS',
-      'src/config/navigation.ts': 'BottomTabs nav items: Home, Create, Progress, Profile',
-      'src/data/types.ts':        'Habit: { id: string, name: string, icon: string, completedDates: string[] }',
-      'src/data/seed.ts':         'SEED_HABITS — 3 sample habits for first launch',
-      'src/pages/Onboarding.tsx': 'Onboarding wizard — collect name+goal, call completeOnboarding() on submit',
-      'src/pages/Home.tsx':       'Home feed — habit list, mark-done today, add button → /create',
-      'src/pages/Detail.tsx':     'Habit detail — streak counter, calendar heat-map, delete action',
-      'src/pages/Create.tsx':     'Create habit form — name + icon picker, save via useHabits hook',
-      'src/pages/Progress.tsx':   'Progress stats — weekly completion %, streak leaderboard',
-      'src/pages/Profile.tsx':    'Profile — display name+goal, reset data button, theme toggle',
-    },
-    contextContract: 'useApp() from @/context/AppContext — NEVER useLocalStorage("onboarding") directly',
-    dataModel: 'Habit: { id: string, name: string, icon: string, completedDates: string[] }',
-  },
-  codeOutput: {
-    'src/pages/Home.tsx':
-      "import React from 'react';\nexport default function Home(){return <div className='p-4'><h1>Test</h1></div>;}",
-    'src/config/app.ts':
-      "export const APP_CONFIG={name:'Test'}as const;\nexport const STORAGE_KEYS={theme:'app.v1.theme',profile:'app.v1.profile'}as const;",
-  },
-} as const;
-
 app.get('/api/quality/test/:testName', async (req, res) => {
   const testName = req.params.testName as string;
   const t0 = Date.now();
@@ -1662,48 +1453,7 @@ app.get('/api/quality/test/:testName', async (req, res) => {
         return;
       }
 
-      // 2. Idea Validate — fixture prompt length > 10
-      case 'idea-validate': {
-        const idea = QUALITY_FIXTURES.idea;
-        if (!idea?.trim()) throw new Error('Idea is empty');
-        if (idea.trim().length <= 10) throw new Error(`Too short: ${idea.trim().length} chars (need > 10)`);
-        res.json({
-          status: 'pass', duration_ms: ms(),
-          summary: `${idea.trim().length} chars OK`,
-          warnings: [QUALITY_FIXTURE_WARNING],
-          details: { prompt: idea, length: idea.trim().length, valid: true },
-        });
-        return;
-      }
-
-      // 3. Architecture — full prototype snapshot: skeleton files + delta fileTree
-      case 'architecture': {
-        const plan = QUALITY_FIXTURES.architectPlan;
-        if (!plan.skeleton) throw new Error('Plan missing: skeleton');
-        const deltaKeys = Object.keys(plan.fileTree);
-        const skeletonKeys = Object.keys(plan.skeletonFiles);
-        if (!deltaKeys.length) throw new Error('Plan missing: fileTree entries');
-        res.json({
-          status: 'pass', duration_ms: ms(),
-          summary: `skeleton: ${plan.skeleton}, ${skeletonKeys.length} provided + ${deltaKeys.length} delta`,
-          output: {
-            file_count: skeletonKeys.length + deltaKeys.length,
-            files: [...skeletonKeys, ...deltaKeys],
-          } satisfies QualityOutputMetrics,
-          warnings: [QUALITY_FIXTURE_WARNING],
-          details: {
-            appName:       QUALITY_FIXTURES.appName,
-            skeleton:      plan.skeleton,
-            skeletonFiles: { ...plan.skeletonFiles },
-            fileTree:      { ...plan.fileTree },
-            contextContract: plan.contextContract,
-            dataModel:     plan.dataModel,
-          },
-        });
-        return;
-      }
-
-      // 4. Code Delta — compile fixture files via shared queue
+      // 2. Code Delta — compile real preview delta via shared queue
       case 'code-delta': {
         const livePreview = inspectLivePreviewWorkspace();
         if (Object.keys(livePreview.deltaFiles).length === 0) {

@@ -9,7 +9,7 @@
  * Tab "Benchmark" — BenchmarkDashboard (Golden Suite + Compare Models).
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import JSZip from 'jszip';
 import {
   FlaskConical, Play, Loader2, CheckCircle2, XCircle, Circle,
@@ -32,20 +32,20 @@ import {
 
 const STEP_DEFS = [
   { id: 'canary',            label: 'Canary',            desc: 'Backend доступен (GET /api/health → 200)' },
-  { id: 'idea-validate',     label: 'Idea Validate',     desc: 'Промпт не пустой, длина > 10 символов' },
-  { id: 'architecture',      label: 'Architecture',      desc: 'Fixture-backed diagnostic only — не доказывает real architect truth' },
+  { id: 'idea-validate',     label: 'Idea Validate',     desc: 'Стандартный prototype brief принят и использован в реальном LLM-run' },
+  { id: 'architecture',      label: 'Architecture',      desc: 'Реальный architect output для стандартного lightweight prototype' },
   { id: 'code-delta',        label: 'Code Delta',        desc: 'Реальная delta поверх skeleton компилируется и проходит proof contract' },
   { id: 'compile',           label: 'Compile',           desc: 'В builds/ есть папка с .js assets' },
   { id: 'preview-http',      label: 'Preview HTTP',      desc: 'GET /preview/{buildId} → 200 и HTML' },
   { id: 'preview-mounted',   label: 'Preview Mounted',   desc: 'main.tsx содержит postMessage({type: preview-mounted})' },
   { id: 'save-ready',        label: 'Save Ready',        desc: 'Save-ready только для real preview с proof-validated output' },
   { id: 'no-premature-save', label: 'No Premature Save', desc: 'Проект не создан до явного save' },
-  { id: 'architect-real',    label: 'Architect Real',    desc: 'Реальный LLM вызов — fileTree ≥5 файлов, реальные токены' },
+  { id: 'architect-real',    label: 'Architect Real',    desc: 'Реальный LLM вызов по стандартному prototype brief — fileTree ≥5 файлов, реальные токены' },
 ] as const;
 
 type StepId = typeof STEP_DEFS[number]['id'];
 type TabId  = 'flow-chain' | 'benchmark';
-type QualityTruthKind = 'fixture-backed' | 'real-runtime' | 'real-llm';
+type QualityTruthKind = 'real-runtime' | 'real-llm';
 
 // ── Per-test detail types ──────────────────────────────────────────────────────
 
@@ -164,14 +164,31 @@ interface QualityCompareRunRecord {
   right?: QualityCompareRunSide;
 }
 
+interface QualityCompareReportSideSummary {
+  profile?: QualityCompareProfile;
+  status?: QualityCompareProfileStatus;
+  result?: TestApiResult;
+  metrics?: QualityCompareRunMetrics;
+  buildId?: string;
+  previewUrl?: string;
+  sourceFileCount?: number;
+  skeletonFileCount?: number;
+  deltaFileCount?: number;
+}
+
+interface QualityRunScope {
+  mode: 'single' | 'all';
+  compare: boolean;
+  stepIds: StepId[];
+}
+
 type DevAgentCliStatus = Awaited<ReturnType<typeof getDevAgentCliStatus>>;
 
 // ── localStorage helpers ───────────────────────────────────────────────────────
 
-const LS_TEST_KEY     = (id: string) => `quality.test.${id}`;
-const LS_LAST_RUN_KEY = 'quality.lastRunAll';
+const LS_TEST_KEY     = (id: string) => `quality.real-suite.test.${id}`;
+const LS_LAST_RUN_KEY = 'quality.real-suite.lastRun';
 const MAX_HIST        = 5;
-const FIXTURE_BACKED_TESTS = new Set<StepId>(['idea-validate', 'architecture']);
 const REAL_RUNTIME_TESTS = new Set<StepId>([
   'canary',
   'code-delta',
@@ -182,10 +199,14 @@ const REAL_RUNTIME_TESTS = new Set<StepId>([
   'no-premature-save',
 ]);
 const REAL_LLM_TESTS = new Set<StepId>([
+  'idea-validate',
+  'architecture',
   'architect-real',
 ]);
 const BLOCKING_REAL_TESTS = new Set<StepId>([
   'canary',
+  'idea-validate',
+  'architecture',
   'architect-real',
   'code-delta',
   'compile',
@@ -193,10 +214,9 @@ const BLOCKING_REAL_TESTS = new Set<StepId>([
   'preview-mounted',
   'save-ready',
 ]);
-const FIXTURE_NOTE_TEXT = '⚠️ Fixture данные — не реальный LLM output';
+const ALL_STEP_IDS = STEP_DEFS.map(def => def.id as StepId);
 
 function getTruthKind(id: StepId): QualityTruthKind {
-  if (FIXTURE_BACKED_TESTS.has(id)) return 'fixture-backed';
   if (REAL_LLM_TESTS.has(id)) return 'real-llm';
   return 'real-runtime';
 }
@@ -354,7 +374,7 @@ Rules:
 - Minimum 5 delta files required
 - Each fileTree value: exactly one sentence describing purpose + data used`;
 
-const QUALITY_ARCHITECT_USER_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
+const QUALITY_STANDARD_PROTOTYPE_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
 
 interface ArchitectCompletionMeta {
   content: string;
@@ -664,7 +684,7 @@ export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Pr
       endpoint: config.endpoint,
       model: config.model,
       systemPrompt: QUALITY_ARCHITECT_SYSTEM_PROMPT,
-      userPrompt: QUALITY_ARCHITECT_USER_PROMPT,
+        userPrompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
       maxTokens: 1800,
     });
   } catch (err: unknown) {
@@ -720,7 +740,7 @@ export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Pr
         model: config.model,
         systemPrompt: QUALITY_ARCHITECT_SYSTEM_PROMPT,
         userPrompt: buildArchitectRepairPrompt({
-          originalPrompt: QUALITY_ARCHITECT_USER_PROMPT,
+          originalPrompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
           brokenContent: completion.content,
           blockers: validation?.planTruth.blockers ?? [],
         }),
@@ -751,7 +771,7 @@ export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Pr
       duration_ms: ms(),
       error: `${truncatedHint} Raw excerpt: ${completion.content.slice(0, 200)}`,
       details: {
-        prompt: QUALITY_ARCHITECT_USER_PROMPT,
+        prompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
         rawResponse: completion.content,
         finishReason: completion.finishReason,
         routeLabel: config.routeLabel,
@@ -766,7 +786,7 @@ export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Pr
       duration_ms: ms(),
       error: validation?.planTruth.blockers.join(' ') || 'Architect plan failed validation.',
       details: {
-        prompt: QUALITY_ARCHITECT_USER_PROMPT,
+        prompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
         rawResponse: completion.content,
         finishReason: completion.finishReason,
         routeLabel: config.routeLabel,
@@ -811,7 +831,7 @@ export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Pr
       dataModel:       typeof plan.dataModel === 'string' ? plan.dataModel : undefined,
       model:           llmModel,
       fileCount,
-      prompt:          QUALITY_ARCHITECT_USER_PROMPT,
+      prompt:          QUALITY_STANDARD_PROTOTYPE_PROMPT,
       rawResponse:     completion.content,
       finishReason:    completion.finishReason,
       routeLabel:      config.routeLabel,
@@ -841,7 +861,7 @@ export async function downloadSourceZip(
   URL.revokeObjectURL(url);
 }
 
-async function downloadFixtureZip(files: CodeDeltaFile[]): Promise<void> {
+async function downloadDeltaZip(files: CodeDeltaFile[]): Promise<void> {
   await downloadSourceZip(files, 'real-delta-code.zip');
 }
 
@@ -1035,7 +1055,7 @@ export async function runQualityCompareSuite(input: {
     cliStatus,
     primaryProvider = getPrimaryProviderForQuality(),
     openRouterModels = [],
-    comparePrompt = QUALITY_ARCHITECT_USER_PROMPT,
+    comparePrompt = QUALITY_STANDARD_PROTOTYPE_PROMPT,
     pipelineRun = ProtoPipeline.run,
     fetchWorkspaceSnapshot = fetchQualityWorkspaceSnapshot,
     testApiRunner = callTestApi,
@@ -1143,7 +1163,7 @@ export async function runQualityCompareSuite(input: {
   const ideaValidateResult: TestApiResult = {
     status: 'pass',
     duration_ms: 0,
-    summary: `${comparePrompt.trim().length} chars OK`,
+    summary: `${comparePrompt.trim().length} chars · real prototype suite started`,
     details: {
       prompt: comparePrompt,
       length: comparePrompt.trim().length,
@@ -1335,6 +1355,16 @@ function summarizeQualityBucket(
   states: Record<StepId, TestState>,
   ids: StepId[],
 ): QualityBucketSummary {
+  if (ids.length === 0) {
+    return {
+      total: 0,
+      passCount: 0,
+      failCount: 0,
+      idleCount: 0,
+      verdict: null,
+      failedIds: [],
+    };
+  }
   const bucketStates = ids.map(id => ({ id, state: states[id] }));
   const passCount = bucketStates.filter(entry => entry.state.status === 'pass').length;
   const failCount = bucketStates.filter(entry => entry.state.status === 'fail').length;
@@ -1353,6 +1383,95 @@ function summarizeQualityBucket(
     failedIds: bucketStates
       .filter(entry => entry.state.status === 'fail')
       .map(entry => entry.id),
+  };
+}
+
+function buildCompareReportSideSummary(side?: QualityCompareRunSide): QualityCompareReportSideSummary | undefined {
+  if (!side) return undefined;
+  return {
+    profile: side.profile,
+    status: side.status,
+    result: side.result,
+    metrics: side.suite?.metrics,
+    buildId: side.suite?.buildId,
+    previewUrl: side.suite?.previewUrl,
+    sourceFileCount: side.suite?.sourceFiles.length,
+    skeletonFileCount: side.suite?.sourceFiles.filter(file => file.origin === 'skeleton').length,
+    deltaFileCount: side.suite?.sourceFiles.filter(file => file.origin === 'delta').length,
+  };
+}
+
+export function buildCompareDerivedTestState(record?: QualityCompareRunRecord): TestState | null {
+  if (!record || record.state !== 'done') return null;
+  const leftResult = record.left?.result;
+  const rightResult = record.right?.result;
+  if (!leftResult && !rightResult) return null;
+
+  const statuses = [leftResult?.status, rightResult?.status].filter(Boolean) as Array<'pass' | 'fail'>;
+  const status: TestState['status'] =
+    statuses.length === 0
+      ? 'idle'
+      : statuses.every(value => value === 'pass')
+        ? 'pass'
+        : 'fail';
+  const duration_ms = Math.max(leftResult?.duration_ms ?? 0, rightResult?.duration_ms ?? 0);
+  const summary = [
+    record.left ? `A ${record.left.status.label}: ${leftResult?.status ?? 'idle'}` : null,
+    record.right ? `B ${record.right.status.label}: ${rightResult?.status ?? 'idle'}` : null,
+  ].filter(Boolean).join(' · ');
+  const warnings = statuses.includes('fail')
+    ? ['Compare run contains at least one failed model variant.']
+    : ['Derived from full dual-run compare results.'];
+  const error = [leftResult?.error, rightResult?.error].filter(Boolean).join(' | ') || undefined;
+
+  return {
+    status,
+    duration_ms,
+    summary,
+    warnings,
+    error,
+    details: {
+      compare: {
+        left: buildCompareReportSideSummary(record.left),
+        right: buildCompareReportSideSummary(record.right),
+      },
+    },
+  };
+}
+
+export function buildEffectiveQualityStates(
+  baseStates: Record<StepId, TestState>,
+  compareRecords: Partial<Record<StepId, QualityCompareRunRecord>>,
+): Record<StepId, TestState> {
+  const next = { ...baseStates };
+  for (const def of STEP_DEFS) {
+    const stepId = def.id as StepId;
+    const compareState = buildCompareDerivedTestState(compareRecords[stepId]);
+    if (compareState) {
+      next[stepId] = compareState;
+    }
+  }
+  return next;
+}
+
+function buildTestStateFromApiResult(result: TestApiResult): TestState {
+  return {
+    status: result.status,
+    duration_ms: result.duration_ms,
+    error: result.error,
+    summary: result.summary,
+    llm: result.llm,
+    output: result.output,
+    warnings: result.warnings,
+    details: result.details,
+  };
+}
+
+function buildQualityRunScope(stepIds: StepId[], compare: boolean): QualityRunScope {
+  return {
+    mode: stepIds.length === ALL_STEP_IDS.length ? 'all' : 'single',
+    compare,
+    stepIds,
   };
 }
 
@@ -1684,8 +1803,6 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
     maxHeight: 300,
     overflowY: 'auto',
   };
-  const isFixtureBacked = FIXTURE_BACKED_TESTS.has(testId);
-
   const sep = (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 6,
@@ -1736,17 +1853,6 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
               ))}
             </div>
           )}
-        </div>
-      )}
-      {isFixtureBacked && (
-        <div style={{
-          marginTop: 10,
-          paddingTop: 8,
-          borderTop: '1px solid rgba(255,255,255,0.05)',
-          fontSize: 11,
-          color: 'rgba(255,255,255,0.4)',
-        }}>
-          {FIXTURE_NOTE_TEXT}
         </div>
       )}
     </div>
@@ -1828,7 +1934,7 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
     const d = details as unknown as CodeDeltaDetails;
     const handleDownload = async () => {
       setDownloading(true);
-      try { await downloadFixtureZip(d.files); }
+      try { await downloadDeltaZip(d.files); }
       finally { setDownloading(false); }
     };
     return renderPanel(
@@ -2443,16 +2549,16 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
   const [compareEnabled, setCompareEnabled] = useState(false);
   const [compareProfiles, setCompareProfiles] = useState<{ left: QualityCompareProfile; right: QualityCompareProfile }>({
     left: { route: 'standard-api', model: baseModel },
-    right: { route: 'openrouter', model: baseModel },
+    right: { route: 'standard-api', model: '' },
   });
-  const [compareRecords, setCompareRecords] = useState<Record<StepId, QualityCompareRunRecord>>({} as Record<StepId, QualityCompareRunRecord>);
+  const [compareRecords, setCompareRecords] = useState<Partial<Record<StepId, QualityCompareRunRecord>>>({});
   const [activeCompareStepId, setActiveCompareStepId] = useState<StepId | null>(null);
   const [cliStatus, setCliStatus] = useState<DevAgentCliStatus | null>(null);
   const [openRouterModels, setOpenRouterModels] = useState<Model[]>([]);
   const [openRouterModelsLoading, setOpenRouterModelsLoading] = useState(false);
-  // Shared buildId for Code Delta → Compile → Preview HTTP → Save Ready chain
-  const qualityBuildIdRef = React.useRef<string | null>(null);
-
+  const [standardProviderModels, setStandardProviderModels] = useState<Model[]>([]);
+  const [standardProviderModelsLoading, setStandardProviderModelsLoading] = useState(false);
+  const [lastRunScope, setLastRunScope] = useState<QualityRunScope | null>(null);
   // Restore last run status from localStorage (no details — run again to see them)
   useEffect(() => {
     const restored = makeInitStates();
@@ -2494,8 +2600,29 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
       .finally(() => setOpenRouterModelsLoading(false));
   }, [compareEnabled, openRouterModels.length, openRouterModelsLoading]);
 
-  const anyRunning = runAllActive || Object.values(testStates).some(s => s.status === 'running');
-  const hasReportData = Object.values(testStates).some(s => s.status !== 'idle');
+  useEffect(() => {
+    if (!compareEnabled) return;
+    if (standardProviderModels.length > 0 || standardProviderModelsLoading) return;
+    const openRouterKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
+    if (!openRouterKey) return;
+    setStandardProviderModelsLoading(true);
+    void fetchModelsWithCache(primaryProvider, openRouterKey)
+      .then(setStandardProviderModels)
+      .finally(() => setStandardProviderModelsLoading(false));
+  }, [compareEnabled, primaryProvider, standardProviderModels.length, standardProviderModelsLoading]);
+
+  const compareRunning = Object.values(compareRecords).some(record => record?.state === 'running');
+  const defaultQualityProfile = useMemo<QualityCompareProfile>(() => ({
+    route: 'standard-api',
+    model: baseModel,
+  }), [baseModel]);
+  const effectiveTestStates = useMemo(
+    () => buildEffectiveQualityStates(testStates, compareRecords),
+    [compareRecords, testStates],
+  );
+  const scopedStepIds = lastRunScope?.stepIds ?? ALL_STEP_IDS;
+  const anyRunning = runAllActive || compareRunning || Object.values(testStates).some(s => s.status === 'running');
+  const hasReportData = scopedStepIds.some(stepId => effectiveTestStates[stepId].status !== 'idle');
 
   const setOneState = useCallback((id: StepId, patch: Partial<TestState>) => {
     setTestStates(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -2533,38 +2660,19 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
     });
     setExpanded(prev => ({ ...prev, [id]: false }));
     try {
-      let result: TestApiResult;
-
-      if (id === 'architect-real') {
-        // Frontend-only LLM call — no backend proxy
-        result = await runArchitectRealTest();
-      } else {
-        // For chain tests, pass the shared buildId from Code Delta
-        const chainBuildId = (id === 'compile' || id === 'preview-http' || id === 'save-ready')
-          ? (qualityBuildIdRef.current ?? undefined)
-          : undefined;
-        result = await callTestApi(id, chainBuildId);
-      }
-
-      // After Code Delta succeeds, capture its buildId for downstream chain tests
-      if (id === 'code-delta' && result.status === 'pass') {
-        const bid = (result.details as Record<string, unknown> | undefined)?.buildId;
-        if (typeof bid === 'string') {
-          qualityBuildIdRef.current = bid;
-        }
-      }
-
-      setOneState(id, {
-        status:     result.status,
-        duration_ms: result.duration_ms,
-        error:       result.error,
-        summary:     result.summary,
-        llm:         result.llm,
-        output:      result.output,
-        warnings:    result.warnings,
-        details:     result.details,
+      const suite = await runQualityCompareSuite({
+        profile: defaultQualityProfile,
+        cliStatus,
+        primaryProvider,
+        openRouterModels,
       });
-      // Auto-expand on pass with details
+      const result = suite.suite?.tests[id] ?? {
+        status: 'fail',
+        duration_ms: 0,
+        error: `Missing real suite result for ${id}.`,
+      } satisfies TestApiResult;
+
+      setOneState(id, buildTestStateFromApiResult(result));
       if (result.status === 'pass' && result.details) {
         setExpanded(prev => ({ ...prev, [id]: true }));
       }
@@ -2581,9 +2689,20 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
       persistTestRun(id, { timestamp: new Date().toISOString(), status: 'fail', duration_ms: 0, error });
       return { status: 'fail', duration_ms: 0, error };
     }
-  }, [setOneState]);
+  }, [cliStatus, defaultQualityProfile, openRouterModels, primaryProvider, setOneState]);
 
-  const handleRunOne = useCallback((id: StepId) => { void runSingleTest(id); }, [runSingleTest]);
+  const handleRunOne = useCallback((id: StepId) => {
+    const now = new Date().toISOString();
+    setTestStates(makeInitStates());
+    setExpanded(makeInitExpanded());
+    setCompareRecords({});
+    setActiveCompareStepId(null);
+    setBrokenAt(null);
+    setLastRunScope(buildQualityRunScope([id], false));
+    setLastRunAt(now);
+    try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
+    void runSingleTest(id);
+  }, [runSingleTest]);
 
   const makeCompareFailureResult = useCallback((error: string, duration_ms = 0): TestApiResult => ({
     status: 'fail',
@@ -2603,19 +2722,102 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
   const handleRunCompare = useCallback(async (id: StepId) => {
     if (compareBlockedReason) return;
     setActiveCompareStepId(id);
+    setBrokenAt(null);
+    setLastRunScope(buildQualityRunScope([id], true));
+    setTestStates(makeInitStates());
+    setExpanded(makeInitExpanded());
+    const now = new Date().toISOString();
+    setLastRunAt(now);
+    try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
 
-    const runningRecords = Object.fromEntries(
-      STEP_DEFS.map(def => [def.id as StepId, { state: 'running', supported: true }]),
-    ) as Record<StepId, QualityCompareRunRecord>;
+    const runningRecords = {
+      [id]: { state: 'running', supported: true },
+    } satisfies Partial<Record<StepId, QualityCompareRunRecord>>;
     setCompareRecords(runningRecords);
 
     try {
       const left = await runCompareSuite(compareProfiles.left);
       const right = await runCompareSuite(compareProfiles.right);
 
+      const leftResult = left.suite?.tests[id] ?? makeCompareFailureResult('Missing compare result.');
+      const rightResult = right.suite?.tests[id] ?? makeCompareFailureResult('Missing compare result.');
+      const nextRecords = {
+        [id]: {
+          state: 'done',
+          supported: true,
+          left: {
+            ...left,
+            result: leftResult,
+            realText: leftResult.details ? buildQualityRealTextSections(id, leftResult.details) : [],
+          },
+          right: {
+            ...right,
+            result: rightResult,
+            realText: rightResult.details ? buildQualityRealTextSections(id, rightResult.details) : [],
+          },
+        } satisfies QualityCompareRunRecord,
+      } satisfies Partial<Record<StepId, QualityCompareRunRecord>>;
+
+      setCompareRecords(nextRecords);
+      const compareStates = buildEffectiveQualityStates(makeInitStates(), nextRecords);
+      const firstFailedStep = compareStates[id].status === 'fail' ? id : undefined;
+      setBrokenAt(firstFailedStep ?? null);
+      const state = compareStates[id];
+      if (state.status === 'pass' || state.status === 'fail') {
+        persistTestRun(id, {
+          timestamp: now,
+          status: state.status,
+          duration_ms: state.duration_ms,
+          error: state.error,
+        });
+      }
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err.message : String(err);
+      const failedRecords = {
+        [id]: {
+          state: 'done',
+          supported: true,
+          left: {
+            profile: compareProfiles.left,
+            status: leftCompareStatus,
+            result: makeCompareFailureResult(error),
+            realText: [],
+          },
+          right: {
+            profile: compareProfiles.right,
+            status: rightCompareStatus,
+            result: makeCompareFailureResult(error),
+            realText: [],
+          },
+        } satisfies QualityCompareRunRecord,
+      } satisfies Partial<Record<StepId, QualityCompareRunRecord>>;
+      setCompareRecords(failedRecords);
+      setBrokenAt(id);
+    }
+  }, [compareBlockedReason, compareProfiles.left, compareProfiles.right, leftCompareStatus, makeCompareFailureResult, rightCompareStatus, runCompareSuite]);
+
+  const handleRunCompareAll = useCallback(async () => {
+    if (compareBlockedReason) return;
+    setRunAllActive(true);
+    setBrokenAt(null);
+    setExpanded(makeInitExpanded());
+    setActiveCompareStepId(null);
+    setLastRunScope(buildQualityRunScope(ALL_STEP_IDS, true));
+    setTestStates(makeInitStates());
+    const now = new Date().toISOString();
+    setLastRunAt(now);
+    try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
+
+    const runningRecords = Object.fromEntries(
+      ALL_STEP_IDS.map(stepId => [stepId, { state: 'running', supported: true }]),
+    ) as Partial<Record<StepId, QualityCompareRunRecord>>;
+    setCompareRecords(runningRecords);
+
+    try {
+      const left = await runCompareSuite(compareProfiles.left);
+      const right = await runCompareSuite(compareProfiles.right);
       const nextRecords = Object.fromEntries(
-        STEP_DEFS.map(def => {
-          const stepId = def.id as StepId;
+        ALL_STEP_IDS.map(stepId => {
           const leftResult = left.suite?.tests[stepId] ?? makeCompareFailureResult('Missing compare result.');
           const rightResult = right.suite?.tests[stepId] ?? makeCompareFailureResult('Missing compare result.');
           return [stepId, {
@@ -2633,13 +2835,26 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
             },
           } satisfies QualityCompareRunRecord];
         }),
-      ) as Record<StepId, QualityCompareRunRecord>;
-
+      ) as Partial<Record<StepId, QualityCompareRunRecord>>;
       setCompareRecords(nextRecords);
+      const compareStates = buildEffectiveQualityStates(makeInitStates(), nextRecords);
+      const firstFailedStep = ALL_STEP_IDS.find(stepId => compareStates[stepId].status === 'fail');
+      setBrokenAt(firstFailedStep ?? null);
+      for (const stepId of ALL_STEP_IDS) {
+        const state = compareStates[stepId];
+        if (state.status === 'pass' || state.status === 'fail') {
+          persistTestRun(stepId, {
+            timestamp: now,
+            status: state.status,
+            duration_ms: state.duration_ms,
+            error: state.error,
+          });
+        }
+      }
     } catch (err: unknown) {
       const error = err instanceof Error ? err.message : String(err);
       const failedRecords = Object.fromEntries(
-        STEP_DEFS.map(def => [def.id as StepId, {
+        ALL_STEP_IDS.map(stepId => [stepId, {
           state: 'done',
           supported: true,
           left: {
@@ -2655,68 +2870,85 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
             realText: [],
           },
         } satisfies QualityCompareRunRecord]),
-      ) as unknown as Record<StepId, QualityCompareRunRecord>;
+      ) as Partial<Record<StepId, QualityCompareRunRecord>>;
       setCompareRecords(failedRecords);
+      setBrokenAt(ALL_STEP_IDS[0]);
+    } finally {
+      setRunAllActive(false);
     }
   }, [compareBlockedReason, compareProfiles.left, compareProfiles.right, leftCompareStatus, makeCompareFailureResult, rightCompareStatus, runCompareSuite]);
 
   const handleRunAll = useCallback(async () => {
+    if (compareEnabled) {
+      void handleRunCompareAll();
+      return;
+    }
     setRunAllActive(true);
     setBrokenAt(null);
     setExpanded(makeInitExpanded());
-    setCompareRecords({} as Record<StepId, QualityCompareRunRecord>);
+    setCompareRecords({});
     setActiveCompareStepId(null);
-    qualityBuildIdRef.current = null;
+    setLastRunScope(buildQualityRunScope(ALL_STEP_IDS, false));
     const now = new Date().toISOString();
     setLastRunAt(now);
     try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
     setTestStates(makeInitStates());
 
-    for (const def of STEP_DEFS) {
-      const result = await runSingleTest(def.id as StepId);
-      if (result.status === 'fail') { setBrokenAt(def.id); break; }
+    try {
+      const suite = await runCompareSuite(defaultQualityProfile);
+      const nextStates = makeInitStates();
+      let firstFailedStep: StepId | null = null;
+      for (const stepId of ALL_STEP_IDS) {
+        const result = suite.suite?.tests[stepId] ?? makeCompareFailureResult(`Missing real suite result for ${stepId}.`);
+        nextStates[stepId] = buildTestStateFromApiResult(result);
+        if (!firstFailedStep && result.status === 'fail') {
+          firstFailedStep = stepId;
+        }
+        persistTestRun(stepId, {
+          timestamp: now,
+          status: result.status,
+          duration_ms: result.duration_ms,
+          error: result.error,
+        });
+      }
+      setBrokenAt(firstFailedStep);
+      setTestStates(nextStates);
+    } finally {
+      setRunAllActive(false);
     }
-    setRunAllActive(false);
-  }, [runSingleTest]);
+  }, [compareEnabled, defaultQualityProfile, handleRunCompareAll, makeCompareFailureResult, runCompareSuite]);
 
   const handleClear = useCallback(() => {
     clearQualityPanelHistory();
     setTestStates(makeInitStates());
     setExpanded(makeInitExpanded());
-    setCompareRecords({} as Record<StepId, QualityCompareRunRecord>);
+    setCompareRecords({});
     setActiveCompareStepId(null);
     setRunAllActive(false);
+    setLastRunScope(null);
     setLastRunAt(null);
     setBrokenAt(null);
   }, []);
 
   // Footer verdict
-  const passCount = Object.values(testStates).filter(s => s.status === 'pass').length;
-  const failCount = Object.values(testStates).filter(s => s.status === 'fail').length;
-  const fixtureTestIds = STEP_DEFS
-    .map(def => def.id as StepId)
-    .filter(id => FIXTURE_BACKED_TESTS.has(id));
-  const realRuntimeTestIds = STEP_DEFS
-    .map(def => def.id as StepId)
-    .filter(id => REAL_RUNTIME_TESTS.has(id));
-  const realLlmTestIds = STEP_DEFS
-    .map(def => def.id as StepId)
-    .filter(id => REAL_LLM_TESTS.has(id));
-  const blockingRealGateIds = STEP_DEFS
-    .map(def => def.id as StepId)
-    .filter(id => BLOCKING_REAL_TESTS.has(id));
-  const fixtureSummary = summarizeQualityBucket(testStates, fixtureTestIds);
-  const realRuntimeSummary = summarizeQualityBucket(testStates, realRuntimeTestIds);
-  const realLlmSummary = summarizeQualityBucket(testStates, realLlmTestIds);
-  const blockingRealGateSummary = summarizeQualityBucket(testStates, blockingRealGateIds);
-  const architectureTruth = summarizeQualityBucket(testStates, ['architect-real' as StepId]);
-  const codeDeltaTruth = summarizeQualityBucket(testStates, ['code-delta' as StepId]);
+  const passCount = scopedStepIds.filter(stepId => effectiveTestStates[stepId].status === 'pass').length;
+  const failCount = scopedStepIds.filter(stepId => effectiveTestStates[stepId].status === 'fail').length;
+  const realRuntimeTestIds = scopedStepIds.filter(id => REAL_RUNTIME_TESTS.has(id));
+  const realLlmTestIds = scopedStepIds.filter(id => REAL_LLM_TESTS.has(id));
+  const blockingRealGateIds = scopedStepIds.filter(id => BLOCKING_REAL_TESTS.has(id));
+  const realRuntimeSummary = summarizeQualityBucket(effectiveTestStates, realRuntimeTestIds);
+  const realLlmSummary = summarizeQualityBucket(effectiveTestStates, realLlmTestIds);
+  const blockingRealGateSummary = summarizeQualityBucket(effectiveTestStates, blockingRealGateIds);
+  const architectureTruthIds = scopedStepIds.filter(id => id === 'architecture' || id === 'architect-real');
+  const codeDeltaTruthIds = scopedStepIds.filter(id => id === 'code-delta');
+  const architectureTruth = summarizeQualityBucket(effectiveTestStates, architectureTruthIds);
+  const codeDeltaTruth = summarizeQualityBucket(effectiveTestStates, codeDeltaTruthIds);
   const verdict: Verdict =
     blockingRealGateSummary.failCount > 0
-      ? (blockingRealGateSummary.passCount > 0 || fixtureSummary.passCount > 0 ? 'PARTIAL' : 'FAIL')
+      ? (blockingRealGateSummary.passCount > 0 || realLlmSummary.passCount > 0 ? 'PARTIAL' : 'FAIL')
       : blockingRealGateSummary.passCount === blockingRealGateIds.length && blockingRealGateIds.length > 0
         ? 'PASS'
-        : blockingRealGateSummary.passCount > 0 || fixtureSummary.passCount > 0 || failCount > 0
+        : blockingRealGateSummary.passCount > 0 || realLlmSummary.passCount > 0 || failCount > 0
           ? 'PARTIAL'
           : null;
 
@@ -2728,13 +2960,18 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
     : null;
 
   const handleDownloadReport = useCallback(() => {
+    const reportTestIds = scopedStepIds;
     const report = {
       generatedAt: new Date().toISOString(),
       lastRunAt,
       verdict,
+      scope: lastRunScope ? {
+        mode: lastRunScope.mode,
+        compare: lastRunScope.compare,
+        stepIds: lastRunScope.stepIds,
+      } : null,
       verdictBreakdown: {
         overall: verdict,
-        fixtureBacked: fixtureSummary,
         realRuntime: realRuntimeSummary,
         realLlm: realLlmSummary,
         blockingRealGates: blockingRealGateSummary,
@@ -2744,18 +2981,26 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
       passCount,
       failCount,
       brokenAt,
-      tests: STEP_DEFS.map(def => ({
-        id: def.id,
-        label: def.label,
-        description: def.desc,
-        truthClass: getTruthKind(def.id as StepId),
-        fixtureBacked: FIXTURE_BACKED_TESTS.has(def.id as StepId),
-        current: testStates[def.id as StepId],
-        history: loadTestHistory(def.id),
-      })),
-    };
+      tests: reportTestIds.map(stepId => {
+        const def = STEP_DEFS.find(entry => entry.id === stepId)!;
+        return {
+          id: def.id,
+          label: def.label,
+          description: def.desc,
+          truthClass: getTruthKind(stepId),
+          current: effectiveTestStates[stepId],
+          compare: compareRecords[stepId]?.state === 'done'
+           ? {
+               left: buildCompareReportSideSummary(compareRecords[stepId]?.left),
+               right: buildCompareReportSideSummary(compareRecords[stepId]?.right),
+             }
+           : undefined,
+          history: loadTestHistory(def.id),
+        };
+      }),
+      };
     downloadQualityReport(report);
-  }, [architectureTruth, blockingRealGateSummary, brokenAt, codeDeltaTruth, failCount, fixtureSummary, lastRunAt, passCount, realLlmSummary, realRuntimeSummary, testStates, verdict]);
+  }, [architectureTruth, blockingRealGateSummary, brokenAt, codeDeltaTruth, compareRecords, effectiveTestStates, failCount, lastRunAt, lastRunScope, passCount, realLlmSummary, realRuntimeSummary, scopedStepIds, verdict]);
 
   const renderCompareProfileEditor = (
     side: 'left' | 'right',
@@ -2797,7 +3042,13 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
         <option value="codex-cli">Codex CLI</option>
       </select>
       <input
-        list={profile.route === 'openrouter' ? 'quality-openrouter-models' : undefined}
+        list={
+          profile.route === 'openrouter'
+            ? 'quality-openrouter-models'
+            : profile.route === 'standard-api'
+              ? 'quality-standard-models'
+              : undefined
+        }
         value={profile.model}
         onChange={e => setCompareProfile(side, { model: e.target.value })}
         placeholder={
@@ -2827,6 +3078,15 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
             : openRouterModels.length > 0
               ? `${openRouterModels.length} OpenRouter models available as suggestions.`
               : 'OpenRouter suggestions appear when an OpenRouter key is configured.'}
+        </div>
+      )}
+      {profile.route === 'standard-api' && (
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)' }}>
+          {standardProviderModelsLoading
+            ? `Loading ${primaryProvider} catalog…`
+            : standardProviderModels.length > 0
+              ? `${standardProviderModels.length} ${primaryProvider} models available as suggestions.`
+              : `${primaryProvider} models can be entered manually or suggested from the catalog when OpenRouter is configured.`}
         </div>
       )}
     </div>
@@ -2885,7 +3145,7 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
           >
             {anyRunning
               ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Running…</>
-              : <><Play size={12} /> Run All</>
+              : <><Play size={12} /> {compareEnabled ? 'Compare All' : 'Run All'}</>
             }
           </button>
           <button
@@ -2958,6 +3218,15 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
               ))}
             </datalist>
           )}
+          {standardProviderModels.length > 0 && (
+            <datalist id="quality-standard-models">
+              {standardProviderModels.slice(0, 250).map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </datalist>
+          )}
         </div>
       )}
 
@@ -2970,7 +3239,7 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
           >
             <TestRow
               def={def}
-              state={testStates[def.id as StepId]}
+              state={effectiveTestStates[def.id as StepId]}
               onRun={() => handleRunOne(def.id as StepId)}
               anyRunning={anyRunning}
               expanded={expanded[def.id as StepId]}
@@ -2979,11 +3248,11 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
               onCompare={() => void handleRunCompare(def.id as StepId)}
               compareDisabledReason={compareBlockedReason}
               compareRunning={compareRecords[def.id as StepId]?.state === 'running'}
-              hasCompareResult={Boolean(compareRecords[def.id as StepId] && compareRecords[def.id as StepId].state === 'done')}
+              hasCompareResult={compareRecords[def.id as StepId]?.state === 'done'}
               comparePanel={compareEnabled && activeCompareStepId === def.id && compareRecords[def.id as StepId] ? (
                 <CompareResultPanel
                   testId={def.id as StepId}
-                  record={compareRecords[def.id as StepId]}
+                  record={compareRecords[def.id as StepId]!}
                 />
               ) : null}
             />
@@ -3004,10 +3273,9 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
           <>
             <span>Last run: {lastRunStr}</span>
             {verdict && <span style={verdictBadgeStyle(verdict)}>{verdict}</span>}
-            <span>{passCount}/{STEP_DEFS.length}</span>
+            <span>{passCount}/{scopedStepIds.length}</span>
             <span>real-runtime {realRuntimeSummary.passCount}/{realRuntimeSummary.total}{realRuntimeSummary.verdict ? ` ${realRuntimeSummary.verdict}` : ''}</span>
             <span>real-llm {realLlmSummary.passCount}/{realLlmSummary.total}{realLlmSummary.verdict ? ` ${realLlmSummary.verdict}` : ''}</span>
-            <span>fixture {fixtureSummary.passCount}/{fixtureSummary.total}{fixtureSummary.verdict ? ` ${fixtureSummary.verdict}` : ''}</span>
             <span>arch truth {architectureTruth.verdict ?? 'PENDING'}</span>
             <span>delta truth {codeDeltaTruth.verdict ?? 'PENDING'}</span>
             {blockingRealGateSummary.failCount > 0 && (
