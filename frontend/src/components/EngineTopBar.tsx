@@ -66,6 +66,7 @@ export const EngineTopBar: React.FC<EngineTopBarProps> = ({
   // ── Backend status indicator ──────────────────────────────────────────────
   type BackendStatus = 'green' | 'yellow' | 'red';
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const [showConnectPopup, setShowConnectPopup] = useState(false);
   const connectBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -94,14 +95,32 @@ export const EngineTopBar: React.FC<EngineTopBarProps> = ({
       return;
     }
     if (backendStatus === 'yellow') {
+      setConnecting(true);
       try {
-        await fetch('http://127.0.0.1:3000/api/mode', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: 'standard' }),
-        });
-      } catch { /* ignore */ }
-      await checkBackend();
+        // Try /api/mode first (new endpoint), fall back to /dev-agent-mode (always exists)
+        let ok = false;
+        try {
+          const r = await fetch('http://127.0.0.1:3000/api/mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: 'standard' }),
+            signal: AbortSignal.timeout(3000),
+          });
+          ok = r.ok;
+        } catch { /* fall through */ }
+
+        if (!ok) {
+          await fetch('http://127.0.0.1:3000/dev-agent-mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: 'claude' }),
+            signal: AbortSignal.timeout(3000),
+          });
+        }
+      } catch { /* ignore network errors */ } finally {
+        setConnecting(false);
+        await checkBackend();
+      }
     }
   }, [backendStatus, checkBackend]);
 
@@ -205,15 +224,27 @@ export const EngineTopBar: React.FC<EngineTopBarProps> = ({
               <button
                 ref={connectBtnRef}
                 onClick={handleConnect}
+                disabled={connecting}
                 style={{
                   fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 5,
                   border: `1px solid ${backendStatus === 'yellow' ? 'rgba(251,191,36,0.4)' : 'rgba(248,113,113,0.4)'}`,
                   background: backendStatus === 'yellow' ? 'rgba(251,191,36,0.1)' : 'rgba(248,113,113,0.1)',
                   color: backendStatus === 'yellow' ? '#fbbf24' : '#f87171',
-                  cursor: 'pointer', whiteSpace: 'nowrap',
+                  cursor: connecting ? 'wait' : 'pointer',
+                  whiteSpace: 'nowrap',
+                  opacity: connecting ? 0.6 : 1,
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
                 }}
               >
-                Подключить
+                {connecting && (
+                  <span style={{
+                    display: 'inline-block', width: 8, height: 8,
+                    border: `1.5px solid ${backendStatus === 'yellow' ? '#fbbf24' : '#f87171'}`,
+                    borderTopColor: 'transparent', borderRadius: '50%',
+                    animation: 'spin 0.7s linear infinite',
+                  }} />
+                )}
+                {connecting ? 'Подключение…' : 'Подключить'}
               </button>
               {showConnectPopup && (
                 <div style={{
