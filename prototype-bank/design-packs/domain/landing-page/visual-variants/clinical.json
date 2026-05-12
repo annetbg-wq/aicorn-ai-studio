@@ -1,0 +1,12 @@
+{
+  "id": "clinical", "skeleton": "landing-page", "name": "Clinical",
+  "theme": "clinical-teal", "spacing": "spacious", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#0d9488",
+  "layout": "clean hero with compliance badges, feature list, trust signals",
+  "heroStyle": "professional photo + credibility badge, conservative headline",
+  "featureStyle": "list items with check icons, compliance language",
+  "ctaStyle": "teal button + 'Book a demo' secondary, HIPAA badge",
+  "radius": { "button": "8px", "card": "12px", "badge": "4px" },
+  "targetUsers": "healthcare providers, medical companies, health tech",
+  "referenceSource": "Arco medical, HyperUI healthcare"
+}

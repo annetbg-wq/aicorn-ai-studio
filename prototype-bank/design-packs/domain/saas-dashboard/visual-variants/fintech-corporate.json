@@ -1,0 +1,22 @@
+{
+  "id": "fintech-corporate",
+  "skeleton": "saas-dashboard",
+  "name": "Fintech Corporate",
+  "description": "Dark, data-dense dashboard. Indigo accents, tight spacing, number-first design.",
+  "theme": "fintech-indigo",
+  "componentSet": {
+    "sidebar": "sidebar-nav dark compact, monochrome icons",
+    "cards": "card compact padding, strong number typography",
+    "tables": "dense rows, sticky headers, sortable columns with indicators",
+    "buttons": "button/primary indigo, minimal secondary actions",
+    "charts": "real-time line charts, indigo + success/danger semantic fills"
+  },
+  "spacing": "compact",
+  "typography": "mono-technical",
+  "radius": { "sm": "4px", "md": "6px", "lg": "8px", "xl": "12px" },
+  "elevation": { "card": "border only, no shadow", "modal": "shadow-2xl dark", "sidebar": "border-r" },
+  "colorAccent": "#6366f1",
+  "motionPreset": "gentle",
+  "targetUsers": "traders, financial analysts, fintech product users, banking professionals",
+  "referenceSource": "Arco Design financial, shadcn/ui dark"
+}

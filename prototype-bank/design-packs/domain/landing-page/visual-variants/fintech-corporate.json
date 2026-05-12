@@ -1,0 +1,12 @@
+{
+  "id": "fintech-corporate", "skeleton": "landing-page", "name": "Fintech Corporate",
+  "theme": "fintech-indigo", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#6366f1",
+  "layout": "trust-first hero, stats row, feature grid, regulation logos",
+  "heroStyle": "dark hero with live data dashboard screenshot, bold metric strip",
+  "featureStyle": "compact 2-col feature grid with icons",
+  "ctaStyle": "indigo primary + phone input for waitlist, trust badges",
+  "radius": { "button": "6px", "card": "8px", "badge": "4px" },
+  "targetUsers": "fintech companies, banks, payment platforms",
+  "referenceSource": "Arco Design financial, shadcn/ui dark"
+}

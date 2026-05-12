@@ -1,0 +1,45 @@
+/*
+ * Theme: Fintech Indigo
+ * Mood: Corporate, authoritative, data-rich, dark
+ * Mode: Dark
+ * Suitable: fintech apps, trading platforms, investment dashboards, banking
+ */
+:root, [data-theme="fintech-indigo"] {
+  --vb-bg:             #0c0e1a;
+  --vb-bg-alt:         #10132a;
+  --vb-surface:        #141728;
+  --vb-surface-hover:  #1c2038;
+  --vb-surface-alt:    #1a1e33;
+  --vb-overlay:        rgba(0, 0, 0, 0.65);
+
+  --vb-border:         rgba(99, 102, 241, 0.15);
+  --vb-border-strong:  rgba(99, 102, 241, 0.30);
+  --vb-border-focus:   #6366f1;
+
+  --vb-text:           #e2e8f0;
+  --vb-text-muted:     #94a3b8;
+  --vb-text-subtle:    #64748b;
+  --vb-text-inverse:   #0c0e1a;
+
+  --vb-accent:         #6366f1;
+  --vb-accent-fg:      #ffffff;
+  --vb-accent-hover:   #4f46e5;
+  --vb-accent-subtle:  rgba(99, 102, 241, 0.12);
+
+  --vb-success:        #10b981;
+  --vb-success-fg:     #ffffff;
+  --vb-success-subtle: rgba(16, 185, 129, 0.12);
+  --vb-warning:        #f59e0b;
+  --vb-warning-fg:     #ffffff;
+  --vb-warning-subtle: rgba(245, 158, 11, 0.12);
+  --vb-danger:         #ef4444;
+  --vb-danger-fg:      #ffffff;
+  --vb-danger-subtle:  rgba(239, 68, 68, 0.12);
+  --vb-info:           #38bdf8;
+  --vb-info-fg:        #ffffff;
+  --vb-info-subtle:    rgba(56, 189, 248, 0.12);
+
+  --vb-radius-md:      6px;
+  --vb-radius-lg:      10px;
+  --vb-radius-xl:      14px;
+}

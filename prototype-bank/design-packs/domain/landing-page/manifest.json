@@ -1,0 +1,8 @@
+{
+  "id": "landing-page",
+  "skeleton": "landing-page",
+  "skeletonPath": "skeletons/landing-page/",
+  "description": "Visual variants for landing page skeleton. Hero, features, pricing, CTA.",
+  "variantCount": 8,
+  "variants": ["calm","premium-dark","playful","clinical","fintech-corporate","creator-social","minimal-brutal","mobile-soft"]
+}

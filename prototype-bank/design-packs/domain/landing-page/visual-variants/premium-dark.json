@@ -1,0 +1,12 @@
+{
+  "id": "premium-dark", "skeleton": "landing-page", "name": "Premium Dark",
+  "theme": "fintech-indigo", "spacing": "spacious", "typography": "display-editorial",
+  "motionPreset": "gentle", "colorAccent": "#6366f1",
+  "layout": "full-bleed dark hero with glow, glassmorphism cards, bold pricing",
+  "heroStyle": "massive display headline, gradient text, product screenshot glow",
+  "featureStyle": "dark cards with glow border, icon in circle",
+  "ctaStyle": "indigo CTA button, animated glow ring",
+  "radius": { "button": "8px", "card": "16px", "badge": "full" },
+  "targetUsers": "AI tools, dev tools, enterprise SaaS",
+  "referenceSource": "shadcn/ui dark, Arco Design enterprise"
+}

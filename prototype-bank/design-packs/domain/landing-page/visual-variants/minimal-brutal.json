@@ -1,0 +1,12 @@
+{
+  "id": "minimal-brutal", "skeleton": "landing-page", "name": "Minimal Brutal",
+  "theme": "neutral", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "instant", "colorAccent": "#18181b",
+  "layout": "newspaper-column layout, thick borders, stark black/white",
+  "heroStyle": "oversized serif-style headline, monochrome, no illustration",
+  "featureStyle": "numbered list, thick border separators",
+  "ctaStyle": "inverted black button, stark hover state",
+  "radius": { "button": "0px", "card": "0px", "badge": "0px" },
+  "targetUsers": "indie hackers, dev tools, design-forward startups",
+  "referenceSource": "HyperUI brutal, shadcn/ui minimal"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "comfortable",
+  "name": "Comfortable Spacing",
+  "description": "Standard, balanced spacing. General SaaS, productivity, most apps.",
+  "componentPadding": { "sm": "8px 14px", "md": "10px 18px", "lg": "12px 24px" },
+  "cardPadding": "24px",
+  "sectionGap": "40px",
+  "listItemGap": "4px",
+  "inputHeight": "38px",
+  "iconSize": "16px",
+  "avatarSize": "36px",
+  "typographyScale": 1.0
+}

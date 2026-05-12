@@ -1,0 +1,22 @@
+{
+  "id": "minimal-brutal",
+  "skeleton": "saas-dashboard",
+  "name": "Minimal Brutal",
+  "description": "Neo-brutalist. High contrast, strong borders, almost no radius, unapologetic.",
+  "theme": "neutral",
+  "componentSet": {
+    "sidebar": "solid border-r 2px, no rounded corners, strong contrast items",
+    "cards": "card with thick border, square corners, stark shadow offset",
+    "tables": "thick header border, all-caps labels, no stripes",
+    "buttons": "button/outline with 2px border, square corners",
+    "charts": "flat bar charts, high contrast fills, no gradients"
+  },
+  "spacing": "comfortable",
+  "typography": "sans-technical",
+  "radius": { "sm": "0px", "md": "2px", "lg": "4px", "xl": "6px" },
+  "elevation": { "card": "4px 4px 0px var(--vb-text)", "modal": "8px 8px 0px var(--vb-text)", "sidebar": "none" },
+  "colorAccent": "#18181b",
+  "motionPreset": "instant",
+  "targetUsers": "indie hackers, developers, design-forward product teams",
+  "referenceSource": "HyperUI brutal examples, shadcn/ui minimal"
+}

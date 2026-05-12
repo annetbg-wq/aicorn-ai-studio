@@ -1,0 +1,12 @@
+{
+  "id": "calm", "skeleton": "landing-page", "name": "Calm",
+  "theme": "neutral", "spacing": "spacious", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#18181b",
+  "layout": "centered hero, 3-col features, simple pricing table, footer",
+  "heroStyle": "large centered headline, muted subtitle, dual CTA row",
+  "featureStyle": "icon + title + text, no borders",
+  "ctaStyle": "inline form, primary + ghost button pair",
+  "radius": { "button": "10px", "card": "16px", "badge": "full" },
+  "targetUsers": "B2B SaaS, productivity tools",
+  "referenceSource": "HyperUI marketing, shadcn/ui landing"
+}

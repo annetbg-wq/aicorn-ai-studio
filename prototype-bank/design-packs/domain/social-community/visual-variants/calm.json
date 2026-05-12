@@ -1,0 +1,13 @@
+{
+  "id": "calm", "skeleton": "social-community", "name": "Calm",
+  "theme": "neutral", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#18181b",
+  "layout": "3-col: left sidebar nav, center feed, right panel for trending/members",
+  "feedStyle": "feed-item with avatar, border-b separator, clean like/comment/repost row",
+  "profileStyle": "clean profile header with cover image, stats row, tabbed content",
+  "messagingStyle": "split pane: conversation list left, message thread right, minimal bubbles",
+  "communityStyle": "member grid, pinned posts, role badges, join CTA",
+  "radius": { "card": "12px", "avatar": "full", "button": "10px", "bubble": "16px" },
+  "targetUsers": "professional communities, niche interest groups, B2B networking",
+  "referenceSource": "HyperUI social, shadcn/ui community patterns"
+}

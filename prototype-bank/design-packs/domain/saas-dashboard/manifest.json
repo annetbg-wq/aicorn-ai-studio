@@ -1,0 +1,8 @@
+{
+  "id": "saas-dashboard",
+  "skeleton": "saas-dashboard",
+  "skeletonPath": "skeletons/saas-dashboard/",
+  "description": "Visual variants for SaaS dashboard skeleton. Data-heavy, sidebar nav, multi-section.",
+  "variantCount": 8,
+  "variants": ["calm","premium-dark","playful","clinical","fintech-corporate","creator-social","minimal-brutal","mobile-soft"]
+}

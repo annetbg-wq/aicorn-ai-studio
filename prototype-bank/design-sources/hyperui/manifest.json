@@ -1,0 +1,14 @@
+{
+  "id": "hyperui",
+  "name": "HyperUI",
+  "version": "latest",
+  "url": "https://github.com/markmead/hyperui",
+  "license": "MIT",
+  "licenseUrl": "https://github.com/markmead/hyperui/blob/main/LICENSE",
+  "suitable_for_local_import": true,
+  "description": "Free open source Tailwind CSS components for use in your next project. 500+ components across 50+ categories.",
+  "import_strategy": "normalized-reference",
+  "curated_categories": ["dashboard blocks", "feed blocks", "onboarding blocks", "navigation", "stats", "profile sections"],
+  "normalizedInto": ["surfaces/blocks", "domain/*/visual-variants"],
+  "verified_date": "2026-05"
+}

@@ -15,6 +15,7 @@ export type ModuleId =
   | 'trend-niches'
   | 'code-studio'
   | 'terminal'
-  | 'db-console';
+  | 'db-console'
+  | 'visual-bank';
 
 export type ViewId = 'dashboard' | ModuleId;

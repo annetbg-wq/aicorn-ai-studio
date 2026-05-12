@@ -1,0 +1,13 @@
+{
+  "id": "fintech-corporate", "skeleton": "ecommerce", "name": "Fintech Corporate",
+  "theme": "fintech-indigo", "spacing": "compact", "typography": "mono-technical",
+  "motionPreset": "gentle", "colorAccent": "#6366f1",
+  "layout": "data-table product list, quick-buy flow, order management dashboard",
+  "productGridStyle": "dense list view with SKU, price columns, bulk-select checkboxes",
+  "cartStyle": "inline cart panel, subtotal + tax breakdown, PO number field",
+  "checkoutStyle": "corporate checkout with billing account, net-30 payment option",
+  "productDetailStyle": "spec sheet style, data table attributes, volume pricing tiers",
+  "radius": { "button": "4px", "card": "6px", "badge": "4px", "image": "4px" },
+  "targetUsers": "B2B procurement, wholesale buyers, enterprise purchasing teams",
+  "referenceSource": "Arco Design B2B, shadcn/ui admin"
+}

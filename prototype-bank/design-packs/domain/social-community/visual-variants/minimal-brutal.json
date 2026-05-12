@@ -1,0 +1,13 @@
+{
+  "id": "minimal-brutal", "skeleton": "social-community", "name": "Minimal Brutal",
+  "theme": "neutral", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "instant", "colorAccent": "#18181b",
+  "layout": "HN-style link list, thick borders, no avatars optional, pure text focus",
+  "feedStyle": "numbered post rows, upvote arrow left, domain badge, comment count",
+  "profileStyle": "stark profile: username + karma + join date, no cover image, post list",
+  "messagingStyle": "plain text DM, monospace font option, no media previews",
+  "communityStyle": "text-only community pages, rules sidebar, submission form prominent",
+  "radius": { "card": "0px", "avatar": "4px", "button": "2px", "bubble": "4px" },
+  "targetUsers": "developer forums, hacker communities, link aggregators, discussion boards",
+  "referenceSource": "shadcn/ui minimal, HyperUI brutal"
+}

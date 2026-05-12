@@ -1,0 +1,11 @@
+{
+  "id": "playful", "skeleton": "mobile-app", "name": "Playful",
+  "theme": "playful-coral", "spacing": "spacious", "typography": "soft-rounded",
+  "motionPreset": "expressive", "colorAccent": "#f97316",
+  "layout": "bottom-nav coral accents, card-grid with rounded corners, large CTA",
+  "radius": { "card": "24px", "button": "20px", "input": "16px", "nav": "0px" },
+  "elevation": { "card": "shadow-lg warm", "navbar": "border-top warm", "modal": "bottom-sheet rounded-top" },
+  "componentSet": { "nav": "mobile-nav/coral-dot-indicator", "feed": "card-grid 2col", "cta": "button/primary coral full-width" },
+  "targetUsers": "younger consumers, food delivery, social, lifestyle",
+  "referenceSource": "HyperUI consumer mobile, daisyUI playful"
+}

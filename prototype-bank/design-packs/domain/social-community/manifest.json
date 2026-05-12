@@ -1,0 +1,8 @@
+{
+  "id": "social-community",
+  "skeleton": "social-community",
+  "skeletonPath": "skeletons/social-community/",
+  "description": "Visual variants for social community skeleton. Feed, profiles, messaging.",
+  "variantCount": 8,
+  "variants": ["calm","premium-dark","playful","clinical","fintech-corporate","creator-social","minimal-brutal","mobile-soft"]
+}

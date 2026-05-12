@@ -3,7 +3,7 @@
  */
 
 import React, { useState } from 'react';
-import { LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, BarChart2, FolderOpen, Code2, Database, FlaskConical } from 'lucide-react';
+import { LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, BarChart2, FolderOpen, Code2, Database, FlaskConical, Layers } from 'lucide-react';
 import type { ModuleId, ViewId } from '../shared/types';
 import { isCreatorMode } from '../services/internalAccess';
 
@@ -24,6 +24,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'quality',      icon: FlaskConical,  label: 'Quality',            available: true  },
   { id: 'code-studio', icon: Code2,          label: 'Code Studio',        available: true  },
   { id: 'db-console',  icon: Database,       label: 'DB Console',         available: true  },
+  { id: 'visual-bank', icon: Layers,          label: 'Visual Bank',        available: true  },
   { id: 'cloud',        icon: Cloud,         label: 'Cloud & Backend',    available: false },
   { id: 'package',   icon: Rocket,        label: 'Packaging & Ship',   available: false },
   { id: 'growth',    icon: TrendingUp,    label: 'Growth & Marketing', available: false },

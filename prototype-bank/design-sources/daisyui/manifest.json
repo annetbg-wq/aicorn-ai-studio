@@ -1,0 +1,14 @@
+{
+  "id": "daisyui",
+  "name": "daisyUI",
+  "version": "4.x",
+  "url": "https://github.com/saadeghi/daisyui",
+  "license": "MIT",
+  "licenseUrl": "https://github.com/saadeghi/daisyui/blob/master/LICENSE",
+  "suitable_for_local_import": true,
+  "description": "The most popular component library for Tailwind CSS. 56 UI components, themes, and variants.",
+  "import_strategy": "normalized-reference",
+  "curated_categories": ["primitives", "lists", "cards", "mobile-nav", "progress", "badges"],
+  "normalizedInto": ["surfaces/primitives", "surfaces/cards", "foundation/themes"],
+  "verified_date": "2026-05"
+}

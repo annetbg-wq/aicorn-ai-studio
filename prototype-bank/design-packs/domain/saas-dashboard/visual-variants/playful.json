@@ -1,0 +1,22 @@
+{
+  "id": "playful",
+  "skeleton": "saas-dashboard",
+  "name": "Playful",
+  "description": "Warm coral tones, rounded UI, higher contrast. For consumer-adjacent SaaS.",
+  "theme": "playful-coral",
+  "componentSet": {
+    "sidebar": "sidebar-nav with coral accent highlights, rounded items",
+    "cards": "card with higher radius, subtle warm shadows",
+    "tables": "rounded row groups, colored status badges",
+    "buttons": "button/primary coral, button/secondary warm neutral",
+    "charts": "multi-color, coral primary with warm secondaries"
+  },
+  "spacing": "spacious",
+  "typography": "soft-rounded",
+  "radius": { "sm": "10px", "md": "16px", "lg": "22px", "xl": "30px" },
+  "elevation": { "card": "shadow-md", "modal": "shadow-xl", "sidebar": "shadow-sm" },
+  "colorAccent": "#f97316",
+  "motionPreset": "expressive",
+  "targetUsers": "small business, freelancers, consumer-adjacent teams",
+  "referenceSource": "HyperUI consumer panels, daisyUI playful themes"
+}

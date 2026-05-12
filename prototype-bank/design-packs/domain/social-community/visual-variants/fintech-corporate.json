@@ -1,0 +1,13 @@
+{
+  "id": "fintech-corporate", "skeleton": "social-community", "name": "Fintech Corporate",
+  "theme": "fintech-indigo", "spacing": "compact", "typography": "mono-technical",
+  "motionPreset": "gentle", "colorAccent": "#6366f1",
+  "layout": "dark compact feed, market sentiment indicators, deal-flow discussion threads",
+  "feedStyle": "compact post rows with ticker symbols, price change indicators, vote counts",
+  "profileStyle": "investor profile with verified badge, portfolio stats, track record",
+  "messagingStyle": "secure DM with encryption indicator, file sharing for term sheets",
+  "communityStyle": "deal room layout, NDA-required content lock, member accreditation badge",
+  "radius": { "card": "6px", "avatar": "full", "button": "4px", "bubble": "8px" },
+  "targetUsers": "fintech professional networks, investor communities, trading forums",
+  "referenceSource": "Arco Design financial community, shadcn/ui dark"
+}

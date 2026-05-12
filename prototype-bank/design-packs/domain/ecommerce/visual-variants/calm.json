@@ -1,0 +1,13 @@
+{
+  "id": "calm", "skeleton": "ecommerce", "name": "Calm",
+  "theme": "neutral", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#18181b",
+  "layout": "3-col product grid, top nav, side filter panel, clean cart drawer",
+  "productGridStyle": "card with subtle shadow, image top, title + price below, hover overlay with add-to-cart",
+  "cartStyle": "side drawer with list-item rows, compact totals, single CTA",
+  "checkoutStyle": "2-col form + order summary, step indicator at top",
+  "productDetailStyle": "2-col layout, image gallery left, info right, sticky add-to-cart bar",
+  "radius": { "button": "10px", "card": "12px", "badge": "full", "image": "8px" },
+  "targetUsers": "general retail shoppers, home goods, everyday products",
+  "referenceSource": "HyperUI ecommerce, shadcn/ui storefront"
+}

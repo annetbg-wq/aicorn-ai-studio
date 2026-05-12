@@ -1,0 +1,8 @@
+{
+  "id": "ecommerce",
+  "skeleton": "ecommerce",
+  "skeletonPath": "skeletons/ecommerce/",
+  "description": "Visual variants for ecommerce skeleton. Product grid, cart, checkout.",
+  "variantCount": 8,
+  "variants": ["calm","premium-dark","playful","clinical","fintech-corporate","creator-social","minimal-brutal","mobile-soft"]
+}

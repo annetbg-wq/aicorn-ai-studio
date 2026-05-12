@@ -1,0 +1,13 @@
+{
+  "id": "mobile-soft", "skeleton": "social-community", "name": "Mobile Soft",
+  "theme": "soft-womens-health", "spacing": "spacious", "typography": "soft-rounded",
+  "motionPreset": "expressive", "colorAccent": "#ec4899",
+  "layout": "mobile bottom-nav social: feed / discover / messages / profile, full-screen stories",
+  "feedStyle": "soft card feed with pink hearts reaction, rounded avatar, gentle border",
+  "profileStyle": "soft profile with lavender cover, pink follower stats, warm content grid",
+  "messagingStyle": "pink sent bubbles, lavender received, emoji keyboard default open",
+  "communityStyle": "circle group layout, pink join button, member avatar stack, warm welcome screen",
+  "radius": { "card": "28px", "avatar": "full", "button": "24px", "bubble": "28px" },
+  "targetUsers": "women's wellness community, support groups, motherhood networks, mental health circles",
+  "referenceSource": "WeUI mobile social, daisyUI soft"
+}

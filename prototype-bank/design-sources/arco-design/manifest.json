@@ -1,0 +1,14 @@
+{
+  "id": "arco-design",
+  "name": "Arco Design",
+  "version": "2.x",
+  "url": "https://github.com/arco-design/arco-design",
+  "license": "MIT",
+  "licenseUrl": "https://github.com/arco-design/arco-design/blob/main/LICENSE",
+  "suitable_for_local_import": true,
+  "description": "ByteDance's open-source design system. Comprehensive React/Vue component library with enterprise-grade design.",
+  "import_strategy": "normalized-reference",
+  "curated_categories": ["data tables", "stats blocks", "dashboard layouts", "form inputs", "tabs"],
+  "normalizedInto": ["surfaces/blocks", "domain/saas-dashboard/visual-variants"],
+  "verified_date": "2026-05"
+}

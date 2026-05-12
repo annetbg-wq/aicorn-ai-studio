@@ -1,0 +1,14 @@
+{
+  "id": "shadcn-ui",
+  "name": "shadcn/ui",
+  "version": "2.x",
+  "url": "https://github.com/shadcn-ui/ui",
+  "license": "MIT",
+  "licenseUrl": "https://github.com/shadcn-ui/ui/blob/main/LICENSE.md",
+  "suitable_for_local_import": true,
+  "description": "Beautifully designed components built with Radix UI and Tailwind CSS. Copy-paste components, not a component library.",
+  "import_strategy": "normalized-reference",
+  "curated_categories": ["primitives", "cards", "inputs", "tabs", "sheets", "dialogs", "stats"],
+  "normalizedInto": ["surfaces/primitives", "surfaces/cards", "surfaces/blocks"],
+  "verified_date": "2026-05"
+}

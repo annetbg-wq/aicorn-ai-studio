@@ -1,0 +1,45 @@
+/*
+ * Theme: Soft Women's Health
+ * Mood: Gentle, warm, trustworthy, inclusive
+ * Mode: Light
+ * Suitable: women's health apps, fertility tracking, wellness, self-care, mental health
+ */
+:root, [data-theme="soft-womens-health"] {
+  --vb-bg:             #fdf8fb;
+  --vb-bg-alt:         #fce7f3;
+  --vb-surface:        #ffffff;
+  --vb-surface-hover:  #fdf8fb;
+  --vb-surface-alt:    #fbd5e8;
+  --vb-overlay:        rgba(80, 10, 50, 0.35);
+
+  --vb-border:         rgba(236, 72, 153, 0.12);
+  --vb-border-strong:  rgba(236, 72, 153, 0.24);
+  --vb-border-focus:   #ec4899;
+
+  --vb-text:           #4a0826;
+  --vb-text-muted:     #9d174d;
+  --vb-text-subtle:    #fbcfe8;
+  --vb-text-inverse:   #ffffff;
+
+  --vb-accent:         #ec4899;
+  --vb-accent-fg:      #ffffff;
+  --vb-accent-hover:   #db2777;
+  --vb-accent-subtle:  #fdf2f8;
+
+  --vb-success:        #16a34a;
+  --vb-success-fg:     #ffffff;
+  --vb-success-subtle: #f0fdf4;
+  --vb-warning:        #d97706;
+  --vb-warning-fg:     #ffffff;
+  --vb-warning-subtle: #fffbeb;
+  --vb-danger:         #dc2626;
+  --vb-danger-fg:      #ffffff;
+  --vb-danger-subtle:  #fef2f2;
+  --vb-info:           #7c3aed;
+  --vb-info-fg:        #ffffff;
+  --vb-info-subtle:    #f5f3ff;
+
+  --vb-radius-md:      14px;
+  --vb-radius-lg:      22px;
+  --vb-radius-xl:      30px;
+}

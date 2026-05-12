@@ -1,0 +1,22 @@
+{
+  "id": "creator-social",
+  "skeleton": "saas-dashboard",
+  "name": "Creator / Social",
+  "description": "Analytics dashboard for content creators. Vibrant, media-first, engagement-focused.",
+  "theme": "cool-blue",
+  "componentSet": {
+    "sidebar": "sidebar-nav with avatar + channel branding area at top",
+    "cards": "card with media thumbnails, view/like/share metrics prominent",
+    "tables": "content list with thumbnail column, status badges",
+    "buttons": "button/primary blue for publish actions",
+    "charts": "multi-color engagement charts, follower growth curves"
+  },
+  "spacing": "comfortable",
+  "typography": "display-editorial",
+  "radius": { "sm": "8px", "md": "12px", "lg": "18px", "xl": "24px" },
+  "elevation": { "card": "shadow-md", "modal": "shadow-xl", "sidebar": "shadow-sm" },
+  "colorAccent": "#2563eb",
+  "motionPreset": "expressive",
+  "targetUsers": "YouTubers, streamers, influencers, newsletter writers",
+  "referenceSource": "Semi Design creator, HyperUI analytics"
+}

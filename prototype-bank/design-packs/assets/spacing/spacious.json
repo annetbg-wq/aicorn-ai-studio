@@ -1,0 +1,13 @@
+{
+  "id": "spacious",
+  "name": "Spacious Spacing",
+  "description": "Generous, airy layouts. Consumer apps, landing pages, wellness, luxury.",
+  "componentPadding": { "sm": "10px 18px", "md": "14px 24px", "lg": "18px 32px" },
+  "cardPadding": "32px",
+  "sectionGap": "64px",
+  "listItemGap": "8px",
+  "inputHeight": "46px",
+  "iconSize": "20px",
+  "avatarSize": "44px",
+  "typographyScale": 1.1
+}

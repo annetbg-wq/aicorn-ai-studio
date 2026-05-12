@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visual Bank — AI Studio Design Library</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #09090b;
+      --surface: #111113;
+      --surface-alt: #18181b;
+      --border: rgba(255,255,255,0.07);
+      --border-strong: rgba(255,255,255,0.14);
+      --text: #e5e5ea;
+      --muted: #71717a;
+      --subtle: #3f3f46;
+      --accent: #a78bfa;
+      --accent-dim: rgba(167,139,250,0.12);
+      --success: #4ade80;
+      --success-dim: rgba(74,222,128,0.12);
+      --warning: #fbbf24;
+      --warning-dim: rgba(251,191,36,0.12);
+      --danger: #f87171;
+      --font: 'Inter', system-ui, sans-serif;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    .layout { display: flex; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 240px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar-logo {
+      padding: 20px 16px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-logo h1 { font-size: 15px; font-weight: 700; color: var(--text); }
+    .sidebar-logo p  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    .sidebar-nav { padding: 12px 8px; flex: 1; }
+    .nav-section-title {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--subtle);
+      padding: 8px 8px 4px;
+    }
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--muted);
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+    }
+    .nav-link:hover { background: var(--surface-alt); color: var(--text); }
+    .nav-link.active { background: var(--accent-dim); color: var(--accent); }
+    .nav-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Main */
+    .main { flex: 1; min-width: 0; }
+    .main-header {
+      padding: 28px 36px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .main-header h2 { font-size: 22px; font-weight: 700; color: var(--text); }
+    .main-header p  { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .badge-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 9999px; font-size: 11px; font-weight: 500;
+    }
+    .badge-green { background: var(--success-dim); color: var(--success); }
+    .badge-purple { background: var(--accent-dim); color: var(--accent); }
+    .badge-yellow { background: var(--warning-dim); color: var(--warning); }
+
+    .main-content { padding: 28px 36px; }
+    .section { margin-bottom: 48px; }
+    .section-title {
+      font-size: 16px; font-weight: 700; color: var(--text);
+      margin-bottom: 4px;
+    }
+    .section-sub { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+
+    /* Source cards */
+    .source-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+    .source-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      transition: border-color 0.15s;
+    }
+    .source-card:hover { border-color: var(--border-strong); }
+    .source-name { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+    .source-meta { font-size: 11px; color: var(--muted); margin-bottom: 10px; display: flex; gap: 12px; }
+    .source-lic { font-size: 11px; font-weight: 600; color: var(--success); background: var(--success-dim); padding: 2px 8px; border-radius: 4px; }
+    .source-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .source-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+    .tag { font-size: 10px; padding: 2px 8px; border-radius: 4px; background: var(--surface-alt); color: var(--muted); border: 1px solid var(--border); }
+
+    /* Theme cards */
+    .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+    .theme-card {
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--border);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .theme-card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+    .theme-swatch { height: 80px; display: flex; align-items: center; justify-content: center; }
+    .theme-swatch-inner {
+      width: 48px; height: 48px; border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.15);
+    }
+    .theme-info { padding: 12px 14px; background: var(--surface); }
+    .theme-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .theme-mood { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .theme-mode { font-size: 10px; font-weight: 500; margin-top: 6px;
+      display: inline-block; padding: 2px 8px; border-radius: 4px; }
+    .theme-mode.light { background: rgba(255,255,255,0.08); color: #a1a1aa; }
+    .theme-mode.dark  { background: rgba(167,139,250,0.12); color: var(--accent); }
+
+    /* File list */
+    .file-tree { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .file-tree-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--muted); font-family: monospace; }
+    .file-item { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border); font-size: 12px; font-family: monospace; }
+    .file-item:last-child { border-bottom: none; }
+    .file-item:hover { background: var(--surface-alt); }
+    .file-icon { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.6; }
+    .file-path { color: var(--muted); flex: 1; }
+    .file-path strong { color: var(--text); font-weight: 500; }
+    .file-size { color: var(--subtle); font-size: 10px; }
+
+    /* Variant comparison */
+    .variant-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+    .variant-card {
+      border-radius: 12px; border: 1px solid var(--border);
+      overflow: hidden; transition: border-color 0.15s;
+    }
+    .variant-card:hover { border-color: var(--border-strong); }
+    .variant-preview {
+      height: 120px; padding: 14px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .vp-header { display: flex; align-items: center; justify-content: space-between; }
+    .vp-bar { height: 6px; border-radius: 3px; opacity: 0.6; }
+    .vp-cards { display: flex; gap: 6px; flex: 1; align-items: flex-end; }
+    .vp-card-mini { flex: 1; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); }
+    .variant-meta { padding: 10px 14px; background: var(--surface); border-top: 1px solid var(--border); }
+    .variant-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .variant-theme { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .variant-tags-row { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+
+    /* Stats row */
+    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 32px; }
+    .stat-block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+    .stat-num { font-size: 28px; font-weight: 800; color: var(--text); line-height: 1; }
+    .stat-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* Color ramps */
+    .ramp-row { display: flex; gap: 2px; border-radius: 8px; overflow: hidden; height: 36px; }
+    .ramp-swatch { flex: 1; }
+    .ramp-item { margin-bottom: 10px; }
+    .ramp-name { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .main-header, .main-content { padding-left: 20px; padding-right: 20px; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <h1>🎨 Visual Bank</h1>
+      <p>AI Studio Design Library</p>
+    </div>
+    <div class="sidebar-nav">
+      <div class="nav-section-title">Overview</div>
+      <a class="nav-link active" onclick="showSection('overview')">
+        <span class="nav-dot" style="background:#a78bfa"></span> Dashboard
+      </a>
+
+      <div class="nav-section-title" style="margin-top:12px">Sources</div>
+      <a class="nav-link" onclick="showSection('sources')">
+        <span class="nav-dot" style="background:#4ade80"></span> 6 MIT Sources
+      </a>
+      <a class="nav-link" onclick="showSection('licenses')">
+        <span class="nav-dot" style="background:#4ade80"></span> License Records
+      </a>
+
+      <div class="nav-section-title" style="margin-top:12px">Foundation</div>
+      <a class="nav-link" onclick="showSection('themes')">
+        <span class="nav-dot" style="background:#60a5fa"></span> 8 Color Themes
+      </a>
+      <a class="nav-link" onclick="showSection('tokens')">
+        <span class="nav-dot" style="background:#60a5fa"></span> Design Tokens
+      </a>
+      <a class="nav-link" onclick="showSection('components')">
+        <span class="nav-dot" style="background:#60a5fa"></span> Components
+      </a>
+
+      <div class="nav-section-title" style="margin-top:12px">Variants</div>
+      <a class="nav-link" onclick="showSection('saas')">
+        <span class="nav-dot" style="background:#fbbf24"></span> SaaS Dashboard
+      </a>
+      <a class="nav-link" onclick="showSection('mobile')">
+        <span class="nav-dot" style="background:#fbbf24"></span> Mobile App
+      </a>
+      <a class="nav-link" onclick="showSection('landing')">
+        <span class="nav-dot" style="background:#fbbf24"></span> Landing Page
+      </a>
+      <a class="nav-link" onclick="showSection('ecommerce')">
+        <span class="nav-dot" style="background:#fbbf24"></span> Ecommerce
+      </a>
+      <a class="nav-link" onclick="showSection('social')">
+        <span class="nav-dot" style="background:#fbbf24"></span> Social / Community
+      </a>
+
+      <div class="nav-section-title" style="margin-top:12px">Assets</div>
+      <a class="nav-link" onclick="showSection('colors')">
+        <span class="nav-dot" style="background:#fb923c"></span> Color Ramps
+      </a>
+      <a class="nav-link" onclick="showSection('files')">
+        <span class="nav-dot" style="background:#fb923c"></span> File Index
+      </a>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="main">
+    <!-- Overview section -->
+    <div id="section-overview">
+      <div class="main-header">
+        <h2>Visual Bank — Design Library Overview</h2>
+        <p>Real file-based visual materials. Sources verified, licensed, normalized to studio contracts.</p>
+        <div class="badge-row">
+          <span class="badge badge-green">✓ 6 MIT Sources</span>
+          <span class="badge badge-green">✓ 8 Color Themes</span>
+          <span class="badge badge-purple">✓ 75+ Component Files</span>
+          <span class="badge badge-yellow">✓ 40 Visual Variants</span>
+          <span class="badge badge-yellow">✓ 5 Skeletons Covered</span>
+        </div>
+      </div>
+      <div class="main-content">
+        <div class="stats-row">
+          <div class="stat-block">
+            <div class="stat-num">6</div>
+            <div class="stat-label">MIT-Licensed Sources</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-num">8</div>
+            <div class="stat-label">Color Theme Systems</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-num">40</div>
+            <div class="stat-label">Visual Variants</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-num">17</div>
+            <div class="stat-label">Component TSX Files</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-num">5</div>
+            <div class="stat-label">Skeletons Covered</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-num">~120</div>
+            <div class="stat-label">Total Files</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Bank Structure</div>
+          <div class="section-sub">Physical file layout in prototype-bank/</div>
+          <div class="file-tree">
+            <div class="file-tree-header">prototype-bank/</div>
+            <div class="file-item"><span class="file-path">├── <strong>design-sources/</strong></span><span class="file-size">12 files</span></div>
+            <div class="file-item"><span class="file-path">│   ├── shadcn-ui/ — manifest.json, license.md</span></div>
+            <div class="file-item"><span class="file-path">│   ├── hyperui/ — manifest.json, license.md</span></div>
+            <div class="file-item"><span class="file-path">│   ├── daisyui/ — manifest.json, license.md</span></div>
+            <div class="file-item"><span class="file-path">│   ├── arco-design/ — manifest.json, license.md</span></div>
+            <div class="file-item"><span class="file-path">│   ├── semi-design/ — manifest.json, license.md</span></div>
+            <div class="file-item"><span class="file-path">│   └── weui/ — manifest.json, license.md</span></div>
+            <div class="file-item"><span class="file-path">├── <strong>design-packs/</strong></span></div>
+            <div class="file-item"><span class="file-path">│   ├── <strong>foundation/</strong></span><span class="file-size">6 files</span></div>
+            <div class="file-item"><span class="file-path">│   │   ├── tokens.css, typography.css, elevation.css, spacing.json</span></div>
+            <div class="file-item"><span class="file-path">│   │   └── themes/ — 8 color system CSS files</span></div>
+            <div class="file-item"><span class="file-path">│   ├── <strong>surfaces/</strong></span><span class="file-size">17 files</span></div>
+            <div class="file-item"><span class="file-path">│   │   ├── primitives/ — button, input, card, badge, avatar, tabs</span></div>
+            <div class="file-item"><span class="file-path">│   │   ├── cards/ — stat-card, profile-card, metric-card, list-item</span></div>
+            <div class="file-item"><span class="file-path">│   │   └── blocks/ — dashboard-header, mobile-nav, onboarding-step, feed-item, stats-progress, sidebar-nav</span></div>
+            <div class="file-item"><span class="file-path">│   ├── <strong>domain/</strong></span><span class="file-size">45 files</span></div>
+            <div class="file-item"><span class="file-path">│   │   ├── saas-dashboard/ — 8 visual variants</span></div>
+            <div class="file-item"><span class="file-path">│   │   ├── mobile-app/ — 8 visual variants</span></div>
+            <div class="file-item"><span class="file-path">│   │   ├── landing-page/ — 8 visual variants</span></div>
+            <div class="file-item"><span class="file-path">│   │   ├── ecommerce/ — 8 visual variants</span></div>
+            <div class="file-item"><span class="file-path">│   │   └── social-community/ — 8 visual variants</span></div>
+            <div class="file-item"><span class="file-path">│   └── <strong>assets/</strong></span><span class="file-size">13 files</span></div>
+            <div class="file-item"><span class="file-path">│       ├── color-ramps/ — 8 JSON color systems</span></div>
+            <div class="file-item"><span class="file-path">│       ├── spacing/ — compact, comfortable, spacious</span></div>
+            <div class="file-item"><span class="file-path">│       ├── typography/ — presets.json</span></div>
+            <div class="file-item"><span class="file-path">│       └── motion/ — presets.json</span></div>
+            <div class="file-item"><span class="file-path">└── <strong>visual-bank-showcase.html</strong> ← you are here</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sources section -->
+    <div id="section-sources" style="display:none">
+      <div class="main-header">
+        <h2>Design Sources</h2>
+        <p>All sources verified MIT-licensed before import. License records stored in design-sources/.</p>
+        <div class="badge-row">
+          <span class="badge badge-green">✓ All MIT License</span>
+          <span class="badge badge-green">✓ Local import safe</span>
+          <span class="badge badge-green">✓ Commercial use allowed</span>
+        </div>
+      </div>
+      <div class="main-content">
+        <div class="source-grid">
+          <div class="source-card">
+            <div class="source-name">shadcn/ui</div>
+            <div class="source-meta">
+              <span class="source-lic">MIT</span>
+              <span>github.com/shadcn-ui/ui</span>
+            </div>
+            <div class="source-desc">Beautifully designed components built with Radix UI and Tailwind CSS. Copy-paste components, not a library. Used for: primitives, cards, inputs, tabs, dialogs.</div>
+            <div class="source-tags">
+              <span class="tag">primitives</span><span class="tag">cards</span><span class="tag">inputs</span><span class="tag">tabs</span><span class="tag">dialogs</span>
+            </div>
+          </div>
+          <div class="source-card">
+            <div class="source-name">HyperUI</div>
+            <div class="source-meta">
+              <span class="source-lic">MIT</span>
+              <span>github.com/markmead/hyperui</span>
+            </div>
+            <div class="source-desc">500+ free Tailwind CSS components. Used for: dashboard blocks, feed blocks, onboarding patterns, navigation, stats.</div>
+            <div class="source-tags">
+              <span class="tag">dashboard</span><span class="tag">feed</span><span class="tag">onboarding</span><span class="tag">navigation</span><span class="tag">stats</span>
+            </div>
+          </div>
+          <div class="source-card">
+            <div class="source-name">daisyUI</div>
+            <div class="source-meta">
+              <span class="source-lic">MIT</span>
+              <span>github.com/saadeghi/daisyui</span>
+            </div>
+            <div class="source-desc">Most popular Tailwind CSS component library. 56 components, themes. Used for: theme architecture, mobile components, progress indicators.</div>
+            <div class="source-tags">
+              <span class="tag">themes</span><span class="tag">mobile</span><span class="tag">progress</span><span class="tag">badges</span>
+            </div>
+          </div>
+          <div class="source-card">
+            <div class="source-name">Arco Design</div>
+            <div class="source-meta">
+              <span class="source-lic">MIT</span>
+              <span>github.com/arco-design/arco-design</span>
+            </div>
+            <div class="source-desc">ByteDance's enterprise design system. Used for: data tables, stats blocks, dense dashboard layouts, form inputs.</div>
+            <div class="source-tags">
+              <span class="tag">tables</span><span class="tag">forms</span><span class="tag">dashboard</span><span class="tag">enterprise</span>
+            </div>
+          </div>
+          <div class="source-card">
+            <div class="source-name">Semi Design</div>
+            <div class="source-meta">
+              <span class="source-lic">MIT</span>
+              <span>github.com/DouyinFE/semi-design</span>
+            </div>
+            <div class="source-desc">ByteDance/TikTok design system. Strong dark mode, creator patterns. Used for: creator layouts, feed blocks, media cards.</div>
+            <div class="source-tags">
+              <span class="tag">creator</span><span class="tag">feed</span><span class="tag">dark-mode</span><span class="tag">media</span>
+            </div>
+          </div>
+          <div class="source-card">
+            <div class="source-name">WeUI</div>
+            <div class="source-meta">
+              <span class="source-lic">MIT</span>
+              <span>github.com/Tencent/weui</span>
+            </div>
+            <div class="source-desc">Tencent's WeChat UI library. Mobile-first excellence. Used for: mobile-nav, list patterns, feed items, mobile inputs.</div>
+            <div class="source-tags">
+              <span class="tag">mobile-nav</span><span class="tag">lists</span><span class="tag">mobile-first</span><span class="tag">touch</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Licenses section -->
+    <div id="section-licenses" style="display:none">
+      <div class="main-header">
+        <h2>License Records</h2>
+        <p>Each source has a license.md and manifest.json stored at design-sources/{source}/</p>
+        <div class="badge-row">
+          <span class="badge badge-green">✓ 6/6 sources verified MIT</span>
+          <span class="badge badge-green">✓ License records on disk</span>
+        </div>
+      </div>
+      <div class="main-content">
+        <div class="file-tree">
+          <div class="file-tree-header">License verification matrix</div>
+          <div class="file-item">
+            <span style="color:#4ade80;font-size:12px;">✓</span>
+            <span class="file-path"><strong>shadcn/ui</strong> — MIT — github.com/shadcn-ui/ui/blob/main/LICENSE.md</span>
+            <span class="file-size">design-sources/shadcn-ui/</span>
+          </div>
+          <div class="file-item">
+            <span style="color:#4ade80;font-size:12px;">✓</span>
+            <span class="file-path"><strong>HyperUI</strong> — MIT — github.com/markmead/hyperui/blob/main/LICENSE</span>
+            <span class="file-size">design-sources/hyperui/</span>
+          </div>
+          <div class="file-item">
+            <span style="color:#4ade80;font-size:12px;">✓</span>
+            <span class="file-path"><strong>daisyUI</strong> — MIT — github.com/saadeghi/daisyui/blob/master/LICENSE</span>
+            <span class="file-size">design-sources/daisyui/</span>
+          </div>
+          <div class="file-item">
+            <span style="color:#4ade80;font-size:12px;">✓</span>
+            <span class="file-path"><strong>Arco Design</strong> — MIT — github.com/arco-design/arco-design/blob/main/LICENSE</span>
+            <span class="file-size">design-sources/arco-design/</span>
+          </div>
+          <div class="file-item">
+            <span style="color:#4ade80;font-size:12px;">✓</span>
+            <span class="file-path"><strong>Semi Design</strong> — MIT — github.com/DouyinFE/semi-design/blob/main/LICENSE</span>
+            <span class="file-size">design-sources/semi-design/</span>
+          </div>
+          <div class="file-item">
+            <span style="color:#4ade80;font-size:12px;">✓</span>
+            <span class="file-path"><strong>WeUI</strong> — MIT — github.com/Tencent/weui/blob/master/LICENSE</span>
+            <span class="file-size">design-sources/weui/</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Themes section -->
+    <div id="section-themes" style="display:none">
+      <div class="main-header">
+        <h2>Color Theme Systems</h2>
+        <p>8 complete CSS custom property theme files. Each is a self-contained override for foundation/tokens.css.</p>
+        <div class="badge-row">
+          <span class="badge badge-green">✓ Real CSS files on disk</span>
+          <span class="badge badge-purple">✓ 4 light + 4 dark modes</span>
+        </div>
+      </div>
+      <div class="main-content">
+        <div class="theme-grid">
+          <div class="theme-card">
+            <div class="theme-swatch" style="background:#fafafa">
+              <div class="theme-swatch-inner" style="background:#18181b"></div>
+            </div>
+            <div class="theme-info">
+              <div class="theme-name">Neutral</div>
+              <div class="theme-mood">Calm · Universal · Productivity</div>
+              <span class="theme-mode light">☀ Light</span>
+            </div>
+          </div>
+          <div class="theme-card">
+            <div class="theme-swatch" style="background:#f8fafc">
+              <div class="theme-swatch-inner" style="background:#2563eb"></div>
+            </div>
+            <div class="theme-info">
+              <div class="theme-name">Cool Blue</div>
+              <div class="theme-mood">Professional · B2B SaaS</div>
+              <span class="theme-mode light">☀ Light</span>
+            </div>
+          </div>
+          <div class="theme-card">
+            <div class="theme-swatch" style="background:#0c0e1a">
+              <div class="theme-swatch-inner" style="background:#6366f1"></div>
+            </div>
+            <div class="theme-info">
+              <div class="theme-name">Fintech Indigo</div>
+              <div class="theme-mood">Corporate · Trading · Banking</div>
+              <span class="theme-mode dark">🌑 Dark</span>
+            </div>
+          </div>
+          <div class="theme-card">
+            <div class="theme-swatch" style="background:#f0fdfa">
+              <div class="theme-swatch-inner" style="background:#0d9488"></div>
+            </div>
+            <div class="theme-info">
+              <div class="theme-name">Clinical Teal</div>
+              <div class="theme-mood">Medical · Healthcare · Clean</div>
+              <span class="theme-mode light">☀ Light</span>
+            </div>
+          </div>
+          <div class="theme-card">
+            <div class="theme-swatch" style="background:#fff7f5">
+              <div class="theme-swatch-inner" style="background:#f97316"></div>
+            </div>
+            <div class="theme-info">
+              <div class="theme-name">Playful Coral</div>
+              <div class="theme-mood">Energetic · Consumer · Food</div>
+              <span class="theme-mode light">☀ Light</span>
+            </div>
+          </div>
+          <div class="theme-card">
+            <div class="theme-swatch" style="background:#050508">
+              <div class="theme-swatch-inner" style="background:#8b5cf6"></div>
+            </div>
+            <div class="theme-info">
+              <div class="theme-name">Gaming Neon</div>
+              <div class="theme-mood">Intense · Esports · Streaming</div>
+              <span class="theme-mode dark">🌑 Dark</span>
+            </div>
+          </div>
+          <div class="theme-card">
+            <div class="theme-swatch" style="background:#09080a">
+              <div class="theme-swatch-inner" style="background:#d4af37"></div>
+            </div>
+            <div class="theme-info">
+              <div class="theme-name">Luxury Dark Gold</div>
+              <div class="theme-mood">Premium · Exclusive · Luxury</div>
+              <span class="theme-mode dark">🌑 Dark</span>
+            </div>
+          </div>
+          <div class="theme-card">
+            <div class="theme-swatch" style="background:#fdf8fb">
+              <div class="theme-swatch-inner" style="background:#ec4899"></div>
+            </div>
+            <div class="theme-info">
+              <div class="theme-name">Soft Women's Health</div>
+              <div class="theme-mood">Gentle · Wellness · Inclusive</div>
+              <span class="theme-mode light">☀ Light</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tokens section -->
+    <div id="section-tokens" style="display:none">
+      <div class="main-header">
+        <h2>Design Tokens</h2>
+        <p>Real CSS custom property files. Import tokens.css first, then override with a theme.</p>
+      </div>
+      <div class="main-content">
+        <div class="section">
+          <div class="section-title">Foundation Files</div>
+          <div class="file-tree">
+            <div class="file-tree-header">prototype-bank/design-packs/foundation/</div>
+            <div class="file-item"><span class="file-path"><strong>tokens.css</strong> — 50+ CSS custom properties (canvas, surfaces, borders, text, accent, semantic, radius, spacing, transitions)</span></div>
+            <div class="file-item"><span class="file-path"><strong>typography.css</strong> — Font stacks, type scale xs→6xl, line heights, font weights, letter spacing, semantic role classes</span></div>
+            <div class="file-item"><span class="file-path"><strong>elevation.css</strong> — Shadow scale xs→2xl, inner shadow, glow variants for dark/premium surfaces</span></div>
+            <div class="file-item"><span class="file-path"><strong>spacing.json</strong> — 4px base grid, 30-step scale, semantic aliases (cardPadding-md = 24px, sectionGap-normal = 48px)</span></div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-title">Key Token Variables</div>
+          <div class="file-tree">
+            <div class="file-tree-header">Selected --vb-* tokens</div>
+            <div class="file-item"><span class="file-path">--vb-bg / --vb-surface / --vb-surface-alt</span><span class="file-size">canvas & surface layers</span></div>
+            <div class="file-item"><span class="file-path">--vb-border / --vb-border-strong / --vb-border-focus</span><span class="file-size">border hierarchy</span></div>
+            <div class="file-item"><span class="file-path">--vb-text / --vb-text-muted / --vb-text-subtle</span><span class="file-size">text hierarchy</span></div>
+            <div class="file-item"><span class="file-path">--vb-accent / --vb-accent-fg / --vb-accent-hover / --vb-accent-subtle</span><span class="file-size">brand color</span></div>
+            <div class="file-item"><span class="file-path">--vb-success / --vb-warning / --vb-danger / --vb-info</span><span class="file-size">semantic colors</span></div>
+            <div class="file-item"><span class="file-path">--vb-radius-xs → --vb-radius-full</span><span class="file-size">6-step radius scale</span></div>
+            <div class="file-item"><span class="file-path">--vb-shadow-xs → --vb-shadow-2xl</span><span class="file-size">6-step elevation scale</span></div>
+            <div class="file-item"><span class="file-path">--vb-duration-fast / --vb-duration-base / --vb-duration-slow</span><span class="file-size">motion timing</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Components section -->
+    <div id="section-components" style="display:none">
+      <div class="main-header">
+        <h2>Normalized Components</h2>
+        <p>Real TSX files. Copy-paste into any React project. All use --vb-* CSS custom properties.</p>
+        <div class="badge-row">
+          <span class="badge badge-purple">6 Primitives</span>
+          <span class="badge badge-purple">4 Cards</span>
+          <span class="badge badge-purple">7 Blocks</span>
+        </div>
+      </div>
+      <div class="main-content">
+        <div class="section">
+          <div class="section-title">Primitives</div>
+          <div class="file-tree">
+            <div class="file-item"><span class="file-path"><strong>button.tsx</strong></span><span class="file-size">primary, secondary, ghost, danger, outline · sm/md/lg · loading state · icon slot</span></div>
+            <div class="file-item"><span class="file-path"><strong>input.tsx</strong></span><span class="file-size">label, error, hint, icon-left, icon-right · full a11y</span></div>
+            <div class="file-item"><span class="file-path"><strong>card.tsx</strong></span><span class="file-size">Card + CardHeader + CardBody + CardFooter · hover, padding variants</span></div>
+            <div class="file-item"><span class="file-path"><strong>badge.tsx</strong></span><span class="file-size">default, success, warning, danger, info, outline · dot indicator</span></div>
+            <div class="file-item"><span class="file-path"><strong>avatar.tsx</strong></span><span class="file-size">image or initials · auto-color from name hash · status indicator · xs→xl</span></div>
+            <div class="file-item"><span class="file-path"><strong>tabs.tsx</strong></span><span class="file-size">underline, pills, bordered · badge count · onChange callback · render children</span></div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-title">Cards</div>
+          <div class="file-tree">
+            <div class="file-item"><span class="file-path"><strong>stat-card.tsx</strong></span><span class="file-size">label, value, trend badge (↑↓), icon, optional chart slot</span></div>
+            <div class="file-item"><span class="file-path"><strong>profile-card.tsx</strong></span><span class="file-size">avatar, name, role, stats array, action slot, gradient header band</span></div>
+            <div class="file-item"><span class="file-path"><strong>metric-card.tsx</strong></span><span class="file-size">title, big number, subtitle, trend, SVG sparkline, custom accent color override</span></div>
+            <div class="file-item"><span class="file-path"><strong>list-item.tsx</strong></span><span class="file-size">leading/trailing slots, click handler, selection state, disabled</span></div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-title">Blocks</div>
+          <div class="file-tree">
+            <div class="file-item"><span class="file-path"><strong>dashboard-header.tsx</strong></span><span class="file-size">title, subtitle, breadcrumbs nav, action slot, avatar slot</span></div>
+            <div class="file-item"><span class="file-path"><strong>mobile-nav.tsx</strong></span><span class="file-size">fixed bottom nav, 3-5 items, badge counts, active indicator</span></div>
+            <div class="file-item"><span class="file-path"><strong>onboarding-step.tsx</strong></span><span class="file-size">step progress dots, illustration slot, primary + secondary actions</span></div>
+            <div class="file-item"><span class="file-path"><strong>feed-item.tsx</strong></span><span class="file-size">author with avatar, timestamp, content, image, like/comment/repost actions</span></div>
+            <div class="file-item"><span class="file-path"><strong>stats-progress.tsx</strong></span><span class="file-size">ProgressBar + StatsProgress container, custom colors, animated fill</span></div>
+            <div class="file-item"><span class="file-path"><strong>sidebar-nav.tsx</strong></span><span class="file-size">sections with titles, active state, badge counts, header/footer slots</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Variant sections for each skeleton -->
+    <div id="section-saas" style="display:none">
+      <div class="main-header">
+        <h2>SaaS Dashboard — Visual Variants</h2>
+        <p>8 production-ready visual variants. Each is a complete design spec: theme, spacing, typography, radius, elevation, motion.</p>
+      </div>
+      <div class="main-content">
+        <div class="variant-grid">
+          <div class="variant-card">
+            <div class="variant-preview" style="background:#fafafa">
+              <div class="vp-header">
+                <div style="width:60px;height:8px;background:#18181b;border-radius:4px"></div>
+                <div style="width:30px;height:8px;background:#e4e4e7;border-radius:4px"></div>
+              </div>
+              <div class="vp-bar" style="width:70%;background:#18181b;height:4px;border-radius:2px"></div>
+              <div class="vp-cards">
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:#e4e4e7"></div>
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:#e4e4e7"></div>
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:#e4e4e7"></div>
+              </div>
+            </div>
+            <div class="variant-meta">
+              <div class="variant-name">Calm</div>
+              <div class="variant-theme">theme: neutral · spacing: comfortable</div>
+              <div class="variant-tags-row">
+                <span class="tag">productivity</span><span class="tag">gentle motion</span><span class="tag">sans-technical</span>
+              </div>
+            </div>
+          </div>
+          <div class="variant-card">
+            <div class="variant-preview" style="background:#0c0e1a">
+              <div class="vp-header">
+                <div style="width:60px;height:8px;background:#6366f1;border-radius:4px"></div>
+                <div style="width:30px;height:8px;background:#1c2038;border-radius:4px"></div>
+              </div>
+              <div class="vp-bar" style="width:70%;background:#6366f1;height:4px;border-radius:2px"></div>
+              <div class="vp-cards">
+                <div class="vp-card-mini" style="height:50px;background:#141728;border-color:rgba(99,102,241,0.2)"></div>
+                <div class="vp-card-mini" style="height:50px;background:#141728;border-color:rgba(99,102,241,0.2)"></div>
+                <div class="vp-card-mini" style="height:50px;background:#141728;border-color:rgba(99,102,241,0.2)"></div>
+              </div>
+            </div>
+            <div class="variant-meta">
+              <div class="variant-name">Premium Dark</div>
+              <div class="variant-theme">theme: fintech-indigo · spacing: comfortable</div>
+              <div class="variant-tags-row">
+                <span class="tag">power users</span><span class="tag">AI tools</span>
+              </div>
+            </div>
+          </div>
+          <div class="variant-card">
+            <div class="variant-preview" style="background:#fff7f5">
+              <div class="vp-header">
+                <div style="width:60px;height:8px;background:#f97316;border-radius:8px"></div>
+                <div style="width:30px;height:8px;background:#ffd5c8;border-radius:8px"></div>
+              </div>
+              <div class="vp-bar" style="width:70%;background:#f97316;height:4px;border-radius:8px"></div>
+              <div class="vp-cards">
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:rgba(249,115,22,0.2);border-radius:14px"></div>
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:rgba(249,115,22,0.2);border-radius:14px"></div>
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:rgba(249,115,22,0.2);border-radius:14px"></div>
+              </div>
+            </div>
+            <div class="variant-meta">
+              <div class="variant-name">Playful</div>
+              <div class="variant-theme">theme: playful-coral · spacing: spacious</div>
+              <div class="variant-tags-row">
+                <span class="tag">freelancers</span><span class="tag">soft-rounded</span>
+              </div>
+            </div>
+          </div>
+          <div class="variant-card">
+            <div class="variant-preview" style="background:#f0fdfa">
+              <div class="vp-header">
+                <div style="width:60px;height:8px;background:#0d9488;border-radius:4px"></div>
+                <div style="width:30px;height:8px;background:#ccfbf1;border-radius:4px"></div>
+              </div>
+              <div class="vp-bar" style="width:70%;background:#0d9488;height:4px;border-radius:2px"></div>
+              <div class="vp-cards">
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:rgba(13,148,136,0.2)"></div>
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:rgba(13,148,136,0.2)"></div>
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:rgba(13,148,136,0.2)"></div>
+              </div>
+            </div>
+            <div class="variant-meta">
+              <div class="variant-name">Clinical</div>
+              <div class="variant-theme">theme: clinical-teal · spacing: comfortable</div>
+              <div class="variant-tags-row">
+                <span class="tag">healthcare</span><span class="tag">HIPAA context</span>
+              </div>
+            </div>
+          </div>
+          <div class="variant-card">
+            <div class="variant-preview" style="background:#0c0e1a">
+              <div class="vp-header">
+                <div style="width:60px;height:8px;background:#6366f1;border-radius:2px"></div>
+                <div style="width:30px;height:4px;background:#252a45;border-radius:2px"></div>
+              </div>
+              <div class="vp-bar" style="width:70%;background:#6366f1;height:3px;border-radius:1px"></div>
+              <div class="vp-cards">
+                <div class="vp-card-mini" style="height:50px;background:#141728;border-color:rgba(99,102,241,0.3);border-radius:4px"></div>
+                <div class="vp-card-mini" style="height:50px;background:#141728;border-color:rgba(99,102,241,0.3);border-radius:4px"></div>
+                <div class="vp-card-mini" style="height:50px;background:#141728;border-color:rgba(99,102,241,0.3);border-radius:4px"></div>
+              </div>
+            </div>
+            <div class="variant-meta">
+              <div class="variant-name">Fintech Corporate</div>
+              <div class="variant-theme">theme: fintech-indigo · spacing: compact</div>
+              <div class="variant-tags-row">
+                <span class="tag">traders</span><span class="tag">mono-technical</span>
+              </div>
+            </div>
+          </div>
+          <div class="variant-card">
+            <div class="variant-preview" style="background:#f8fafc">
+              <div class="vp-header">
+                <div style="width:60px;height:8px;background:#2563eb;border-radius:6px"></div>
+                <div style="width:30px;height:8px;background:#dbeafe;border-radius:6px"></div>
+              </div>
+              <div class="vp-bar" style="width:70%;background:#2563eb;height:4px;border-radius:4px"></div>
+              <div class="vp-cards">
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:rgba(37,99,235,0.15);border-radius:12px"></div>
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:rgba(37,99,235,0.15);border-radius:12px"></div>
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:rgba(37,99,235,0.15);border-radius:12px"></div>
+              </div>
+            </div>
+            <div class="variant-meta">
+              <div class="variant-name">Creator / Social</div>
+              <div class="variant-theme">theme: cool-blue · spacing: comfortable</div>
+              <div class="variant-tags-row">
+                <span class="tag">YouTubers</span><span class="tag">display-editorial</span>
+              </div>
+            </div>
+          </div>
+          <div class="variant-card">
+            <div class="variant-preview" style="background:#fafafa;border:2px solid #09090b">
+              <div class="vp-header">
+                <div style="width:60px;height:8px;background:#09090b;border-radius:0px"></div>
+                <div style="width:30px;height:8px;background:#e4e4e7;border-radius:0px"></div>
+              </div>
+              <div class="vp-bar" style="width:70%;background:#09090b;height:3px;border-radius:0px"></div>
+              <div class="vp-cards">
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:#09090b;border-radius:0px;box-shadow:4px 4px 0 #09090b"></div>
+                <div class="vp-card-mini" style="height:50px;background:white;border-color:#09090b;border-radius:0px;box-shadow:4px 4px 0 #09090b"></div>
+              </div>
+            </div>
+            <div class="variant-meta">
+              <div class="variant-name">Minimal Brutal</div>
+              <div class="variant-theme">theme: neutral · radius: 0–2px · no motion</div>
+              <div class="variant-tags-row">
+                <span class="tag">indie hackers</span><span class="tag">stark</span>
+              </div>
+            </div>
+          </div>
+          <div class="variant-card">
+            <div class="variant-preview" style="background:#fafafa">
+              <div class="vp-header">
+                <div style="width:80px;height:8px;background:#18181b;border-radius:12px"></div>
+              </div>
+              <div class="vp-bar" style="width:90%;background:#e4e4e7;height:6px;border-radius:6px"></div>
+              <div class="vp-cards">
+                <div class="vp-card-mini" style="height:60px;background:white;border-color:#e4e4e7;border-radius:20px"></div>
+              </div>
+            </div>
+            <div class="variant-meta">
+              <div class="variant-name">Mobile Soft</div>
+              <div class="variant-theme">theme: neutral · spacing: spacious · bottom-nav</div>
+              <div class="variant-tags-row">
+                <span class="tag">mobile-first</span><span class="tag">touch targets</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Colors section -->
+    <div id="section-colors" style="display:none">
+      <div class="main-header">
+        <h2>Color Ramps</h2>
+        <p>8 complete color systems as JSON files. Each has a full named scale and semantic usage map.</p>
+      </div>
+      <div class="main-content">
+        <div class="section">
+          <div class="ramp-item">
+            <div class="ramp-name">Neutral (Zinc)</div>
+            <div class="ramp-row">
+              <div class="ramp-swatch" style="background:#fafafa" title="50"></div>
+              <div class="ramp-swatch" style="background:#f4f4f5" title="100"></div>
+              <div class="ramp-swatch" style="background:#e4e4e7" title="200"></div>
+              <div class="ramp-swatch" style="background:#d4d4d8" title="300"></div>
+              <div class="ramp-swatch" style="background:#a1a1aa" title="400"></div>
+              <div class="ramp-swatch" style="background:#71717a" title="500"></div>
+              <div class="ramp-swatch" style="background:#52525b" title="600"></div>
+              <div class="ramp-swatch" style="background:#3f3f46" title="700"></div>
+              <div class="ramp-swatch" style="background:#27272a" title="800"></div>
+              <div class="ramp-swatch" style="background:#18181b" title="900"></div>
+              <div class="ramp-swatch" style="background:#09090b" title="950"></div>
+            </div>
+          </div>
+          <div class="ramp-item">
+            <div class="ramp-name">Cool Blue (Slate + Blue)</div>
+            <div class="ramp-row">
+              <div class="ramp-swatch" style="background:#f8fafc"></div>
+              <div class="ramp-swatch" style="background:#f1f5f9"></div>
+              <div class="ramp-swatch" style="background:#e2e8f0"></div>
+              <div class="ramp-swatch" style="background:#cbd5e1"></div>
+              <div class="ramp-swatch" style="background:#94a3b8"></div>
+              <div class="ramp-swatch" style="background:#60a5fa"></div>
+              <div class="ramp-swatch" style="background:#3b82f6"></div>
+              <div class="ramp-swatch" style="background:#2563eb"></div>
+              <div class="ramp-swatch" style="background:#1d4ed8"></div>
+              <div class="ramp-swatch" style="background:#1e3a8a"></div>
+              <div class="ramp-swatch" style="background:#0f172a"></div>
+            </div>
+          </div>
+          <div class="ramp-item">
+            <div class="ramp-name">Fintech Indigo (Dark Canvas)</div>
+            <div class="ramp-row">
+              <div class="ramp-swatch" style="background:#0c0e1a"></div>
+              <div class="ramp-swatch" style="background:#10132a"></div>
+              <div class="ramp-swatch" style="background:#141728"></div>
+              <div class="ramp-swatch" style="background:#1c2038"></div>
+              <div class="ramp-swatch" style="background:#252a45"></div>
+              <div class="ramp-swatch" style="background:#a5b4fc"></div>
+              <div class="ramp-swatch" style="background:#818cf8"></div>
+              <div class="ramp-swatch" style="background:#6366f1"></div>
+              <div class="ramp-swatch" style="background:#4f46e5"></div>
+              <div class="ramp-swatch" style="background:#10b981"></div>
+              <div class="ramp-swatch" style="background:#ef4444"></div>
+            </div>
+          </div>
+          <div class="ramp-item">
+            <div class="ramp-name">Clinical Teal</div>
+            <div class="ramp-row">
+              <div class="ramp-swatch" style="background:#f0fdfa"></div>
+              <div class="ramp-swatch" style="background:#ccfbf1"></div>
+              <div class="ramp-swatch" style="background:#99f6e4"></div>
+              <div class="ramp-swatch" style="background:#5eead4"></div>
+              <div class="ramp-swatch" style="background:#2dd4bf"></div>
+              <div class="ramp-swatch" style="background:#14b8a6"></div>
+              <div class="ramp-swatch" style="background:#0d9488"></div>
+              <div class="ramp-swatch" style="background:#0f766e"></div>
+              <div class="ramp-swatch" style="background:#115e59"></div>
+              <div class="ramp-swatch" style="background:#134e4a"></div>
+              <div class="ramp-swatch" style="background:#042f2e"></div>
+            </div>
+          </div>
+          <div class="ramp-item">
+            <div class="ramp-name">Playful Coral (Orange)</div>
+            <div class="ramp-row">
+              <div class="ramp-swatch" style="background:#fff7ed"></div>
+              <div class="ramp-swatch" style="background:#ffedd5"></div>
+              <div class="ramp-swatch" style="background:#fed7aa"></div>
+              <div class="ramp-swatch" style="background:#fdba74"></div>
+              <div class="ramp-swatch" style="background:#fb923c"></div>
+              <div class="ramp-swatch" style="background:#f97316"></div>
+              <div class="ramp-swatch" style="background:#ea580c"></div>
+              <div class="ramp-swatch" style="background:#c2410c"></div>
+              <div class="ramp-swatch" style="background:#9a3412"></div>
+              <div class="ramp-swatch" style="background:#7c2d12"></div>
+              <div class="ramp-swatch" style="background:#431407"></div>
+            </div>
+          </div>
+          <div class="ramp-item">
+            <div class="ramp-name">Gaming Neon (Dark + Violet)</div>
+            <div class="ramp-row">
+              <div class="ramp-swatch" style="background:#050508"></div>
+              <div class="ramp-swatch" style="background:#0a0a0f"></div>
+              <div class="ramp-swatch" style="background:#0f0f16"></div>
+              <div class="ramp-swatch" style="background:#16162a"></div>
+              <div class="ramp-swatch" style="background:#1a1a2e"></div>
+              <div class="ramp-swatch" style="background:#8b5cf6"></div>
+              <div class="ramp-swatch" style="background:#a78bfa"></div>
+              <div class="ramp-swatch" style="background:#00ff87"></div>
+              <div class="ramp-swatch" style="background:#00d4ff"></div>
+              <div class="ramp-swatch" style="background:#ff4060"></div>
+              <div class="ramp-swatch" style="background:#fbbf24"></div>
+            </div>
+          </div>
+          <div class="ramp-item">
+            <div class="ramp-name">Luxury Dark Gold</div>
+            <div class="ramp-row">
+              <div class="ramp-swatch" style="background:#09080a"></div>
+              <div class="ramp-swatch" style="background:#0f0d10"></div>
+              <div class="ramp-swatch" style="background:#141114"></div>
+              <div class="ramp-swatch" style="background:#1c181c"></div>
+              <div class="ramp-swatch" style="background:#1e1a1e"></div>
+              <div class="ramp-swatch" style="background:#6b5f4a"></div>
+              <div class="ramp-swatch" style="background:#b5a992"></div>
+              <div class="ramp-swatch" style="background:#c4a028"></div>
+              <div class="ramp-swatch" style="background:#d4af37"></div>
+              <div class="ramp-swatch" style="background:#f5d98b"></div>
+              <div class="ramp-swatch" style="background:#f5f0e8"></div>
+            </div>
+          </div>
+          <div class="ramp-item">
+            <div class="ramp-name">Soft Women's Health (Pink)</div>
+            <div class="ramp-row">
+              <div class="ramp-swatch" style="background:#fdf2f8"></div>
+              <div class="ramp-swatch" style="background:#fce7f3"></div>
+              <div class="ramp-swatch" style="background:#fbcfe8"></div>
+              <div class="ramp-swatch" style="background:#f9a8d4"></div>
+              <div class="ramp-swatch" style="background:#f472b6"></div>
+              <div class="ramp-swatch" style="background:#ec4899"></div>
+              <div class="ramp-swatch" style="background:#db2777"></div>
+              <div class="ramp-swatch" style="background:#be185d"></div>
+              <div class="ramp-swatch" style="background:#9d174d"></div>
+              <div class="ramp-swatch" style="background:#831843"></div>
+              <div class="ramp-swatch" style="background:#4a0826"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Placeholder sections for other skeletons -->
+    <div id="section-mobile" style="display:none">
+      <div class="main-header">
+        <h2>Mobile App — Visual Variants</h2>
+        <p>8 visual variants for mobile-app skeleton. Bottom nav, card-feeds, profile flows, onboarding.</p>
+        <div class="badge-row"><span class="badge badge-yellow">✓ 8 variants in design-packs/domain/mobile-app/visual-variants/</span></div>
+      </div>
+      <div class="main-content">
+        <div class="file-tree">
+          <div class="file-tree-header">prototype-bank/design-packs/domain/mobile-app/visual-variants/</div>
+          <div class="file-item"><span class="file-path"><strong>calm.json</strong></span><span class="file-size">neutral · comfortable · gentle</span></div>
+          <div class="file-item"><span class="file-path"><strong>premium-dark.json</strong></span><span class="file-size">fintech-indigo · comfortable · gentle</span></div>
+          <div class="file-item"><span class="file-path"><strong>playful.json</strong></span><span class="file-size">playful-coral · spacious · expressive</span></div>
+          <div class="file-item"><span class="file-path"><strong>clinical.json</strong></span><span class="file-size">clinical-teal · comfortable · gentle</span></div>
+          <div class="file-item"><span class="file-path"><strong>fintech-corporate.json</strong></span><span class="file-size">fintech-indigo · compact · mono-technical</span></div>
+          <div class="file-item"><span class="file-path"><strong>creator-social.json</strong></span><span class="file-size">cool-blue · comfortable · display-editorial</span></div>
+          <div class="file-item"><span class="file-path"><strong>minimal-brutal.json</strong></span><span class="file-size">neutral · 0px radius · instant</span></div>
+          <div class="file-item"><span class="file-path"><strong>mobile-soft.json</strong></span><span class="file-size">soft-womens-health · spacious · expressive</span></div>
+        </div>
+      </div>
+    </div>
+    <div id="section-landing" style="display:none">
+      <div class="main-header">
+        <h2>Landing Page — Visual Variants</h2>
+        <p>8 visual variants for landing-page skeleton. Hero, features, pricing, CTA.</p>
+        <div class="badge-row"><span class="badge badge-yellow">✓ 8 variants in design-packs/domain/landing-page/visual-variants/</span></div>
+      </div>
+      <div class="main-content">
+        <div class="file-tree">
+          <div class="file-tree-header">prototype-bank/design-packs/domain/landing-page/visual-variants/</div>
+          <div class="file-item"><span class="file-path"><strong>calm.json</strong></span><span class="file-size">centered hero, neutral, B2B SaaS</span></div>
+          <div class="file-item"><span class="file-path"><strong>premium-dark.json</strong></span><span class="file-size">dark full-bleed, glow accents, AI/dev tools</span></div>
+          <div class="file-item"><span class="file-path"><strong>playful.json</strong></span><span class="file-size">angled sections, bento grid, consumer B2C</span></div>
+          <div class="file-item"><span class="file-path"><strong>clinical.json</strong></span><span class="file-size">compliance-first, trust signals, healthcare</span></div>
+          <div class="file-item"><span class="file-path"><strong>fintech-corporate.json</strong></span><span class="file-size">stats strip hero, regulation logos, fintech</span></div>
+          <div class="file-item"><span class="file-path"><strong>creator-social.json</strong></span><span class="file-size">creator bio, social proof wall, platforms</span></div>
+          <div class="file-item"><span class="file-path"><strong>minimal-brutal.json</strong></span><span class="file-size">newspaper layout, stark black/white, indie</span></div>
+          <div class="file-item"><span class="file-path"><strong>mobile-soft.json</strong></span><span class="file-size">single-column mobile, soft pink, wellness</span></div>
+        </div>
+      </div>
+    </div>
+    <div id="section-ecommerce" style="display:none">
+      <div class="main-header">
+        <h2>Ecommerce — Visual Variants</h2>
+        <div class="badge-row"><span class="badge badge-yellow">✓ 8 variants in design-packs/domain/ecommerce/visual-variants/</span></div>
+      </div>
+      <div class="main-content">
+        <div class="file-tree">
+          <div class="file-tree-header">prototype-bank/design-packs/domain/ecommerce/visual-variants/</div>
+          <div class="file-item"><span class="file-path"><strong>calm.json</strong> — premium-dark.json — playful.json — clinical.json</span></div>
+          <div class="file-item"><span class="file-path"><strong>fintech-corporate.json</strong> — creator-social.json — minimal-brutal.json — mobile-soft.json</span></div>
+        </div>
+      </div>
+    </div>
+    <div id="section-social" style="display:none">
+      <div class="main-header">
+        <h2>Social Community — Visual Variants</h2>
+        <div class="badge-row"><span class="badge badge-yellow">✓ 8 variants in design-packs/domain/social-community/visual-variants/</span></div>
+      </div>
+      <div class="main-content">
+        <div class="file-tree">
+          <div class="file-tree-header">prototype-bank/design-packs/domain/social-community/visual-variants/</div>
+          <div class="file-item"><span class="file-path"><strong>calm.json</strong> — premium-dark.json — playful.json — clinical.json</span></div>
+          <div class="file-item"><span class="file-path"><strong>fintech-corporate.json</strong> — creator-social.json — minimal-brutal.json — mobile-soft.json</span></div>
+        </div>
+      </div>
+    </div>
+    <div id="section-files" style="display:none">
+      <div class="main-header">
+        <h2>Complete File Index</h2>
+        <p>All files in the visual bank. Physical proof that the bank exists and is populated.</p>
+      </div>
+      <div class="main-content">
+        <div class="stats-row" style="margin-bottom:20px">
+          <div class="stat-block"><div class="stat-num">12</div><div class="stat-label">Source manifests</div></div>
+          <div class="stat-block"><div class="stat-num">6</div><div class="stat-label">Foundation files</div></div>
+          <div class="stat-block"><div class="stat-num">8</div><div class="stat-label">Theme CSS files</div></div>
+          <div class="stat-block"><div class="stat-num">17</div><div class="stat-label">Component TSX</div></div>
+          <div class="stat-block"><div class="stat-num">45</div><div class="stat-label">Variant JSONs</div></div>
+          <div class="stat-block"><div class="stat-num">13</div><div class="stat-label">Asset JSONs</div></div>
+        </div>
+        <div class="file-tree">
+          <div class="file-tree-header">All visual bank files (~101 total)</div>
+          <div class="file-item"><span class="file-path"><strong>design-sources/</strong> shadcn-ui, hyperui, daisyui, arco-design, semi-design, weui × {manifest.json, license.md}</span><span class="file-size">12 files</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/foundation/</strong> manifest, tokens.css, typography.css, elevation.css, spacing.json</span><span class="file-size">5 files</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/foundation/themes/</strong> manifest + 8 × theme.css</span><span class="file-size">9 files</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/surfaces/</strong> manifest.json</span><span class="file-size">1 file</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/surfaces/primitives/</strong> button, input, card, badge, avatar, tabs</span><span class="file-size">6 files</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/surfaces/cards/</strong> stat-card, profile-card, metric-card, list-item</span><span class="file-size">4 files</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/surfaces/blocks/</strong> dashboard-header, mobile-nav, onboarding-step, feed-item, stats-progress, sidebar-nav</span><span class="file-size">6 files</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/domain/</strong> {saas-dashboard, mobile-app, landing-page, ecommerce, social-community} × manifest + 8 variants</span><span class="file-size">45 files</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/assets/color-ramps/</strong> 8 × {name}.json</span><span class="file-size">8 files</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/assets/spacing/</strong> compact, comfortable, spacious</span><span class="file-size">3 files</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/assets/typography/</strong> presets.json</span><span class="file-size">1 file</span></div>
+          <div class="file-item"><span class="file-path"><strong>design-packs/assets/motion/</strong> presets.json</span><span class="file-size">1 file</span></div>
+          <div class="file-item"><span class="file-path"><strong>visual-bank-showcase.html</strong></span><span class="file-size">← this file</span></div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  function showSection(id) {
+    document.querySelectorAll('[id^="section-"]').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+    const section = document.getElementById('section-' + id);
+    if (section) section.style.display = 'block';
+    event.currentTarget.classList.add('active');
+  }
+</script>
+</body>
+</html>

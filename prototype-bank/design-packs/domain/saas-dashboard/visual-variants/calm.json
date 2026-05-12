@@ -1,0 +1,22 @@
+{
+  "id": "calm",
+  "skeleton": "saas-dashboard",
+  "name": "Calm",
+  "description": "Clean, minimal dashboard with neutral tones and generous whitespace. Productivity-focused.",
+  "theme": "neutral",
+  "componentSet": {
+    "sidebar": "sidebar-nav with subtle border-r, no shadows",
+    "cards": "card with padding-md, shadow-sm, radius-lg",
+    "tables": "borderless rows with hover-bg, compact headings",
+    "buttons": "button/primary + button/ghost pair",
+    "charts": "single-color area charts, muted fills"
+  },
+  "spacing": "comfortable",
+  "typography": "sans-technical",
+  "radius": { "sm": "6px", "md": "10px", "lg": "16px", "xl": "20px" },
+  "elevation": { "card": "shadow-sm", "modal": "shadow-xl", "sidebar": "none" },
+  "colorAccent": "#18181b",
+  "motionPreset": "gentle",
+  "targetUsers": "project managers, knowledge workers, productivity-focused teams",
+  "referenceSource": "shadcn/ui dashboard examples, HyperUI admin panels"
+}

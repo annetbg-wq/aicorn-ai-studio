@@ -1,0 +1,11 @@
+{
+  "id": "minimal-brutal", "skeleton": "mobile-app", "name": "Minimal Brutal",
+  "theme": "neutral", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "instant", "colorAccent": "#18181b",
+  "layout": "thick-border cards, high-contrast labels, stark nav",
+  "radius": { "card": "0px", "button": "2px", "input": "2px", "nav": "0px" },
+  "elevation": { "card": "border 2px solid text", "navbar": "border-top 2px", "modal": "bottom-sheet square" },
+  "componentSet": { "nav": "mobile-nav/brutal-text-only", "feed": "list-item bordered", "cta": "button/outline full-width" },
+  "targetUsers": "developers, indie users, design-forward",
+  "referenceSource": "shadcn/ui minimal"
+}

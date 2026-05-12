@@ -1,0 +1,13 @@
+{
+  "id": "creator-social", "skeleton": "social-community", "name": "Creator Social",
+  "theme": "cool-blue", "spacing": "comfortable", "typography": "display-editorial",
+  "motionPreset": "expressive", "colorAccent": "#2563eb",
+  "layout": "creator-first feed with subscriber tiers, tip jar, exclusive content gates",
+  "feedStyle": "media-rich feed-item, subscriber badge on author, view count, tip button",
+  "profileStyle": "creator profile with subscriber count, tier list, featured content reel",
+  "messagingStyle": "fan DM with creator rate limit, paid DM option, voice note support",
+  "communityStyle": "creator community hub, tier-gated channels, live badge when streaming",
+  "radius": { "card": "16px", "avatar": "full", "button": "12px", "bubble": "20px" },
+  "targetUsers": "newsletter platforms, creator fan communities, subscription content",
+  "referenceSource": "Semi Design creator community, HyperUI social"
+}

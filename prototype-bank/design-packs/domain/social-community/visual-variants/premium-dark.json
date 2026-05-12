@@ -1,0 +1,13 @@
+{
+  "id": "premium-dark", "skeleton": "social-community", "name": "Premium Dark",
+  "theme": "fintech-indigo", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#6366f1",
+  "layout": "dark 3-col with blurred sidebar, glowing active states, floating compose button",
+  "feedStyle": "dark feed-item cards with subtle glow on hover, accent-colored reactions",
+  "profileStyle": "dark profile with gradient banner, glowing avatar ring, stats with indigo accents",
+  "messagingStyle": "dark message bubbles, indigo sent, subtle received, read receipts",
+  "communityStyle": "dark community card, member avatars stacked, glowing join button",
+  "radius": { "card": "14px", "avatar": "full", "button": "8px", "bubble": "18px" },
+  "targetUsers": "gaming communities, dev communities, exclusive membership platforms",
+  "referenceSource": "shadcn/ui dark, Arco Design community dark"
+}

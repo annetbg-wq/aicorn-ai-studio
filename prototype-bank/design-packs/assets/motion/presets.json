@@ -1,0 +1,44 @@
+{
+  "presets": [
+    {
+      "id": "instant",
+      "name": "Instant",
+      "description": "No animation. Productivity tools, power users, accessibility-first.",
+      "duration": { "fast": "0ms", "base": "0ms", "slow": "0ms" },
+      "easing": "linear",
+      "hoverScale": 1.0,
+      "tapScale": 1.0,
+      "pageTransition": "none"
+    },
+    {
+      "id": "gentle",
+      "name": "Gentle",
+      "description": "Subtle, professional transitions. Default for most apps.",
+      "duration": { "fast": "120ms", "base": "200ms", "slow": "350ms" },
+      "easing": "cubic-bezier(0.16, 1, 0.3, 1)",
+      "hoverScale": 1.01,
+      "tapScale": 0.99,
+      "pageTransition": "fade 200ms"
+    },
+    {
+      "id": "expressive",
+      "name": "Expressive",
+      "description": "Noticeable, delightful. Consumer apps, onboarding, mobile.",
+      "duration": { "fast": "150ms", "base": "280ms", "slow": "450ms" },
+      "easing": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+      "hoverScale": 1.03,
+      "tapScale": 0.97,
+      "pageTransition": "slide-up 280ms"
+    },
+    {
+      "id": "energetic",
+      "name": "Energetic",
+      "description": "Fast, snappy, intense. Gaming, esports, high-energy apps.",
+      "duration": { "fast": "80ms", "base": "140ms", "slow": "220ms" },
+      "easing": "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+      "hoverScale": 1.05,
+      "tapScale": 0.95,
+      "pageTransition": "scale-flash 140ms"
+    }
+  ]
+}

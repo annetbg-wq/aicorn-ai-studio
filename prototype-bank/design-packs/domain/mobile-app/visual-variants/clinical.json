@@ -1,0 +1,11 @@
+{
+  "id": "clinical", "skeleton": "mobile-app", "name": "Clinical",
+  "theme": "clinical-teal", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#0d9488",
+  "layout": "tab-bar with icons+labels, list-based content, bottom sheet forms",
+  "radius": { "card": "10px", "button": "8px", "input": "8px", "nav": "0px" },
+  "elevation": { "card": "shadow-sm", "navbar": "border-top clinical", "modal": "bottom-sheet accessible" },
+  "componentSet": { "nav": "mobile-nav/4-tab labeled", "feed": "list-item clinical", "cta": "button/primary teal" },
+  "targetUsers": "patients, healthcare workers, medical app users",
+  "referenceSource": "WeUI list patterns, Arco medical"
+}

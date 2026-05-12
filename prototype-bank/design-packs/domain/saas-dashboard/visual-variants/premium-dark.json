@@ -1,0 +1,22 @@
+{
+  "id": "premium-dark",
+  "skeleton": "saas-dashboard",
+  "name": "Premium Dark",
+  "description": "Dark, polished dashboard with subtle purple accents. High-value SaaS.",
+  "theme": "fintech-indigo",
+  "componentSet": {
+    "sidebar": "sidebar-nav with subtle gradient bg, border-r with low-opacity",
+    "cards": "card with elevated surface, border glow on hover",
+    "tables": "dark-surface rows, subtle header dividers",
+    "buttons": "button/primary with indigo, button/ghost with dim text",
+    "charts": "gradient fills, glowing accent lines"
+  },
+  "spacing": "comfortable",
+  "typography": "sans-technical",
+  "radius": { "sm": "6px", "md": "8px", "lg": "12px", "xl": "16px" },
+  "elevation": { "card": "shadow-md with dark alpha", "modal": "shadow-2xl", "sidebar": "none" },
+  "colorAccent": "#6366f1",
+  "motionPreset": "gentle",
+  "targetUsers": "power users, enterprise, AI tool users, devs",
+  "referenceSource": "shadcn/ui dark mode, Arco Design enterprise dark"
+}

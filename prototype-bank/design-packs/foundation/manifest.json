@@ -1,0 +1,14 @@
+{
+  "id": "foundation",
+  "version": "1.0",
+  "description": "Base design tokens for the visual bank. Platform-agnostic CSS custom properties and JSON specs.",
+  "sources": ["shadcn-ui", "daisyui"],
+  "files": {
+    "tokens.css": "CSS custom properties — base neutral scale",
+    "typography.css": "Type scale and font stack",
+    "elevation.css": "Shadow scale",
+    "spacing.json": "Spacing scale (t-shirt sizes)",
+    "themes/": "8 full color theme CSS files"
+  },
+  "usage": "Import tokens.css in any project root. Override with a theme CSS file on :root or [data-theme]."
+}

@@ -1,0 +1,13 @@
+{
+  "id": "mobile-soft", "skeleton": "ecommerce", "name": "Mobile Soft",
+  "theme": "soft-womens-health", "spacing": "spacious", "typography": "soft-rounded",
+  "motionPreset": "expressive", "colorAccent": "#ec4899",
+  "layout": "single-column mobile product feed, large images, bottom-anchored cart bar",
+  "productGridStyle": "2-col rounded pink-tinted cards, heart wishlist button, soft shadows",
+  "cartStyle": "bottom sheet cart with pink totals, swipe-to-remove items",
+  "checkoutStyle": "friendly mobile checkout, progress steps with icons, pink CTA",
+  "productDetailStyle": "full-screen image swipe, soft info panel slides up, review stars pink",
+  "radius": { "button": "24px", "card": "24px", "badge": "full", "image": "20px" },
+  "targetUsers": "beauty, skincare, women's fashion, wellness product stores",
+  "referenceSource": "WeUI mobile commerce, daisyUI soft"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "surfaces",
+  "version": "1.0",
+  "description": "Normalized UI components and blocks. Reference implementations from shadcn/ui + HyperUI + WeUI.",
+  "sources": ["shadcn-ui", "hyperui", "weui", "daisyui"],
+  "structure": {
+    "primitives/": "Atomic UI components: button, input, card, badge, tabs, avatar, checkbox, select",
+    "cards/": "Composite card components: stat, profile, metric, list-item, progress",
+    "blocks/": "Section-level blocks: dashboard-header, feed-item, onboarding, mobile-nav, dialog, stats-progress, sidebar"
+  },
+  "tokenContract": "All components use --vb-* CSS custom properties from foundation/tokens.css",
+  "usage": "Copy-paste into projects. Requires foundation/tokens.css and one theme file."
+}

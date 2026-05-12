@@ -1,0 +1,47 @@
+/*
+ * Theme: Luxury Dark Gold
+ * Mood: Premium, sophisticated, exclusive, dark
+ * Mode: Dark
+ * Suitable: luxury brands, premium subscriptions, high-end e-commerce, fintech premium
+ */
+:root, [data-theme="luxury-dark-gold"] {
+  --vb-bg:             #09080a;
+  --vb-bg-alt:         #0f0d10;
+  --vb-surface:        #141114;
+  --vb-surface-hover:  #1c181c;
+  --vb-surface-alt:    #1e1a1e;
+  --vb-overlay:        rgba(0, 0, 0, 0.72);
+
+  --vb-border:         rgba(212, 175, 55, 0.14);
+  --vb-border-strong:  rgba(212, 175, 55, 0.30);
+  --vb-border-focus:   #d4af37;
+
+  --vb-text:           #f5f0e8;
+  --vb-text-muted:     #b5a992;
+  --vb-text-subtle:    #6b5f4a;
+  --vb-text-inverse:   #09080a;
+
+  --vb-accent:         #d4af37;
+  --vb-accent-fg:      #09080a;
+  --vb-accent-hover:   #c4a028;
+  --vb-accent-subtle:  rgba(212, 175, 55, 0.10);
+
+  --vb-success:        #a3d977;
+  --vb-success-fg:     #09080a;
+  --vb-success-subtle: rgba(163, 217, 119, 0.10);
+  --vb-warning:        #f0a500;
+  --vb-warning-fg:     #09080a;
+  --vb-warning-subtle: rgba(240, 165, 0, 0.10);
+  --vb-danger:         #e05c5c;
+  --vb-danger-fg:      #ffffff;
+  --vb-danger-subtle:  rgba(224, 92, 92, 0.10);
+  --vb-info:           #7eb8d4;
+  --vb-info-fg:        #09080a;
+  --vb-info-subtle:    rgba(126, 184, 212, 0.10);
+
+  --vb-radius-md:      8px;
+  --vb-radius-lg:      12px;
+  --vb-radius-xl:      18px;
+
+  --vb-glow-accent:    0 0 28px rgba(212, 175, 55, 0.30);
+}

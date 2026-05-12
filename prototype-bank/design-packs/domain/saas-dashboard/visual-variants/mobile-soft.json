@@ -1,0 +1,22 @@
+{
+  "id": "mobile-soft",
+  "skeleton": "saas-dashboard",
+  "name": "Mobile Soft",
+  "description": "Mobile-first dashboard. Soft neutrals, card-stack layout, touch-optimized.",
+  "theme": "neutral",
+  "componentSet": {
+    "sidebar": "bottom mobile-nav replacing sidebar",
+    "cards": "card stacked vertically, full-width, large touch targets",
+    "tables": "replaced with list-item rows, swipe actions",
+    "buttons": "full-width button/primary, min-height 48px",
+    "charts": "simplified sparklines, horizontal scroll for multi-series"
+  },
+  "spacing": "spacious",
+  "typography": "soft-rounded",
+  "radius": { "sm": "12px", "md": "18px", "lg": "24px", "xl": "32px" },
+  "elevation": { "card": "shadow-md", "modal": "bottom-sheet shadow-2xl", "sidebar": "none" },
+  "colorAccent": "#18181b",
+  "motionPreset": "expressive",
+  "targetUsers": "mobile users, field workers, on-the-go managers",
+  "referenceSource": "WeUI mobile patterns, daisyUI mobile"
+}
