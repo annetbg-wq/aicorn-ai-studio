@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import { execSync, spawn, spawnSync } from 'child_process';
 import { registerPreviewBuildRoute, registerPreviewCompileRoute, runCompileJob } from './preview-manager';
+import { inspectLivePreviewWorkspace } from './quality-runtime';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -694,6 +695,10 @@ export function runDevAgentPrompt(
   return provider === 'codex'
     ? runCodexPrompt(prompt, resolveCodexModel(model), spawnFn)
     : runClaudePrompt(prompt, resolveClaudeModel(model), spawnFn);
+}
+
+export function buildQualityLlmPrompt(systemPrompt: string, userPrompt: string): string {
+  return `[System]\n${systemPrompt}\n\n[User]\n${userPrompt}`;
 }
 
 /** OpenAI-compatible endpoints for each provider */
@@ -1530,6 +1535,26 @@ function roundKb(bytes: number): number {
   return Math.round((bytes / 1024) * 10) / 10;
 }
 
+function formatOutputTruthBlockers(snapshot: ReturnType<typeof inspectLivePreviewWorkspace>): string {
+  return snapshot.outputTruth.blockers
+    .map((blocker) =>
+      blocker.paths && blocker.paths.length > 0
+        ? `${blocker.message} (${blocker.paths.join(', ')})`
+        : blocker.message,
+    )
+    .join(' | ');
+}
+
+function buildOutputTruthDetails(snapshot: ReturnType<typeof inspectLivePreviewWorkspace>): {
+  structure: ReturnType<typeof inspectLivePreviewWorkspace>['outputTruth']['structure'];
+  skeletonDelta: ReturnType<typeof inspectLivePreviewWorkspace>['outputTruth']['skeletonDelta'];
+} {
+  return {
+    structure: snapshot.outputTruth.structure,
+    skeletonDelta: snapshot.outputTruth.skeletonDelta,
+  };
+}
+
 function collectBuildAssetMetrics(buildId: string): {
   assets: Array<{ name: string; size: number }>;
   assetCount: number;
@@ -1674,52 +1699,39 @@ app.get('/api/quality/test/:testName', async (req, res) => {
 
       // 4. Code Delta — compile fixture files via shared queue
       case 'code-delta': {
+        const livePreview = inspectLivePreviewWorkspace();
+        if (Object.keys(livePreview.deltaFiles).length === 0) {
+          throw new Error('Real delta missing: preview-workspace contains no non-skeleton delta files');
+        }
+        if (!livePreview.outputTruth.passed) {
+          throw new Error(formatOutputTruthBlockers(livePreview));
+        }
+        if (!livePreview.skeletonId) {
+          throw new Error('Real delta missing: preview route manifest does not declare skeletonId');
+        }
         const buildId = `qt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
-        const previewCompileUrl = `http://127.0.0.1:${PORT}/api/preview/${buildId}/compile`;
-        const installResp = await fetch(previewCompileUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: {}, skeletonId: 'mobile-app' }),
-        });
-        if (!installResp.ok) {
-          const installText = await installResp.text().catch(() => installResp.statusText);
-          throw new Error(`Skeleton install failed: HTTP ${installResp.status} ${installText}`);
-        }
-        const installJson = await installResp.json() as { success?: boolean; error?: string };
-        if (installJson.success === false) {
-          throw new Error(`Skeleton install failed: ${installJson.error ?? 'unknown error'}`);
-        }
-        const compileResp = await fetch(previewCompileUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: QUALITY_FIXTURES.codeOutput }),
-        });
-        if (!compileResp.ok) {
-          const compileText = await compileResp.text().catch(() => compileResp.statusText);
-          throw new Error(`Fixture delta compile failed: HTTP ${compileResp.status} ${compileText}`);
-        }
-        const compileJson = await compileResp.json() as { success?: boolean; error?: string; url?: string };
-        if (compileJson.success === false) {
-          throw new Error(`Fixture delta compile failed: ${compileJson.error ?? 'unknown error'}`);
-        }
-        const fixtureFiles = Object.entries(QUALITY_FIXTURES.codeOutput as Record<string, string>).map(
+        await runCompileJob(buildId, livePreview.deltaFiles, livePreview.skeletonId);
+        const runtimeFiles = Object.entries(livePreview.deltaFiles).map(
           ([filePath, content]) => ({ path: filePath, size: Buffer.byteLength(content, 'utf8'), content }),
         );
-        const totalBytes = fixtureFiles.reduce((sum, file) => sum + file.size, 0);
+        const totalBytes = runtimeFiles.reduce((sum, file) => sum + file.size, 0);
         const buildAssets = collectBuildAssetMetrics(buildId);
         res.json({
           status: 'pass', duration_ms: ms(),
-          summary: `compiled OK, buildId: ${buildId}`,
+          summary: `real delta compiled OK, buildId: ${buildId}`,
           output: {
-            file_count: fixtureFiles.length,
+            file_count: runtimeFiles.length,
             total_bytes: totalBytes,
             asset_count: buildAssets.assetCount,
             build_size_kb: buildAssets.buildSizeKb,
-            preview_url: compileJson.url ? `http://127.0.0.1:${PORT}${compileJson.url}` : undefined,
-            files: fixtureFiles.map(file => file.path),
+            preview_url: `http://127.0.0.1:${PORT}/preview/${buildId}`,
+            files: runtimeFiles.map(file => file.path),
           } satisfies QualityOutputMetrics,
-          warnings: [QUALITY_FIXTURE_WARNING],
-          details: { buildId, files: fixtureFiles },
+          details: {
+            buildId,
+            files: runtimeFiles,
+            ...buildOutputTruthDetails(livePreview),
+          },
         });
         return;
       }
@@ -1809,6 +1821,7 @@ app.get('/api/quality/test/:testName', async (req, res) => {
             contentLengthStr:  `${(html.length / 1024).toFixed(1)}KB`,
             hasRootDiv,
             buildId,
+            htmlExcerpt: html.slice(0, 1200),
           },
         });
         return;
@@ -1838,6 +1851,10 @@ app.get('/api/quality/test/:testName', async (req, res) => {
 
       // 8. Save Ready — verify that a completed build qualifies as save-ready; prefer buildId from chain
       case 'save-ready': {
+        const livePreview = inspectLivePreviewWorkspace();
+        if (!livePreview.outputTruth.passed) {
+          throw new Error(formatOutputTruthBlockers(livePreview));
+        }
         const reqBuildId = typeof req.query.buildId === 'string' ? req.query.buildId : null;
         const buildsDir = path.join(process.cwd(), 'builds');
         if (!fs.existsSync(buildsDir)) throw new Error('No builds/ directory — run Code Delta first');
@@ -1873,7 +1890,12 @@ app.get('/api/quality/test/:testName', async (req, res) => {
             preview_url: `http://127.0.0.1:${PORT}/preview/${savedBuild}`,
             files: saveReadyAssets.assets.map(asset => asset.name),
           } satisfies QualityOutputMetrics,
-          details: { compileSuccess: true, buildId: savedBuild, assetsCount },
+          details: {
+            compileSuccess: true,
+            buildId: savedBuild,
+            assetsCount,
+            ...buildOutputTruthDetails(livePreview),
+          },
         });
         return;
       }
@@ -1903,6 +1925,52 @@ app.get('/api/quality/test/:testName', async (req, res) => {
     }
   } catch (err: unknown) {
     res.json({ status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/quality/llm-run', async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as {
+      provider?: string;
+      model?: string;
+      systemPrompt?: string;
+      userPrompt?: string;
+    };
+    const provider = body.provider === 'claude' || body.provider === 'codex'
+      ? body.provider
+      : null;
+    const systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt.trim() : '';
+    const userPrompt = typeof body.userPrompt === 'string' ? body.userPrompt.trim() : '';
+
+    if (!provider) {
+      return res.status(400).json({ error: 'provider must be claude or codex' });
+    }
+    if (!userPrompt) {
+      return res.status(400).json({ error: 'userPrompt is required' });
+    }
+    if (!isProviderAvailable(provider)) {
+      const status = provider === 'codex' ? getCodexCliStatus() : getClaudeCliStatus();
+      return res.status(503).json({
+        error: `${describeProvider(provider)} is not available`,
+        provider,
+        details: status.reason || 'CLI not found or not authorized',
+      });
+    }
+
+    const resolvedModel = resolveDevAgentModel(provider, body.model);
+    const responseText = await runDevAgentPrompt(
+      provider,
+      buildQualityLlmPrompt(systemPrompt, userPrompt),
+      resolvedModel,
+    );
+
+    res.json({
+      provider,
+      model: resolvedModel,
+      output_text: responseText,
+    });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

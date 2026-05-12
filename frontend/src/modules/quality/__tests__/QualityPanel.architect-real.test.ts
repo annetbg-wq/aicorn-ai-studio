@@ -79,4 +79,36 @@ describe('Architect Real helpers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.summary).toContain('реальный LLM output');
   });
+
+  it('supports explicit Claude CLI compare runs via quality proxy', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      output_text: JSON.stringify({
+        appName: 'HabitTracker',
+        skeleton: 'mobile-app',
+        fileTree: {
+          'src/config/app.ts': 'Defines app metadata and storage keys used by onboarding and habit persistence.',
+          'src/config/navigation.ts': 'Declares tab routes and labels used by the mobile shell.',
+          'src/data/types.ts': 'Defines Habit, HabitEntry, and StreakSummary entities used by screens and hooks.',
+          'src/data/seed.ts': 'Provides starter habits and seeded completion history for first launch.',
+          'src/pages/Home.tsx': 'Renders the main habit dashboard with today actions and streak summary data.',
+          'src/pages/Progress.tsx': 'Shows streak analytics and completion trends using HabitEntry summaries.',
+        },
+        contextContract: 'useApp() owns onboarding and profile state; feature files consume it without direct storage writes.',
+        dataModel: 'Habit: { id: string, name: string, createdAt: string, completions: Record<string, boolean> }',
+      }),
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await runArchitectRealTest({ route: 'claude-cli', model: 'claude-sonnet-4-6' });
+
+    expect(result.status).toBe('pass');
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/quality/llm-run',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+  });
 });
