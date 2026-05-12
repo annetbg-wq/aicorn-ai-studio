@@ -1,0 +1,19 @@
+{
+  "id": "fintech-indigo",
+  "name": "Fintech Indigo",
+  "description": "Dark canvas with indigo accents. Authority, precision, data density.",
+  "ramp": {
+    "canvas": {
+      "950": "#0c0e1a", "900": "#10132a", "800": "#141728", "700": "#1c2038",
+      "600": "#1a1e33", "500": "#252a45"
+    },
+    "indigo": {
+      "300": "#a5b4fc", "400": "#818cf8", "500": "#6366f1", "600": "#4f46e5",
+      "700": "#4338ca", "800": "#3730a3"
+    },
+    "success": "#10b981",
+    "danger": "#ef4444",
+    "warning": "#f59e0b"
+  },
+  "usage": { "bg": "canvas.950", "surface": "canvas.800", "accent": "indigo.500", "text": "#e2e8f0" }
+}

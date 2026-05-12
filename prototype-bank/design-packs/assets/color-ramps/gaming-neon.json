@@ -1,0 +1,21 @@
+{
+  "id": "gaming-neon",
+  "name": "Gaming Neon",
+  "description": "Deep dark with violet + electric cyan/green accents. Esports, streaming.",
+  "ramp": {
+    "dark": {
+      "1000": "#050508", "900": "#0a0a0f", "800": "#0f0f16",
+      "700": "#16162a", "600": "#1a1a2e"
+    },
+    "violet": {
+      "300": "#c4b5fd", "400": "#a78bfa", "500": "#8b5cf6", "600": "#7c3aed"
+    },
+    "neon": {
+      "green":  "#00ff87",
+      "cyan":   "#00d4ff",
+      "pink":   "#ff4060",
+      "yellow": "#fbbf24"
+    }
+  },
+  "usage": { "bg": "dark.1000", "surface": "dark.800", "accent": "violet.500", "glow": "violet.500" }
+}

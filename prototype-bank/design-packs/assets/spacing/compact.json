@@ -1,0 +1,13 @@
+{
+  "id": "compact",
+  "name": "Compact Spacing",
+  "description": "Dense, information-rich layouts. Fintech dashboards, data tables, admin panels.",
+  "componentPadding": { "sm": "6px 10px", "md": "8px 14px", "lg": "10px 18px" },
+  "cardPadding": "16px",
+  "sectionGap": "24px",
+  "listItemGap": "2px",
+  "inputHeight": "32px",
+  "iconSize": "14px",
+  "avatarSize": "28px",
+  "typographyScale": 0.9
+}

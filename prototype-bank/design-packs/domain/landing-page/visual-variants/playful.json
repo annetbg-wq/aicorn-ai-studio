@@ -1,0 +1,12 @@
+{
+  "id": "playful", "skeleton": "landing-page", "name": "Playful",
+  "theme": "playful-coral", "spacing": "spacious", "typography": "soft-rounded",
+  "motionPreset": "expressive", "colorAccent": "#f97316",
+  "layout": "angled hero section, emoji accents, colorful bento grid features",
+  "heroStyle": "illustration or emoji hero, bold warm headline, playful CTA",
+  "featureStyle": "colorful icon cards, bento grid layout",
+  "ctaStyle": "full-width coral CTA, social proof strip",
+  "radius": { "button": "24px", "card": "24px", "badge": "full" },
+  "targetUsers": "consumer apps, B2C, lifestyle, food, dating",
+  "referenceSource": "HyperUI consumer, daisyUI playful"
+}

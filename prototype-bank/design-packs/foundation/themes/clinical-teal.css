@@ -1,0 +1,46 @@
+/*
+ * Theme: Clinical Teal
+ * Mood: Clean, trustworthy, medical, precise
+ * Mode: Light
+ * Suitable: healthcare apps, medical dashboards, wellness tracking, telemedicine
+ */
+:root, [data-theme="clinical-teal"] {
+  --vb-bg:             #f0fdfa;
+  --vb-bg-alt:         #e6fffa;
+  --vb-surface:        #ffffff;
+  --vb-surface-hover:  #f0fdfa;
+  --vb-surface-alt:    #ccfbf1;
+  --vb-overlay:        rgba(15, 36, 36, 0.45);
+
+  --vb-border:         rgba(13, 148, 136, 0.14);
+  --vb-border-strong:  rgba(13, 148, 136, 0.28);
+  --vb-border-focus:   #0d9488;
+
+  --vb-text:           #042f2e;
+  --vb-text-muted:     #5eead4;
+  --vb-text-muted:     #0f766e;
+  --vb-text-subtle:    #5eead4;
+  --vb-text-inverse:   #ffffff;
+
+  --vb-accent:         #0d9488;
+  --vb-accent-fg:      #ffffff;
+  --vb-accent-hover:   #0f766e;
+  --vb-accent-subtle:  #f0fdfa;
+
+  --vb-success:        #059669;
+  --vb-success-fg:     #ffffff;
+  --vb-success-subtle: #ecfdf5;
+  --vb-warning:        #d97706;
+  --vb-warning-fg:     #ffffff;
+  --vb-warning-subtle: #fffbeb;
+  --vb-danger:         #dc2626;
+  --vb-danger-fg:      #ffffff;
+  --vb-danger-subtle:  #fef2f2;
+  --vb-info:           #0891b2;
+  --vb-info-fg:        #ffffff;
+  --vb-info-subtle:    #ecfeff;
+
+  --vb-radius-md:      10px;
+  --vb-radius-lg:      16px;
+  --vb-radius-xl:      22px;
+}

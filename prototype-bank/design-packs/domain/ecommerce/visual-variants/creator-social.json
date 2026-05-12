@@ -1,0 +1,13 @@
+{
+  "id": "creator-social", "skeleton": "ecommerce", "name": "Creator Social",
+  "theme": "cool-blue", "spacing": "comfortable", "typography": "display-editorial",
+  "motionPreset": "expressive", "colorAccent": "#2563eb",
+  "layout": "creator storefront with profile header, product feed, social proof wall",
+  "productGridStyle": "instagram-style grid, creator photo featured, collab badge on items",
+  "cartStyle": "slide-in cart with creator bio at top, social share before purchase",
+  "checkoutStyle": "streamlined 1-page checkout, fan discount code field",
+  "productDetailStyle": "creator video embed, community reviews, limited edition badge",
+  "radius": { "button": "12px", "card": "18px", "badge": "full", "image": "14px" },
+  "targetUsers": "creator merchandise, fan stores, influencer product lines",
+  "referenceSource": "Semi Design creator store, HyperUI social commerce"
+}

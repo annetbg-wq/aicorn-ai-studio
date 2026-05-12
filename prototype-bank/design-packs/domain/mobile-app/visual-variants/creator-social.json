@@ -1,0 +1,11 @@
+{
+  "id": "creator-social", "skeleton": "mobile-app", "name": "Creator Social",
+  "theme": "cool-blue", "spacing": "comfortable", "typography": "display-editorial",
+  "motionPreset": "expressive", "colorAccent": "#2563eb",
+  "layout": "full-bleed media feed, floating action button, story rings top",
+  "radius": { "card": "16px", "button": "12px", "input": "12px", "nav": "0px" },
+  "elevation": { "card": "shadow-md", "navbar": "frosted glass border-top", "modal": "bottom-sheet" },
+  "componentSet": { "nav": "mobile-nav/creator-5tab", "feed": "feed-item media-first", "cta": "fab + button/primary" },
+  "targetUsers": "social media users, content creators, community members",
+  "referenceSource": "Semi Design social, HyperUI social mobile"
+}

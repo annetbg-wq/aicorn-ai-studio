@@ -18,6 +18,7 @@ const SettingsModal      = lazy(() => lazyWithRetry(() => import('./components/S
 const DeployModal        = lazy(() => lazyWithRetry(() => import('./components/DeployModal')).then(m => ({ default: m.DeployModal })));
 const CollabModal        = lazy(() => lazyWithRetry(() => import('./components/CollabModal')).then(m => ({ default: m.CollabModal })));
 const DiffPreview        = lazy(() => lazyWithRetry(() => import('./components/DiffPreview')).then(m => ({ default: m.DiffPreview })));
+const VisualBankModule   = lazy(() => lazyWithRetry(() => import('./modules/visual-bank/VisualBankModule')));
 
 
 const PageLoader = () => (
@@ -291,6 +292,7 @@ export default function App() {
     if (id === 'quality')      setView('quality');
     if (id === 'code-studio' && creatorMode) setView('code-studio');
     if (id === 'db-console')   setView('db-console');
+    if (id === 'visual-bank')  setView('visual-bank');
   };
 
   const handleLoadProject = (p: any) => {
@@ -444,6 +446,7 @@ export default function App() {
     : view === 'quality'      ? 'quality'
     : view === 'code-studio' && creatorMode ? 'code-studio'
     : view === 'db-console'  ? 'db-console'
+    : view === 'visual-bank' ? 'visual-bank'
     : 'dashboard';
 
   return (
@@ -691,6 +694,15 @@ export default function App() {
                style={{ animation: 'viewFadeIn 0.28s ease' }}>
             <Suspense fallback={<PageLoader />}>
               <SupabaseConsolePanel theme={studio.theme} />
+            </Suspense>
+          </div>
+        )}
+
+        {view === 'visual-bank' && (
+          <div className="flex flex-1 overflow-hidden"
+               style={{ animation: 'viewFadeIn 0.28s ease' }}>
+            <Suspense fallback={<PageLoader />}>
+              <VisualBankModule />
             </Suspense>
           </div>
         )}

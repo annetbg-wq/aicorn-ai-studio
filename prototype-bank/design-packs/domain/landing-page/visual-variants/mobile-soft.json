@@ -1,0 +1,12 @@
+{
+  "id": "mobile-soft", "skeleton": "landing-page", "name": "Mobile Soft",
+  "theme": "soft-womens-health", "spacing": "spacious", "typography": "soft-rounded",
+  "motionPreset": "expressive", "colorAccent": "#ec4899",
+  "layout": "single-column mobile, soft pink hero, large buttons",
+  "heroStyle": "illustration-first mobile hero, warm pink gradient bg",
+  "featureStyle": "full-width feature cards with icons, soft borders",
+  "ctaStyle": "full-width pink CTA button, emoji accents",
+  "radius": { "button": "24px", "card": "24px", "badge": "full" },
+  "targetUsers": "women's health, wellness, self-care apps",
+  "referenceSource": "WeUI mobile, daisyUI soft"
+}

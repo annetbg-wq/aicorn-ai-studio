@@ -1,0 +1,12 @@
+{
+  "id": "creator-social", "skeleton": "landing-page", "name": "Creator Social",
+  "theme": "cool-blue", "spacing": "spacious", "typography": "display-editorial",
+  "motionPreset": "expressive", "colorAccent": "#2563eb",
+  "layout": "creator bio hero, social proof wall, platform feature cards",
+  "heroStyle": "creator avatar + stats, follower count, viral proof",
+  "featureStyle": "platform feature cards with screenshots",
+  "ctaStyle": "blue CTA + free trial emphasis, social login options",
+  "radius": { "button": "12px", "card": "20px", "badge": "full" },
+  "targetUsers": "content creator tools, community platforms, newsletter tools",
+  "referenceSource": "Semi Design creator, HyperUI social"
+}

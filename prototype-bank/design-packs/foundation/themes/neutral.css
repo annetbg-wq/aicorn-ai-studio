@@ -1,0 +1,45 @@
+/*
+ * Theme: Neutral
+ * Mood: Calm, minimal, universal
+ * Mode: Light
+ * Suitable: productivity, wellness, general SaaS, medical
+ */
+:root, [data-theme="neutral"] {
+  --vb-bg:             #fafafa;
+  --vb-bg-alt:         #f4f4f5;
+  --vb-surface:        #ffffff;
+  --vb-surface-hover:  #f9f9f9;
+  --vb-surface-alt:    #e4e4e7;
+  --vb-overlay:        rgba(0, 0, 0, 0.40);
+
+  --vb-border:         rgba(0, 0, 0, 0.08);
+  --vb-border-strong:  rgba(0, 0, 0, 0.16);
+  --vb-border-focus:   #18181b;
+
+  --vb-text:           #09090b;
+  --vb-text-muted:     #71717a;
+  --vb-text-subtle:    #a1a1aa;
+  --vb-text-inverse:   #fafafa;
+
+  --vb-accent:         #18181b;
+  --vb-accent-fg:      #fafafa;
+  --vb-accent-hover:   #27272a;
+  --vb-accent-subtle:  #f4f4f5;
+
+  --vb-success:        #16a34a;
+  --vb-success-fg:     #ffffff;
+  --vb-success-subtle: #f0fdf4;
+  --vb-warning:        #ca8a04;
+  --vb-warning-fg:     #ffffff;
+  --vb-warning-subtle: #fefce8;
+  --vb-danger:         #dc2626;
+  --vb-danger-fg:      #ffffff;
+  --vb-danger-subtle:  #fef2f2;
+  --vb-info:           #2563eb;
+  --vb-info-fg:        #ffffff;
+  --vb-info-subtle:    #eff6ff;
+
+  --vb-radius-md:      10px;
+  --vb-radius-lg:      16px;
+  --vb-radius-xl:      20px;
+}

@@ -1,0 +1,11 @@
+{
+  "id": "fintech-corporate", "skeleton": "mobile-app", "name": "Fintech Corporate",
+  "theme": "fintech-indigo", "spacing": "compact", "typography": "mono-technical",
+  "motionPreset": "gentle", "colorAccent": "#6366f1",
+  "layout": "number-first hero card, transaction list, tab bar minimalist",
+  "radius": { "card": "8px", "button": "6px", "input": "6px", "nav": "0px" },
+  "elevation": { "card": "border dark", "navbar": "border-top fintech", "modal": "center-modal dark" },
+  "componentSet": { "nav": "mobile-nav/4-tab fintech", "feed": "list-item transaction", "cta": "button/primary compact" },
+  "targetUsers": "banking app users, investors, fintech power users",
+  "referenceSource": "Arco Design fintech mobile"
+}

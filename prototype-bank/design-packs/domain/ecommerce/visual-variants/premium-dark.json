@@ -1,0 +1,13 @@
+{
+  "id": "premium-dark", "skeleton": "ecommerce", "name": "Premium Dark",
+  "theme": "fintech-indigo", "spacing": "spacious", "typography": "display-editorial",
+  "motionPreset": "gentle", "colorAccent": "#6366f1",
+  "layout": "full-bleed dark storefront, 2-col product grid, immersive product detail",
+  "productGridStyle": "dark cards with image fade, minimal text, hover glow border",
+  "cartStyle": "dark side drawer, elevated surfaces, animated badge on icon",
+  "checkoutStyle": "single-page dark checkout, field groups on dark surface",
+  "productDetailStyle": "full-bleed hero image, dark info panel, sticky purchase bar with glow CTA",
+  "radius": { "button": "8px", "card": "16px", "badge": "full", "image": "12px" },
+  "targetUsers": "luxury goods, premium tech, exclusive fashion brands",
+  "referenceSource": "shadcn/ui dark storefront, Arco Design enterprise"
+}

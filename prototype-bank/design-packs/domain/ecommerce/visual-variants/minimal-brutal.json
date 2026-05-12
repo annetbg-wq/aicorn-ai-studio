@@ -1,0 +1,13 @@
+{
+  "id": "minimal-brutal", "skeleton": "ecommerce", "name": "Minimal Brutal",
+  "theme": "neutral", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "instant", "colorAccent": "#18181b",
+  "layout": "newspaper-grid product layout, thick borders, no-nonsense checkout",
+  "productGridStyle": "square image blocks with thick border, stark price typography, no shadows",
+  "cartStyle": "full-page cart table, monochrome, inverted checkout button",
+  "checkoutStyle": "plain form on white, 2px border inputs, bold section headers",
+  "productDetailStyle": "full-width image, specs in definition list, stark add-to-cart bar",
+  "radius": { "button": "0px", "card": "2px", "badge": "0px", "image": "0px" },
+  "targetUsers": "indie brands, art stores, design-forward products, concept shops",
+  "referenceSource": "HyperUI brutal, shadcn/ui minimal"
+}

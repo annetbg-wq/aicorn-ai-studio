@@ -1,0 +1,13 @@
+{
+  "id": "clinical", "skeleton": "ecommerce", "name": "Clinical",
+  "theme": "clinical-teal", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#0d9488",
+  "layout": "list-first product display, strict filter sidebar, trust badge row",
+  "productGridStyle": "clean white cards, dosage/usage info prominent, teal CTA, compliance info visible",
+  "cartStyle": "full-page cart with insurance info field, prescription badge support",
+  "checkoutStyle": "multi-step form with progress bar, clear data privacy messaging",
+  "productDetailStyle": "clinical info hierarchy, ingredients panel, doctor-recommended badge",
+  "radius": { "button": "8px", "card": "10px", "badge": "4px", "image": "6px" },
+  "targetUsers": "pharmacies, medical supply, health supplements, telehealth stores",
+  "referenceSource": "Arco medical, WeUI clinical patterns"
+}

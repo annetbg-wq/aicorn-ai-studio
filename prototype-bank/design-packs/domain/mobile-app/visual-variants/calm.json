@@ -1,0 +1,11 @@
+{
+  "id": "calm", "skeleton": "mobile-app", "name": "Calm",
+  "theme": "neutral", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#18181b",
+  "layout": "bottom-nav with 4 tabs, card-feed main, sheet modals",
+  "radius": { "card": "16px", "button": "12px", "input": "12px", "nav": "0px" },
+  "elevation": { "card": "shadow-sm", "navbar": "border-top", "modal": "bottom-sheet shadow-2xl" },
+  "componentSet": { "nav": "mobile-nav/4-tab", "feed": "feed-item with avatar", "cta": "button/primary full-width" },
+  "targetUsers": "general consumers, productivity app users",
+  "referenceSource": "WeUI patterns, shadcn/ui mobile"
+}

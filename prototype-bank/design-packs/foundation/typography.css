@@ -1,0 +1,53 @@
+/*
+ * Visual Bank — Typography Scale
+ * Normalized from shadcn/ui + Inter type system
+ */
+
+:root {
+  /* ── Font Stacks ── */
+  --vb-font-sans:   'Inter', 'Inter Variable', system-ui, -apple-system, sans-serif;
+  --vb-font-mono:   'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --vb-font-display:'Inter', 'Cal Sans', system-ui, sans-serif;
+
+  /* ── Scale ── */
+  --vb-text-xs:     0.75rem;    /* 12px */
+  --vb-text-sm:     0.875rem;   /* 14px */
+  --vb-text-base:   1rem;       /* 16px */
+  --vb-text-lg:     1.125rem;   /* 18px */
+  --vb-text-xl:     1.25rem;    /* 20px */
+  --vb-text-2xl:    1.5rem;     /* 24px */
+  --vb-text-3xl:    1.875rem;   /* 30px */
+  --vb-text-4xl:    2.25rem;    /* 36px */
+  --vb-text-5xl:    3rem;       /* 48px */
+  --vb-text-6xl:    3.75rem;    /* 60px */
+
+  /* ── Line Heights ── */
+  --vb-leading-tight:   1.25;
+  --vb-leading-snug:    1.375;
+  --vb-leading-normal:  1.5;
+  --vb-leading-relaxed: 1.625;
+
+  /* ── Font Weights ── */
+  --vb-font-normal:   400;
+  --vb-font-medium:   500;
+  --vb-font-semibold: 600;
+  --vb-font-bold:     700;
+
+  /* ── Letter Spacing ── */
+  --vb-tracking-tight:  -0.025em;
+  --vb-tracking-normal:  0em;
+  --vb-tracking-wide:    0.025em;
+  --vb-tracking-wider:   0.05em;
+  --vb-tracking-widest:  0.1em;
+}
+
+/* Semantic type roles */
+.vb-display  { font-family: var(--vb-font-display); font-size: var(--vb-text-5xl); font-weight: var(--vb-font-bold); line-height: var(--vb-leading-tight); letter-spacing: var(--vb-tracking-tight); }
+.vb-heading1 { font-size: var(--vb-text-4xl); font-weight: var(--vb-font-bold); line-height: var(--vb-leading-tight); letter-spacing: var(--vb-tracking-tight); }
+.vb-heading2 { font-size: var(--vb-text-3xl); font-weight: var(--vb-font-semibold); line-height: var(--vb-leading-snug); }
+.vb-heading3 { font-size: var(--vb-text-2xl); font-weight: var(--vb-font-semibold); line-height: var(--vb-leading-snug); }
+.vb-heading4 { font-size: var(--vb-text-xl);  font-weight: var(--vb-font-semibold); line-height: var(--vb-leading-normal); }
+.vb-body     { font-size: var(--vb-text-base); font-weight: var(--vb-font-normal);  line-height: var(--vb-leading-relaxed); }
+.vb-small    { font-size: var(--vb-text-sm);   font-weight: var(--vb-font-normal);  line-height: var(--vb-leading-normal); }
+.vb-label    { font-size: var(--vb-text-xs);   font-weight: var(--vb-font-medium);  line-height: var(--vb-leading-normal); letter-spacing: var(--vb-tracking-wide); text-transform: uppercase; }
+.vb-mono     { font-family: var(--vb-font-mono); font-size: var(--vb-text-sm); }

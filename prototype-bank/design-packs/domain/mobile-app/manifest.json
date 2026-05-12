@@ -1,0 +1,8 @@
+{
+  "id": "mobile-app",
+  "skeleton": "mobile-app",
+  "skeletonPath": "skeletons/mobile-app/",
+  "description": "Visual variants for mobile app skeleton. Bottom nav, card feeds, profile flows.",
+  "variantCount": 8,
+  "variants": ["calm","premium-dark","playful","clinical","fintech-corporate","creator-social","minimal-brutal","mobile-soft"]
+}

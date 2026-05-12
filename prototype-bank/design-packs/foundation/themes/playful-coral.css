@@ -1,0 +1,45 @@
+/*
+ * Theme: Playful Coral
+ * Mood: Energetic, fun, warm, consumer-facing
+ * Mode: Light
+ * Suitable: consumer apps, food delivery, social, lifestyle, dating
+ */
+:root, [data-theme="playful-coral"] {
+  --vb-bg:             #fff7f5;
+  --vb-bg-alt:         #ffe4dc;
+  --vb-surface:        #ffffff;
+  --vb-surface-hover:  #fff7f5;
+  --vb-surface-alt:    #ffd5c8;
+  --vb-overlay:        rgba(60, 20, 10, 0.40);
+
+  --vb-border:         rgba(249, 115, 22, 0.14);
+  --vb-border-strong:  rgba(249, 115, 22, 0.28);
+  --vb-border-focus:   #f97316;
+
+  --vb-text:           #431407;
+  --vb-text-muted:     #9a3412;
+  --vb-text-subtle:    #fdba74;
+  --vb-text-inverse:   #ffffff;
+
+  --vb-accent:         #f97316;
+  --vb-accent-fg:      #ffffff;
+  --vb-accent-hover:   #ea6f0e;
+  --vb-accent-subtle:  #fff7ed;
+
+  --vb-success:        #16a34a;
+  --vb-success-fg:     #ffffff;
+  --vb-success-subtle: #f0fdf4;
+  --vb-warning:        #ca8a04;
+  --vb-warning-fg:     #ffffff;
+  --vb-warning-subtle: #fefce8;
+  --vb-danger:         #dc2626;
+  --vb-danger-fg:      #ffffff;
+  --vb-danger-subtle:  #fef2f2;
+  --vb-info:           #7c3aed;
+  --vb-info-fg:        #ffffff;
+  --vb-info-subtle:    #f5f3ff;
+
+  --vb-radius-md:      14px;
+  --vb-radius-lg:      20px;
+  --vb-radius-xl:      28px;
+}

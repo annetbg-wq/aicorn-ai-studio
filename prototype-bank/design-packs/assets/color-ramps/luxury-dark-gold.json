@@ -1,0 +1,19 @@
+{
+  "id": "luxury-dark-gold",
+  "name": "Luxury Dark Gold",
+  "description": "Near-black canvas with gold accents. Exclusive, premium, luxury brand.",
+  "ramp": {
+    "dark": {
+      "1000": "#09080a", "900": "#0f0d10", "800": "#141114", "700": "#1c181c", "600": "#1e1a1e"
+    },
+    "gold": {
+      "light":  "#f5d98b",
+      "mid":    "#d4af37",
+      "deep":   "#c4a028",
+      "muted":  "#b5a992",
+      "subtle": "#6b5f4a"
+    },
+    "cream": "#f5f0e8"
+  },
+  "usage": { "bg": "dark.1000", "surface": "dark.800", "accent": "gold.mid", "text": "cream" }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "playful", "skeleton": "ecommerce", "name": "Playful",
+  "theme": "playful-coral", "spacing": "spacious", "typography": "soft-rounded",
+  "motionPreset": "expressive", "colorAccent": "#f97316",
+  "layout": "bento grid product layout, large hero banner, colorful category chips",
+  "productGridStyle": "rounded cards with color backgrounds, bold price badge, animated add-to-cart bounce",
+  "cartStyle": "bottom sheet cart on mobile, bright coral CTA, item count badge",
+  "checkoutStyle": "single-column mobile-first checkout, large input fields, fun confirmation screen",
+  "productDetailStyle": "stacked mobile layout, emoji accents, social sharing row, review stars prominent",
+  "radius": { "button": "24px", "card": "24px", "badge": "full", "image": "20px" },
+  "targetUsers": "food delivery, craft goods, fun consumer products, kids",
+  "referenceSource": "HyperUI consumer, daisyUI playful"
+}

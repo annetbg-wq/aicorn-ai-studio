@@ -1,0 +1,11 @@
+{
+  "id": "premium-dark", "skeleton": "mobile-app", "name": "Premium Dark",
+  "theme": "fintech-indigo", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#6366f1",
+  "layout": "dark bottom-nav, card surfaces with glow, full-bleed hero",
+  "radius": { "card": "12px", "button": "8px", "input": "8px", "nav": "0px" },
+  "elevation": { "card": "border + glow-accent subtle", "navbar": "border-top dark", "modal": "bottom-sheet dark" },
+  "componentSet": { "nav": "mobile-nav dark/4-tab", "feed": "feed-item dark surface", "cta": "button/primary indigo" },
+  "targetUsers": "tech-savvy users, premium app subscribers, fintech mobile",
+  "referenceSource": "shadcn/ui dark, Arco Design dark mobile"
+}

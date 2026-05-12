@@ -1,0 +1,22 @@
+{
+  "id": "clinical",
+  "skeleton": "saas-dashboard",
+  "name": "Clinical",
+  "description": "Medical-grade dashboard. Teal accents, high contrast, precise typography.",
+  "theme": "clinical-teal",
+  "componentSet": {
+    "sidebar": "sidebar-nav white bg, teal active indicator, clean borders",
+    "cards": "card with crisp white surfaces, teal accent borders on key metrics",
+    "tables": "strict alternating rows, clear header hierarchy",
+    "buttons": "button/primary teal, destructive only for danger actions",
+    "charts": "teal primary, accessible color pairs, always labeled"
+  },
+  "spacing": "comfortable",
+  "typography": "sans-technical",
+  "radius": { "sm": "4px", "md": "8px", "lg": "12px", "xl": "16px" },
+  "elevation": { "card": "shadow-sm", "modal": "shadow-lg", "sidebar": "shadow-sm" },
+  "colorAccent": "#0d9488",
+  "motionPreset": "gentle",
+  "targetUsers": "doctors, nurses, clinical coordinators, health administrators",
+  "referenceSource": "Arco Design medical, Semi Design clinical variants"
+}

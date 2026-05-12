@@ -1,0 +1,14 @@
+{
+  "id": "weui",
+  "name": "WeUI",
+  "version": "2.x",
+  "url": "https://github.com/Tencent/weui",
+  "license": "MIT",
+  "licenseUrl": "https://github.com/Tencent/weui/blob/master/LICENSE",
+  "suitable_for_local_import": true,
+  "description": "Tencent's WeChat official UI library. Mobile-first patterns, native WeChat component feel. Excellent mobile navigation and list patterns.",
+  "import_strategy": "normalized-reference",
+  "curated_categories": ["mobile-nav", "lists", "feed", "mobile-cards", "mobile-inputs"],
+  "normalizedInto": ["surfaces/blocks", "domain/mobile-app/visual-variants"],
+  "verified_date": "2026-05"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "playful", "skeleton": "social-community", "name": "Playful",
+  "theme": "playful-coral", "spacing": "spacious", "typography": "soft-rounded",
+  "motionPreset": "expressive", "colorAccent": "#f97316",
+  "layout": "card-based feed, large avatars, emoji reaction bar, story ring row at top",
+  "feedStyle": "rounded feed cards with coral accent, animated emoji reactions, share button prominent",
+  "profileStyle": "fun profile with large avatar, colorful stat pills, tabbed content with icons",
+  "messagingStyle": "rounded bubbles, sticker picker, gif support indicator, coral sent bubbles",
+  "communityStyle": "community discovery grid with colorful banners, activity pulse badge",
+  "radius": { "card": "24px", "avatar": "full", "button": "20px", "bubble": "24px" },
+  "targetUsers": "consumer social, hobby groups, fan communities, local interest groups",
+  "referenceSource": "HyperUI consumer social, daisyUI playful"
+}

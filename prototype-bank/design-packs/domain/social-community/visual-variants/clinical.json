@@ -1,0 +1,13 @@
+{
+  "id": "clinical", "skeleton": "social-community", "name": "Clinical",
+  "theme": "clinical-teal", "spacing": "comfortable", "typography": "sans-technical",
+  "motionPreset": "gentle", "colorAccent": "#0d9488",
+  "layout": "moderated forum layout, clear post hierarchy, verified badge system",
+  "feedStyle": "structured post cards with category tag, clinical teal upvote, author credentials",
+  "profileStyle": "professional profile with credentials panel, specialization tags, publication list",
+  "messagingStyle": "HIPAA-compliant messaging with encryption badge, attachment type restrictions",
+  "communityStyle": "specialty community with member verification, clinical guidelines pinned",
+  "radius": { "card": "8px", "avatar": "full", "button": "6px", "bubble": "10px" },
+  "targetUsers": "healthcare professional networks, patient support groups, clinical trial communities",
+  "referenceSource": "Arco medical community, WeUI clinical"
+}

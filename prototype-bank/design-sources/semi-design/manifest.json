@@ -1,0 +1,14 @@
+{
+  "id": "semi-design",
+  "name": "Semi Design",
+  "version": "2.x",
+  "url": "https://github.com/DouyinFE/semi-design",
+  "license": "MIT",
+  "licenseUrl": "https://github.com/DouyinFE/semi-design/blob/main/LICENSE",
+  "suitable_for_local_import": true,
+  "description": "ByteDance/TikTok's design system. Clean, modern components with strong token system and dark mode.",
+  "import_strategy": "normalized-reference",
+  "curated_categories": ["creator layouts", "feed blocks", "profile sections", "media cards"],
+  "normalizedInto": ["surfaces/cards", "domain/social-community/visual-variants"],
+  "verified_date": "2026-05"
+}

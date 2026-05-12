@@ -1,0 +1,15 @@
+{
+  "id": "themes",
+  "description": "Complete color system themes for the Visual Bank. Each file is a self-contained CSS custom property override.",
+  "usage": "Link foundation/tokens.css first, then link one theme file. Apply [data-theme] attribute to :root or any container.",
+  "themes": [
+    { "id": "neutral",             "file": "neutral.css",             "mood": "calm",            "mode": "light" },
+    { "id": "cool-blue",           "file": "cool-blue.css",           "mood": "professional",    "mode": "light" },
+    { "id": "fintech-indigo",      "file": "fintech-indigo.css",      "mood": "corporate",       "mode": "dark" },
+    { "id": "clinical-teal",       "file": "clinical-teal.css",       "mood": "clinical",        "mode": "light" },
+    { "id": "playful-coral",       "file": "playful-coral.css",       "mood": "energetic",       "mode": "light" },
+    { "id": "gaming-neon",         "file": "gaming-neon.css",         "mood": "intense",         "mode": "dark" },
+    { "id": "luxury-dark-gold",    "file": "luxury-dark-gold.css",    "mood": "premium",         "mode": "dark" },
+    { "id": "soft-womens-health",  "file": "soft-womens-health.css",  "mood": "gentle",          "mode": "light" }
+  ]
+}

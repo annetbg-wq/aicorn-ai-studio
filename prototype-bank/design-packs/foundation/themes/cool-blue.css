@@ -1,0 +1,45 @@
+/*
+ * Theme: Cool Blue
+ * Mood: Professional, trustworthy, productive
+ * Mode: Light
+ * Suitable: B2B SaaS, project management, analytics, productivity tools
+ */
+:root, [data-theme="cool-blue"] {
+  --vb-bg:             #f8fafc;
+  --vb-bg-alt:         #f1f5f9;
+  --vb-surface:        #ffffff;
+  --vb-surface-hover:  #f8fafc;
+  --vb-surface-alt:    #e2e8f0;
+  --vb-overlay:        rgba(15, 23, 42, 0.45);
+
+  --vb-border:         rgba(15, 23, 42, 0.08);
+  --vb-border-strong:  rgba(15, 23, 42, 0.18);
+  --vb-border-focus:   #2563eb;
+
+  --vb-text:           #0f172a;
+  --vb-text-muted:     #64748b;
+  --vb-text-subtle:    #94a3b8;
+  --vb-text-inverse:   #ffffff;
+
+  --vb-accent:         #2563eb;
+  --vb-accent-fg:      #ffffff;
+  --vb-accent-hover:   #1d4ed8;
+  --vb-accent-subtle:  #eff6ff;
+
+  --vb-success:        #059669;
+  --vb-success-fg:     #ffffff;
+  --vb-success-subtle: #ecfdf5;
+  --vb-warning:        #d97706;
+  --vb-warning-fg:     #ffffff;
+  --vb-warning-subtle: #fffbeb;
+  --vb-danger:         #dc2626;
+  --vb-danger-fg:      #ffffff;
+  --vb-danger-subtle:  #fef2f2;
+  --vb-info:           #0284c7;
+  --vb-info-fg:        #ffffff;
+  --vb-info-subtle:    #f0f9ff;
+
+  --vb-radius-md:      8px;
+  --vb-radius-lg:      12px;
+  --vb-radius-xl:      18px;
+}

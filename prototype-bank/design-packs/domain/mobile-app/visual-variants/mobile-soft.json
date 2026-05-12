@@ -1,0 +1,11 @@
+{
+  "id": "mobile-soft", "skeleton": "mobile-app", "name": "Mobile Soft",
+  "theme": "soft-womens-health", "spacing": "spacious", "typography": "soft-rounded",
+  "motionPreset": "expressive", "colorAccent": "#ec4899",
+  "layout": "soft pink tones, large rounded cards, gentle animations",
+  "radius": { "card": "28px", "button": "24px", "input": "20px", "nav": "0px" },
+  "elevation": { "card": "shadow-lg pink tint", "navbar": "border-top pink", "modal": "bottom-sheet rounded-top-xl" },
+  "componentSet": { "nav": "mobile-nav/soft-4tab-pink", "feed": "card pink surface", "cta": "button/primary pink" },
+  "targetUsers": "women's health app users, wellness, self-care",
+  "referenceSource": "WeUI mobile, daisyUI soft"
+}

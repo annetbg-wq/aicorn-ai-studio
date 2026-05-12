@@ -1,0 +1,48 @@
+/*
+ * Theme: Gaming Neon
+ * Mood: Intense, immersive, dark with electric accents
+ * Mode: Dark
+ * Suitable: gaming platforms, esports, leaderboards, streaming apps
+ */
+:root, [data-theme="gaming-neon"] {
+  --vb-bg:             #050508;
+  --vb-bg-alt:         #0a0a0f;
+  --vb-surface:        #0f0f16;
+  --vb-surface-hover:  #16162a;
+  --vb-surface-alt:    #1a1a2e;
+  --vb-overlay:        rgba(0, 0, 0, 0.75);
+
+  --vb-border:         rgba(139, 92, 246, 0.18);
+  --vb-border-strong:  rgba(139, 92, 246, 0.40);
+  --vb-border-focus:   #a78bfa;
+
+  --vb-text:           #f1f0ff;
+  --vb-text-muted:     #a78bfa;
+  --vb-text-subtle:    #6d6d8a;
+  --vb-text-inverse:   #050508;
+
+  --vb-accent:         #8b5cf6;
+  --vb-accent-fg:      #ffffff;
+  --vb-accent-hover:   #7c3aed;
+  --vb-accent-subtle:  rgba(139, 92, 246, 0.15);
+
+  --vb-success:        #00ff87;
+  --vb-success-fg:     #050508;
+  --vb-success-subtle: rgba(0, 255, 135, 0.12);
+  --vb-warning:        #fbbf24;
+  --vb-warning-fg:     #050508;
+  --vb-warning-subtle: rgba(251, 191, 36, 0.12);
+  --vb-danger:         #ff4060;
+  --vb-danger-fg:      #ffffff;
+  --vb-danger-subtle:  rgba(255, 64, 96, 0.12);
+  --vb-info:           #00d4ff;
+  --vb-info-fg:        #050508;
+  --vb-info-subtle:    rgba(0, 212, 255, 0.12);
+
+  --vb-radius-md:      8px;
+  --vb-radius-lg:      12px;
+  --vb-radius-xl:      16px;
+
+  --vb-glow-accent:    0 0 30px rgba(139, 92, 246, 0.45);
+  --vb-glow-success:   0 0 24px rgba(0, 255, 135, 0.40);
+}
