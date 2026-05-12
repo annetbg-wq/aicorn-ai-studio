@@ -968,6 +968,27 @@ Emit each file enclosed in plain-text markers, nothing else around them:
 // full file contents here
 <<<END>>>
 
+IMPORT RULES — follow exactly, never mix paths
+From '@/components/ui' (shadcn primitives):
+  Button, Card, CardContent, CardHeader, CardTitle, CardDescription,
+  Input, Label, Badge, Avatar, AvatarImage, AvatarFallback,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Tabs, TabsContent, TabsList, TabsTrigger,
+  Progress, Skeleton, Separator, Switch, Checkbox, Textarea,
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
+  ScrollArea, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
+
+From '@/components/EmptyState' (NOT from ui): EmptyState
+From '@/components/BottomTabs'  (NOT from ui): BottomTabs
+From '@/components/LoadingScreen' (NOT from ui): LoadingScreen
+From '@/components/ErrorBoundary' (NOT from ui): ErrorBoundary
+From 'lucide-react': any icon component
+
+NEVER import EmptyState, BottomTabs, LoadingScreen, or ErrorBoundary from '@/components/ui'.
+
 RULES
 - Paths relative to preview-workspace/src/. No leading "src/" or "/".
 - Each file must be a complete, compilable .tsx/.ts file. No diffs, no patches.
