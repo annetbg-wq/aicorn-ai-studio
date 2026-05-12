@@ -15,6 +15,8 @@ vi.mock('../../../services/ProtoPipeline', () => ({
 import { ConfigService } from '../../../services/ConfigService';
 import { ProtoPipeline } from '../../../services/ProtoPipeline';
 import {
+  buildCompareDerivedTestState,
+  buildEffectiveQualityStates,
   buildQualityRealTextSections,
   downloadQualityCompareSourceZip,
   runQualityCompareSuite,
@@ -287,5 +289,73 @@ describe('QualityPanel flow-chain compare helpers', () => {
 
     expect(URL.createObjectURL).toHaveBeenCalled();
     expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled();
+  });
+
+  it('derives report states from finished compare records instead of leaving runtime tests idle', () => {
+    const record = {
+      state: 'done',
+      supported: true,
+      left: {
+        profile: { route: 'standard-api', model: 'deepseek/deepseek-chat' },
+        status: { ready: true, label: 'Standard API · deepseek' },
+        result: { status: 'pass', duration_ms: 120, summary: 'compile ok' },
+        realText: [],
+        suite: {
+          buildId: 'cmp-a',
+          previewUrl: '/preview/cmp-a',
+          prompt: 'brief',
+          skeletonId: 'mobile-app',
+          sourceFiles: [
+            { path: 'src/App.tsx', content: 'a', size: 1, origin: 'skeleton' as const },
+            { path: 'src/pages/Home.tsx', content: 'b', size: 1, origin: 'delta' as const },
+          ],
+          codeSections: [],
+          metrics: { generation_ms: 1200, prompt_tokens: 100, completion_tokens: 200, total_tokens: 300, cost_usd: 0.1 },
+          tests: {} as never,
+        },
+      },
+      right: {
+        profile: { route: 'openrouter', model: 'anthropic/claude-sonnet-4-6' },
+        status: { ready: true, label: 'OpenRouter · anthropic/claude-sonnet-4-6' },
+        result: { status: 'pass', duration_ms: 140, summary: 'compile ok' },
+        realText: [],
+        suite: {
+          buildId: 'cmp-b',
+          previewUrl: '/preview/cmp-b',
+          prompt: 'brief',
+          skeletonId: 'mobile-app',
+          sourceFiles: [
+            { path: 'src/App.tsx', content: 'a', size: 1, origin: 'skeleton' as const },
+            { path: 'src/pages/Home.tsx', content: 'c', size: 1, origin: 'delta' as const },
+          ],
+          codeSections: [],
+          metrics: { generation_ms: 1500, prompt_tokens: 120, completion_tokens: 240, total_tokens: 360, cost_usd: 0.2 },
+          tests: {} as never,
+        },
+      },
+    } as const;
+
+    const derived = buildCompareDerivedTestState(record as never);
+    expect(derived?.status).toBe('pass');
+    expect(derived?.summary).toContain('A Standard API · deepseek: pass');
+    expect(derived?.details?.compare).toBeTruthy();
+
+    const baseStates = {
+      canary: { status: 'idle', duration_ms: 0 },
+      'idea-validate': { status: 'idle', duration_ms: 0 },
+      architecture: { status: 'idle', duration_ms: 0 },
+      'code-delta': { status: 'idle', duration_ms: 0 },
+      compile: { status: 'idle', duration_ms: 0 },
+      'preview-http': { status: 'idle', duration_ms: 0 },
+      'preview-mounted': { status: 'idle', duration_ms: 0 },
+      'save-ready': { status: 'idle', duration_ms: 0 },
+      'no-premature-save': { status: 'idle', duration_ms: 0 },
+      'architect-real': { status: 'idle', duration_ms: 0 },
+    } as never;
+
+    const effective = buildEffectiveQualityStates(baseStates, { compile: record } as never);
+    expect(effective.compile.status).toBe('pass');
+    expect(effective.compile.details?.compare).toBeTruthy();
+    expect(effective['code-delta'].status).toBe('idle');
   });
 });
