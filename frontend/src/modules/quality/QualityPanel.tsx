@@ -18,24 +18,30 @@ import {
 import { BenchmarkDashboard } from '../../components/BenchmarkDashboard';
 import { ConfigService } from '../../services/ConfigService';
 import { Orchestrator } from '../../services/Orchestrator';
+import {
+  analyzeArchitectPlanTruth,
+  type OutputStructureContractSummary,
+  type OutputSkeletonDeltaSummary,
+} from '../../shared/outputTruth';
 
 // ── Step definitions ───────────────────────────────────────────────────────────
 
 const STEP_DEFS = [
   { id: 'canary',            label: 'Canary',            desc: 'Backend доступен (GET /api/health → 200)' },
   { id: 'idea-validate',     label: 'Idea Validate',     desc: 'Промпт не пустой, длина > 10 символов' },
-  { id: 'architecture',      label: 'Architecture',      desc: 'Fixture plan содержит skeleton, deltaFiles, pages' },
-  { id: 'code-delta',        label: 'Code Delta',        desc: 'POST /api/preview/{id}/compile → success: true' },
+  { id: 'architecture',      label: 'Architecture',      desc: 'Fixture-backed diagnostic only — не доказывает real architect truth' },
+  { id: 'code-delta',        label: 'Code Delta',        desc: 'Реальная delta поверх skeleton компилируется и проходит proof contract' },
   { id: 'compile',           label: 'Compile',           desc: 'В builds/ есть папка с .js assets' },
   { id: 'preview-http',      label: 'Preview HTTP',      desc: 'GET /preview/{buildId} → 200 и HTML' },
   { id: 'preview-mounted',   label: 'Preview Mounted',   desc: 'main.tsx содержит postMessage({type: preview-mounted})' },
-  { id: 'save-ready',        label: 'Save Ready',        desc: 'Compile вернул success: true (save-ready state)' },
+  { id: 'save-ready',        label: 'Save Ready',        desc: 'Save-ready только для real preview с proof-validated output' },
   { id: 'no-premature-save', label: 'No Premature Save', desc: 'Проект не создан до явного save' },
   { id: 'architect-real',    label: 'Architect Real',    desc: 'Реальный LLM вызов — fileTree ≥5 файлов, реальные токены' },
 ] as const;
 
 type StepId = typeof STEP_DEFS[number]['id'];
 type TabId  = 'flow-chain' | 'benchmark';
+type QualityTruthKind = 'fixture-backed' | 'real-runtime' | 'real-llm';
 
 // ── Per-test detail types ──────────────────────────────────────────────────────
 
@@ -43,12 +49,12 @@ interface CanaryDetails       { httpStatus: number; response: { status: string; 
 interface IdeaDetails         { prompt: string; length: number; valid: boolean }
 interface ArchDetails         { appName: string; skeleton: string; skeletonFiles?: Record<string, string>; fileTree: Record<string, string>; contextContract?: string; dataModel?: string }
 interface CodeDeltaFile       { path: string; size: number; content: string }
-interface CodeDeltaDetails    { buildId: string; files: CodeDeltaFile[] }
+interface CodeDeltaDetails    { buildId: string; files: CodeDeltaFile[]; structure?: OutputStructureContractSummary; skeletonDelta?: OutputSkeletonDeltaSummary }
 interface CompileAsset        { name: string; size: number }
 interface CompileDetails      { buildId: string; assets: CompileAsset[] }
 interface PreviewHttpDetails  { httpStatus: number; contentLength: number; contentLengthStr: string; hasRootDiv: boolean; buildId: string }
 interface PreviewMtdDetails   { lineNumber: number; line: string }
-interface SaveReadyDetails    { compileSuccess: boolean; buildId: string; assetsCount: number }
+interface SaveReadyDetails    { compileSuccess: boolean; buildId: string; assetsCount: number; structure?: OutputStructureContractSummary; skeletonDelta?: OutputSkeletonDeltaSummary }
 interface NoPremSaveDetails   { projectsBeforeSave: number; totalSessions: number; correct: boolean }
 interface ArchRealDetails    { appName: string; skeleton: string; fileTree: Record<string, string>; contextContract?: string; dataModel?: string; model: string; fileCount: number }
 interface TestLlmMetrics      { model: string; prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd?: number }
@@ -90,17 +96,35 @@ interface TestApiResult {
 const LS_TEST_KEY     = (id: string) => `quality.test.${id}`;
 const LS_LAST_RUN_KEY = 'quality.lastRunAll';
 const MAX_HIST        = 5;
-const FIXTURE_BACKED_TESTS = new Set<StepId>(['idea-validate', 'architecture', 'code-delta']);
-const REAL_RUNTIME_OR_LLM_GATES = new Set<StepId>([
+const FIXTURE_BACKED_TESTS = new Set<StepId>(['idea-validate', 'architecture']);
+const REAL_RUNTIME_TESTS = new Set<StepId>([
   'canary',
+  'code-delta',
   'compile',
   'preview-http',
   'preview-mounted',
   'save-ready',
   'no-premature-save',
+]);
+const REAL_LLM_TESTS = new Set<StepId>([
   'architect-real',
 ]);
+const BLOCKING_REAL_TESTS = new Set<StepId>([
+  'canary',
+  'architect-real',
+  'code-delta',
+  'compile',
+  'preview-http',
+  'preview-mounted',
+  'save-ready',
+]);
 const FIXTURE_NOTE_TEXT = '⚠️ Fixture данные — не реальный LLM output';
+
+function getTruthKind(id: StepId): QualityTruthKind {
+  if (FIXTURE_BACKED_TESTS.has(id)) return 'fixture-backed';
+  if (REAL_LLM_TESTS.has(id)) return 'real-llm';
+  return 'real-runtime';
+}
 
 function loadTestHistory(id: string): TestHistoryRun[] {
   try {
@@ -140,7 +164,227 @@ async function callTestApi(testId: string, buildId?: string): Promise<TestApiRes
 
 // ── Architect Real — direct LLM call (frontend-only, no backend proxy) ─────────
 
-async function runArchitectRealTest(): Promise<TestApiResult> {
+interface ArchitectCompletionMeta {
+  content: string;
+  usageRaw?: Record<string, unknown>;
+  llmModel: string;
+  finishReason: string | null;
+}
+
+function stripJsonMarkdownFences(raw: string): string {
+  return raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+}
+
+function tryParseJsonObject(raw: string): Record<string, unknown> | null {
+  const parseCandidate = (candidate: string): Record<string, unknown> | null => {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
+    } catch {
+      const repairedWhitespaceEscapes = candidate.replace(/\\(?=[ \t])/g, '');
+      if (repairedWhitespaceEscapes === candidate) return null;
+      try {
+        const parsed = JSON.parse(repairedWhitespaceEscapes) as unknown;
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed as Record<string, unknown>
+          : null;
+      } catch {
+        return null;
+      }
+    }
+  };
+
+  const trimmed = stripJsonMarkdownFences(raw);
+  const direct = parseCandidate(trimmed);
+  if (direct) return direct;
+
+  const start = trimmed.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < trimmed.length; i += 1) {
+    const ch = trimmed[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return parseCandidate(trimmed.slice(start, i + 1));
+      }
+    }
+  }
+
+  return null;
+}
+
+export function extractArchitectCompletionMeta(raw: unknown, fallbackModel: string): ArchitectCompletionMeta {
+  const data = raw as Record<string, unknown> | null | undefined;
+  const choices = Array.isArray(data?.choices) ? data.choices as Array<Record<string, unknown>> : [];
+  const firstChoice = choices[0] ?? null;
+
+  if (firstChoice) {
+    const message = (firstChoice.message ?? null) as Record<string, unknown> | null;
+    const messageContent = message?.content;
+    const content = typeof messageContent === 'string'
+      ? messageContent
+      : Array.isArray(messageContent)
+        ? messageContent
+            .map(part => {
+              if (typeof part === 'string') return part;
+              const block = part as Record<string, unknown>;
+              return typeof block.text === 'string' ? block.text : '';
+            })
+            .join('\n')
+        : '';
+    return {
+      content,
+      usageRaw: typeof data?.usage === 'object' && data?.usage !== null ? data.usage as Record<string, unknown> : undefined,
+      llmModel: typeof data?.model === 'string' ? data.model : fallbackModel,
+      finishReason: typeof firstChoice.finish_reason === 'string' ? firstChoice.finish_reason : null,
+    };
+  }
+
+  const contentBlocks = Array.isArray(data?.content) ? data.content as Array<Record<string, unknown>> : [];
+  if (contentBlocks.length > 0) {
+    return {
+      content: contentBlocks
+        .map(block => typeof block.text === 'string' ? block.text : '')
+        .filter(Boolean)
+        .join('\n'),
+      usageRaw: typeof data?.usage === 'object' && data?.usage !== null ? data.usage as Record<string, unknown> : undefined,
+      llmModel: typeof data?.model === 'string' ? data.model : fallbackModel,
+      finishReason: typeof data?.stop_reason === 'string' ? data.stop_reason : null,
+    };
+  }
+
+  return {
+    content: typeof data?.output_text === 'string' ? data.output_text : '',
+    usageRaw: typeof data?.usage === 'object' && data?.usage !== null ? data.usage as Record<string, unknown> : undefined,
+    llmModel: typeof data?.model === 'string' ? data.model : fallbackModel,
+    finishReason: null,
+  };
+}
+
+function buildArchitectRepairPrompt(input: {
+  originalPrompt: string;
+  brokenContent: string;
+  blockers?: string[];
+}): string {
+  return [
+    `Original brief: ${input.originalPrompt}`,
+    'Your previous architect output was invalid, incomplete, or truncated.',
+    'Return one complete valid JSON object only. No markdown fences. No commentary.',
+    'If needed, restart from scratch, but obey the exact schema and minimum 5 delta files rule.',
+    input.blockers && input.blockers.length > 0
+      ? `Previous blockers: ${input.blockers.join(' | ')}`
+      : null,
+    'Previous malformed output:',
+    input.brokenContent.slice(0, 4000),
+  ].filter(Boolean).join('\n\n');
+}
+
+function shouldRetryArchitectAttempt(input: {
+  plan: Record<string, unknown> | null;
+  finishReason: string | null;
+  blockers: string[];
+}): boolean {
+  if (!input.plan) return true;
+  if (input.finishReason === 'length' || input.finishReason === 'max_tokens') return true;
+  return input.blockers.some(blocker =>
+    /too small|missing|too shallow|need multiple real screens|skeleton-aware enough/i.test(blocker),
+  );
+}
+
+async function requestArchitectCompletion(input: {
+  provider: string;
+  apiKey: string;
+  endpoint: string;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  maxTokens: number;
+}): Promise<ArchitectCompletionMeta> {
+  let resp: Response;
+
+  if (input.provider === 'anthropic' || input.endpoint.includes('api.anthropic.com')) {
+    resp = await fetch(input.endpoint, {
+      method: 'POST',
+      headers: {
+        'x-api-key': input.apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: input.model,
+        system: input.systemPrompt,
+        messages: [{ role: 'user', content: input.userPrompt }],
+        temperature: 0.2,
+        max_tokens: input.maxTokens,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } else if (input.provider === 'claude-bridge' || /\/chat$/i.test(input.endpoint)) {
+    resp = await fetch(input.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: `[System]\n${input.systemPrompt}\n\n[User]\n${input.userPrompt}`,
+        model: input.model || 'claude-sonnet-4-6',
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } else {
+    resp = await fetch(input.endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${input.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.origin,
+        'X-Title': 'AIC-RG Studio',
+      },
+      body: JSON.stringify({
+        model: input.model,
+        messages: [
+          { role: 'system', content: input.systemPrompt },
+          { role: 'user', content: input.userPrompt },
+        ],
+        stream: false,
+        temperature: 0.2,
+        max_tokens: input.maxTokens,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  }
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`LLM ${resp.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const raw = await resp.json() as unknown;
+  return extractArchitectCompletionMeta(raw, input.model);
+}
+
+export async function runArchitectRealTest(): Promise<TestApiResult> {
   const t0 = Date.now();
   const ms = () => Date.now() - t0;
 
@@ -148,6 +392,7 @@ async function runArchitectRealTest(): Promise<TestApiResult> {
   let apiKey: string;
   let endpoint: string;
   let normalizedModelId: string;
+  let provider: string;
 
   try {
     modelId = ConfigService.resolveModel('primary');
@@ -155,7 +400,7 @@ async function runArchitectRealTest(): Promise<TestApiResult> {
     apiKey = ConfigService.getKeyForAgent('primary');
     if (!apiKey) throw new Error('API key missing for primary slot. Open Settings → Providers.');
     const agentCfg = ConfigService.getAgentConfig('agent_primary');
-    const provider = agentCfg.provider || 'openrouter';
+    provider = agentCfg.provider || 'openrouter';
     endpoint = Orchestrator.getEndpoint(provider);
     normalizedModelId = Orchestrator.normalizeModelId(modelId, endpoint);
   } catch (err: unknown) {
@@ -181,71 +426,124 @@ Rules:
 
   const USER_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
 
-  let resp: Response;
+  let completion: ArchitectCompletionMeta;
   try {
-    resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': window.location.origin,
-      },
-      body: JSON.stringify({
-        model: normalizedModelId,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user',   content: USER_PROMPT },
-        ],
-        stream: false,
-        temperature: 0.3,
-        max_tokens: 1200,
-      }),
-      signal: AbortSignal.timeout(60_000),
+    completion = await requestArchitectCompletion({
+      provider,
+      apiKey,
+      endpoint,
+      model: normalizedModelId,
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt: USER_PROMPT,
+      maxTokens: 1800,
     });
   } catch (err: unknown) {
     return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
   }
 
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => '');
-    return { status: 'fail', duration_ms: ms(), error: `LLM ${resp.status}: ${errText.slice(0, 300)}` };
+  const validatePlan = (plan: Record<string, unknown>) => {
+    const fileTree = (plan.fileTree ?? {}) as Record<string, string>;
+    const planTruth = analyzeArchitectPlanTruth({
+      appName: String(plan.appName ?? ''),
+      skeleton: String(plan.skeleton ?? ''),
+      summary: typeof plan.summary === 'string' ? plan.summary : '',
+      fileTree,
+      contextContract: typeof plan.contextContract === 'string' ? plan.contextContract : undefined,
+      dataModel: typeof plan.dataModel === 'string' ? plan.dataModel : undefined,
+      pages: Array.isArray(plan.pages) ? plan.pages as Array<{ path?: string; name?: string; file?: string; purpose?: string }> : undefined,
+      minDeltaFiles: 5,
+      forbiddenPaths: [
+        'src/App.tsx',
+        'src/main.tsx',
+        'src/context/AppContext.tsx',
+        'src/hooks/useLocalStorage.ts',
+        'src/hooks/useTheme.ts',
+        'src/config/theme.ts',
+        'src/config/routes.ts',
+        'src/components/BottomTabs.tsx',
+        'src/components/ErrorBoundary.tsx',
+        'src/components/LoadingScreen.tsx',
+        'src/components/EmptyState.tsx',
+        'src/components/PaywallSheet.tsx',
+        'src/lib/cn.ts',
+      ],
+    });
+    return { fileTree, planTruth };
+  };
+
+  let plan = tryParseJsonObject(completion.content);
+  let validation = plan ? validatePlan(plan) : null;
+
+  if (shouldRetryArchitectAttempt({
+    plan,
+    finishReason: completion.finishReason,
+    blockers: validation?.planTruth.blockers ?? [],
+  })) {
+    try {
+      const repaired = await requestArchitectCompletion({
+        provider,
+        apiKey,
+        endpoint,
+        model: normalizedModelId,
+        systemPrompt: SYSTEM_PROMPT,
+        userPrompt: buildArchitectRepairPrompt({
+          originalPrompt: USER_PROMPT,
+          brokenContent: completion.content,
+          blockers: validation?.planTruth.blockers ?? [],
+        }),
+        maxTokens: 2600,
+      });
+      const repairedPlan = tryParseJsonObject(repaired.content);
+      const repairedValidation = repairedPlan ? validatePlan(repairedPlan) : null;
+      if (repairedPlan && repairedValidation?.planTruth.passed) {
+        completion = repaired;
+        plan = repairedPlan;
+        validation = repairedValidation;
+      } else if (!plan || !validation?.planTruth.passed) {
+        completion = repaired;
+        plan = repairedPlan;
+        validation = repairedValidation;
+      }
+    } catch {
+      // Keep the first attempt diagnostics if retry also fails at the transport layer.
+    }
   }
 
-  let raw: unknown;
-  try {
-    raw = await resp.json();
-  } catch (err: unknown) {
-    return { status: 'fail', duration_ms: ms(), error: `Failed to parse LLM HTTP response as JSON: ${err instanceof Error ? err.message : String(err)}` };
+  if (!plan) {
+    const truncatedHint = completion.finishReason === 'length' || completion.finishReason === 'max_tokens'
+      ? 'Response was truncated before the JSON object completed.'
+      : 'The model did not return a valid JSON object.';
+    return {
+      status: 'fail',
+      duration_ms: ms(),
+      error: `${truncatedHint} Raw excerpt: ${completion.content.slice(0, 200)}`,
+    };
   }
 
-  const content: string = (raw as any)?.choices?.[0]?.message?.content ?? '';
-  const usageRaw = (raw as any)?.usage;
-  const llmModel: string = typeof (raw as any)?.model === 'string' ? (raw as any).model : normalizedModelId;
-
-  let plan: Record<string, unknown>;
-  try {
-    // Strip markdown fences if present
-    const stripped = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-    plan = JSON.parse(stripped) as Record<string, unknown>;
-  } catch {
-    return { status: 'fail', duration_ms: ms(), error: `LLM returned non-JSON: ${content.slice(0, 200)}` };
+  if (!validation?.planTruth.passed) {
+    return { status: 'fail', duration_ms: ms(), error: validation?.planTruth.blockers.join(' ') || 'Architect plan failed validation.' };
   }
+  const fileCount = Object.keys(validation.fileTree).length;
+  const usageRaw = completion.usageRaw;
+  const llmModel = completion.llmModel;
 
-  const fileTree = (plan.fileTree ?? {}) as Record<string, string>;
-  const fileCount = Object.keys(fileTree).length;
-  if (fileCount < 5) {
-    return { status: 'fail', duration_ms: ms(), error: `fileTree too small: ${fileCount} files (need ≥5). Got: ${Object.keys(fileTree).join(', ')}` };
-  }
-
-  const promptTokens: number = typeof usageRaw?.prompt_tokens === 'number' ? usageRaw.prompt_tokens : 0;
-  const completionTokens: number = typeof usageRaw?.completion_tokens === 'number' ? usageRaw.completion_tokens : 0;
+  const promptTokens: number = typeof usageRaw?.prompt_tokens === 'number'
+    ? usageRaw.prompt_tokens as number
+    : typeof usageRaw?.input_tokens === 'number'
+      ? usageRaw.input_tokens as number
+      : 0;
+  const completionTokens: number = typeof usageRaw?.completion_tokens === 'number'
+    ? usageRaw.completion_tokens as number
+    : typeof usageRaw?.output_tokens === 'number'
+      ? usageRaw.output_tokens as number
+      : 0;
   const totalTokens: number = typeof usageRaw?.total_tokens === 'number'
-    ? usageRaw.total_tokens
+    ? usageRaw.total_tokens as number
     : promptTokens + completionTokens;
   const costUsd: number | undefined =
-    typeof usageRaw?.cost_usd === 'number' ? usageRaw.cost_usd :
-    typeof usageRaw?.total_cost === 'number' ? usageRaw.total_cost :
-    typeof usageRaw?.cost === 'number' ? usageRaw.cost :
+    typeof usageRaw?.cost_usd === 'number' ? usageRaw.cost_usd as number :
+    typeof usageRaw?.total_cost === 'number' ? usageRaw.total_cost as number :
+    typeof usageRaw?.cost === 'number' ? usageRaw.cost as number :
     undefined;
 
   return {
@@ -253,11 +551,11 @@ Rules:
     duration_ms: ms(),
     summary: `${fileCount} файлов · реальный LLM output`,
     llm: { model: llmModel, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: totalTokens, cost_usd: costUsd },
-    output: { file_count: fileCount, files: Object.keys(fileTree) },
+    output: { file_count: fileCount, files: Object.keys(validation.fileTree) },
     details: {
       appName:         String(plan.appName ?? ''),
       skeleton:        String(plan.skeleton ?? ''),
-      fileTree,
+      fileTree:        validation.fileTree,
       contextContract: typeof plan.contextContract === 'string' ? plan.contextContract : undefined,
       dataModel:       typeof plan.dataModel === 'string' ? plan.dataModel : undefined,
       model:           llmModel,
@@ -277,7 +575,7 @@ async function downloadFixtureZip(files: CodeDeltaFile[]): Promise<void> {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = 'fixture-code.zip';
+  a.download = 'real-delta-code.zip';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -472,6 +770,68 @@ function KV({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function StructureProof({
+  structure,
+  skeletonDelta,
+}: {
+  structure?: OutputStructureContractSummary;
+  skeletonDelta?: OutputSkeletonDeltaSummary;
+}) {
+  if (!structure && !skeletonDelta) return null;
+
+  const tone = structure?.richness === 'rich' ? '#4ade80' : structure?.richness === 'adequate' ? '#fbbf24' : '#f87171';
+  const buckets = (structure?.buckets ?? [])
+    .filter(bucket => bucket.totalCount > 0 || bucket.deltaCount > 0)
+    .slice(0, 6);
+
+  return (
+    <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+      {structure && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: tone, textTransform: 'uppercase' }}>
+              {structure.richness}
+            </span>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.62)' }}>{structure.summary}</span>
+          </div>
+          {(structure.missingOutputClasses.length > 0 || structure.missingDeltaClasses.length > 0) && (
+            <div style={{ fontSize: 10, color: '#fbbf24', marginBottom: 6 }}>
+              {[
+                structure.missingOutputClasses.length > 0 ? `missing output: ${structure.missingOutputClasses.join(', ')}` : null,
+                structure.missingDeltaClasses.length > 0 ? `missing delta: ${structure.missingDeltaClasses.join(', ')}` : null,
+              ].filter(Boolean).join(' · ')}
+            </div>
+          )}
+        </>
+      )}
+
+      {skeletonDelta && (
+        <div style={{ marginBottom: 8, fontSize: 10, color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace' }}>
+          skeleton {skeletonDelta.skeletonFileCount} · delta {skeletonDelta.deltaFileCount} · modified base {skeletonDelta.modifiedExistingCount} · new {skeletonDelta.newFileCount}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {buckets.map(bucket => (
+          <div key={bucket.id} style={{ paddingLeft: 12 }}>
+            <div style={{ fontSize: 11, color: '#60a5fa', fontFamily: 'monospace' }}>
+              {bucket.label} — total {bucket.totalCount} · delta {bucket.deltaCount}
+            </div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 2 }}>
+              {bucket.meaning}
+            </div>
+            {bucket.keyPaths.length > 0 && (
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.48)', fontFamily: 'monospace', marginTop: 2 }}>
+                {bucket.keyPaths.join(' · ')}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Detail panel ───────────────────────────────────────────────────────────────
 
 function DetailPanel({ testId, details }: { testId: StepId; details: Record<string, unknown> }) {
@@ -622,6 +982,7 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
           <Download size={11} />
           {downloading ? 'Скачивание…' : 'Скачать архив'}
         </button>
+        <StructureProof structure={d.structure} skeletonDelta={d.skeletonDelta} />
       </>
     );
   }
@@ -681,6 +1042,7 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
         <KV label="compileSuccess" value={<span style={{ color: '#4ade80' }}>true</span>} />
         <KV label="buildId"        value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
         <KV label="assetsCount"    value={String(d.assetsCount)} />
+        <StructureProof structure={d.structure} skeletonDelta={d.skeletonDelta} />
       </>
     );
   }
@@ -1031,21 +1393,29 @@ function FlowChainTab() {
   const fixtureTestIds = STEP_DEFS
     .map(def => def.id as StepId)
     .filter(id => FIXTURE_BACKED_TESTS.has(id));
-  const realTestIds = STEP_DEFS
+  const realRuntimeTestIds = STEP_DEFS
     .map(def => def.id as StepId)
-    .filter(id => !FIXTURE_BACKED_TESTS.has(id));
-  const keyRealGateIds = STEP_DEFS
+    .filter(id => REAL_RUNTIME_TESTS.has(id));
+  const realLlmTestIds = STEP_DEFS
     .map(def => def.id as StepId)
-    .filter(id => REAL_RUNTIME_OR_LLM_GATES.has(id));
+    .filter(id => REAL_LLM_TESTS.has(id));
+  const blockingRealGateIds = STEP_DEFS
+    .map(def => def.id as StepId)
+    .filter(id => BLOCKING_REAL_TESTS.has(id));
   const fixtureSummary = summarizeQualityBucket(testStates, fixtureTestIds);
-  const realSummary = summarizeQualityBucket(testStates, realTestIds);
-  const keyRealGateSummary = summarizeQualityBucket(testStates, keyRealGateIds);
+  const realRuntimeSummary = summarizeQualityBucket(testStates, realRuntimeTestIds);
+  const realLlmSummary = summarizeQualityBucket(testStates, realLlmTestIds);
+  const blockingRealGateSummary = summarizeQualityBucket(testStates, blockingRealGateIds);
+  const architectureTruth = summarizeQualityBucket(testStates, ['architect-real' as StepId]);
+  const codeDeltaTruth = summarizeQualityBucket(testStates, ['code-delta' as StepId]);
   const verdict: Verdict =
-    keyRealGateSummary.failCount > 0 ? (passCount > 0 ? 'PARTIAL' : 'FAIL') :
-    failCount === 0 && passCount === STEP_DEFS.length ? 'PASS' :
-    failCount > 0 && passCount > 0 ? 'PARTIAL' :
-    failCount > 0 ? 'FAIL' :
-    null;
+    blockingRealGateSummary.failCount > 0
+      ? (blockingRealGateSummary.passCount > 0 || fixtureSummary.passCount > 0 ? 'PARTIAL' : 'FAIL')
+      : blockingRealGateSummary.passCount === blockingRealGateIds.length && blockingRealGateIds.length > 0
+        ? 'PASS'
+        : blockingRealGateSummary.passCount > 0 || fixtureSummary.passCount > 0 || failCount > 0
+          ? 'PARTIAL'
+          : null;
 
   const lastRunStr = lastRunAt
     ? new Date(lastRunAt).toLocaleString('ru-RU', {
@@ -1062,8 +1432,11 @@ function FlowChainTab() {
       verdictBreakdown: {
         overall: verdict,
         fixtureBacked: fixtureSummary,
-        real: realSummary,
-        keyRealGates: keyRealGateSummary,
+        realRuntime: realRuntimeSummary,
+        realLlm: realLlmSummary,
+        blockingRealGates: blockingRealGateSummary,
+        architectureTruth,
+        codeDeltaTruth,
       },
       passCount,
       failCount,
@@ -1072,13 +1445,14 @@ function FlowChainTab() {
         id: def.id,
         label: def.label,
         description: def.desc,
+        truthClass: getTruthKind(def.id as StepId),
         fixtureBacked: FIXTURE_BACKED_TESTS.has(def.id as StepId),
         current: testStates[def.id as StepId],
         history: loadTestHistory(def.id),
       })),
     };
     downloadQualityReport(report);
-  }, [brokenAt, failCount, fixtureSummary, keyRealGateSummary, lastRunAt, passCount, realSummary, testStates, verdict]);
+  }, [architectureTruth, blockingRealGateSummary, brokenAt, codeDeltaTruth, failCount, fixtureSummary, lastRunAt, passCount, realLlmSummary, realRuntimeSummary, testStates, verdict]);
 
   return (
     <div style={{
@@ -1187,11 +1561,14 @@ function FlowChainTab() {
             <span>Last run: {lastRunStr}</span>
             {verdict && <span style={verdictBadgeStyle(verdict)}>{verdict}</span>}
             <span>{passCount}/{STEP_DEFS.length}</span>
-            <span>real {realSummary.passCount}/{realSummary.total}{realSummary.verdict ? ` ${realSummary.verdict}` : ''}</span>
+            <span>real-runtime {realRuntimeSummary.passCount}/{realRuntimeSummary.total}{realRuntimeSummary.verdict ? ` ${realRuntimeSummary.verdict}` : ''}</span>
+            <span>real-llm {realLlmSummary.passCount}/{realLlmSummary.total}{realLlmSummary.verdict ? ` ${realLlmSummary.verdict}` : ''}</span>
             <span>fixture {fixtureSummary.passCount}/{fixtureSummary.total}{fixtureSummary.verdict ? ` ${fixtureSummary.verdict}` : ''}</span>
-            {keyRealGateSummary.failCount > 0 && (
+            <span>arch truth {architectureTruth.verdict ?? 'PENDING'}</span>
+            <span>delta truth {codeDeltaTruth.verdict ?? 'PENDING'}</span>
+            {blockingRealGateSummary.failCount > 0 && (
               <span style={{ color: '#f87171' }}>
-                real gates failed: {keyRealGateSummary.failedIds.join(', ')}
+                real gates failed: {blockingRealGateSummary.failedIds.join(', ')}
               </span>
             )}
             {brokenAt && <span style={{ color: '#f87171' }}>stopped at {brokenAt}</span>}
