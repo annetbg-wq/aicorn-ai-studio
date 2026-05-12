@@ -1,6 +1,6 @@
 # Premium Design System
 
-This repository now has an internal premium materials layer for future consumer UI work.
+Thips repository now has an internal premium materials layer for future consumer UI work.
 The canonical implementation lives in `preview-workspace/src`.
 
 Reference screen:
