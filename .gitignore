@@ -1,25 +1,22 @@
 node_modules/
 frontend/node_modules/
+backend/node_modules/
+preview-workspace/node_modules/
+builds/
 dist/
 frontend/dist/
-.git/
-.next/
-.cache/
+preview-workspace/dist/
 *.log
-*.lock
-package-lock.json
-yarn.lock
-*.map
-.env*
-# Игнорируем тяжелые бинарники, но не конфиги
-*.wasm
-*.exe
-*.dll
-
-# Non-authoritative audit/aggregate snapshots — not source of truth
-all_code.txt
-project_audit.txt
+tmp-*.log
+tmp_*.json
+launcher-status.json
+.playwright-mcp/
+test-results/
+playwright-report/
 repomix-output.xml
-
-# Local Codex home cache/content (keep tracked files intact, avoid accidental churn)
-backend/.codex-home/
+*.har
+*.png
+*.zip
+.env
+.env.local
+backend/.env
