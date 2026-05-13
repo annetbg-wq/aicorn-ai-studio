@@ -1,0 +1,65 @@
+{
+  "id": "premium-dashboard-metric-chart-01",
+  "name": "Metric Chart Shell",
+  "source": "tremor",
+  "sourceLicense": "Apache-2.0",
+  "sourceCommitOrVersion": "package.json:0.0.0-development",
+  "category": "dashboard",
+  "kind": "chart-shell",
+  "file": "prototype-bank/design-packs/premium-components/dashboard/premium-dashboard-metric-chart-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-dashboard-metric-chart-01.preview.tsx",
+  "compatibleSkeletons": [
+    "saas-dashboard"
+  ],
+  "domains": [
+    "saas",
+    "fintech",
+    "ai-tools"
+  ],
+  "surfaces": [
+    "dashboard",
+    "analytics"
+  ],
+  "toneProfiles": [
+    "premium",
+    "modern"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not present as audited financial statement without real data"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Tremor line chart shell recreated with inline SVG."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

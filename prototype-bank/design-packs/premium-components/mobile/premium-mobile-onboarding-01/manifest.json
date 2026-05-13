@@ -1,0 +1,67 @@
+{
+  "id": "premium-mobile-onboarding-01",
+  "name": "Onboarding Block",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "mobile",
+  "kind": "onboarding",
+  "file": "prototype-bank/design-packs/premium-components/mobile/premium-mobile-onboarding-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-mobile-onboarding-01.preview.tsx",
+  "compatibleSkeletons": [
+    "mobile-app"
+  ],
+  "domains": [
+    "wellness",
+    "consumer",
+    "ai-tools"
+  ],
+  "surfaces": [
+    "mobile",
+    "onboarding"
+  ],
+  "toneProfiles": [
+    "friendly",
+    "premium"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not gate essential consent behind decorative copy"
+  ],
+  "requiresMedia": true,
+  "supportsMediaSlot": true,
+  "mediaSlots": [
+    "onboarding-illustration"
+  ],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite onboarding patterns adapted to tokenized mobile UI."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

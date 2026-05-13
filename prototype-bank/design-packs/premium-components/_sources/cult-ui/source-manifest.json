@@ -1,0 +1,17 @@
+{
+  "id": "cult-ui",
+  "name": "Cult UI",
+  "officialUrl": "https://www.cult-ui.com",
+  "repoUrl": "https://github.com",
+  "license": "unknown",
+  "licenseFileVerified": false,
+  "licenseFilePathOrUrl": "unverified",
+  "sourceCommitOrVersion": "unverified",
+  "allowedForLocalImport": false,
+  "importMode": "copy-paste-normalized",
+  "dependencyRisk": "high",
+  "notes": [
+    "An official open-source license file was not verified in this session.",
+    "Cult UI was not imported."
+  ]
+}

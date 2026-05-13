@@ -1,0 +1,65 @@
+{
+  "id": "premium-dashboard-activity-feed-01",
+  "name": "Activity Feed",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "dashboard",
+  "kind": "activity-feed",
+  "file": "prototype-bank/design-packs/premium-components/dashboard/premium-dashboard-activity-feed-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-dashboard-activity-feed-01.preview.tsx",
+  "compatibleSkeletons": [
+    "saas-dashboard"
+  ],
+  "domains": [
+    "saas",
+    "social",
+    "health"
+  ],
+  "surfaces": [
+    "dashboard",
+    "activity"
+  ],
+  "toneProfiles": [
+    "trustworthy",
+    "modern"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not use as the sole audit trail in production"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite timeline/feed styling adapted for premium dashboards."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "id": "premium-ecommerce-product-grid-01",
+  "name": "Product Grid",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "ecommerce",
+  "kind": "product-grid",
+  "file": "prototype-bank/design-packs/premium-components/ecommerce/premium-ecommerce-product-grid-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-ecommerce-product-grid-01.preview.tsx",
+  "compatibleSkeletons": [
+    "ecommerce"
+  ],
+  "domains": [
+    "ecommerce",
+    "retail"
+  ],
+  "surfaces": [
+    "storefront",
+    "catalog"
+  ],
+  "toneProfiles": [
+    "premium",
+    "modern"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "none",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not mix unrelated brands in a curated premium grid"
+  ],
+  "requiresMedia": true,
+  "supportsMediaSlot": true,
+  "mediaSlots": [
+    "product-grid-images"
+  ],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite catalog grid normalized to Studio-safe tokens."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

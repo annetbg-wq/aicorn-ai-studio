@@ -1,0 +1,30 @@
+{
+  "id": "health-wellness-mobile",
+  "compatibleSkeletons": [
+    "mobile-app"
+  ],
+  "domains": [
+    "health",
+    "wellness"
+  ],
+  "requiredBlocks": [
+    "routine-card",
+    "progress-ring",
+    "calm-insight",
+    "status-panel"
+  ],
+  "optionalBlocks": [
+    "onboarding",
+    "animated-background"
+  ],
+  "mediaPolicy": {
+    "mediaNeeded": true,
+    "types": [
+      "onboarding-illustration",
+      "calm-illustration",
+      "background-texture"
+    ]
+  },
+  "motionProfile": "gentle",
+  "qualityBar": "premium"
+}

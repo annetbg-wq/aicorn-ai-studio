@@ -1,0 +1,31 @@
+{
+  "id": "mobile-consumer-app",
+  "compatibleSkeletons": [
+    "mobile-app"
+  ],
+  "domains": [
+    "consumer",
+    "wellness",
+    "creator"
+  ],
+  "requiredBlocks": [
+    "phone-shell",
+    "onboarding",
+    "bottom-nav",
+    "daily-progress",
+    "profile-card"
+  ],
+  "optionalBlocks": [
+    "routine-card",
+    "calm-insight"
+  ],
+  "mediaPolicy": {
+    "mediaNeeded": true,
+    "types": [
+      "onboarding-illustration",
+      "avatar-set"
+    ]
+  },
+  "motionProfile": "gentle",
+  "qualityBar": "premium"
+}

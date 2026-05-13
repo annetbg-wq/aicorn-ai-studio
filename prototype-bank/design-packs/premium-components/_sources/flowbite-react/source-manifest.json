@@ -1,0 +1,17 @@
+{
+  "id": "flowbite-react",
+  "name": "Flowbite React",
+  "officialUrl": "https://flowbite-react.com",
+  "repoUrl": "https://github.com/themesberg/flowbite-react",
+  "license": "MIT",
+  "licenseFileVerified": true,
+  "licenseFilePathOrUrl": "https://raw.githubusercontent.com/themesberg/flowbite-react/main/LICENSE",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "allowedForLocalImport": true,
+  "importMode": "copy-paste-normalized",
+  "dependencyRisk": "low",
+  "notes": [
+    "License verified from upstream LICENSE file.",
+    "Used for mobile, ecommerce, and social block structure after token normalization."
+  ]
+}

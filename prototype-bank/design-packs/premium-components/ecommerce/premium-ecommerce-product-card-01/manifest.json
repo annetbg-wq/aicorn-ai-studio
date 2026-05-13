@@ -1,0 +1,66 @@
+{
+  "id": "premium-ecommerce-product-card-01",
+  "name": "Product Card",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "ecommerce",
+  "kind": "product-card",
+  "file": "prototype-bank/design-packs/premium-components/ecommerce/premium-ecommerce-product-card-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-ecommerce-product-card-01.preview.tsx",
+  "compatibleSkeletons": [
+    "ecommerce"
+  ],
+  "domains": [
+    "ecommerce",
+    "retail"
+  ],
+  "surfaces": [
+    "storefront",
+    "product-card"
+  ],
+  "toneProfiles": [
+    "premium",
+    "clear"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not use fake review counts in production"
+  ],
+  "requiresMedia": true,
+  "supportsMediaSlot": true,
+  "mediaSlots": [
+    "product-image"
+  ],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite product card adapted for local assets."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}
