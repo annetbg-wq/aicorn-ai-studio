@@ -1,19 +1,25 @@
 {
   "id": "fintech-indigo",
   "name": "Fintech Indigo",
-  "description": "Dark canvas with indigo accents. Authority, precision, data density.",
-  "ramp": {
-    "canvas": {
-      "950": "#0c0e1a", "900": "#10132a", "800": "#141728", "700": "#1c2038",
-      "600": "#1a1e33", "500": "#252a45"
-    },
-    "indigo": {
-      "300": "#a5b4fc", "400": "#818cf8", "500": "#6366f1", "600": "#4f46e5",
-      "700": "#4338ca", "800": "#3730a3"
-    },
-    "success": "#10b981",
-    "danger": "#ef4444",
-    "warning": "#f59e0b"
-  },
-  "usage": { "bg": "canvas.950", "surface": "canvas.800", "accent": "indigo.500", "text": "#e2e8f0" }
+  "description": "High-trust indigo system for finance, analytics, and compliance.",
+  "domains": ["fintech", "saas", "productivity", "ai-tools"],
+  "subdomains": ["banking", "payments", "wallet", "finance-ops", "compliance"],
+  "toneProfiles": ["corporate", "premium", "trustworthy"],
+  "trustProfiles": ["financial-trust", "enterprise-trust"],
+  "densityProfiles": ["compact", "comfortable"],
+  "contrastProfiles": ["high"],
+  "tokens": {
+    "background": "226 42% 8%",
+    "foreground": "225 45% 96%",
+    "muted": "229 28% 17%",
+    "card": "226 36% 12%",
+    "primary": "238 76% 62%",
+    "secondary": "226 30% 20%",
+    "accent": "174 70% 46%",
+    "border": "226 22% 25%",
+    "success": "142 56% 46%",
+    "warning": "38 92% 56%",
+    "danger": "0 72% 58%",
+    "chartPalette": ["238 76% 62%", "174 70% 46%", "262 68% 62%", "199 84% 56%"]
+  }
 }

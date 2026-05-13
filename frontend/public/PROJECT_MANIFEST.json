@@ -111,6 +111,7 @@
     "modules/quality/__tests__/QualityPanel.architect-real.test.ts",
     "modules/quality/__tests__/QualityPanel.flow-chain.test.tsx",
     "modules/visual-bank/VisualBankModule.tsx",
+    "modules/visual-bank/__tests__/VisualBankModule.test.tsx",
     "pages/LoginPage.tsx",
     "pages/ProjectsPage.tsx",
     "scripts/generateManifest.ts",
@@ -325,5 +326,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-05-13T09:13:04.391Z"
+  "last_scan_timestamp": "2026-05-13T14:41:41.849Z"
 }

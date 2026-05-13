@@ -1,21 +1,25 @@
 {
   "id": "gaming-neon",
   "name": "Gaming Neon",
-  "description": "Deep dark with violet + electric cyan/green accents. Esports, streaming.",
-  "ramp": {
-    "dark": {
-      "1000": "#050508", "900": "#0a0a0f", "800": "#0f0f16",
-      "700": "#16162a", "600": "#1a1a2e"
-    },
-    "violet": {
-      "300": "#c4b5fd", "400": "#a78bfa", "500": "#8b5cf6", "600": "#7c3aed"
-    },
-    "neon": {
-      "green":  "#00ff87",
-      "cyan":   "#00d4ff",
-      "pink":   "#ff4060",
-      "yellow": "#fbbf24"
-    }
-  },
-  "usage": { "bg": "dark.1000", "surface": "dark.800", "accent": "violet.500", "glow": "violet.500" }
+  "description": "High-energy neon palette for games and achievement loops.",
+  "domains": ["gaming", "ai-tools", "social"],
+  "subdomains": ["game-loop", "leaderboard", "achievement", "community"],
+  "toneProfiles": ["playful", "energetic", "premium"],
+  "trustProfiles": ["creator-trust"],
+  "densityProfiles": ["comfortable", "spacious"],
+  "contrastProfiles": ["high"],
+  "tokens": {
+    "background": "260 50% 7%",
+    "foreground": "210 40% 98%",
+    "muted": "260 36% 17%",
+    "card": "260 48% 11%",
+    "primary": "286 100% 66%",
+    "secondary": "210 34% 18%",
+    "accent": "174 100% 50%",
+    "border": "260 28% 28%",
+    "success": "142 70% 50%",
+    "warning": "45 100% 58%",
+    "danger": "348 92% 62%",
+    "chartPalette": ["286 100% 66%", "174 100% 50%", "45 100% 58%", "330 92% 62%"]
+  }
 }

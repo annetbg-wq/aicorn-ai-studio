@@ -4,9 +4,11 @@
   "name": "Social",
   "entities": ["User", "Post", "Comment", "Like", "Follow", "Story"],
   "roles": ["user"],
+  "subdomains": ["creator-network", "feed", "community", "profile", "messaging"],
   "typicalFlows": ["Публикация поста/фото", "Просмотр ленты", "Взаимодействие (лайк/комментарий)", "Просмотр профиля"],
   "restrictions": [],
   "uiPatterns": ["Аватары и имена пользователей везде", "Счётчики лайков/комментариев", "Stories в горизонтальной прокрутке", "Кнопки follow/unfollow"],
+  "colorFamilies": ["cool-blue", "playful-coral", "soft-womens-health", "luxury-dark-gold"],
   "recommendedDesign": "dark-premium",
   "recommendedArchetypes": ["consumer-feed", "superapp-shell"]
 }

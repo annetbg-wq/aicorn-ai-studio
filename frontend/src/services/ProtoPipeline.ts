@@ -75,6 +75,9 @@ export interface StepOutputMetrics {
   selected_visual_pack_id?: string;
   selected_visual_variant_id?: string;
   selected_visual_variant_path?: string;
+  selected_color_family_id?: string;
+  selected_variation_preset_id?: string;
+  visual_anti_repeat_group?: string;
   visual_source_files?: string[];
   fallback_visual_selection?: boolean;
 }
@@ -383,6 +386,9 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           selected_visual_pack_id: designCtx.visualSelection.selectedPackId,
           selected_visual_variant_id: designCtx.visualSelection.selectedVariantId,
           selected_visual_variant_path: designCtx.visualSelection.selectedVariantPath,
+          selected_color_family_id: designCtx.visualSelection.colorFamily,
+          selected_variation_preset_id: designCtx.visualSelection.variationPreset.id,
+          visual_anti_repeat_group: designCtx.visualSelection.antiRepeatGroup,
           visual_source_files: designCtx.visualSelection.sourceFiles,
           fallback_visual_selection: designCtx.visualSelection.fallbackVisualSelection,
         },
