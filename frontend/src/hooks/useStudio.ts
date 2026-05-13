@@ -659,6 +659,31 @@ function buildTraceRunSummary(input: {
         visualReasons: input.visualQualitySummary?.reasons ?? [],
       }
     : undefined;
+  const visualBank = input.telemetry?.visualBank;
+  const fileCountsByClass = outputTruth.structure.buckets.map(bucket => ({
+    id: bucket.id,
+    label: bucket.label,
+    totalCount: bucket.totalCount,
+    deltaCount: bucket.deltaCount,
+    keyPaths: bucket.keyPaths,
+  }));
+  const passedGates = quality?.gates.filter(gate => gate.passed).length ?? 0;
+  const totalGates = quality?.gates.length ?? 0;
+  const compileStatus = (input.telemetry?.compileCount ?? 0) > 0 ? 'compiled' : 'not-compiled';
+  const runtimeStatus =
+    previewMountStatus === 'mounted'
+      ? 'runtime-ready'
+      : previewMountStatus === 'pending'
+        ? 'runtime-pending'
+        : previewMountStatus === 'blocked'
+          ? 'runtime-blocked'
+          : 'runtime-missing';
+  const strength: 'strong' | 'partial' | 'weak' =
+    quality?.verdict === 'pass' && outputTruth.structure.richness === 'rich'
+      ? 'strong'
+      : quality?.verdict === 'fail' || outputTruth.structure.richness === 'weak'
+        ? 'weak'
+        : 'partial';
 
   return {
     brief: input.brief,
@@ -671,6 +696,9 @@ function buildTraceRunSummary(input: {
           archetypeName: input.telemetry.archetypeName,
           domainId: input.telemetry.domainId,
           domainName: input.telemetry.domainName,
+          domainPackId: input.telemetry.domainId,
+          visualPackId: input.telemetry.visualBank?.selectedPackId,
+          visualVariantId: input.telemetry.visualBank?.selectedVariantId,
         }
       : undefined,
     design: input.telemetry
@@ -679,6 +707,33 @@ function buildTraceRunSummary(input: {
           intent: input.telemetry.designIntent,
           architectSummary: input.telemetry.architectSummary,
           designSummary: input.telemetry.designSummary,
+          productStructure: [
+            outputTruth.structure.summary,
+            `${outputTruth.skeletonDelta.skeletonFileCount} skeleton files installed`,
+            `${changedPaths.length} delta files applied`,
+            `${fileCountsByClass.filter(bucket => bucket.deltaCount > 0).length} output classes touched`,
+          ],
+          selectedSkeleton: input.telemetry.skeletonLabel,
+          selectedDomainPack: input.telemetry.domainName ?? input.telemetry.domainId,
+          selectedVisualPack: visualBank?.selectedPackId,
+          selectedVisualVariant: visualBank?.selectedVariantId,
+          selectedThemeFile: visualBank?.selectedThemeFile,
+          purpose: visualBank?.purpose,
+          whenToUse: visualBank?.whenToUse,
+          requiredComponents: visualBank?.requiredComponents,
+          allowedSurfaces: visualBank?.allowedSurfaces,
+          linkedStyleFiles: visualBank?.linkedStyleFiles,
+          linkedComponentFiles: visualBank?.linkedComponentFiles,
+          layoutPresetFiles: visualBank?.layoutPresetFiles,
+          motionPresetFiles: visualBank?.motionPresetFiles,
+          assetReferenceFiles: visualBank?.assetReferenceFiles,
+          materialFiles: visualBank?.materialFiles,
+          materializedFiles: visualBank?.materializedFiles,
+          deltaSummary: [
+            `${filesCreated.length} created`,
+            `${filesUpdated.length} updated`,
+            `${visualBank?.materializedFiles?.length ?? 0} materialized design-pack files`,
+          ],
         }
       : undefined,
     output: {
@@ -690,6 +745,18 @@ function buildTraceRunSummary(input: {
       createdFileCount: filesCreated.length,
       deltaSizeBytes,
       keyPaths: (changedPaths.length > 0 ? changedPaths : visiblePaths).slice(0, 8),
+      fileCountsByClass,
+      stylePackUsage: visualBank
+        ? {
+            selectedPackId: visualBank.selectedPackId,
+            selectedVariantId: visualBank.selectedVariantId,
+            selectedThemeFile: visualBank.selectedThemeFile,
+            linkedStyleFiles: visualBank.linkedStyleFiles,
+            linkedComponentFiles: visualBank.linkedComponentFiles,
+            materialFiles: visualBank.materialFiles,
+            materializedFiles: visualBank.materializedFiles ?? [],
+          }
+        : undefined,
       structure: {
         richness: outputTruth.structure.richness,
         summary: outputTruth.structure.summary,
@@ -703,6 +770,10 @@ function buildTraceRunSummary(input: {
       skeletonDelta: outputTruth.skeletonDelta,
       compileCount: input.telemetry?.compileCount ?? 0,
       previewMountStatus,
+      runtimeStatus,
+      compileStatus,
+      qualityGateSummary: { passed: passedGates, total: totalGates },
+      strength,
       totalTimeToPreviewMs: input.telemetry?.timeToFirstRealPreviewMs,
       saveReady: input.saveReady,
     },

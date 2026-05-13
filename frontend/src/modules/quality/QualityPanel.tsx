@@ -13,7 +13,7 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import JSZip from 'jszip';
 import {
   FlaskConical, Play, Loader2, CheckCircle2, XCircle, Circle,
-  Clock, BarChart2, ChevronDown, ChevronRight, Download, GitCompare, FileText,
+  Clock, BarChart2, ChevronDown, ChevronRight, Download, GitCompare, FileText, Layers3,
 } from 'lucide-react';
 import { BenchmarkDashboard } from '../../components/BenchmarkDashboard';
 import { ConfigService } from '../../services/ConfigService';
@@ -21,6 +21,7 @@ import { Orchestrator } from '../../services/Orchestrator';
 import { fetchModelsWithCache, type Model } from '../../services/ModelRegistry';
 import { ProtoPipeline } from '../../services/ProtoPipeline';
 import { getDevAgentCliStatus } from '../code-studio-internal/ClaudeDevBridge';
+import { VisualBankModule } from '../visual-bank/VisualBankModule';
 import {
   analyzeArchitectPlanTruth,
   type OutputTruthResult,
@@ -44,7 +45,7 @@ const STEP_DEFS = [
 ] as const;
 
 type StepId = typeof STEP_DEFS[number]['id'];
-type TabId  = 'flow-chain' | 'benchmark';
+type TabId  = 'flow-chain' | 'benchmark' | 'showcase';
 type QualityTruthKind = 'real-runtime' | 'real-llm';
 
 // ── Per-test detail types ──────────────────────────────────────────────────────
@@ -3308,6 +3309,7 @@ export function QualityPanel({ apiKey = '', selectedModel = '' }: QualityPanelPr
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'flow-chain', label: 'Flow Chain', icon: <FlaskConical size={13} /> },
     { id: 'benchmark',  label: 'Benchmark',  icon: <BarChart2 size={13} /> },
+    { id: 'showcase',   label: 'Showcase',   icon: <Layers3 size={13} /> },
   ];
 
   return (
@@ -3340,6 +3342,7 @@ export function QualityPanel({ apiKey = '', selectedModel = '' }: QualityPanelPr
       <div style={BODY_S}>
         {tab === 'flow-chain' && <FlowChainTab selectedModel={selectedModel} />}
         {tab === 'benchmark'  && <BenchmarkDashboard apiKey={apiKey} selectedModel={selectedModel} />}
+        {tab === 'showcase'   && <VisualBankModule />}
       </div>
     </div>
   );

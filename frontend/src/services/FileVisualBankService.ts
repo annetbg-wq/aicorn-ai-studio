@@ -85,6 +85,15 @@ export interface VariationPreset {
 export interface VisualPackManifestSchema {
   id: string;
   skeleton: SkeletonId | string;
+  purpose?: string;
+  whenToUse?: string[];
+  requiredComponents?: string[];
+  allowedSurfaces?: string[];
+  linkedStyleFiles?: string[];
+  linkedComponentFiles?: string[];
+  layoutPresetFiles?: string[];
+  motionPresetFiles?: string[];
+  assetReferenceFiles?: string[];
   compatibleSkeletons?: string[];
   skeletonPath?: string;
   domains?: string[];
@@ -198,6 +207,16 @@ export interface NormalizedVisualPack {
   manifestPath: string;
   selectedManifestPath: string;
   skeleton: SkeletonId;
+  purpose: string;
+  whenToUse: string[];
+  requiredComponents: string[];
+  allowedSurfaces: string[];
+  linkedStyleFiles: string[];
+  linkedComponentFiles: string[];
+  layoutPresetFiles: string[];
+  motionPresetFiles: string[];
+  assetReferenceFiles: string[];
+  materialFiles: string[];
   compatibleSkeletons: SkeletonId[];
   skeletonPath: string;
   domains: string[];
@@ -251,6 +270,17 @@ export interface VisualSelection {
   selectedVariantId: string;
   selectedVariantPath?: string;
   selectedManifestPath?: string;
+  selectedThemeFile?: string;
+  purpose: string;
+  whenToUse: string[];
+  requiredComponents: string[];
+  allowedSurfaces: string[];
+  linkedStyleFiles: string[];
+  linkedComponentFiles: string[];
+  layoutPresetFiles: string[];
+  motionPresetFiles: string[];
+  assetReferenceFiles: string[];
+  materialFiles: string[];
   compatibleSkeletons: SkeletonId[];
   domains: string[];
   subdomains: string[];
@@ -760,6 +790,7 @@ function normalizePack(
   const skeleton = asSkeletonId(raw.skeleton) ?? asSkeletonId(packId);
   if (!packId || !skeleton) return null;
 
+  const purpose = str(raw.purpose) || str(raw.description) || `${titleFromId(packId)} visual pack`;
   const compatibleSkeletons = normalizeSkeletons(raw.compatibleSkeletons, skeleton);
   const skeletonPath = str(raw.skeletonPath) || `skeletons/${skeleton}/`;
   const domains = unique([
@@ -804,6 +835,31 @@ function normalizePack(
   ]);
   const requiredFiles = unique(stringArray(raw.requiredFiles));
   const forbiddenPatterns = unique(stringArray(raw.forbiddenPatterns));
+  const requiredComponents = unique([
+    ...stringArray(raw.requiredComponents),
+    ...stringArray(raw.requiredBlocks),
+  ]);
+  const allowedSurfaces = unique([
+    ...stringArray(raw.allowedSurfaces),
+    ...surfaces,
+  ]);
+  const linkedStyleFiles = unique([
+    ...stringArray(raw.linkedStyleFiles),
+  ]);
+  const linkedComponentFiles = unique([
+    ...stringArray(raw.linkedComponentFiles),
+    ...SURFACE_SOURCE_FILES[skeleton],
+  ]);
+  const layoutPresetFiles = unique(stringArray(raw.layoutPresetFiles));
+  const motionPresetFiles = unique(stringArray(raw.motionPresetFiles));
+  const assetReferenceFiles = unique(stringArray(raw.assetReferenceFiles));
+  const materialFiles = unique([
+    ...linkedStyleFiles,
+    ...linkedComponentFiles,
+    ...layoutPresetFiles,
+    ...motionPresetFiles,
+    ...assetReferenceFiles,
+  ]);
   const priorityScore = typeof raw.priorityScore === 'number' ? raw.priorityScore : 0;
 
   const rawVariantEntries = (variantsByPack.get(packId) ?? [])
@@ -838,6 +894,16 @@ function normalizePack(
     manifestPath,
     selectedManifestPath: manifestPath,
     skeleton,
+    purpose,
+    whenToUse: unique(stringArray(raw.whenToUse)),
+    requiredComponents,
+    allowedSurfaces,
+    linkedStyleFiles,
+    linkedComponentFiles,
+    layoutPresetFiles,
+    motionPresetFiles,
+    assetReferenceFiles,
+    materialFiles,
     compatibleSkeletons,
     skeletonPath,
     domains,
@@ -1426,6 +1492,10 @@ function selectColorFamilyForCandidate(
   recentSelections: RecentVisualSelection[],
 ): NormalizedColorFamily {
   const familyMap = new Map(families.map(family => [family.id, family]));
+  const preferredFamilyId = preferredColorFamilyForSignals(signals);
+  if (preferredFamilyId && familyMap.has(preferredFamilyId)) {
+    return familyMap.get(preferredFamilyId)!;
+  }
   const ids = unique([
     ...signals.colorFamilyCandidates,
     candidate.variant.colorFamily,
@@ -1700,11 +1770,18 @@ function selectionFromCandidate(
     ...pack.requiredFiles,
     ...variant.requiredFiles,
   ]);
+  const selectedThemeFile = `prototype-bank/design-packs/foundation/themes/${variant.theme}.css`;
   const sourceFiles = unique([
     pack.manifestPath,
     variant.variantPath,
     selectedColorFamily.sourcePath,
     ...variant.sourceFiles,
+  ]);
+  const materialFiles = unique([
+    ...pack.materialFiles,
+    ...requiredFiles,
+    ...sourceFiles,
+    selectedThemeFile,
   ]);
 
   return {
@@ -1712,6 +1789,17 @@ function selectionFromCandidate(
     selectedVariantId: variant.variantId,
     selectedVariantPath: variant.variantPath,
     selectedManifestPath: pack.manifestPath,
+    selectedThemeFile,
+    purpose: pack.purpose,
+    whenToUse: pack.whenToUse,
+    requiredComponents: pack.requiredComponents,
+    allowedSurfaces: pack.allowedSurfaces,
+    linkedStyleFiles: pack.linkedStyleFiles,
+    linkedComponentFiles: pack.linkedComponentFiles,
+    layoutPresetFiles: pack.layoutPresetFiles,
+    motionPresetFiles: pack.motionPresetFiles,
+    assetReferenceFiles: pack.assetReferenceFiles,
+    materialFiles,
     compatibleSkeletons: pack.compatibleSkeletons,
     domains: unique([...pack.domains, ...signals.domainTags].filter(Boolean)),
     subdomains: unique([...pack.subdomains, ...signals.subdomains]),
@@ -1775,6 +1863,17 @@ function fallbackVisualSelection(
   return {
     selectedPackId: 'hardcoded-fallback',
     selectedVariantId: 'generated-theme-fallback',
+    selectedThemeFile: undefined,
+    purpose: 'Fallback generated visual selection when no file-backed visual pack is available.',
+    whenToUse: ['Only when the file-backed visual bank cannot resolve a compatible pack.'],
+    requiredComponents: [],
+    allowedSurfaces: unique([...(SURFACE_BY_SKELETON[input.skeletonId] ?? []), ...signals.surfaces]),
+    linkedStyleFiles: [],
+    linkedComponentFiles: [],
+    layoutPresetFiles: [],
+    motionPresetFiles: [],
+    assetReferenceFiles: [],
+    materialFiles: [],
     compatibleSkeletons: [input.skeletonId],
     domains: unique([...signals.domainTags, input.skeletonId].filter(Boolean)),
     subdomains: signals.subdomains,
@@ -2233,6 +2332,19 @@ function colorFamiliesForDomains(domains: string[], subdomains: string[] = []): 
   if (/nutrition|supplement|meal|diet/.test(subdomainText)) families.add('nutrition-amber-green');
   if (/mental|therapy|mood|calm/.test(subdomainText)) families.add('calm-lavender');
   return Array.from(families);
+}
+
+function preferredColorFamilyForSignals(signals: VisualSelectionSignals): string | null {
+  const explicit = (signals.selectedSubdomain || '').toLowerCase();
+  if (/women|fertility|cycle|pregnancy/.test(explicit)) return 'soft-womens-health';
+  if (/nutrition|supplement|meal|diet/.test(explicit)) return 'nutrition-amber-green';
+  if (/mental|therapy|mood/.test(explicit)) return 'calm-lavender';
+  if (explicit) return null;
+  const text = signals.subdomains.join(' ').toLowerCase();
+  if (/women|fertility|cycle|pregnancy/.test(text)) return 'soft-womens-health';
+  if (/nutrition|supplement|meal|diet/.test(text)) return 'nutrition-amber-green';
+  if (/mental|therapy|mood/.test(text)) return 'calm-lavender';
+  return null;
 }
 
 function domainAliases(value: string | null | undefined): string[] {

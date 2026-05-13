@@ -8,7 +8,7 @@
       "architect_superapp": 16000,
       "tech_lead": 15256
     },
-    "modelId": "deepseek-chat",
+    "modelId": "deepseek/deepseek-v4-flash",
     "fallback1Provider": "openrouter",
     "fallback1ModelId": "xiaomi/mimo-v2-flash"
   },
@@ -19,7 +19,7 @@
       "coder_app": 35256,
       "coder_landing": 10256
     },
-    "modelId": "deepseek-chat",
+    "modelId": "deepseek/deepseek-v4-pro",
     "fallback1Provider": "openrouter",
     "fallback1ModelId": "z-ai/glm-5.1"
   },
@@ -28,19 +28,19 @@
     "maxTokens": {
       "autofix": 13256
     },
-    "modelId": "deepseek-chat",
+    "modelId": "deepseek/deepseek-v4-flash",
     "fallback1ModelId": "xiaomi/mimo-v2-flash",
     "fallback1Provider": "openrouter"
   },
   "agent_spec": {
     "provider": "deepseek",
-    "modelId": "deepseek-chat",
+    "modelId": "deepseek/deepseek-v4-flash",
     "fallback1ModelId": "xiaomi/mimo-v2-flash",
     "fallback1Provider": "openrouter"
   },
   "agent_qa": {
     "provider": "deepseek",
-    "modelId": "deepseek-chat",
+    "modelId": "deepseek/deepseek-v4-flash",
     "fallback1ModelId": "xiaomi/mimo-v2-flash",
     "fallback1Provider": "openrouter"
   }

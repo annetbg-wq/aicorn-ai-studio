@@ -28,6 +28,7 @@ import {
   type SkeletonId,
   SKELETON_REGISTRY,
   buildSkeletonPromptBlock,
+  getEditableSkeletonFiles,
   getSkeletonInstalledFiles,
   isProtectedSkeletonFile,
 } from './SkeletonRegistry';
@@ -41,6 +42,7 @@ import {
   describeViolations,
   type DesignContext,
 } from './DesignContract';
+import { normalizePath as normalizePreviewPath } from './PreviewWriteGateway';
 import type { FastPathTelemetry, GenerationRunTelemetry } from '../shared/projectModel';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -75,10 +77,15 @@ export interface StepOutputMetrics {
   selected_visual_pack_id?: string;
   selected_visual_variant_id?: string;
   selected_visual_variant_path?: string;
+  selected_visual_theme_file?: string;
   selected_color_family_id?: string;
   selected_variation_preset_id?: string;
   visual_anti_repeat_group?: string;
   visual_source_files?: string[];
+  visual_linked_style_files?: string[];
+  visual_linked_component_files?: string[];
+  visual_material_files?: string[];
+  materialized_visual_files?: string[];
   fallback_visual_selection?: boolean;
 }
 
@@ -192,11 +199,147 @@ const STEP_BUDGET = {
 
 const MAX_REPAIR_PASSES = 2;
 
+const DESIGN_PACK_RAW_MODULES = import.meta.glob(
+  '../../../prototype-bank/design-packs/**/*',
+  { eager: true, query: '?raw', import: 'default' },
+) as Record<string, string>;
+
+const SKELETON_APP_RAW_MODULES = import.meta.glob(
+  '../../../skeletons/*/skeleton-*/src/App.tsx',
+  { eager: true, query: '?raw', import: 'default' },
+) as Record<string, string>;
+
 interface CompileResultTiming {
   compileMs: number;
   previewMountMs: number;
   totalMs: number;
   previewMounted: boolean;
+}
+
+interface MaterializedVisualPack {
+  files: Record<string, string>;
+  linkedStyleFiles: string[];
+  linkedComponentFiles: string[];
+  materialFiles: string[];
+  materializedFiles: string[];
+}
+
+function normalizeRepoAssetPath(modulePath: string): string {
+  return modulePath.replace(/^(\.\.\/)+/, '').replace(/\\/g, '/');
+}
+
+const DESIGN_PACK_RAW_FILES = Object.fromEntries(
+  Object.entries(DESIGN_PACK_RAW_MODULES).map(([path, content]) => [normalizeRepoAssetPath(path), content]),
+) as Record<string, string>;
+
+const SKELETON_APP_FILES = Object.fromEntries(
+  Object.entries(SKELETON_APP_RAW_MODULES).map(([path, content]) => [normalizeRepoAssetPath(path), content]),
+) as Record<string, string>;
+
+function getDesignPackRawFile(path: string | undefined): string | null {
+  if (!path) return null;
+  return DESIGN_PACK_RAW_FILES[path] ?? null;
+}
+
+function outputPathForDesignPackAsset(path: string): string {
+  const relative = path.replace(/^prototype-bank\/design-packs\//, '');
+  return normalizePreviewPath(`design-pack/${relative}`);
+}
+
+function getSkeletonAppTemplate(skeletonId: SkeletonId): string | null {
+  const entry = Object.entries(SKELETON_APP_FILES).find(([path]) => (
+    path.includes(`/skeletons/${skeletonId}/`) && path.endsWith(`/skeleton-${skeletonId}/src/App.tsx`)
+  ));
+  return entry?.[1] ?? null;
+}
+
+function ensureVisualPackImport(appSource: string): string {
+  const importLine = "import './styles/visual-pack.css';";
+  if (appSource.includes(importLine)) return appSource;
+  return `${importLine}\n${appSource}`;
+}
+
+function materializeVisualPack(ctx: DesignContext): MaterializedVisualPack {
+  const selection = ctx.visualSelection;
+  const repoMaterialFiles = Array.from(new Set(
+    [
+      selection.selectedManifestPath,
+      selection.selectedVariantPath,
+      selection.selectedThemeFile,
+      ...selection.linkedStyleFiles,
+      ...selection.linkedComponentFiles,
+      ...selection.layoutPresetFiles,
+      ...selection.motionPresetFiles,
+      ...selection.assetReferenceFiles,
+      ...selection.requiredFiles,
+      ...selection.sourceFiles,
+      ...selection.materialFiles,
+    ].filter((value): value is string => typeof value === 'string' && value.startsWith('prototype-bank/design-packs/')),
+  ));
+
+  const copiedFiles = Object.fromEntries(
+    repoMaterialFiles.flatMap(path => {
+      const raw = getDesignPackRawFile(path);
+      if (!raw) return [];
+      return [[outputPathForDesignPackAsset(path), raw] as const];
+    }),
+  );
+
+  const linkedStyleFiles = Array.from(new Set(
+    [...selection.linkedStyleFiles, selection.selectedThemeFile].filter((value): value is string => Boolean(value)),
+  ));
+  const linkedComponentFiles = Array.from(new Set(selection.linkedComponentFiles));
+  const styleSections = linkedStyleFiles.map(path => {
+    const raw = getDesignPackRawFile(path);
+    return raw ? `/* SOURCE: ${path} */\n${raw}` : `/* MISSING SOURCE: ${path} */`;
+  });
+
+  const files: Record<string, string> = {
+    ...copiedFiles,
+    'styles/visual-pack.css': [
+      '/* AUTO-GENERATED visual pack bundle */',
+      `/* pack=${selection.selectedPackId} variant=${selection.selectedVariantId} theme=${selection.theme} */`,
+      "@import './generated-theme.css';",
+      '',
+      ...styleSections,
+      '',
+    ].join('\n'),
+    'design-pack/selected-pack.manifest.json': JSON.stringify({
+      selectedPackId: selection.selectedPackId,
+      selectedVariantId: selection.selectedVariantId,
+      selectedManifestPath: selection.selectedManifestPath,
+      selectedVariantPath: selection.selectedVariantPath,
+      selectedThemeFile: selection.selectedThemeFile,
+      purpose: selection.purpose,
+      whenToUse: selection.whenToUse,
+      requiredComponents: selection.requiredComponents,
+      allowedSurfaces: selection.allowedSurfaces,
+      linkedStyleFiles: selection.linkedStyleFiles,
+      linkedComponentFiles: selection.linkedComponentFiles,
+      layoutPresetFiles: selection.layoutPresetFiles,
+      motionPresetFiles: selection.motionPresetFiles,
+      assetReferenceFiles: selection.assetReferenceFiles,
+      requiredFiles: selection.requiredFiles,
+      sourceFiles: selection.sourceFiles,
+      materialFiles: selection.materialFiles,
+      componentHints: selection.componentHints,
+      layoutHints: selection.layoutHints,
+      fallbackVisualSelection: selection.fallbackVisualSelection,
+      materializedOutputFiles: [
+        'styles/visual-pack.css',
+        ...Object.keys(copiedFiles),
+      ],
+    }, null, 2),
+  };
+
+  const materializedFiles = Object.keys(files).sort((a, b) => a.localeCompare(b));
+  return {
+    files,
+    linkedStyleFiles,
+    linkedComponentFiles,
+    materialFiles: repoMaterialFiles,
+    materializedFiles,
+  };
 }
 
 // ── Implementation ────────────────────────────────────────────────────────────
@@ -386,10 +529,14 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           selected_visual_pack_id: designCtx.visualSelection.selectedPackId,
           selected_visual_variant_id: designCtx.visualSelection.selectedVariantId,
           selected_visual_variant_path: designCtx.visualSelection.selectedVariantPath,
+          selected_visual_theme_file: designCtx.visualSelection.selectedThemeFile,
           selected_color_family_id: designCtx.visualSelection.colorFamily,
           selected_variation_preset_id: designCtx.visualSelection.variationPreset.id,
           visual_anti_repeat_group: designCtx.visualSelection.antiRepeatGroup,
           visual_source_files: designCtx.visualSelection.sourceFiles,
+          visual_linked_style_files: designCtx.visualSelection.linkedStyleFiles,
+          visual_linked_component_files: designCtx.visualSelection.linkedComponentFiles,
+          visual_material_files: designCtx.visualSelection.materialFiles,
           fallback_visual_selection: designCtx.visualSelection.fallbackVisualSelection,
         },
       };
@@ -497,6 +644,15 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     // Inject the materialised theme as a delta file (overrides any coder copy).
     const tf = themeFile(designCtx);
     deltaFiles[tf.path] = tf.content;
+    const visualMaterialization = materializeVisualPack(designCtx);
+    Object.assign(deltaFiles, visualMaterialization.files);
+    const appPath = Object.keys(deltaFiles).find(path => normalizePreviewPath(path) === 'App.tsx');
+    const appSource =
+      (appPath ? deltaFiles[appPath] : null) ??
+      getSkeletonAppTemplate(config.skeletonId);
+    if (appSource) {
+      deltaFiles[appPath ?? 'App.tsx'] = ensureVisualPackImport(appSource);
+    }
 
     // Validate the design contract — fail loudly so the coder is forced to use tokens.
     const verdict = validateDesignContract(deltaFiles, designCtx);
@@ -526,6 +682,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         file_count: Object.keys(filteredFiles).length,
         total_bytes: totalFileBytes(filteredFiles),
         files: Object.keys(filteredFiles),
+        materialized_visual_files: visualMaterialization.materializedFiles,
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
@@ -621,6 +778,18 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         selectedVariantId: designCtx.visualSelection.selectedVariantId,
         selectedVariantPath: designCtx.visualSelection.selectedVariantPath,
         selectedManifestPath: designCtx.visualSelection.selectedManifestPath,
+        selectedThemeFile: designCtx.visualSelection.selectedThemeFile,
+        purpose: designCtx.visualSelection.purpose,
+        whenToUse: designCtx.visualSelection.whenToUse,
+        requiredComponents: designCtx.visualSelection.requiredComponents,
+        allowedSurfaces: designCtx.visualSelection.allowedSurfaces,
+        linkedStyleFiles: designCtx.visualSelection.linkedStyleFiles,
+        linkedComponentFiles: designCtx.visualSelection.linkedComponentFiles,
+        layoutPresetFiles: designCtx.visualSelection.layoutPresetFiles,
+        motionPresetFiles: designCtx.visualSelection.motionPresetFiles,
+        assetReferenceFiles: designCtx.visualSelection.assetReferenceFiles,
+        materialFiles: designCtx.visualSelection.materialFiles,
+        materializedFiles: visualMaterialization.materializedFiles,
         sourceFiles: designCtx.visualSelection.sourceFiles,
         requiredFiles: designCtx.visualSelection.requiredFiles,
         fallbackVisualSelection: designCtx.visualSelection.fallbackVisualSelection,
@@ -630,16 +799,23 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         designCtx.domain ? `${designCtx.domain.name} (${designCtx.domain.id})` : null,
         `Visual bank ${designCtx.visualSelection.selectedPackId}/${designCtx.visualSelection.selectedVariantId}`,
         designCtx.visualSelection.selectedVariantPath ? `Variant file ${designCtx.visualSelection.selectedVariantPath}` : null,
+        designCtx.visualSelection.selectedThemeFile ? `Theme file ${designCtx.visualSelection.selectedThemeFile}` : null,
         `Visual fallback ${designCtx.visualSelection.fallbackVisualSelection}`,
         `Theme ${designCtx.theme.name}`,
         `Mood ${designCtx.intent.mood}`,
         `Contrast ${designCtx.intent.contrast}`,
         `Radius ${designCtx.intent.radius}`,
+        `${visualMaterialization.linkedStyleFiles.length} linked style files`,
+        `${visualMaterialization.linkedComponentFiles.length} linked component presets`,
+        `${visualMaterialization.materializedFiles.length} materialized design-pack files`,
       ].filter((item): item is string => Boolean(item)),
       architectSummary: plan.summary,
       designSummary:
         `Visual ${designCtx.visualSelection.selectedPackId}/${designCtx.visualSelection.selectedVariantId} ` +
         `(${designCtx.visualSelection.selectedVariantPath ?? 'fallback'}) with theme ${designCtx.theme.name}; ` +
+        `${visualMaterialization.linkedStyleFiles.length} style files, ` +
+        `${visualMaterialization.linkedComponentFiles.length} component presets, ` +
+        `${visualMaterialization.materializedFiles.length} materialized files; ` +
         `fallbackVisualSelection=${designCtx.visualSelection.fallbackVisualSelection}.`,
       steps: stepTimeline,
       compileCount,
@@ -748,18 +924,19 @@ async function runArchitect(input: {
 }): Promise<ArchitectPlan> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const installedFiles = getSkeletonInstalledFiles(input.skeletonId);
-  const routeFiles = skeleton.deltaFiles
-    .filter(path => path.startsWith('src/pages/'))
+  const editableFiles = getEditableSkeletonFiles(input.skeletonId);
+  const editableFileSet = new Set(editableFiles);
+  const protectedExistingFiles = installedFiles
+    .filter(path => !editableFileSet.has(path))
     .sort((a, b) => a.localeCompare(b));
   const explicitExisting = new Set<string>([
     'src/App.tsx',
     'src/main.tsx',
     'src/config/theme.ts',
     'src/lib/cn.ts',
-    ...installedFiles,
-    ...routeFiles,
+    ...protectedExistingFiles,
   ]);
-  const alreadyExistsLines = [
+  const protectedExistingLines = [
     `- src/components/ui/* (${skeleton.uiPrimitives.join(', ') || 'existing UI primitives'})`,
     ...skeleton.providedComponents
       .map(name => `src/components/${name}.tsx`)
@@ -786,8 +963,10 @@ async function runArchitect(input: {
     explicitExisting.has('src/App.tsx')
       ? '- src/App.tsx (routing already configured)'
       : '',
-    ...routeFiles.map(path => `- ${path} (already routed by the skeleton)`),
   ].filter(Boolean).join('\n');
+  const editableExistingLines = editableFiles
+    .map(path => `- ${path}`)
+    .join('\n');
   const providedList = [
     ...skeleton.providedComponents.map(c => `component:${c}`),
     ...skeleton.providedHooks.map(h => `hook:${h}`),
@@ -796,21 +975,26 @@ async function runArchitect(input: {
   const installedList = installedFiles.length > 0
     ? installedFiles.map(path => `- ${path}`).join('\n')
     : '- (none)';
+  const shapeRequirement = buildArchitectShapeRequirement(input.prompt, input.skeletonId);
 
   const system = `You are a senior product architect. The user wants a React + Tailwind app built on top of an EXISTING SKELETON.
 
 SKELETON: ${skeleton.label} (${skeleton.id})
 NAVIGATION: ${skeleton.navigation}
 ALREADY PROVIDED (import/reuse, do not recreate): ${providedList || '(none listed)'}
-ALREADY EXISTS (do not include these in fileTree):
-${alreadyExistsLines || '- (none)'}
+PROTECTED / PROVIDED FILES (do not include these in fileTree):
+${protectedExistingLines || '- (none)'}
+
+EDITABLE SKELETON FILES (include these in fileTree when the product needs real modifications):
+${editableExistingLines || '- (none)'}
 
 SKELETON SNAPSHOT (already on disk; use this to avoid duplicates):
 ${installedList}
 ${input.designCtx ? archetypeContextForArchitect(input.designCtx) : ''}
 YOUR TASK: Return fileTree with ONLY the delta files this specific app needs.
-The skeleton is already installed. Do NOT include files that already exist in the skeleton.
-Typical delta for a mobile app: 2-4 pages, 1-3 hooks, 1 config update.
+The skeleton is already installed. You MAY include editable skeleton files in fileTree when they need meaningful product-specific rewrites.
+Typical delta for a mobile app: multiple routed pages, product navigation config, a real data layer, one domain hook, and at least one reusable product component.
+${shapeRequirement}
 Each fileTree value must be one sentence saying what the file does and which data / state it uses.
 
 Return ONLY valid JSON matching this schema:
@@ -832,8 +1016,9 @@ Return ONLY valid JSON matching this schema:
 
 RULES
 - fileTree keys may be returned as "src/..." paths, but they must describe ONLY delta files the coder should create.
-- NEVER include App.tsx, main.tsx, AppContext, theme.ts, UI primitives, or any file listed under ALREADY EXISTS.
-- Prefer product-specific pages/hooks/components/config over infrastructure files.
+- NEVER include App.tsx, main.tsx, AppContext, theme.ts, UI primitives, or any file listed under PROTECTED / PROVIDED FILES.
+- Prefer product-specific pages/hooks/components/config/data files over infrastructure files.
+- For editable skeleton pages/config/data files, include them in fileTree when they must be meaningfully rewritten for the product.
 - Use contextContract to describe shared state contracts (e.g. "use useApp() from AppContext, NOT useLocalStorage directly") whenever multiple files share state.
 - Use dataModel for the canonical domain entity / collection shape.
 - Keep pages[] optional; include it only if route labels / route mapping help the coder.
@@ -882,27 +1067,6 @@ RULES
   const fileTree = Object.keys(normalizedFileTree).length > 0
     ? normalizedFileTree
     : Object.fromEntries(legacyDeltaFiles.map(file => [file.path, file.purpose]));
-  const deltaFiles = Object.entries(fileTree)
-    .map(([path, purpose]) => ({ path, purpose }))
-    .filter(file => !installedFiles.includes(`src/${file.path}`));
-
-  if (deltaFiles.length === 0) {
-    throw new Error('Architect plan contains no usable delta fileTree entries');
-  }
-  const duplicateSkeletonFiles = Object.keys(fileTree)
-    .filter(path => installedFiles.includes(`src/${path}`));
-  if (duplicateSkeletonFiles.length > 0) {
-    input.onLog(
-      `[architect] dropped ${duplicateSkeletonFiles.length} skeleton file(s) from fileTree: ${duplicateSkeletonFiles.join(', ')}`,
-      'warn',
-    );
-  }
-  if (deltaFiles.length < Object.keys(fileTree).length) {
-    input.onLog(
-      `[architect] kept ${deltaFiles.length} delta file(s) after excluding already-installed skeleton files`,
-      'info',
-    );
-  }
 
   const pagesRaw = Array.isArray(obj.pages) ? obj.pages : [];
   const pages = pagesRaw
@@ -916,20 +1080,56 @@ RULES
       return path && name && file ? { path, name, file, purpose } : null;
     })
     .filter((p): p is { path: string; name: string; file: string; purpose: string } => p !== null);
-
-  return {
-    appName:  typeof obj.appName === 'string' ? obj.appName : 'App',
-    skeleton: typeof obj.skeleton === 'string' ? obj.skeleton as SkeletonId : input.skeletonId,
-    summary:  typeof obj.summary === 'string' ? obj.summary : '',
-    rawResponse: raw,
+  const planner = augmentArchitectPlan({
+    prompt: input.prompt,
+    skeletonId: input.skeletonId,
     fileTree,
-    deltaFiles,
     pages,
     notes: Array.isArray(obj.notes)
       ? obj.notes.filter((n): n is string => typeof n === 'string')
       : [],
     contextContract: typeof obj.contextContract === 'string' ? obj.contextContract : undefined,
     dataModel: typeof obj.dataModel === 'string' ? obj.dataModel : undefined,
+  });
+  const deltaFiles = Object.entries(planner.fileTree)
+    .map(([path, purpose]) => ({ path, purpose }))
+    .filter(file => {
+      const srcPath = `src/${file.path}`;
+      return editableFileSet.has(srcPath) || !installedFiles.includes(srcPath);
+    });
+
+  if (deltaFiles.length === 0) {
+    throw new Error('Architect plan contains no usable delta fileTree entries');
+  }
+  const duplicateSkeletonFiles = Object.keys(planner.fileTree)
+    .filter(path => {
+      const srcPath = `src/${path}`;
+      return installedFiles.includes(srcPath) && !editableFileSet.has(srcPath);
+    });
+  if (duplicateSkeletonFiles.length > 0) {
+    input.onLog(
+      `[architect] dropped ${duplicateSkeletonFiles.length} skeleton file(s) from fileTree: ${duplicateSkeletonFiles.join(', ')}`,
+      'warn',
+    );
+  }
+  if (deltaFiles.length < Object.keys(planner.fileTree).length) {
+    input.onLog(
+      `[architect] kept ${deltaFiles.length} delta file(s) after excluding already-installed skeleton files`,
+      'info',
+    );
+  }
+
+  return {
+    appName:  typeof obj.appName === 'string' ? obj.appName : 'App',
+    skeleton: typeof obj.skeleton === 'string' ? obj.skeleton as SkeletonId : input.skeletonId,
+    summary:  typeof obj.summary === 'string' ? obj.summary : '',
+    rawResponse: raw,
+    fileTree: planner.fileTree,
+    deltaFiles,
+    pages: planner.pages,
+    notes: planner.notes,
+    contextContract: planner.contextContract,
+    dataModel: planner.dataModel,
   };
 }
 
@@ -1029,8 +1229,12 @@ From '@/components/BottomTabs'  (NOT from ui): BottomTabs
 From '@/components/LoadingScreen' (NOT from ui): LoadingScreen
 From '@/components/ErrorBoundary' (NOT from ui): ErrorBoundary
 From 'lucide-react': any icon component
+From '@/config/navigation': BOTTOM_TABS (read-only; do NOT re-import or re-export)
+From '@/config/routes': ROUTES
 
 NEVER import EmptyState, BottomTabs, LoadingScreen, or ErrorBoundary from '@/components/ui'.
+CRITICAL: config/navigation.ts MUST export BOTTOM_TABS (readonly TabDefinition[] with {to, label, icon} matching ROUTES).
+         config/routes.ts MUST export ROUTES object with home/create/detail/progress/profile keys.
 
 RULES
 - Paths relative to preview-workspace/src/. No leading "src/" or "/".
@@ -1517,6 +1721,109 @@ function normaliseDeltaPath(p: string): string {
 
 function normalizeArchitectTreeKey(p: string): string {
   return normaliseDeltaPath(p);
+}
+
+export interface AugmentArchitectPlanInput {
+  prompt: string;
+  skeletonId: SkeletonId;
+  fileTree: Record<string, string>;
+  pages: Array<{ path: string; name: string; file: string; purpose: string }>;
+  notes: string[];
+  contextContract?: string;
+  dataModel?: string;
+}
+
+export function buildArchitectShapeRequirement(prompt: string, skeletonId: SkeletonId): string {
+  if (!isHabitTrackerPrompt(prompt) || skeletonId !== 'mobile-app') return '';
+  return [
+    'TRACKER DELTA REQUIREMENT:',
+    '- Treat editable skeleton pages/config/data files as the main delta surface; include them in fileTree when rewritten.',
+    '- For a habit tracker, fileTree must cover Home, Create, Detail, Progress, and Profile screens.',
+    '- Include config/routes.ts (must export ROUTES object) and config/navigation.ts (must export BOTTOM_TABS array with {to,label,icon} entries matching ROUTES) as meaningful product navigation/config deltas.',
+    '- Include a real data layer: data/types.ts, data/seed.ts, and one domain data helper file.',
+    '- Include one reusable product component and one domain state hook.',
+    '- Avoid generic copy like "New item", "Item not found", or generic placeholder text.',
+  ].join('\n');
+}
+
+function isHabitTrackerPrompt(prompt: string): boolean {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) return false;
+  return [
+    'habit',
+    'habits',
+    'tracker',
+    'streak',
+    'routine',
+    'daily check',
+    'привыч',
+    'трекер',
+    'стрик',
+  ].some(token => normalized.includes(token));
+}
+
+export function augmentArchitectPlan(input: AugmentArchitectPlanInput): AugmentArchitectPlanInput {
+  if (!(input.skeletonId === 'mobile-app' && isHabitTrackerPrompt(input.prompt))) {
+    return input;
+  }
+
+  // Strip landing-page section components — they are inappropriate for a mobile-app skeleton
+  // and consume coder token budget, preventing habit-tracker page/config/data modifications.
+  const SECTION_PATTERN = /^(?:src\/)?components\/sections\//;
+  const fileTree: Record<string, string> = Object.fromEntries(
+    Object.entries(input.fileTree).filter(([p]) => !SECTION_PATTERN.test(p)),
+  );
+  const ensureFile = (path: string, purpose: string) => {
+    if (!fileTree[path]) fileTree[path] = purpose;
+  };
+
+  ensureFile('config/routes.ts', 'Habit route registry with home, create, progress, profile, and detail path helpers.');
+  ensureFile('config/navigation.ts', 'Bottom-tab habit navigation config for Home, Create, Progress, and Profile flows.');
+  ensureFile('data/types.ts', 'Habit domain types for habits, completion history, progress summaries, and profile preferences.');
+  ensureFile('data/seed.ts', 'Starter habits, seeded completion history, and profile defaults for first launch.');
+  ensureFile('data/habits.ts', 'Pure habit data helpers for lookups, streak calculation, completion toggles, and progress aggregation.');
+  ensureFile('components/HabitCard.tsx', 'Reusable habit card with streak, schedule, completion CTA, and detail navigation.');
+  ensureFile('hooks/useHabits.ts', 'Shared habit state hook that loads, creates, toggles, persists, and looks up habits.');
+  ensureFile('pages/Home.tsx', 'Today screen with habit list, streak summary, add action, and detail navigation.');
+  ensureFile('pages/Create.tsx', 'Create habit form with habit-specific examples, cadence fields, and save flow.');
+  ensureFile('pages/Detail.tsx', 'Habit detail screen with schedule, recent completions, progress insight, and product-specific not-found recovery copy.');
+  ensureFile('pages/Progress.tsx', 'Progress screen with weekly completion stats, streak insights, and completion trend summaries.');
+  ensureFile('pages/Profile.tsx', 'Profile screen with goal preferences, reminder settings, and reset controls for habit tracking.');
+
+  const pageMap = new Map(input.pages.map(page => [normaliseDeltaPath(page.file), page]));
+  const ensurePage = (path: string, name: string, route: string, purpose: string) => {
+    if (!pageMap.has(path)) {
+      pageMap.set(path, { path: route, name, file: path, purpose });
+    }
+  };
+  ensurePage('pages/Home.tsx', 'Home', '/home', 'Primary habit list and daily actions.');
+  ensurePage('pages/Create.tsx', 'Create', '/create', 'Create a new habit with product-specific form fields.');
+  ensurePage('pages/Detail.tsx', 'Detail', '/detail/:id', 'Review a habit and its recent completion history.');
+  ensurePage('pages/Progress.tsx', 'Progress', '/progress', 'Inspect weekly completion trends and streak health.');
+  ensurePage('pages/Profile.tsx', 'Profile', '/profile', 'Adjust preferences, reminders, and reset options.');
+
+  const notes = Array.from(new Set([
+    ...input.notes,
+    'Replace all generic tracker scaffold copy with habit-specific labels, placeholders, empty states, and not-found recovery text.',
+    'Keep domain types in src/data/types.ts and starter content in src/data/seed.ts instead of embedding them only inside hooks.',
+    'Route and navigation config must stay synchronized with Home, Create, Detail, Progress, and Profile habit flows.',
+  ]));
+
+  const contextContract = input.contextContract && input.contextContract.trim().length > 0
+    ? input.contextContract
+    : 'Use useLocalStorage from the skeleton for persisted habit state; page files read and mutate habits through hooks/useHabits.ts instead of duplicating domain logic.';
+  const dataModel = input.dataModel && input.dataModel.trim().length > 0
+    ? input.dataModel
+    : 'Habit: { id: string, name: string, goal: string, cadence: string[], streak: number, completedDates: string[], bestStreak: number, note?: string }; UserProfile: { id: string, name: string, focus: string, reminderTime: string };';
+
+  return {
+    ...input,
+    fileTree,
+    pages: Array.from(pageMap.values()),
+    notes,
+    contextContract,
+    dataModel,
+  };
 }
 
 function safeParseJson(raw: string): unknown {

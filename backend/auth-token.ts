@@ -1400,10 +1400,12 @@ function formatOutputTruthBlockers(snapshot: ReturnType<typeof inspectLivePrevie
 function buildOutputTruthDetails(snapshot: ReturnType<typeof inspectLivePreviewWorkspace>): {
   structure: ReturnType<typeof inspectLivePreviewWorkspace>['outputTruth']['structure'];
   skeletonDelta: ReturnType<typeof inspectLivePreviewWorkspace>['outputTruth']['skeletonDelta'];
+  editableFilesStatus: ReturnType<typeof inspectLivePreviewWorkspace>['editableFilesStatus'];
 } {
   return {
     structure: snapshot.outputTruth.structure,
     skeletonDelta: snapshot.outputTruth.skeletonDelta,
+    editableFilesStatus: snapshot.editableFilesStatus,
   };
 }
 

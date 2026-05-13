@@ -61,6 +61,8 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/DOMAIN/);
     expect(txt).toMatch(/VISUAL_BANK_SELECTION/);
     expect(txt).toMatch(/selectedVariantPath: prototype-bank\/design-packs\/domain\/saas-dashboard\/visual-variants\/.+\.json/);
+    expect(txt).toMatch(/selectedThemeFile: prototype-bank\/design-packs\/foundation\/themes\/.+\.css/);
+    expect(txt).toMatch(/linkedStyleFiles:/);
   });
 
   it('coder contract bans raw colors and forbids tailwind palette utilities', async () => {
@@ -73,6 +75,7 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/fallbackVisualSelection: false/);
     expect(txt).toMatch(/prototype-bank\/design-packs\/domain\/mobile-app\/visual-variants\/.+\.json/);
     expect(txt).toMatch(/sourceFiles:/);
+    expect(txt).toMatch(/materialFiles:/);
     expect(txt).toMatch(/colorTokens:/);
     expect(txt).toMatch(/variationPreset:/);
     expect(txt).toMatch(/Use this selected visual variant as the source of design truth/);

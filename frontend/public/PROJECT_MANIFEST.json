@@ -260,6 +260,7 @@
     "services/__tests__/ProjectRepository.hygiene.test.ts",
     "services/__tests__/ProjectStorage.workspaceTruth.test.ts",
     "services/__tests__/PropWiringValidator.test.ts",
+    "services/__tests__/ProtoPipeline.planAugmentation.test.ts",
     "services/__tests__/revisionSemantics.test.ts",
     "services/__tests__/routeGraph.test.ts",
     "services/__tests__/trendNichesService.test.ts",
@@ -326,5 +327,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-05-13T14:41:41.849Z"
+  "last_scan_timestamp": "2026-05-13T19:02:07.764Z"
 }

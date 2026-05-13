@@ -599,6 +599,12 @@ export function getSkeletonInstalledFiles(skeletonId: SkeletonId): string[] {
   return uniqueSorted(manifest.workingGroups.flatMap(group => group.paths));
 }
 
+export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
+  const manifest = SKELETON_MANIFESTS[skeletonId];
+  if (!manifest) return [];
+  return uniqueSorted(manifest.editableFiles);
+}
+
 function globPatternToRegExp(pattern: string): RegExp {
   const normalized = normalizeSkeletonPath(pattern);
   let source = '';
