@@ -1,0 +1,25 @@
+{
+  "id": "wellness-sage",
+  "name": "Wellness Sage",
+  "description": "Earthy sage green family for wellness, mindfulness, and self-care products.",
+  "domains": ["health", "wellness", "medicine"],
+  "subdomains": ["wellness", "self-care", "mental-health", "habit-fitness", "daily-focus"],
+  "toneProfiles": ["calm", "wellness", "minimal"],
+  "trustProfiles": ["wellness-trust", "general-trust"],
+  "densityProfiles": ["comfortable", "spacious"],
+  "contrastProfiles": ["low", "medium"],
+  "tokens": {
+    "background": "120 28% 97%",
+    "foreground": "130 30% 14%",
+    "muted": "122 18% 90%",
+    "card": "0 0% 100%",
+    "primary": "145 42% 38%",
+    "secondary": "134 22% 87%",
+    "accent": "85 48% 46%",
+    "border": "130 16% 82%",
+    "success": "142 56% 40%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["145 42% 38%", "85 48% 46%", "160 38% 50%", "62 44% 52%"]
+  }
+}

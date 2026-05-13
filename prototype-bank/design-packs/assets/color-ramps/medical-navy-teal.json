@@ -1,0 +1,25 @@
+{
+  "id": "medical-navy-teal",
+  "name": "Medical Navy Teal",
+  "description": "Deep navy with teal accent for professional medical, clinical dashboard, and regulated health products.",
+  "domains": ["health", "medicine"],
+  "subdomains": ["clinical", "healthcare", "patient-care", "care-team", "medical-ops"],
+  "toneProfiles": ["clinical", "corporate", "trustworthy"],
+  "trustProfiles": ["clinical-trust", "regulated-trust"],
+  "densityProfiles": ["compact", "comfortable"],
+  "contrastProfiles": ["medium", "high"],
+  "tokens": {
+    "background": "218 38% 97%",
+    "foreground": "220 48% 12%",
+    "muted": "216 24% 90%",
+    "card": "0 0% 100%",
+    "primary": "220 72% 30%",
+    "secondary": "218 32% 86%",
+    "accent": "184 64% 38%",
+    "border": "218 22% 80%",
+    "success": "142 56% 40%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["220 72% 30%", "184 64% 38%", "196 58% 44%", "240 48% 42%"]
+  }
+}
