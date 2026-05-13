@@ -1,0 +1,65 @@
+{
+  "id": "premium-motion-background-orbital-01",
+  "name": "Orbital Background",
+  "source": "magic-ui",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "apps/www/package.json:0.1.1",
+  "category": "motion",
+  "kind": "animated-background",
+  "file": "prototype-bank/design-packs/premium-components/motion/premium-motion-background-orbital-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-motion-background-orbital-01.preview.tsx",
+  "compatibleSkeletons": [
+    "landing-page",
+    "mobile-app"
+  ],
+  "domains": [
+    "saas",
+    "ai-tools",
+    "wellness"
+  ],
+  "surfaces": [
+    "background"
+  ],
+  "toneProfiles": [
+    "premium",
+    "expressive"
+  ],
+  "densityProfiles": [
+    "spacious"
+  ],
+  "motionProfile": "expressive",
+  "dependencies": [
+    "framer-motion"
+  ],
+  "forbiddenUseCases": [
+    "Do not place behind dense tabular data"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Magic UI orbital background adapted without remote assets."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

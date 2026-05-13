@@ -1,0 +1,65 @@
+{
+  "id": "premium-primitives-input-command-01",
+  "name": "Command Input",
+  "source": "magic-ui",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "apps/www/package.json:0.1.1",
+  "category": "primitives",
+  "kind": "input",
+  "file": "prototype-bank/design-packs/premium-components/primitives/premium-primitives-input-command-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-primitives-input-command-01.preview.tsx",
+  "compatibleSkeletons": [
+    "saas-dashboard",
+    "mobile-app"
+  ],
+  "domains": [
+    "ai-tools",
+    "productivity"
+  ],
+  "surfaces": [
+    "command",
+    "chat"
+  ],
+  "toneProfiles": [
+    "premium",
+    "expressive"
+  ],
+  "densityProfiles": [
+    "compact"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not use for long-form text editing"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Inspired by Magic UI command affordances."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

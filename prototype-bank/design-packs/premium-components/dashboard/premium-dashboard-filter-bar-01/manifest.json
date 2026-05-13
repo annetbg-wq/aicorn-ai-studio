@@ -1,0 +1,64 @@
+{
+  "id": "premium-dashboard-filter-bar-01",
+  "name": "Filter/Search Bar",
+  "source": "shadcn-ui",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "package.json:0.0.1",
+  "category": "dashboard",
+  "kind": "filter-search",
+  "file": "prototype-bank/design-packs/premium-components/dashboard/premium-dashboard-filter-bar-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-dashboard-filter-bar-01.preview.tsx",
+  "compatibleSkeletons": [
+    "saas-dashboard"
+  ],
+  "domains": [
+    "saas",
+    "productivity"
+  ],
+  "surfaces": [
+    "dashboard",
+    "filters"
+  ],
+  "toneProfiles": [
+    "modern",
+    "clear"
+  ],
+  "densityProfiles": [
+    "compact"
+  ],
+  "motionProfile": "none",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not replace full advanced filters when needed"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "shadcn/ui-inspired filter bar with command affordance."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "id": "premium-primitives-button-outline-01",
+  "name": "Outline Secondary Button",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "primitives",
+  "kind": "button",
+  "file": "prototype-bank/design-packs/premium-components/primitives/premium-primitives-button-outline-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-primitives-button-outline-01.preview.tsx",
+  "compatibleSkeletons": [
+    "landing-page",
+    "ecommerce",
+    "social-community"
+  ],
+  "domains": [
+    "saas",
+    "creator",
+    "community"
+  ],
+  "surfaces": [
+    "secondary-cta",
+    "toolbar"
+  ],
+  "toneProfiles": [
+    "trustworthy",
+    "editorial"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "none",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not use for destructive confirmations"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Adapted from Flowbite React button variants."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

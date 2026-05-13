@@ -1,0 +1,67 @@
+{
+  "id": "premium-health-calm-insight-01",
+  "name": "Calm Insight Card",
+  "source": "magic-ui",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "apps/www/package.json:0.1.1",
+  "category": "health",
+  "kind": "calm-insight",
+  "file": "prototype-bank/design-packs/premium-components/health/premium-health-calm-insight-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-health-calm-insight-01.preview.tsx",
+  "compatibleSkeletons": [
+    "mobile-app",
+    "landing-page"
+  ],
+  "domains": [
+    "health",
+    "wellness"
+  ],
+  "surfaces": [
+    "mobile",
+    "insight"
+  ],
+  "toneProfiles": [
+    "calm",
+    "premium"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not use alarming red emergency visuals"
+  ],
+  "requiresMedia": true,
+  "supportsMediaSlot": true,
+  "mediaSlots": [
+    "calm-illustration"
+  ],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Magic UI-inspired calm card adapted for health-safe messaging."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

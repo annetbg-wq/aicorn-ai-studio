@@ -1,8 +1,5 @@
 // @vitest-environment jsdom
-<<<<<<< HEAD
-import { beforeEach, describe, it, expect } from 'vitest';
-=======
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import type { ArchetypeManifest, DomainManifest } from '../PrototypeBankService';
 
 const archetypes: Record<string, ArchetypeManifest> = {
@@ -70,7 +67,6 @@ vi.mock('../PrototypeBankService', () => ({
   },
 }));
 
->>>>>>> origin/main
 import {
   resolveDesignContext,
   validateDesignContract,

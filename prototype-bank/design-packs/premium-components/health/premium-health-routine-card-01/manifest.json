@@ -1,0 +1,64 @@
+{
+  "id": "premium-health-routine-card-01",
+  "name": "Routine Card",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "health",
+  "kind": "routine-card",
+  "file": "prototype-bank/design-packs/premium-components/health/premium-health-routine-card-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-health-routine-card-01.preview.tsx",
+  "compatibleSkeletons": [
+    "mobile-app"
+  ],
+  "domains": [
+    "health",
+    "wellness"
+  ],
+  "surfaces": [
+    "mobile",
+    "routine"
+  ],
+  "toneProfiles": [
+    "calm",
+    "trustworthy"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not position as medical advice"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite card pattern adapted to calm wellness routines."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}
