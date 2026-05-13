@@ -1,5 +1,38 @@
 {
   "id": "productivity-tool",
+  "purpose": "Workspace productivity visual pack for task, notes, and operator-style flows that need a clear structural shell and reusable dashboard/workspace presets.",
+  "whenToUse": [
+    "Use for task managers, planners, note tools, and AI workspaces",
+    "Use when the prototype should prove structure, hierarchy, and reusable workspace surfaces",
+    "Use when tabs, list/detail, sidebar, and KPI support should be visibly backed by real files"
+  ],
+  "requiredComponents": ["sidebar-nav", "dashboard-header", "list-item", "metric-card", "tabs", "input", "button"],
+  "allowedSurfaces": ["workspace", "sidebar", "kanban", "list", "detail-sheet", "command-palette"],
+  "linkedStyleFiles": [
+    "prototype-bank/design-packs/foundation/tokens.css",
+    "prototype-bank/design-packs/foundation/typography.css",
+    "prototype-bank/design-packs/foundation/elevation.css"
+  ],
+  "linkedComponentFiles": [
+    "prototype-bank/design-packs/surfaces/blocks/sidebar-nav.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/dashboard-header.tsx",
+    "prototype-bank/design-packs/surfaces/cards/list-item.tsx",
+    "prototype-bank/design-packs/surfaces/cards/metric-card.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/tabs.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/input.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/button.tsx"
+  ],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json",
+    "prototype-bank/design-packs/assets/typography/presets.json",
+    "prototype-bank/design-packs/assets/spacing/compact.json"
+  ],
   "skeleton": "productivity-tool",
   "compatibleSkeletons": ["productivity-tool"],
   "skeletonPath": "skeletons/productivity-tool/",

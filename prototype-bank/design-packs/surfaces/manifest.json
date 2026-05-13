@@ -1,5 +1,49 @@
 {
   "id": "surfaces",
+  "purpose": "Reusable component and layout layer for real prototype assembly. Surface files are copied or referenced as concrete presets instead of being recreated from memory.",
+  "whenToUse": [
+    "Use when the selected visual pack needs concrete reusable UI building blocks",
+    "Use when the prototype should prove which component presets and layouts were applied",
+    "Use when a skeleton needs a file-backed showcase across multiple visual variants"
+  ],
+  "requiredComponents": ["button", "card", "input"],
+  "allowedSurfaces": ["mobile", "dashboard", "marketing", "workspace", "storefront", "community"],
+  "forbiddenPatterns": [
+    "inventing component chrome that ignores the loaded token contract",
+    "claiming a component preset was used without linking its source file"
+  ],
+  "linkedStyleFiles": [
+    "prototype-bank/design-packs/foundation/tokens.css",
+    "prototype-bank/design-packs/foundation/typography.css",
+    "prototype-bank/design-packs/foundation/elevation.css"
+  ],
+  "linkedComponentFiles": [
+    "prototype-bank/design-packs/surfaces/primitives/button.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/card.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/input.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/badge.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/avatar.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/tabs.tsx",
+    "prototype-bank/design-packs/surfaces/cards/stat-card.tsx",
+    "prototype-bank/design-packs/surfaces/cards/metric-card.tsx",
+    "prototype-bank/design-packs/surfaces/cards/list-item.tsx",
+    "prototype-bank/design-packs/surfaces/cards/profile-card.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/dashboard-header.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/feed-item.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/onboarding-step.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/sidebar-nav.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/stats-progress.tsx"
+  ],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json"
+  ],
   "version": "1.0",
   "description": "Normalized UI components and blocks. Reference implementations from shadcn/ui + HyperUI + WeUI.",
   "sources": ["shadcn-ui", "hyperui", "weui", "daisyui"],

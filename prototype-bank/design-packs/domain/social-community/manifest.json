@@ -1,5 +1,37 @@
 {
   "id": "social-community",
+  "purpose": "Community and creator visual pack for feed, profile, social proof, and engagement surfaces that need file-backed mobile/social treatment.",
+  "whenToUse": [
+    "Use for creator tools, community products, social networks, and engagement-led apps",
+    "Use when the prototype should clearly read as a product with feed and profile mechanics",
+    "Use when avatar, feed, social action, and profile presets must be linked to real component files"
+  ],
+  "requiredComponents": ["mobile-nav", "feed-item", "profile-card", "avatar", "button", "badge"],
+  "allowedSurfaces": ["mobile", "bottom-tabs", "feed", "explore", "notifications", "profile", "post-detail"],
+  "linkedStyleFiles": [
+    "prototype-bank/design-packs/foundation/tokens.css",
+    "prototype-bank/design-packs/foundation/typography.css",
+    "prototype-bank/design-packs/foundation/elevation.css"
+  ],
+  "linkedComponentFiles": [
+    "prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/feed-item.tsx",
+    "prototype-bank/design-packs/surfaces/cards/profile-card.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/avatar.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/button.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/badge.tsx"
+  ],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json",
+    "prototype-bank/design-packs/assets/typography/presets.json",
+    "prototype-bank/design-packs/assets/spacing/comfortable.json"
+  ],
   "skeleton": "social-community",
   "compatibleSkeletons": ["social-community"],
   "skeletonPath": "skeletons/social-community/",

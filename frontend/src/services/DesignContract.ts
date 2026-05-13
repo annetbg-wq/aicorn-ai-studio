@@ -217,10 +217,13 @@ function visualSelectionPromptBlock(
     `selectedVariantId: ${selection.selectedVariantId}`,
     `selectedVariantPath: ${selection.selectedVariantPath ?? '(none)'}`,
     `selectedManifestPath: ${selection.selectedManifestPath ?? '(none)'}`,
+    `selectedThemeFile: ${selection.selectedThemeFile ?? '(none)'}`,
+    `purpose: ${selection.purpose}`,
     `compatibleSkeletons: ${inlineList(selection.compatibleSkeletons)}`,
     `domains: ${inlineList(selection.domains)}`,
     `subdomains: ${inlineList(selection.subdomains)}`,
     `surfaces: ${inlineList(selection.surfaces)}`,
+    `allowedSurfaces: ${inlineList(selection.allowedSurfaces)}`,
     `trustProfile: ${selection.trustProfile}`,
     `toneProfile: ${selection.toneProfile}`,
     `productTone: ${formatJson(selection.productTone)}`,
@@ -240,9 +243,17 @@ function visualSelectionPromptBlock(
     arrayBlock('tokenHints', selection.tokenHints),
     arrayBlock('componentHints', selection.componentHints),
     arrayBlock('layoutHints', selection.layoutHints),
+    arrayBlock('whenToUse', selection.whenToUse),
+    arrayBlock('requiredComponents', selection.requiredComponents),
     arrayBlock('forbiddenPatterns', selection.forbiddenPatterns),
     arrayBlock('requiredFiles', selection.requiredFiles),
     arrayBlock('sourceFiles', selection.sourceFiles),
+    arrayBlock('linkedStyleFiles', selection.linkedStyleFiles),
+    arrayBlock('linkedComponentFiles', selection.linkedComponentFiles),
+    arrayBlock('layoutPresetFiles', selection.layoutPresetFiles),
+    arrayBlock('motionPresetFiles', selection.motionPresetFiles),
+    arrayBlock('assetReferenceFiles', selection.assetReferenceFiles),
+    arrayBlock('materialFiles', selection.materialFiles),
     `fallbackVisualSelection: ${selection.fallbackVisualSelection}`,
   ];
 
@@ -256,7 +267,8 @@ function visualSelectionPromptBlock(
       '- Use the selected colorTokens as the full palette: background, foreground, muted, card, primary, secondary, accent, border, success, warning, danger, and chartPalette.',
       '- Apply variationPreset consistently for spacing, radius, elevation, motion, and block emphasis.',
       '- Do not use forbiddenPatterns.',
-      '- If requiredFiles/sourceFiles are provided, copy, import, or adapt them into generated output where applicable.',
+      '- Use the linkedStyleFiles, linkedComponentFiles, layoutPresetFiles, motionPresetFiles, and assetReferenceFiles as the concrete design source base.',
+      '- If requiredFiles/sourceFiles/materialFiles are provided, copy, import, or adapt them into generated output where applicable.',
     );
   }
 

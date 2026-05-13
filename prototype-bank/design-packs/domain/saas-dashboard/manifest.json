@@ -1,5 +1,39 @@
 {
   "id": "saas-dashboard",
+  "purpose": "Operational dashboard visual pack for metrics-heavy, enterprise, fintech, and admin prototypes that need strong hierarchy and file-backed workspace chrome.",
+  "whenToUse": [
+    "Use for dashboards, analytics tools, operator workspaces, and admin products",
+    "Use when the prototype must look like a structured multi-panel product instead of placeholder charts",
+    "Use when KPI cards, side navigation, header systems, and data surfaces should come from real presets"
+  ],
+  "requiredComponents": ["sidebar-nav", "dashboard-header", "metric-card", "stat-card", "list-item", "tabs", "button"],
+  "allowedSurfaces": ["dashboard", "sidebar", "metrics", "data-table", "settings", "workspace"],
+  "linkedStyleFiles": [
+    "prototype-bank/design-packs/foundation/tokens.css",
+    "prototype-bank/design-packs/foundation/typography.css",
+    "prototype-bank/design-packs/foundation/elevation.css"
+  ],
+  "linkedComponentFiles": [
+    "prototype-bank/design-packs/surfaces/blocks/sidebar-nav.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/dashboard-header.tsx",
+    "prototype-bank/design-packs/surfaces/cards/metric-card.tsx",
+    "prototype-bank/design-packs/surfaces/cards/stat-card.tsx",
+    "prototype-bank/design-packs/surfaces/cards/list-item.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/tabs.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/button.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/card.tsx"
+  ],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json",
+    "prototype-bank/design-packs/assets/typography/presets.json",
+    "prototype-bank/design-packs/assets/spacing/compact.json"
+  ],
   "skeleton": "saas-dashboard",
   "compatibleSkeletons": ["saas-dashboard"],
   "skeletonPath": "skeletons/saas-dashboard/",

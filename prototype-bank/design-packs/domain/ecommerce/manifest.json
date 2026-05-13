@@ -1,5 +1,37 @@
 {
   "id": "ecommerce",
+  "purpose": "Commerce visual pack for storefront, catalog, product, and checkout prototypes that need productized buying surfaces and linked style evidence.",
+  "whenToUse": [
+    "Use for storefronts, creator commerce, subscriptions, and checkout-led products",
+    "Use when the prototype must read as a real shopping flow instead of generic cards",
+    "Use when product cards, lists, CTA controls, and account surfaces should be tied to actual files"
+  ],
+  "requiredComponents": ["button", "card", "list-item", "profile-card", "badge", "input"],
+  "allowedSurfaces": ["storefront", "product-grid", "product-detail", "cart", "checkout", "account"],
+  "linkedStyleFiles": [
+    "prototype-bank/design-packs/foundation/tokens.css",
+    "prototype-bank/design-packs/foundation/typography.css",
+    "prototype-bank/design-packs/foundation/elevation.css"
+  ],
+  "linkedComponentFiles": [
+    "prototype-bank/design-packs/surfaces/primitives/button.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/card.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/badge.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/input.tsx",
+    "prototype-bank/design-packs/surfaces/cards/list-item.tsx",
+    "prototype-bank/design-packs/surfaces/cards/profile-card.tsx"
+  ],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json",
+    "prototype-bank/design-packs/assets/typography/presets.json",
+    "prototype-bank/design-packs/assets/spacing/comfortable.json"
+  ],
   "skeleton": "ecommerce",
   "compatibleSkeletons": ["ecommerce"],
   "skeletonPath": "skeletons/ecommerce/",

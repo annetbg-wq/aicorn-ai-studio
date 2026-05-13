@@ -4,8 +4,17 @@ import { analyzeOutputTruth, type OutputTruthResult } from '../frontend/src/shar
 
 const PREVIEW_SRC_ROOT = path.join(process.cwd(), 'preview-workspace', 'src');
 const SKELETONS_ROOT = path.join(process.cwd(), 'skeletons');
+const SKELETON_MANIFESTS_ROOT = path.join(process.cwd(), 'frontend', 'src', 'services', 'skeleton-manifests');
 const CODE_FILE_PATTERN = /\.(?:tsx?|jsx?|css|json)$/i;
 const IGNORED_PREVIEW_FILES = new Set(['__build_id.ts', 'route-manifest.json']);
+
+export interface EditableFileStatus {
+  path: string;
+  presentInWorkspace: boolean;
+  modifiedFromSkeleton: boolean;
+  workspaceBytes: number;
+  skeletonBytes: number;
+}
 
 export interface LivePreviewWorkspaceSnapshot {
   skeletonId: string | null;
@@ -13,6 +22,8 @@ export interface LivePreviewWorkspaceSnapshot {
   workspaceFiles: Record<string, string>;
   deltaFiles: Record<string, string>;
   outputTruth: OutputTruthResult;
+  /** Per-file delta status for each declared editable skeleton file. Useful for diagnosing why code-delta sees 0 meaningful files. */
+  editableFilesStatus: EditableFileStatus[];
 }
 
 function toProjectPath(root: string, fullPath: string): string {
@@ -71,6 +82,18 @@ function readSkeletonFiles(skeletonId: string | null): Record<string, string> {
   return readTreeFiles(skeletonSrcRoot);
 }
 
+function readSkeletonEditableFilePaths(skeletonId: string | null): string[] {
+  if (!skeletonId) return [];
+  const manifestPath = path.join(SKELETON_MANIFESTS_ROOT, skeletonId, 'skeleton.manifest.json');
+  if (!fs.existsSync(manifestPath)) return [];
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { editableFiles?: unknown };
+    return Array.isArray(manifest.editableFiles) ? (manifest.editableFiles as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function inspectLivePreviewWorkspace(): LivePreviewWorkspaceSnapshot {
   const { skeletonId, routeCount } = readRouteManifest();
   const workspaceFiles = readTreeFiles(PREVIEW_SRC_ROOT);
@@ -87,11 +110,25 @@ export function inspectLivePreviewWorkspace(): LivePreviewWorkspaceSnapshot {
     skeletonPaths: Object.keys(skeletonFiles),
   });
 
+  const editableFilePaths = readSkeletonEditableFilePaths(skeletonId);
+  const editableFilesStatus: EditableFileStatus[] = editableFilePaths.map((filePath) => {
+    const workspaceContent = workspaceFiles[filePath];
+    const skeletonContent = skeletonFiles[filePath];
+    return {
+      path: filePath,
+      presentInWorkspace: workspaceContent !== undefined,
+      modifiedFromSkeleton: workspaceContent !== undefined && workspaceContent !== skeletonContent,
+      workspaceBytes: workspaceContent ? Buffer.byteLength(workspaceContent, 'utf8') : 0,
+      skeletonBytes: skeletonContent ? Buffer.byteLength(skeletonContent, 'utf8') : 0,
+    };
+  });
+
   return {
     skeletonId,
     routeCount,
     workspaceFiles,
     deltaFiles,
     outputTruth,
+    editableFilesStatus,
   };
 }

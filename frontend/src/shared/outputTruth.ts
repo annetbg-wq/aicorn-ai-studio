@@ -115,6 +115,10 @@ export interface OutputSkeletonDeltaSummary {
   keyDeltaPaths: string[];
   keyModifiedPaths: string[];
   keyNewPaths: string[];
+  /** Normalized paths that were fed into the delta classifier (debug). */
+  normalizedDeltaPaths: string[];
+  /** Which delta paths matched each required structural class (debug). */
+  bucketMatches: Partial<Record<OutputStructureClassId, string[]>>;
 }
 
 export interface OutputTruthResult {
@@ -158,7 +162,9 @@ export interface ArchitectPlanTruthResult {
 
 const PLACEHOLDER_RULES: Array<{ pattern: RegExp; label: string }> = [
   { pattern: />\s*(?:test|todo|placeholder|coming soon|lorem ipsum|hello world)\s*</i, label: 'placeholder ui copy' },
-  { pattern: /\b(?:TODO|Placeholder|Coming soon|Lorem ipsum|Hello world)\b/i, label: 'placeholder token' },
+  { pattern: /\b(?:TODO|Coming soon|Lorem ipsum|Hello world)\b/i, label: 'placeholder token' },
+  { pattern: /(?:^|[\s{[(;:'"`])Placeholder(?!:)(?:$|[\s,.;:!?)}\]'"])/i, label: 'placeholder token' },
+  { pattern: /\bplaceholder\s*=\s*["'](?:placeholder|type here|enter text|enter value|search|search here|add item|new item)["']/i, label: 'generic input placeholder' },
   { pattern: /\bname\s*:\s*['"]Test['"]/i, label: 'test app name' },
   { pattern: /\bAPP_CONFIG\b[\s\S]{0,80}\bname\s*:\s*['"]Test['"]/i, label: 'test app config name' },
 ];
@@ -302,6 +308,8 @@ function matchRuleHits(
 ): OutputTruthHit[] {
   const hits: OutputTruthHit[] = [];
   for (const path of paths) {
+    // UI primitive components (shadcn/ui templates) are not product content — skip placeholder checks
+    if (/components[\\/]ui[\\/]/.test(path)) continue;
     const content = files[path] ?? '';
     for (const rule of rules) {
       if (rule.pattern.test(content)) {
@@ -485,6 +493,11 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
     deltaCategoryCoverage,
     buckets,
   };
+  const requiredBucketMatches: Partial<Record<OutputStructureClassId, string[]>> = {};
+  for (const id of requiredDeltaClasses) {
+    const bucket = buckets.find((b) => b.id === id);
+    requiredBucketMatches[id] = bucket?.keyPaths.filter((p) => uniqueChangedPaths.includes(p)) ?? [];
+  }
   const skeletonDelta: OutputSkeletonDeltaSummary = {
     skeletonFileCount: skeletonBackedPaths.length,
     deltaFileCount: uniqueChangedPaths.length,
@@ -495,6 +508,8 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
     keyDeltaPaths: meaningfulChangedFiles.length > 0 ? meaningfulChangedFiles.slice(0, 8) : uniqueChangedPaths.slice(0, 8),
     keyModifiedPaths: modifiedExistingFiles.slice(0, 8),
     keyNewPaths: newFiles.slice(0, 8),
+    normalizedDeltaPaths: uniqueChangedPaths,
+    bucketMatches: requiredBucketMatches,
   };
 
   if (placeholderHits.length > 0) {
@@ -549,8 +564,10 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
     pushBlocker(
       blockers,
       'missing-delta-structure',
-      `Meaningful delta is missing skeleton-expected structure: ${requiredDeltaClasses.join(', ')}.`,
-      skeletonDelta.keyDeltaPaths,
+      `Meaningful delta is missing skeleton-expected structure: ${missingDeltaClasses.join(', ')}.`,
+      buckets
+        .filter((bucket) => missingDeltaClasses.includes(bucket.id))
+        .flatMap((bucket) => bucket.keyPaths.length > 0 ? bucket.keyPaths : skeletonDelta.keyDeltaPaths),
     );
   }
 

@@ -1,5 +1,33 @@
 {
   "id": "foundation",
+  "purpose": "Base visual foundation for every studio prototype. Provides the token contract, typography, elevation, and theme CSS that the selected visual pack must materialize into output.",
+  "whenToUse": [
+    "Always include before applying any domain visual pack",
+    "Use when the prototype needs a real token layer instead of ad-hoc styling",
+    "Use when Reasoning or Analytics must prove which style files were connected"
+  ],
+  "requiredComponents": [],
+  "allowedSurfaces": ["mobile", "dashboard", "marketing", "workspace", "storefront", "community"],
+  "forbiddenPatterns": [
+    "raw inline palette definitions without the foundation token layer",
+    "styling a prototype without a linked theme css file"
+  ],
+  "linkedStyleFiles": [
+    "prototype-bank/design-packs/foundation/tokens.css",
+    "prototype-bank/design-packs/foundation/typography.css",
+    "prototype-bank/design-packs/foundation/elevation.css"
+  ],
+  "linkedComponentFiles": [],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json",
+    "prototype-bank/design-packs/foundation/themes/manifest.json"
+  ],
   "version": "1.0",
   "description": "Base design tokens for the visual bank. Platform-agnostic CSS custom properties and JSON specs.",
   "sources": ["shadcn-ui", "daisyui"],

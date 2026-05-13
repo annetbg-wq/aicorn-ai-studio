@@ -32,6 +32,9 @@ describe('FileVisualBankService', () => {
     expect(mobile?.compatibleSkeletons).toContain('mobile-app');
     expect(mobile?.layoutPatterns).toContain('bottom-tabs');
     expect(mobile?.componentFamilies).toContain('mobile-nav');
+    expect(mobile?.purpose).toMatch(/Mobile-first visual pack/i);
+    expect(mobile?.linkedStyleFiles).toContain('prototype-bank/design-packs/foundation/tokens.css');
+    expect(mobile?.linkedComponentFiles).toContain('prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx');
     expect(mobile?.domains.length).toBeGreaterThan(0);
     expect(mobile?.surfaces).toContain('bottom-tabs');
     expect(calm?.trustProfile).toBeTruthy();
@@ -72,6 +75,8 @@ describe('FileVisualBankService', () => {
     expect(selection.fallbackVisualSelection).toBe(false);
     expect(selection.selectedPackId).toBe('productivity-tool');
     expect(selection.subdomains).toContain('healthcare');
+    expect(selection.materialFiles).toContain('prototype-bank/design-packs/surfaces/layout-presets.json');
+    expect(selection.selectedThemeFile).toMatch(/prototype-bank\/design-packs\/foundation\/themes\/.+\.css/);
     expect(selection.selectedVariantPath).toMatch(/prototype-bank\/design-packs\/domain\/productivity-tool\/visual-variants\/.+\.json/);
   });
 
