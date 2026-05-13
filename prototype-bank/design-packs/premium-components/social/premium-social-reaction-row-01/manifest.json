@@ -1,0 +1,65 @@
+{
+  "id": "premium-social-reaction-row-01",
+  "name": "Reaction Row",
+  "source": "shadcn-ui",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "package.json:0.0.1",
+  "category": "social",
+  "kind": "reaction-row",
+  "file": "prototype-bank/design-packs/premium-components/social/premium-social-reaction-row-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-social-reaction-row-01.preview.tsx",
+  "compatibleSkeletons": [
+    "social-community",
+    "mobile-app"
+  ],
+  "domains": [
+    "social",
+    "community"
+  ],
+  "surfaces": [
+    "social",
+    "actions"
+  ],
+  "toneProfiles": [
+    "modern",
+    "clear"
+  ],
+  "densityProfiles": [
+    "compact"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not replace moderation controls"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "shadcn/ui button row adapted into a social reaction strip."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

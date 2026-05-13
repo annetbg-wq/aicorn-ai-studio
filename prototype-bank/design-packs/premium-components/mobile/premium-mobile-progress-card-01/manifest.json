@@ -1,0 +1,65 @@
+{
+  "id": "premium-mobile-progress-card-01",
+  "name": "Daily Progress Card",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "mobile",
+  "kind": "daily-progress",
+  "file": "prototype-bank/design-packs/premium-components/mobile/premium-mobile-progress-card-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-mobile-progress-card-01.preview.tsx",
+  "compatibleSkeletons": [
+    "mobile-app"
+  ],
+  "domains": [
+    "wellness",
+    "health",
+    "consumer"
+  ],
+  "surfaces": [
+    "mobile",
+    "progress"
+  ],
+  "toneProfiles": [
+    "calm",
+    "premium"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not represent clinical outcomes as guaranteed"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite React progress card adapted with token-safe ring visuals."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

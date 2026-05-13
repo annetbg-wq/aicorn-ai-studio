@@ -1,0 +1,30 @@
+{
+  "id": "social-community",
+  "compatibleSkeletons": [
+    "social-community"
+  ],
+  "domains": [
+    "social",
+    "creator",
+    "community"
+  ],
+  "requiredBlocks": [
+    "feed-item",
+    "profile-header",
+    "creator-card",
+    "reaction-row"
+  ],
+  "optionalBlocks": [
+    "animated-background",
+    "marquee"
+  ],
+  "mediaPolicy": {
+    "mediaNeeded": true,
+    "types": [
+      "avatar-set",
+      "feed-media"
+    ]
+  },
+  "motionProfile": "expressive",
+  "qualityBar": "premium"
+}

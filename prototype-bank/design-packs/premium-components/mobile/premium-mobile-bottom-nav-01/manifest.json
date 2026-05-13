@@ -1,0 +1,66 @@
+{
+  "id": "premium-mobile-bottom-nav-01",
+  "name": "Bottom Navigation",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "mobile",
+  "kind": "bottom-nav",
+  "file": "prototype-bank/design-packs/premium-components/mobile/premium-mobile-bottom-nav-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-mobile-bottom-nav-01.preview.tsx",
+  "compatibleSkeletons": [
+    "mobile-app",
+    "social-community"
+  ],
+  "domains": [
+    "consumer",
+    "social",
+    "wellness"
+  ],
+  "surfaces": [
+    "mobile",
+    "navigation"
+  ],
+  "toneProfiles": [
+    "modern",
+    "clear"
+  ],
+  "densityProfiles": [
+    "compact"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not exceed five destinations"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite mobile bottom nav translated to local tokens."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

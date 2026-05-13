@@ -1,0 +1,68 @@
+{
+  "id": "premium-social-feed-item-01",
+  "name": "Feed Item",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "social",
+  "kind": "feed-item",
+  "file": "prototype-bank/design-packs/premium-components/social/premium-social-feed-item-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-social-feed-item-01.preview.tsx",
+  "compatibleSkeletons": [
+    "social-community",
+    "mobile-app"
+  ],
+  "domains": [
+    "social",
+    "creator",
+    "community"
+  ],
+  "surfaces": [
+    "feed",
+    "social"
+  ],
+  "toneProfiles": [
+    "modern",
+    "friendly"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not auto-play distracting motion without consent"
+  ],
+  "requiresMedia": true,
+  "supportsMediaSlot": true,
+  "mediaSlots": [
+    "feed-media"
+  ],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite feed card adapted to local media and token vars."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}
