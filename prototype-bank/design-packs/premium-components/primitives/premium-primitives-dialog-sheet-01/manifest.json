@@ -1,0 +1,65 @@
+{
+  "id": "premium-primitives-dialog-sheet-01",
+  "name": "Command Sheet",
+  "source": "shadcn-ui",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "package.json:0.0.1",
+  "category": "primitives",
+  "kind": "dialog",
+  "file": "prototype-bank/design-packs/premium-components/primitives/premium-primitives-dialog-sheet-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-primitives-dialog-sheet-01.preview.tsx",
+  "compatibleSkeletons": [
+    "saas-dashboard",
+    "mobile-app"
+  ],
+  "domains": [
+    "saas",
+    "productivity"
+  ],
+  "surfaces": [
+    "sheet",
+    "dialog"
+  ],
+  "toneProfiles": [
+    "premium",
+    "modern"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not use for destructive confirm-only dialogs"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Adapted from shadcn/ui dialog/sheet patterns."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

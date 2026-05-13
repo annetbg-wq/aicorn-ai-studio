@@ -1,0 +1,17 @@
+{
+  "id": "tremor",
+  "name": "Tremor",
+  "officialUrl": "https://npm.tremor.so",
+  "repoUrl": "https://github.com/tremorlabs/tremor-npm",
+  "license": "Apache-2.0",
+  "licenseFileVerified": true,
+  "licenseFilePathOrUrl": "https://raw.githubusercontent.com/tremorlabs/tremor-npm/main/License",
+  "sourceCommitOrVersion": "package.json:0.0.0-development",
+  "allowedForLocalImport": true,
+  "importMode": "copy-paste-normalized",
+  "dependencyRisk": "medium",
+  "notes": [
+    "License verified from upstream Apache License file.",
+    "Used for dashboard and data visualization shells recreated with inline SVG and token-safe styles."
+  ]
+}

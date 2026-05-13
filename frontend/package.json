@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "node ./scripts/link-external-node-modules.mjs",
     "dev": "vite",
     "dev:clean": "npx --yes kill-port 5183 && vite",
     "build": "tsc && vite build",

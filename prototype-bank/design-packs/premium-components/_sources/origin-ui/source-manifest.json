@@ -1,0 +1,17 @@
+{
+  "id": "origin-ui",
+  "name": "Origin UI",
+  "officialUrl": "https://originui.com",
+  "repoUrl": "https://github.com/OriginUI/origin-ui",
+  "license": "unknown",
+  "licenseFileVerified": false,
+  "licenseFilePathOrUrl": "https://github.com/OriginUI/origin-ui",
+  "sourceCommitOrVersion": "unverified",
+  "allowedForLocalImport": false,
+  "importMode": "copy-paste-normalized",
+  "dependencyRisk": "high",
+  "notes": [
+    "Source repository metadata was reachable, but a license file could not be verified in this session.",
+    "No code was imported from Origin UI until license verification is explicit."
+  ]
+}

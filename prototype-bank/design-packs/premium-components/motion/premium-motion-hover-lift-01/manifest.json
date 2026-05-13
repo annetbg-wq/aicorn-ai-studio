@@ -1,0 +1,64 @@
+{
+  "id": "premium-motion-hover-lift-01",
+  "name": "Lift Hover Tile",
+  "source": "magic-ui",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "apps/www/package.json:0.1.1",
+  "category": "motion",
+  "kind": "hover-effect",
+  "file": "prototype-bank/design-packs/premium-components/motion/premium-motion-hover-lift-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-motion-hover-lift-01.preview.tsx",
+  "compatibleSkeletons": [
+    "landing-page",
+    "saas-dashboard"
+  ],
+  "domains": [
+    "saas",
+    "productivity"
+  ],
+  "surfaces": [
+    "tile"
+  ],
+  "toneProfiles": [
+    "premium",
+    "modern"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "framer-motion"
+  ],
+  "forbiddenUseCases": [
+    "Do not overuse across every card"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Magic UI hover tile adapted to Studio-safe motion."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

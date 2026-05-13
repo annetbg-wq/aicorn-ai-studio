@@ -1,0 +1,28 @@
+{
+  "id": "ecommerce-storefront",
+  "compatibleSkeletons": [
+    "ecommerce"
+  ],
+  "domains": [
+    "ecommerce",
+    "retail"
+  ],
+  "requiredBlocks": [
+    "product-card",
+    "product-grid",
+    "checkout-summary",
+    "review-rating"
+  ],
+  "optionalBlocks": [
+    "animated-background"
+  ],
+  "mediaPolicy": {
+    "mediaNeeded": true,
+    "types": [
+      "product-mockup",
+      "hero-image"
+    ]
+  },
+  "motionProfile": "gentle",
+  "qualityBar": "premium"
+}

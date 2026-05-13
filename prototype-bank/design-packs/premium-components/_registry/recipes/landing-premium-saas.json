@@ -1,0 +1,34 @@
+{
+  "id": "landing-premium-saas",
+  "compatibleSkeletons": [
+    "landing-page"
+  ],
+  "domains": [
+    "saas",
+    "ai-tools",
+    "productivity",
+    "fintech"
+  ],
+  "requiredBlocks": [
+    "hero",
+    "feature-grid",
+    "pricing",
+    "testimonial",
+    "cta"
+  ],
+  "optionalBlocks": [
+    "faq",
+    "logos",
+    "animated-background"
+  ],
+  "mediaPolicy": {
+    "mediaNeeded": true,
+    "types": [
+      "hero-image",
+      "abstract-visual",
+      "dashboard-preview"
+    ]
+  },
+  "motionProfile": "gentle",
+  "qualityBar": "premium"
+}

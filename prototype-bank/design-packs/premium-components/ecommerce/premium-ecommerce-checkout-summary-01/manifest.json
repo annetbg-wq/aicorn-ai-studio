@@ -1,0 +1,64 @@
+{
+  "id": "premium-ecommerce-checkout-summary-01",
+  "name": "Checkout Summary",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "ecommerce",
+  "kind": "checkout-summary",
+  "file": "prototype-bank/design-packs/premium-components/ecommerce/premium-ecommerce-checkout-summary-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-ecommerce-checkout-summary-01.preview.tsx",
+  "compatibleSkeletons": [
+    "ecommerce"
+  ],
+  "domains": [
+    "ecommerce",
+    "fintech"
+  ],
+  "surfaces": [
+    "checkout",
+    "summary"
+  ],
+  "toneProfiles": [
+    "trustworthy",
+    "premium"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "none",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not hide taxes or fees"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite checkout summary adapted to local token palette."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}
