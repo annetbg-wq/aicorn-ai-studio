@@ -4,9 +4,11 @@
   "name": "AI Tools",
   "entities": ["Prompt", "Result", "Template", "History", "Collection"],
   "roles": ["user"],
+  "subdomains": ["ai-workspace", "prompting", "automation", "assistant", "knowledge-base"],
   "typicalFlows": ["Ввод запроса и получение результата", "Выбор из шаблонов", "Сохранение в коллекцию", "История запросов"],
   "restrictions": ["Всегда показывать анимированный индикатор при генерации", "Не показывать технические ID моделей пользователю"],
   "uiPatterns": ["Textarea с плейсхолдером-примером", "Карточки шаблонов с категориями", "Анимация потоковой генерации", "Кнопки копирования результатов"],
+  "colorFamilies": ["cool-blue", "fintech-indigo", "neutral", "gaming-neon"],
   "recommendedDesign": "dark-premium",
   "recommendedArchetypes": ["assistant-chat", "scanner-app"]
 }

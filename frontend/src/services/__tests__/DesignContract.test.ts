@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import {
   resolveDesignContext,
   validateDesignContract,
@@ -7,6 +7,11 @@ import {
   archetypeContextForArchitect,
   themeFile,
 } from '../DesignContract';
+import { clearFileVisualSelectionMemory } from '../FileVisualBankService';
+
+beforeEach(() => {
+  clearFileVisualSelectionMemory();
+});
 
 describe('DesignContract — resolver', () => {
   it('picks dashboard-workspace archetype for saas-dashboard skeleton', async () => {
@@ -68,6 +73,8 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/fallbackVisualSelection: false/);
     expect(txt).toMatch(/prototype-bank\/design-packs\/domain\/mobile-app\/visual-variants\/.+\.json/);
     expect(txt).toMatch(/sourceFiles:/);
+    expect(txt).toMatch(/colorTokens:/);
+    expect(txt).toMatch(/variationPreset:/);
     expect(txt).toMatch(/Use this selected visual variant as the source of design truth/);
   });
 

@@ -29,6 +29,8 @@ export interface DomainManifest {
   uiPatterns: string[];
   recommendedDesign: string;
   recommendedArchetypes: string[];
+  subdomains?: string[];
+  colorFamilies?: string[];
 }
 
 export interface ModuleManifest {

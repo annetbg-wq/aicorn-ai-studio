@@ -1,13 +1,25 @@
 {
   "id": "playful-coral",
   "name": "Playful Coral",
-  "description": "Warm orange-coral. Energetic, consumer-facing, food/lifestyle.",
-  "ramp": {
-    "orange": {
-      "50":  "#fff7ed", "100": "#ffedd5", "200": "#fed7aa", "300": "#fdba74",
-      "400": "#fb923c", "500": "#f97316", "600": "#ea580c", "700": "#c2410c",
-      "800": "#9a3412", "900": "#7c2d12", "950": "#431407"
-    }
-  },
-  "usage": { "bg": "#fff7f5", "surface": "white", "accent": "orange.500", "text": "orange.950" }
+  "description": "Warm coral palette for playful consumer, creator, and commerce surfaces.",
+  "domains": ["social", "ecommerce", "gaming", "landing-page"],
+  "subdomains": ["creator-network", "marketplace", "launch", "community"],
+  "toneProfiles": ["playful", "creator", "energetic"],
+  "trustProfiles": ["creator-trust", "commerce-trust"],
+  "densityProfiles": ["comfortable", "spacious"],
+  "contrastProfiles": ["medium"],
+  "tokens": {
+    "background": "18 86% 97%",
+    "foreground": "15 34% 17%",
+    "muted": "18 60% 90%",
+    "card": "0 0% 100%",
+    "primary": "8 86% 58%",
+    "secondary": "38 86% 88%",
+    "accent": "190 76% 44%",
+    "border": "18 35% 82%",
+    "success": "142 56% 40%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["8 86% 58%", "190 76% 44%", "42 92% 52%", "330 70% 58%"]
+  }
 }

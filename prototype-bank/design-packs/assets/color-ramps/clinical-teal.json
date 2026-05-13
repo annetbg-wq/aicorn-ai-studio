@@ -1,13 +1,25 @@
 {
   "id": "clinical-teal",
   "name": "Clinical Teal",
-  "description": "Teal-based medical palette. Clean, sterile, trustworthy.",
-  "ramp": {
-    "teal": {
-      "50":  "#f0fdfa", "100": "#ccfbf1", "200": "#99f6e4", "300": "#5eead4",
-      "400": "#2dd4bf", "500": "#14b8a6", "600": "#0d9488", "700": "#0f766e",
-      "800": "#115e59", "900": "#134e4a", "950": "#042f2e"
-    }
-  },
-  "usage": { "bg": "teal.50", "surface": "white", "accent": "teal.600", "text": "teal.950" }
+  "description": "Clean medical teal for patient care and clinical workflows.",
+  "domains": ["health", "medicine", "wellness"],
+  "subdomains": ["clinical", "healthcare", "patient-care", "care-team"],
+  "toneProfiles": ["clinical", "calm", "trustworthy"],
+  "trustProfiles": ["clinical-trust"],
+  "densityProfiles": ["compact", "comfortable"],
+  "contrastProfiles": ["medium"],
+  "tokens": {
+    "background": "174 55% 98%",
+    "foreground": "181 45% 14%",
+    "muted": "174 24% 91%",
+    "card": "0 0% 100%",
+    "primary": "174 72% 32%",
+    "secondary": "184 26% 88%",
+    "accent": "199 68% 44%",
+    "border": "180 18% 82%",
+    "success": "142 56% 40%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["174 72% 32%", "199 68% 44%", "160 58% 38%", "221 48% 42%"]
+  }
 }

@@ -1,17 +1,25 @@
 {
   "id": "soft-womens-health",
   "name": "Soft Women's Health",
-  "description": "Warm pinks with gentle lavender. Inclusive, safe, caring.",
-  "ramp": {
-    "pink": {
-      "50":  "#fdf2f8", "100": "#fce7f3", "200": "#fbcfe8", "300": "#f9a8d4",
-      "400": "#f472b6", "500": "#ec4899", "600": "#db2777", "700": "#be185d",
-      "800": "#9d174d", "900": "#831843", "950": "#4a0826"
-    },
-    "lavender": {
-      "100": "#ede9fe", "200": "#ddd6fe", "300": "#c4b5fd",
-      "400": "#a78bfa", "500": "#8b5cf6"
-    }
-  },
-  "usage": { "bg": "#fdf8fb", "surface": "white", "accent": "pink.500", "text": "pink.950" }
+  "description": "Soft rose family for women's health, fertility, and self-care products.",
+  "domains": ["health", "medicine", "wellness"],
+  "subdomains": ["women-health", "self-care", "wellness", "mental-health"],
+  "toneProfiles": ["soft", "calm", "wellness"],
+  "trustProfiles": ["wellness-trust", "clinical-trust"],
+  "densityProfiles": ["comfortable", "spacious"],
+  "contrastProfiles": ["low"],
+  "tokens": {
+    "background": "340 64% 98%",
+    "foreground": "335 35% 18%",
+    "muted": "338 42% 91%",
+    "card": "0 0% 100%",
+    "primary": "335 74% 52%",
+    "secondary": "326 42% 89%",
+    "accent": "18 84% 64%",
+    "border": "334 26% 84%",
+    "success": "142 48% 42%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["335 74% 52%", "18 84% 64%", "287 50% 58%", "352 58% 54%"]
+  }
 }

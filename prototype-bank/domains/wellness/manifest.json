@@ -4,9 +4,11 @@
   "name": "Wellness",
   "entities": ["Session", "Habit", "Progress", "Goal", "Mood"],
   "roles": ["user"],
+  "subdomains": ["wellness", "habit-fitness", "self-care", "daily-focus", "mental-health"],
   "typicalFlows": ["Начать медитацию/тренировку", "Трекинг привычек", "Просмотр прогресса за период", "Добавить запись настроения"],
   "restrictions": [],
   "uiPatterns": ["Спокойные пастельные или приглушённые градиенты", "Прогресс-кольца и streak-счётчики", "Мотивирующие цитаты", "Тёплые иллюстрации"],
+  "colorFamilies": ["wellness-sage", "calm-lavender", "soft-womens-health", "neutral"],
   "recommendedDesign": "light-clean",
   "recommendedArchetypes": ["consumer-feed", "superapp-shell"]
 }

@@ -2,10 +2,26 @@ export type ThemeMood = 'playful' | 'corporate' | 'luxury' | 'brutal' | 'calm';
 export type ThemeContrast = 'low' | 'medium' | 'high';
 export type ThemeRadius = 'sharp' | 'soft' | 'pill';
 
+export type ThemeColorTokens = {
+  background: string;
+  foreground: string;
+  muted: string;
+  card: string;
+  primary: string;
+  secondary: string;
+  accent: string;
+  border: string;
+  success: string;
+  warning: string;
+  danger: string;
+  chartPalette: string[];
+};
+
 export type DesignIntent = {
   mood?: ThemeMood;
   contrast?: ThemeContrast;
   radius?: ThemeRadius;
+  colorTokens?: ThemeColorTokens;
   /** Deterministic seed for color variation; defaults to plan.id when called from pipeline. */
   seed?: string;
 };
@@ -117,45 +133,63 @@ export function generateTheme(intent: DesignIntent): GeneratedTheme {
   const bgVal           = spaceHsl(h, sat * 0.10, bgL);
   const fgVal           = spaceHsl(h, sat * 0.15, safeFgL);
   const cardVal         = spaceHsl(h, sat * 0.10, surfaceL);
-  const cardFgVal       = fgVal;
-  const popoverVal      = cardVal;
-  const popoverFgVal    = fgVal;
   const primaryVal      = spaceHsl(h, sat,        primaryL);
   const primaryFgVal    = spaceHsl(0, 0,           primaryFgL);
   const secondaryVal    = spaceHsl(h, sat * 0.25,  primaryMutedL);
-  const secondaryFgVal  = spaceHsl(h, sat * 0.15,  fgL);
   const mutedVal        = spaceHsl(h, sat * 0.15,  mutedL);
   const mutedFgVal      = spaceHsl(h, sat * 0.10,  isDark ? fgL - 20 : fgL + 20);
   const accentVal       = spaceHsl(h, sat * 0.30,  mutedL);
-  const accentFgVal     = fgVal;
   const destructiveVal  = spaceHsl(0, 84,           60);
   const destructiveFgVal = spaceHsl(0, 0,           98);
   const borderVal       = spaceHsl(h, sat * 0.15,  borderL);
-  const inputVal        = borderVal;
-  const ringVal         = spaceHsl(h, sat,          primaryL);
+  const token = intent.colorTokens;
+  const finalBgVal = token?.background ?? bgVal;
+  const finalFgVal = token?.foreground ?? fgVal;
+  const finalCardVal = token?.card ?? cardVal;
+  const finalPrimaryVal = token?.primary ?? primaryVal;
+  const finalSecondaryVal = token?.secondary ?? secondaryVal;
+  const finalMutedVal = token?.muted ?? mutedVal;
+  const finalAccentVal = token?.accent ?? accentVal;
+  const finalBorderVal = token?.border ?? borderVal;
+  const finalDestructiveVal = token?.danger ?? destructiveVal;
+  const successVal = token?.success ?? spaceHsl(142, 56, 40);
+  const warningVal = token?.warning ?? spaceHsl(38, 92, 50);
+  const chartPalette = token?.chartPalette?.length ? token.chartPalette : [
+    finalPrimaryVal,
+    finalAccentVal,
+    successVal,
+    warningVal,
+  ];
 
-  const name = `${mood}-${contrast}-${radius}`;
+  const name = token ? `${mood}-${contrast}-${radius}-tokens` : `${mood}-${contrast}-${radius}`;
 
   const cssVars = `:root {
-  --background:          ${bgVal};
-  --foreground:          ${fgVal};
-  --card:                ${cardVal};
-  --card-foreground:     ${cardFgVal};
-  --popover:             ${popoverVal};
-  --popover-foreground:  ${popoverFgVal};
-  --primary:             ${primaryVal};
+  --background:          ${finalBgVal};
+  --foreground:          ${finalFgVal};
+  --card:                ${finalCardVal};
+  --card-foreground:     ${finalFgVal};
+  --popover:             ${finalCardVal};
+  --popover-foreground:  ${finalFgVal};
+  --primary:             ${finalPrimaryVal};
   --primary-foreground:  ${primaryFgVal};
-  --secondary:           ${secondaryVal};
-  --secondary-foreground:${secondaryFgVal};
-  --muted:               ${mutedVal};
+  --secondary:           ${finalSecondaryVal};
+  --secondary-foreground:${finalFgVal};
+  --muted:               ${finalMutedVal};
   --muted-foreground:    ${mutedFgVal};
-  --accent:              ${accentVal};
-  --accent-foreground:   ${accentFgVal};
-  --destructive:         ${destructiveVal};
+  --accent:              ${finalAccentVal};
+  --accent-foreground:   ${finalFgVal};
+  --destructive:         ${finalDestructiveVal};
   --destructive-foreground:${destructiveFgVal};
-  --border:              ${borderVal};
-  --input:               ${inputVal};
-  --ring:                ${ringVal};
+  --border:              ${finalBorderVal};
+  --input:               ${finalBorderVal};
+  --ring:                ${finalPrimaryVal};
+  --success:             ${successVal};
+  --warning:             ${warningVal};
+  --danger:              ${finalDestructiveVal};
+  --chart-1:             ${chartPalette[0] ?? finalPrimaryVal};
+  --chart-2:             ${chartPalette[1] ?? finalAccentVal};
+  --chart-3:             ${chartPalette[2] ?? successVal};
+  --chart-4:             ${chartPalette[3] ?? warningVal};
   --radius:              ${r};
 }`;
 
@@ -177,6 +211,13 @@ export function generateTheme(intent: DesignIntent): GeneratedTheme {
       'accent-foreground':  'hsl(var(--accent-foreground))',
       destructive:          'hsl(var(--destructive))',
       'destructive-foreground': 'hsl(var(--destructive-foreground))',
+      success:              'hsl(var(--success))',
+      warning:              'hsl(var(--warning))',
+      danger:               'hsl(var(--danger))',
+      'chart-1':            'hsl(var(--chart-1))',
+      'chart-2':            'hsl(var(--chart-2))',
+      'chart-3':            'hsl(var(--chart-3))',
+      'chart-4':            'hsl(var(--chart-4))',
       border:               'hsl(var(--border))',
       input:                'hsl(var(--input))',
       ring:                 'hsl(var(--ring))',

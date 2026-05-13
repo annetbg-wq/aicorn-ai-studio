@@ -1,12 +1,86 @@
 /// <reference types="vite/client" />
 
 import {
+  getSkeletonVisualCompatibility,
   SKELETON_REGISTRY,
   type SkeletonId,
+  type SkeletonVisualCompatibilityContract,
 } from './SkeletonRegistry';
 
 export type VisualBankScalar = string | number | boolean | null;
 export type VisualBankJson = VisualBankScalar | VisualBankJson[] | { [key: string]: VisualBankJson };
+
+export type TrustLevel = 'low' | 'medium' | 'high' | 'regulated';
+export type EnergyLevel = 'calm' | 'balanced' | 'energetic';
+export type DensityProfile = 'compact' | 'comfortable' | 'spacious';
+export type RadiusProfile = 'sharp' | 'soft' | 'pill';
+export type MotionProfile = 'reduced' | 'gentle' | 'expressive';
+export type ContrastProfile = 'low' | 'medium' | 'high';
+
+export interface ProductToneParameters {
+  trust_level: TrustLevel;
+  energy_level: EnergyLevel;
+  density: DensityProfile;
+  radius_profile: RadiusProfile;
+  motion_profile: MotionProfile;
+  contrast_profile: ContrastProfile;
+}
+
+export interface ColorFamilyTokenMap {
+  background: string;
+  foreground: string;
+  muted: string;
+  card: string;
+  primary: string;
+  secondary: string;
+  accent: string;
+  border: string;
+  success: string;
+  warning: string;
+  danger: string;
+  chartPalette: string[];
+}
+
+export interface ColorFamilyManifestSchema {
+  id: string;
+  name?: string;
+  description?: string;
+  domains?: string[];
+  subdomains?: string[];
+  toneProfiles?: string[];
+  trustProfiles?: string[];
+  densityProfiles?: string[];
+  contrastProfiles?: string[];
+  tokens?: Partial<ColorFamilyTokenMap>;
+  chartPalette?: string[];
+  ramp?: Record<string, unknown>;
+  usage?: Record<string, unknown>;
+}
+
+export interface NormalizedColorFamily {
+  id: string;
+  name: string;
+  sourcePath: string;
+  domains: string[];
+  subdomains: string[];
+  toneProfiles: string[];
+  trustProfiles: string[];
+  densityProfiles: string[];
+  contrastProfiles: string[];
+  tokens: ColorFamilyTokenMap;
+  raw: ColorFamilyManifestSchema;
+}
+
+export interface VariationPreset {
+  id: string;
+  visualPackVariant: string;
+  colorFamilyVariant: string;
+  spacingPreset: DensityProfile;
+  radiusPreset: RadiusProfile;
+  elevationPreset: 'flat' | 'subtle' | 'layered' | 'expressive';
+  motionPreset: MotionProfile;
+  blockEmphasisPreset: 'content-first' | 'action-first' | 'data-first' | 'community-first' | 'commerce-first';
+}
 
 export interface VisualPackManifestSchema {
   id: string;
@@ -21,6 +95,9 @@ export interface VisualPackManifestSchema {
   densityProfiles?: string[];
   radiusProfiles?: string[];
   motionProfiles?: string[];
+  contrastProfiles?: string[];
+  layoutPatterns?: string[];
+  componentFamilies?: string[];
   colorFamilies?: string[];
   requiredBlocks?: string[];
   requiredFiles?: string[];
@@ -43,8 +120,13 @@ export interface VisualVariantSchema {
   radius?: VisualBankJson;
   motionPreset?: string;
   densityProfile?: string;
+  radiusProfile?: string;
+  contrastProfile?: string;
   trustProfile?: string;
   toneProfile?: string;
+  domains?: string[];
+  subdomains?: string[];
+  surfaces?: string[];
   colorFamily?: string;
   targetUsers?: string;
   tokenHints?: string[];
@@ -72,6 +154,8 @@ export interface SemanticDomainManifestSchema {
   uiPatterns?: string[];
   recommendedDesign?: string;
   recommendedArchetypes?: string[];
+  subdomains?: string[];
+  colorFamilies?: string[];
 }
 
 export interface NormalizedVisualVariant {
@@ -88,8 +172,13 @@ export interface NormalizedVisualVariant {
   radius: VisualBankJson;
   motionPreset: string;
   densityProfile: string;
+  radiusProfile: string;
+  contrastProfile: string;
   trustProfile: string;
   toneProfile: string;
+  domains: string[];
+  subdomains: string[];
+  surfaces: string[];
   colorFamily: string;
   colorFamilies: string[];
   targetUsers: string;
@@ -119,6 +208,9 @@ export interface NormalizedVisualPack {
   densityProfiles: string[];
   radiusProfiles: string[];
   motionProfiles: string[];
+  contrastProfiles: string[];
+  layoutPatterns: string[];
+  componentFamilies: string[];
   colorFamilies: string[];
   requiredBlocks: string[];
   requiredFiles: string[];
@@ -133,18 +225,25 @@ export interface NormalizedVisualPack {
 export interface NormalizedVisualBank {
   packs: NormalizedVisualPack[];
   semanticDomains: SemanticDomainManifestSchema[];
+  colorFamilies: NormalizedColorFamily[];
   sourceFiles: string[];
 }
 
 export interface VisualSelectionSignals {
   semanticDomainId: string | null;
   productDomain: string;
+  domainTags: string[];
+  selectedSurface: string;
+  selectedSubdomain: string;
+  productTone: ProductToneParameters;
   subdomains: string[];
   surfaces: string[];
   toneProfiles: string[];
+  colorFamilyCandidates: string[];
   preferredVariants: string[];
   recommendedVisualPacks: SkeletonId[];
   recommendedDesign: string | null;
+  allowToneRepeat: boolean;
 }
 
 export interface VisualSelection {
@@ -158,14 +257,19 @@ export interface VisualSelection {
   surfaces: string[];
   trustProfile: string;
   toneProfile: string;
+  productTone: ProductToneParameters;
   theme: string;
   colorFamily: string;
+  colorFamilyTokens: ColorFamilyTokenMap;
   colorFamilies: string[];
   spacing: string;
   typography: string;
   radius: VisualBankJson;
+  radiusProfile: string;
   motionPreset: string;
   densityProfile: string;
+  contrastProfile: string;
+  variationPreset: VariationPreset;
   targetUsers: string;
   tokenHints: string[];
   componentHints: string[];
@@ -192,6 +296,7 @@ export interface ResolveVisualSelectionInput {
   surface?: string | null;
   subdomain?: string | null;
   tone?: string | null;
+  productTone?: Partial<ProductToneParameters>;
   recentSelections?: RecentVisualSelection[];
   visualBankOverride?: NormalizedVisualBank;
   visualPacksOverride?: NormalizedVisualPack[];
@@ -200,6 +305,10 @@ export interface ResolveVisualSelectionInput {
 interface VisualCandidate {
   pack: NormalizedVisualPack;
   variant: NormalizedVisualVariant;
+  skeletonFit: number;
+  domainFit: number;
+  toneFit: number;
+  surfaceFit: number;
   relevanceScore: number;
   diversityScore: number;
   score: number;
@@ -219,11 +328,17 @@ export interface RecentVisualSelection {
   selectedVariantId?: string;
   antiRepeatGroup?: string;
   colorFamily?: string;
+  variationPresetId?: string;
+  productToneSignature?: string;
 }
 
 export interface VisualCandidateAudit {
   packId: string;
   variantId: string;
+  skeletonFit: number;
+  domainFit: number;
+  toneFit: number;
+  surfaceFit: number;
   relevanceScore: number;
   diversityScore: number;
   finalScore: number;
@@ -235,6 +350,7 @@ export interface VisualCandidateAudit {
 }
 
 export interface VisualSelectionAudit {
+  pipelineStages: Array<{ stage: string; before: number; after: number; retainedIds: string[]; fallbackToPrevious?: boolean }>;
   bestScore: number;
   bestRelevanceScore: number;
   relevanceWindow: number;
@@ -270,16 +386,12 @@ const semanticDomainModules = import.meta.glob(
   { eager: true, import: 'default' },
 ) as Record<string, SemanticDomainManifestSchema>;
 
-const COLOR_RAMP_PATHS = new Set([
-  'clinical-teal',
-  'cool-blue',
-  'fintech-indigo',
-  'gaming-neon',
-  'luxury-dark-gold',
-  'neutral',
-  'playful-coral',
-  'soft-womens-health',
-].map(theme => `prototype-bank/design-packs/assets/color-ramps/${theme}.json`));
+const colorFamilyModules = import.meta.glob(
+  '../../../prototype-bank/design-packs/assets/color-ramps/*.json',
+  { eager: true, import: 'default' },
+) as Record<string, ColorFamilyManifestSchema>;
+
+const COLOR_RAMP_PATHS = new Set(Object.keys(colorFamilyModules).map(normalizeSourcePath));
 
 const SPACING_PATHS = new Set([
   'compact',
@@ -374,10 +486,79 @@ const SEMANTIC_NEIGHBOR_VARIANTS: Record<string, string[]> = {
   calm: ['mobile-soft', 'clinical', 'premium-dark'],
 };
 
+const DOMAIN_SUBDOMAIN_REGISTRY: Record<string, string[]> = {
+  health: ['clinical', 'wellness', 'habit-fitness', 'women-health', 'supplements-nutrition', 'nutrition', 'mental-health'],
+  medicine: ['clinical', 'healthcare', 'patient-care', 'care-team', 'women-health', 'mental-health'],
+  wellness: ['wellness', 'habit-fitness', 'self-care', 'daily-focus', 'mental-health'],
+  fintech: ['banking', 'payments', 'wallet', 'budgeting', 'finance-ops', 'compliance'],
+  social: ['creator-network', 'feed', 'community', 'profile', 'messaging'],
+  ecommerce: ['catalog', 'checkout', 'marketplace', 'luxury-retail', 'creator-commerce'],
+  productivity: ['task-management', 'kanban', 'notes', 'team-workspace', 'personal-ops'],
+  'ai-tools': ['ai-workspace', 'prompting', 'automation', 'assistant', 'knowledge-base'],
+  gaming: ['game-loop', 'leaderboard', 'achievement', 'community', 'streaming'],
+  education: ['learning', 'coursework', 'coaching', 'student-progress'],
+};
+
+const DOMAIN_COLOR_FAMILY_REGISTRY: Record<string, string[]> = {
+  health: ['clinical-teal', 'wellness-sage', 'soft-womens-health', 'nutrition-amber-green', 'calm-lavender', 'medical-navy-teal'],
+  medicine: ['clinical-teal', 'medical-navy-teal', 'calm-lavender', 'wellness-sage'],
+  wellness: ['wellness-sage', 'calm-lavender', 'soft-womens-health', 'neutral'],
+  fintech: ['fintech-indigo', 'medical-navy-teal', 'neutral', 'luxury-dark-gold'],
+  social: ['cool-blue', 'playful-coral', 'soft-womens-health', 'luxury-dark-gold'],
+  ecommerce: ['playful-coral', 'luxury-dark-gold', 'neutral', 'cool-blue'],
+  productivity: ['neutral', 'cool-blue', 'fintech-indigo', 'clinical-teal'],
+  'ai-tools': ['cool-blue', 'fintech-indigo', 'neutral', 'gaming-neon'],
+  gaming: ['gaming-neon', 'luxury-dark-gold', 'playful-coral', 'cool-blue'],
+};
+
+const VARIATION_PRESET_OPTIONS: Array<Omit<VariationPreset, 'visualPackVariant' | 'colorFamilyVariant'>> = [
+  {
+    id: 'quiet-clinical',
+    spacingPreset: 'comfortable',
+    radiusPreset: 'sharp',
+    elevationPreset: 'flat',
+    motionPreset: 'reduced',
+    blockEmphasisPreset: 'data-first',
+  },
+  {
+    id: 'soft-consumer',
+    spacingPreset: 'spacious',
+    radiusPreset: 'pill',
+    elevationPreset: 'subtle',
+    motionPreset: 'gentle',
+    blockEmphasisPreset: 'content-first',
+  },
+  {
+    id: 'operator-compact',
+    spacingPreset: 'compact',
+    radiusPreset: 'sharp',
+    elevationPreset: 'subtle',
+    motionPreset: 'reduced',
+    blockEmphasisPreset: 'data-first',
+  },
+  {
+    id: 'warm-action',
+    spacingPreset: 'comfortable',
+    radiusPreset: 'soft',
+    elevationPreset: 'layered',
+    motionPreset: 'gentle',
+    blockEmphasisPreset: 'action-first',
+  },
+  {
+    id: 'expressive-community',
+    spacingPreset: 'spacious',
+    radiusPreset: 'pill',
+    elevationPreset: 'expressive',
+    motionPreset: 'expressive',
+    blockEmphasisPreset: 'community-first',
+  },
+];
+
 const DESIRED_STRONG_POOL_SIZE = 2;
 const MAX_STRONG_POOL_SIZE = 4;
 
 let cachedBank: NormalizedVisualBank | null = null;
+const recentVisualSelectionMemory: RecentVisualSelection[] = [];
 
 export function loadFileVisualBank(): NormalizedVisualBank {
   if (cachedBank) return cachedBank;
@@ -385,6 +566,9 @@ export function loadFileVisualBank(): NormalizedVisualBank {
   const semanticDomains = Object.entries(semanticDomainModules)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, domain]) => domain);
+  const colorFamilies = Object.entries(colorFamilyModules)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([modulePath, raw]) => normalizeColorFamily(raw, normalizeSourcePath(modulePath)));
 
   const variantsByPack = new Map<string, Array<{ path: string; raw: VisualVariantSchema }>>();
   for (const [modulePath, raw] of Object.entries(variantModules)) {
@@ -404,8 +588,10 @@ export function loadFileVisualBank(): NormalizedVisualBank {
   cachedBank = {
     packs,
     semanticDomains,
+    colorFamilies,
     sourceFiles: unique([
       ...packs.flatMap(pack => pack.sourceFiles),
+      ...colorFamilies.map(family => family.sourcePath),
       ...Object.keys(semanticDomainModules).map(normalizeSourcePath),
     ]),
   };
@@ -414,6 +600,14 @@ export function loadFileVisualBank(): NormalizedVisualBank {
 
 export function invalidateFileVisualBankCache(): void {
   cachedBank = null;
+}
+
+export function clearFileVisualSelectionMemory(): void {
+  recentVisualSelectionMemory.length = 0;
+}
+
+export function getRecentFileVisualSelections(): RecentVisualSelection[] {
+  return [...recentVisualSelectionMemory];
 }
 
 export function resolveFileVisualSelection(input: ResolveVisualSelectionInput): VisualSelection {
@@ -426,22 +620,59 @@ export function resolveFileVisualSelection(input: ResolveVisualSelectionInput): 
     input.skeletonId,
     signals.semanticDomainId ?? signals.productDomain,
   ].join('|'));
+  const recentSelections = mergeRecentSelections(input.recentSelections, recentVisualSelectionMemory);
 
-  const candidates = packs
-    .filter(pack => pack.compatibleSkeletons.includes(input.skeletonId))
-    .filter(pack => intersects(pack.surfaces, signals.surfaces))
-    .flatMap(pack => pack.variants.map(variant => scoreCandidate({
-      pack,
-      variant: withSelectionSeed(variant, variationSeed),
-      skeletonId: input.skeletonId,
-      signals,
-    })))
+  const skeletonStage = filterVisualStage(
+    'skeleton',
+    packs,
+    pack => isPackCompatibleWithSkeleton(pack, input.skeletonId),
+  );
+  const surfaceStage = filterVisualStage(
+    'surface',
+    skeletonStage.items,
+    pack => intersects(pack.surfaces, signals.surfaces),
+  );
+  const domainStage = filterVisualStage(
+    'domain',
+    surfaceStage.items,
+    pack => intersects(pack.domains, signals.domainTags) || signals.recommendedVisualPacks.includes(pack.skeleton),
+  );
+  const subdomainStage = filterVisualStage(
+    'subdomain',
+    domainStage.items,
+    pack => signals.subdomains.length === 0 || intersects(pack.subdomains, signals.subdomains),
+  );
+  const toneStage = filterVisualStage(
+    'tone',
+    subdomainStage.items,
+    pack => packMatchesToneProfiles(pack, signals),
+  );
+  const pipelineStages = [
+    skeletonStage.audit,
+    surfaceStage.audit,
+    domainStage.audit,
+    subdomainStage.audit,
+    toneStage.audit,
+  ];
+
+  const candidates = toneStage.items
+    .flatMap(pack => pack.variants
+      .filter(variant => isVariantCompatibleWithSkeleton(variant, input.skeletonId))
+      .filter(variant => variantMatchesToneProfiles(variant, signals))
+      .map(variant => scoreCandidate({
+        pack,
+        variant: withSelectionSeed(variant, variationSeed),
+        skeletonId: input.skeletonId,
+        signals,
+      })))
     .filter(candidate => candidate.relevanceScore > 0)
     .filter(candidate => candidateHasRequiredMeaning(candidate, signals))
     .sort(compareCandidatesByRelevance);
 
   if (candidates.length === 0) {
-    return fallbackVisualSelection(input, signals, variationSeed);
+    const fallback = fallbackVisualSelection(input, signals, variationSeed, pipelineStages);
+    rememberVisualSelection(fallback, input.skeletonId, signals);
+    return fallback;
   }
 
   const initialBestRelevanceScore = candidates[0].relevanceScore;
@@ -469,7 +700,7 @@ export function resolveFileVisualSelection(input: ResolveVisualSelectionInput): 
 
   const diversifiedPool = viableByRelevance
     .slice(0, isStrongSelectionSignals(signals) ? MAX_STRONG_POOL_SIZE : Math.max(1, MAX_STRONG_POOL_SIZE - 1))
-    .map(candidate => withDiversityScore(candidate, signals, variationSeed, input.recentSelections ?? []));
+    .map(candidate => withDiversityScore(candidate, signals, variationSeed, recentSelections));
   const finalPool = diversifiedPool
     .sort(compareCandidatesByFinalScore)
     .slice(0, isStrongSelectionSignals(signals) ? MAX_STRONG_POOL_SIZE : Math.max(1, MAX_STRONG_POOL_SIZE - 1));
@@ -491,8 +722,32 @@ export function resolveFileVisualSelection(input: ResolveVisualSelectionInput): 
     bestRelevanceScore,
     relevanceWindow,
     minimumRelevanceFloor,
+    pipelineStages,
   });
-  return selectionFromCandidate(selected, signals, variationSeed, audit);
+  const selectedColorFamily = selectColorFamilyForCandidate(selected, signals, bank.colorFamilies, variationSeed, recentSelections);
+  const selectedVariationPreset = selectVariationPresetForCandidate(selected, selectedColorFamily.id, signals, variationSeed, recentSelections);
+  audit.pipelineStages.push(
+    {
+      stage: 'color-family',
+      before: unique([
+        ...signals.colorFamilyCandidates,
+        selected.variant.colorFamily,
+        ...selected.variant.colorFamilies,
+        ...selected.pack.colorFamilies,
+      ]).length,
+      after: 1,
+      retainedIds: [selectedColorFamily.id],
+    },
+    {
+      stage: 'variation-seed',
+      before: VARIATION_PRESET_OPTIONS.length,
+      after: 1,
+      retainedIds: [selectedVariationPreset.id],
+    },
+  );
+  const selection = selectionFromCandidate(selected, signals, variationSeed, audit, selectedColorFamily, selectedVariationPreset);
+  rememberVisualSelection(selection, input.skeletonId, signals);
+  return selection;
 }
 
 function normalizePack(
@@ -533,7 +788,20 @@ function normalizePack(
   const densityProfiles = unique([...stringArray(raw.densityProfiles), 'comfortable']);
   const radiusProfiles = unique([...stringArray(raw.radiusProfiles), 'soft']);
   const motionProfiles = unique([...stringArray(raw.motionProfiles), 'gentle']);
-  const colorFamilies = unique([...stringArray(raw.colorFamilies), 'neutral']);
+  const contrastProfiles = unique([...stringArray(raw.contrastProfiles), 'medium']);
+  const layoutPatterns = unique([
+    ...stringArray(raw.layoutPatterns),
+    ...defaultLayoutPatternsForSkeleton(skeleton),
+  ]);
+  const componentFamilies = unique([
+    ...stringArray(raw.componentFamilies),
+    ...defaultComponentFamiliesForSkeleton(skeleton),
+  ]);
+  const colorFamilies = unique([
+    ...stringArray(raw.colorFamilies),
+    ...colorFamiliesForDomains(domains, subdomains),
+    'neutral',
+  ]);
   const requiredFiles = unique(stringArray(raw.requiredFiles));
   const forbiddenPatterns = unique(stringArray(raw.forbiddenPatterns));
   const priorityScore = typeof raw.priorityScore === 'number' ? raw.priorityScore : 0;
@@ -552,6 +820,7 @@ function normalizePack(
     manifestPath,
     packDomains: domains,
     packSurfaces: surfaces,
+    packSubdomains: subdomains,
     packColorFamilies: colorFamilies,
     packRequiredFiles: requiredFiles,
     packForbiddenPatterns: forbiddenPatterns,
@@ -579,6 +848,9 @@ function normalizePack(
     densityProfiles,
     radiusProfiles,
     motionProfiles,
+    contrastProfiles,
+    layoutPatterns,
+    componentFamilies,
     colorFamilies,
     requiredBlocks: unique(stringArray(raw.requiredBlocks)),
     requiredFiles,
@@ -599,6 +871,7 @@ function normalizeVariant(input: {
   manifestPath: string;
   packDomains: string[];
   packSurfaces: string[];
+  packSubdomains: string[];
   packColorFamilies: string[];
   packRequiredFiles: string[];
   packForbiddenPatterns: string[];
@@ -614,6 +887,21 @@ function normalizeVariant(input: {
   const toneProfile = str(input.raw.toneProfile) || inferToneProfile(theme, variantId, targetUsers);
   const densityProfile = str(input.raw.densityProfile) || inferDensityProfile(spacing, variantId);
   const radius = input.raw.radius ?? inferRadiusProfile(variantId);
+  const radiusProfile = str(input.raw.radiusProfile) || inferRadiusProfile(variantId);
+  const contrastProfile = str(input.raw.contrastProfile) || inferContrastProfile(theme, variantId, targetUsers);
+  const domains = unique([
+    ...input.packDomains,
+    ...stringArray(input.raw.domains),
+  ]);
+  const subdomains = unique([
+    ...input.packSubdomains,
+    ...stringArray(input.raw.subdomains),
+    ...subdomainsFromVariantText(`${variantId} ${theme} ${targetUsers}`),
+  ]);
+  const surfaces = unique([
+    ...input.packSurfaces,
+    ...stringArray(input.raw.surfaces),
+  ]);
   const requiredFiles = unique([
     ...input.packRequiredFiles,
     ...stringArray(input.raw.requiredFiles),
@@ -624,7 +912,7 @@ function normalizeVariant(input: {
     input.variantPath,
     sourcePath,
     ...stringArray(input.raw.sourceFiles),
-    ...assetSourceFiles(theme, spacing),
+    ...assetSourceFiles(theme, spacing, colorFamily),
     ...SURFACE_SOURCE_FILES[input.skeleton],
   ].filter(Boolean));
   const colorFamilies = unique([
@@ -647,8 +935,13 @@ function normalizeVariant(input: {
     radius,
     motionPreset,
     densityProfile,
+    radiusProfile,
+    contrastProfile,
     trustProfile,
     toneProfile,
+    domains,
+    subdomains,
+    surfaces,
     colorFamily,
     colorFamilies,
     targetUsers,
@@ -686,37 +979,61 @@ function inferSelectionSignals(
 ): VisualSelectionSignals {
   const brief = input.brief ?? '';
   const semanticDomainId =
-    input.semanticDomainId ??
-    input.semanticDomain?.id ??
+    normalizeSemanticDomainId(input.semanticDomainId) ??
+    normalizeSemanticDomainId(input.semanticDomain?.id) ??
     inferSemanticDomainId(brief, semanticDomains);
   const semanticDomain = input.semanticDomain ?? semanticDomains.find(domain => domain.id === semanticDomainId) ?? null;
   const bridge = semanticDomain ? bridgeForSemanticDomain(semanticDomain) : bridgeForSemanticDomainId(semanticDomainId);
   const productDomain = inferProductDomain(brief, input.skeletonId);
+  const domainTags = unique([
+    productDomain,
+    semanticDomainId ?? '',
+    ...domainAliases(productDomain),
+    ...domainAliases(semanticDomainId),
+  ]);
+  const explicitSubdomains = unique([
+    ...subdomainsFromBrief(brief),
+    input.subdomain ?? '',
+  ].filter(Boolean));
   const surfaces = unique([
     ...(SURFACE_BY_SKELETON[input.skeletonId] ?? []),
     ...surfaceHintsFromBrief(brief),
     input.surface ?? '',
   ].filter(Boolean));
   const subdomains = unique([
+    ...domainTags.flatMap(tag => DOMAIN_SUBDOMAIN_REGISTRY[tag] ?? []),
+    ...stringArray(semanticDomain?.subdomains),
     ...bridge.subdomains,
-    ...subdomainsFromBrief(brief),
+    ...explicitSubdomains,
     input.subdomain ?? '',
   ].filter(Boolean));
+  const productTone = inferProductToneParameters(brief, input.tone, input.productTone);
   const toneProfiles = unique([
     ...bridge.toneProfiles,
     ...toneHintsFromBrief(brief),
+    ...toneProfilesFromProductTone(productTone),
     input.tone ?? '',
   ].filter(Boolean));
+  const colorFamilyCandidates = unique([
+    ...stringArray(semanticDomain?.colorFamilies),
+    ...colorFamiliesForDomains(domainTags, subdomains),
+  ]);
 
   return {
     semanticDomainId: semanticDomainId ?? null,
     productDomain,
+    domainTags,
+    selectedSurface: input.surface || surfaces[0] || '',
+    selectedSubdomain: input.subdomain || explicitSubdomains[0] || subdomains[0] || '',
+    productTone,
     subdomains,
     surfaces,
     toneProfiles,
+    colorFamilyCandidates,
     preferredVariants: bridge.preferredVariants,
     recommendedVisualPacks: bridge.recommendedVisualPacks,
     recommendedDesign: semanticDomain?.recommendedDesign ?? bridge.recommendedDesign,
+    allowToneRepeat: briefAllowsToneRepeat(brief),
   };
 }
 
@@ -733,7 +1050,7 @@ function bridgeForSemanticDomain(domain: SemanticDomainManifestSchema): {
   return {
     recommendedVisualPacks: uniqueSkeletons([...byId.recommendedVisualPacks, ...byDesign.recommendedVisualPacks]),
     preferredVariants: unique([...byId.preferredVariants, ...byDesign.preferredVariants]),
-    subdomains: unique([...byId.subdomains, ...byDesign.subdomains]),
+    subdomains: unique([...byId.subdomains, ...byDesign.subdomains, ...stringArray(domain.subdomains)]),
     toneProfiles: unique([...byId.toneProfiles, ...byDesign.toneProfiles]),
     recommendedDesign: domain.recommendedDesign ?? byId.recommendedDesign ?? byDesign.recommendedDesign,
   };
@@ -741,11 +1058,24 @@ function bridgeForSemanticDomain(domain: SemanticDomainManifestSchema): {
 
 function bridgeForSemanticDomainId(id: string | null | undefined): ReturnType<typeof bridgeForRecommendedDesign> {
   switch (id) {
+    case 'health':
     case 'medicine':
       return {
         recommendedVisualPacks: ['saas-dashboard', 'mobile-app', 'productivity-tool', 'landing-page', 'social-community'],
         preferredVariants: ['clinical', 'calm', 'mobile-soft'],
-        subdomains: ['healthcare', 'clinic', 'patient-care', 'care-team', 'support-group'],
+        subdomains: [
+          'clinical',
+          'healthcare',
+          'clinic',
+          'patient-care',
+          'care-team',
+          'wellness',
+          'habit-fitness',
+          'women-health',
+          'supplements-nutrition',
+          'nutrition',
+          'mental-health',
+        ],
         toneProfiles: ['clinical', 'calm', 'trustworthy'],
         recommendedDesign: 'trust-medical',
       };
@@ -753,7 +1083,7 @@ function bridgeForSemanticDomainId(id: string | null | undefined): ReturnType<ty
       return {
         recommendedVisualPacks: ['mobile-app', 'productivity-tool', 'landing-page', 'social-community'],
         preferredVariants: ['mobile-soft', 'calm', 'clinical'],
-        subdomains: ['wellness', 'habit-tracking', 'self-care', 'daily-focus'],
+        subdomains: ['wellness', 'habit-tracking', 'habit-fitness', 'self-care', 'daily-focus', 'mental-health'],
         toneProfiles: ['soft', 'calm', 'wellness'],
         recommendedDesign: 'light-clean',
       };
@@ -845,6 +1175,434 @@ function bridgeForRecommendedDesign(recommendedDesign?: string | null): {
   }
 }
 
+function normalizeColorFamily(raw: ColorFamilyManifestSchema, sourcePath: string): NormalizedColorFamily {
+  const id = str(raw.id) || colorFamilyIdFromPath(sourcePath) || 'neutral';
+  return {
+    id,
+    name: str(raw.name) || titleFromId(id),
+    sourcePath,
+    domains: unique([
+      ...stringArray(raw.domains),
+      ...domainAliases(id),
+      ...inferDomainsForColorFamily(id),
+    ]),
+    subdomains: unique([
+      ...stringArray(raw.subdomains),
+      ...subdomainsFromVariantText(id),
+    ]),
+    toneProfiles: unique([
+      ...stringArray(raw.toneProfiles),
+      inferToneProfile(id, id, id),
+    ]),
+    trustProfiles: unique([
+      ...stringArray(raw.trustProfiles),
+      inferTrustProfile(id, id, id),
+    ]),
+    densityProfiles: unique([
+      ...stringArray(raw.densityProfiles),
+      id.includes('compact') ? 'compact' : 'comfortable',
+    ]),
+    contrastProfiles: unique([
+      ...stringArray(raw.contrastProfiles),
+      inferContrastProfile(id, id, id),
+    ]),
+    tokens: completeColorTokens(raw.tokens, id, raw.chartPalette),
+    raw,
+  };
+}
+
+function completeColorTokens(
+  tokens: Partial<ColorFamilyTokenMap> | undefined,
+  familyId: string,
+  chartPalette?: string[],
+): ColorFamilyTokenMap {
+  const fallback = defaultColorTokens(familyId);
+  const palette = Array.isArray(tokens?.chartPalette)
+    ? tokens.chartPalette
+    : Array.isArray(chartPalette)
+      ? chartPalette
+      : fallback.chartPalette;
+  return {
+    background: str(tokens?.background) || fallback.background,
+    foreground: str(tokens?.foreground) || fallback.foreground,
+    muted: str(tokens?.muted) || fallback.muted,
+    card: str(tokens?.card) || fallback.card,
+    primary: str(tokens?.primary) || fallback.primary,
+    secondary: str(tokens?.secondary) || fallback.secondary,
+    accent: str(tokens?.accent) || fallback.accent,
+    border: str(tokens?.border) || fallback.border,
+    success: str(tokens?.success) || fallback.success,
+    warning: str(tokens?.warning) || fallback.warning,
+    danger: str(tokens?.danger) || fallback.danger,
+    chartPalette: palette.filter((item): item is string => typeof item === 'string' && item.trim().length > 0),
+  };
+}
+
+function defaultColorTokens(familyId: string): ColorFamilyTokenMap {
+  switch (familyId) {
+    case 'clinical-teal':
+      return tokenMap('174 55% 98%', '181 45% 14%', '174 24% 91%', '0 0% 100%', '174 72% 32%', '184 26% 88%', '199 68% 44%', '180 18% 82%', ['174 72% 32%', '199 68% 44%', '160 58% 38%', '221 48% 42%']);
+    case 'wellness-sage':
+      return tokenMap('96 32% 96%', '142 28% 18%', '94 22% 88%', '90 36% 99%', '142 35% 36%', '82 28% 86%', '38 72% 58%', '96 18% 80%', ['142 35% 36%', '82 38% 42%', '38 72% 58%', '174 40% 42%']);
+    case 'soft-womens-health':
+      return tokenMap('340 64% 98%', '335 35% 18%', '338 42% 91%', '0 0% 100%', '335 74% 52%', '326 42% 89%', '18 84% 64%', '334 26% 84%', ['335 74% 52%', '18 84% 64%', '287 50% 58%', '352 58% 54%']);
+    case 'nutrition-amber-green':
+      return tokenMap('44 86% 96%', '100 28% 16%', '54 44% 88%', '0 0% 100%', '93 46% 35%', '42 82% 86%', '36 92% 50%', '50 32% 78%', ['93 46% 35%', '36 92% 50%', '142 50% 42%', '24 76% 52%']);
+    case 'calm-lavender':
+      return tokenMap('250 52% 98%', '252 32% 18%', '250 34% 91%', '0 0% 100%', '256 52% 54%', '246 38% 90%', '196 64% 47%', '248 24% 84%', ['256 52% 54%', '196 64% 47%', '286 46% 58%', '222 52% 52%']);
+    case 'medical-navy-teal':
+      return tokenMap('210 42% 8%', '190 36% 96%', '207 32% 16%', '210 38% 11%', '181 72% 42%', '207 28% 20%', '199 84% 56%', '205 25% 24%', ['181 72% 42%', '199 84% 56%', '160 58% 48%', '220 68% 62%']);
+    case 'fintech-indigo':
+      return tokenMap('226 42% 8%', '225 45% 96%', '229 28% 17%', '226 36% 12%', '238 76% 62%', '226 30% 20%', '174 70% 46%', '226 22% 25%', ['238 76% 62%', '174 70% 46%', '262 68% 62%', '199 84% 56%']);
+    case 'gaming-neon':
+      return tokenMap('260 50% 7%', '210 40% 98%', '260 36% 17%', '260 48% 11%', '286 100% 66%', '210 34% 18%', '174 100% 50%', '260 28% 28%', ['286 100% 66%', '174 100% 50%', '45 100% 58%', '330 92% 62%']);
+    case 'luxury-dark-gold':
+      return tokenMap('42 30% 7%', '42 48% 94%', '42 20% 16%', '40 28% 11%', '43 76% 56%', '39 24% 18%', '18 72% 58%', '42 18% 24%', ['43 76% 56%', '18 72% 58%', '148 42% 42%', '215 28% 64%']);
+    case 'playful-coral':
+      return tokenMap('18 86% 97%', '15 34% 17%', '18 60% 90%', '0 0% 100%', '8 86% 58%', '38 86% 88%', '190 76% 44%', '18 35% 82%', ['8 86% 58%', '190 76% 44%', '42 92% 52%', '330 70% 58%']);
+    case 'cool-blue':
+      return tokenMap('210 58% 98%', '218 38% 16%', '214 38% 91%', '0 0% 100%', '211 78% 46%', '212 42% 88%', '185 70% 42%', '214 28% 82%', ['211 78% 46%', '185 70% 42%', '238 58% 58%', '160 52% 42%']);
+    default:
+      return tokenMap('0 0% 98%', '240 10% 12%', '240 6% 91%', '0 0% 100%', '240 5% 28%', '240 5% 88%', '218 48% 48%', '240 6% 84%', ['240 5% 28%', '218 48% 48%', '160 52% 42%', '36 84% 52%']);
+  }
+}
+
+function tokenMap(
+  background: string,
+  foreground: string,
+  muted: string,
+  card: string,
+  primary: string,
+  secondary: string,
+  accent: string,
+  border: string,
+  chartPalette: string[],
+): ColorFamilyTokenMap {
+  return {
+    background,
+    foreground,
+    muted,
+    card,
+    primary,
+    secondary,
+    accent,
+    border,
+    success: '142 56% 40%',
+    warning: '38 92% 50%',
+    danger: '0 72% 50%',
+    chartPalette,
+  };
+}
+
+function filterVisualStage(
+  stage: string,
+  input: NormalizedVisualPack[],
+  predicate: (pack: NormalizedVisualPack) => boolean,
+): {
+  items: NormalizedVisualPack[];
+  audit: VisualSelectionAudit['pipelineStages'][number];
+} {
+  const filtered = input.filter(predicate);
+  const fallbackToPrevious = filtered.length === 0 && input.length > 0;
+  const items = fallbackToPrevious ? input : filtered;
+  return {
+    items,
+    audit: {
+      stage,
+      before: input.length,
+      after: filtered.length,
+      retainedIds: items.map(pack => pack.packId),
+      fallbackToPrevious: fallbackToPrevious || undefined,
+    },
+  };
+}
+
+function mergeRecentSelections(
+  explicit: RecentVisualSelection[] | undefined,
+  memory: RecentVisualSelection[],
+): RecentVisualSelection[] {
+  const seen = new Set<string>();
+  const out: RecentVisualSelection[] = [];
+  for (const item of [...(explicit ?? []), ...memory]) {
+    const key = [
+      item.skeletonId ?? '',
+      item.domain ?? '',
+      item.semanticDomainId ?? '',
+      item.selectedPackId ?? '',
+      item.selectedVariantId ?? '',
+      item.colorFamily ?? '',
+      item.variationPresetId ?? '',
+      item.antiRepeatGroup ?? '',
+    ].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out.slice(-8);
+}
+
+function rememberVisualSelection(
+  selection: VisualSelection,
+  skeletonId: SkeletonId,
+  signals: VisualSelectionSignals,
+): void {
+  recentVisualSelectionMemory.push({
+    skeletonId,
+    domain: signals.productDomain,
+    semanticDomainId: signals.semanticDomainId,
+    selectedPackId: selection.selectedPackId,
+    selectedVariantId: selection.selectedVariantId,
+    antiRepeatGroup: selection.antiRepeatGroup,
+    colorFamily: selection.colorFamily,
+    variationPresetId: selection.variationPreset.id,
+    productToneSignature: toneSignature(signals.productTone),
+  });
+  if (recentVisualSelectionMemory.length > 12) {
+    recentVisualSelectionMemory.splice(0, recentVisualSelectionMemory.length - 12);
+  }
+}
+
+function isPackCompatibleWithSkeleton(pack: NormalizedVisualPack, skeletonId: SkeletonId): boolean {
+  if (!pack.compatibleSkeletons.includes(skeletonId)) return false;
+  return packMatchesCompatibilityContract(pack, getSkeletonVisualCompatibility(skeletonId));
+}
+
+function packMatchesCompatibilityContract(
+  pack: NormalizedVisualPack,
+  contract: SkeletonVisualCompatibilityContract,
+): boolean {
+  return (
+    intersects(pack.surfaces, contract.allowedSurfaces) &&
+    intersects(pack.layoutPatterns, contract.allowedLayoutPatterns) &&
+    intersects(pack.densityProfiles, contract.allowedDensityProfiles) &&
+    intersects(pack.motionProfiles, contract.allowedMotionProfiles) &&
+    intersects(pack.componentFamilies, contract.allowedComponentFamilies)
+  );
+}
+
+function isVariantCompatibleWithSkeleton(variant: NormalizedVisualVariant, skeletonId: SkeletonId): boolean {
+  const contract = getSkeletonVisualCompatibility(skeletonId);
+  if (!contract.allowedDensityProfiles.includes(variant.densityProfile)) return false;
+  if (!contract.allowedMotionProfiles.includes(variant.motionPreset)) return false;
+  const text = [
+    variant.variantId,
+    variant.name,
+    variant.layoutHints.join(' '),
+    variant.componentHints.join(' '),
+    variant.targetUsers,
+  ].join(' ').toLowerCase();
+  return !contract.forbiddenVisualPatterns.some(pattern =>
+    text.includes(pattern.toLowerCase()),
+  );
+}
+
+function packMatchesToneProfiles(pack: NormalizedVisualPack, signals: VisualSelectionSignals): boolean {
+  return (
+    intersects(pack.toneProfiles, signals.toneProfiles) ||
+    intersects(pack.trustProfiles, trustProfilesForLevel(signals.productTone.trust_level)) ||
+    pack.densityProfiles.includes(signals.productTone.density) ||
+    pack.radiusProfiles.includes(signals.productTone.radius_profile) ||
+    pack.motionProfiles.includes(signals.productTone.motion_profile) ||
+    pack.contrastProfiles.includes(signals.productTone.contrast_profile)
+  );
+}
+
+function variantMatchesToneProfiles(variant: NormalizedVisualVariant, signals: VisualSelectionSignals): boolean {
+  if (signals.preferredVariants.includes(variant.variantId)) return true;
+  if (isSemanticNeighborVariant(variant.variantId, signals)) return true;
+  if (signals.toneProfiles.includes(variant.toneProfile)) return true;
+  if (profileMatchesTrustLevel(variant.trustProfile, signals.productTone.trust_level)) return true;
+  if (variant.densityProfile === signals.productTone.density) return true;
+  if (variant.motionPreset === signals.productTone.motion_profile) return true;
+  if (variant.contrastProfile === signals.productTone.contrast_profile) return true;
+  return !isStrongSelectionSignals(signals);
+}
+
+function selectColorFamilyForCandidate(
+  candidate: VisualCandidate,
+  signals: VisualSelectionSignals,
+  families: NormalizedColorFamily[],
+  variationSeed: string,
+  recentSelections: RecentVisualSelection[],
+): NormalizedColorFamily {
+  const familyMap = new Map(families.map(family => [family.id, family]));
+  const ids = unique([
+    ...signals.colorFamilyCandidates,
+    candidate.variant.colorFamily,
+    ...candidate.variant.colorFamilies,
+    ...candidate.pack.colorFamilies,
+  ]).filter(id => familyMap.has(id));
+  const candidates = (ids.length > 0 ? ids : ['neutral'])
+    .map(id => familyMap.get(id) ?? normalizeColorFamily({ id }, `prototype-bank/design-packs/assets/color-ramps/${id}.json`))
+    .map(family => {
+      let score = 0;
+      if (signals.colorFamilyCandidates.includes(family.id)) score += 18;
+      if (family.id === candidate.variant.colorFamily) score += 12;
+      if (intersects(family.domains, signals.domainTags)) score += 12;
+      if (intersects(family.subdomains, signals.subdomains)) score += 10;
+      if (signals.selectedSubdomain && family.subdomains.includes(signals.selectedSubdomain)) score += 16;
+      if (intersects(family.toneProfiles, signals.toneProfiles)) score += 6;
+      if (profileMatchesTrustLevel(family.trustProfiles[0] ?? '', signals.productTone.trust_level)) score += 4;
+      score += stableIndex(deterministicHash(`${family.id}:${variationSeed}:color`), 7);
+      for (const recent of recentSelections) {
+        const sameDomain = !recent.domain || signals.domainTags.includes(recent.domain);
+        if (!sameDomain) continue;
+        if (recent.colorFamily === family.id) score -= signals.allowToneRepeat ? 2 : 9;
+      }
+      return { family, score };
+    })
+    .sort((a, b) => b.score - a.score || a.family.id.localeCompare(b.family.id));
+  const bestScore = candidates[0]?.score ?? 0;
+  const top = candidates.filter(candidate => candidate.score >= bestScore - 4).slice(0, 4);
+  return top[stableIndex(`${variationSeed}:color-family`, top.length)]?.family ?? candidates[0]?.family ?? normalizeColorFamily({ id: 'neutral' }, 'prototype-bank/design-packs/assets/color-ramps/neutral.json');
+}
+
+function selectVariationPresetForCandidate(
+  candidate: VisualCandidate,
+  colorFamilyId: string,
+  signals: VisualSelectionSignals,
+  variationSeed: string,
+  recentSelections: RecentVisualSelection[],
+): VariationPreset {
+  const contract = getSkeletonVisualCompatibility(candidate.variant.skeleton);
+  const scored = VARIATION_PRESET_OPTIONS
+    .filter(preset => contract.allowedDensityProfiles.includes(preset.spacingPreset))
+    .filter(preset => contract.allowedMotionProfiles.includes(preset.motionPreset))
+    .map(preset => {
+      let score = 0;
+      if (preset.spacingPreset === signals.productTone.density) score += 10;
+      if (preset.radiusPreset === signals.productTone.radius_profile) score += 8;
+      if (preset.motionPreset === signals.productTone.motion_profile) score += 8;
+      if (preset.spacingPreset === candidate.variant.densityProfile) score += 6;
+      if (preset.motionPreset === candidate.variant.motionPreset) score += 6;
+      if (preset.radiusPreset === candidate.variant.radiusProfile) score += 6;
+      if (signals.selectedSurface.includes('dashboard') && preset.blockEmphasisPreset === 'data-first') score += 6;
+      if (signals.selectedSurface.includes('feed') && preset.blockEmphasisPreset === 'content-first') score += 5;
+      if (signals.selectedSubdomain.includes('nutrition') && preset.blockEmphasisPreset === 'action-first') score += 5;
+      score += stableIndex(deterministicHash(`${preset.id}:${colorFamilyId}:${variationSeed}`), 6);
+      for (const recent of recentSelections) {
+        if (recent.variationPresetId === preset.id) score -= signals.allowToneRepeat ? 2 : 8;
+      }
+      return { preset, score };
+    })
+    .sort((a, b) => b.score - a.score || a.preset.id.localeCompare(b.preset.id));
+  const selected = scored[stableIndex(`${variationSeed}:variation`, Math.min(3, scored.length || 1))] ?? scored[0];
+  const preset = selected?.preset ?? VARIATION_PRESET_OPTIONS[0];
+  return {
+    ...preset,
+    visualPackVariant: candidate.variant.variantId,
+    colorFamilyVariant: colorFamilyId,
+  };
+}
+
+function inferProductToneParameters(
+  brief: string,
+  tone: string | null | undefined,
+  override?: Partial<ProductToneParameters>,
+): ProductToneParameters {
+  const text = `${brief} ${tone ?? ''}`.toLowerCase();
+  let inferred: ProductToneParameters = {
+    trust_level: 'medium',
+    energy_level: 'balanced',
+    density: 'comfortable',
+    radius_profile: 'soft',
+    motion_profile: 'gentle',
+    contrast_profile: 'medium',
+  };
+  if (/(clinical|clinic|medical|patient|doctor|hospital|compliance|regulated)/.test(text)) {
+    inferred = {
+      trust_level: 'regulated',
+      energy_level: 'calm',
+      density: 'comfortable',
+      radius_profile: 'sharp',
+      motion_profile: 'reduced',
+      contrast_profile: 'medium',
+    };
+  } else if (/(finance|fintech|bank|payment|wallet|enterprise|corporate)/.test(text)) {
+    inferred = {
+      trust_level: 'high',
+      energy_level: 'balanced',
+      density: 'compact',
+      radius_profile: 'sharp',
+      motion_profile: 'reduced',
+      contrast_profile: 'high',
+    };
+  } else if (/(women|fertility|cycle|pregnancy|self-care|wellness|mindful|mental|therapy|calm)/.test(text)) {
+    inferred = {
+      trust_level: 'high',
+      energy_level: 'calm',
+      density: 'spacious',
+      radius_profile: 'pill',
+      motion_profile: 'gentle',
+      contrast_profile: 'low',
+    };
+  } else if (/(nutrition|supplement|meal|fitness|habit|workout)/.test(text)) {
+    inferred = {
+      trust_level: 'medium',
+      energy_level: 'balanced',
+      density: 'comfortable',
+      radius_profile: 'soft',
+      motion_profile: 'gentle',
+      contrast_profile: 'medium',
+    };
+  } else if (/(game|playful|creator|community|social)/.test(text)) {
+    inferred = {
+      trust_level: 'medium',
+      energy_level: 'energetic',
+      density: 'spacious',
+      radius_profile: 'pill',
+      motion_profile: 'expressive',
+      contrast_profile: 'high',
+    };
+  }
+  return {
+    trust_level: override?.trust_level ?? inferred.trust_level,
+    energy_level: override?.energy_level ?? inferred.energy_level,
+    density: override?.density ?? inferred.density,
+    radius_profile: override?.radius_profile ?? inferred.radius_profile,
+    motion_profile: override?.motion_profile ?? inferred.motion_profile,
+    contrast_profile: override?.contrast_profile ?? inferred.contrast_profile,
+  };
+}
+
+function toneProfilesFromProductTone(tone: ProductToneParameters): string[] {
+  const profiles: string[] = [];
+  if (tone.trust_level === 'regulated') profiles.push('clinical', 'trustworthy');
+  if (tone.trust_level === 'high') profiles.push('premium', 'trustworthy');
+  if (tone.energy_level === 'calm') profiles.push('calm', 'soft');
+  if (tone.energy_level === 'energetic') profiles.push('playful', 'creator');
+  if (tone.density === 'compact') profiles.push('corporate', 'minimal');
+  return unique(profiles);
+}
+
+function trustProfilesForLevel(level: TrustLevel): string[] {
+  switch (level) {
+    case 'regulated': return ['clinical-trust', 'financial-trust'];
+    case 'high': return ['enterprise-trust', 'financial-trust', 'clinical-trust', 'operator-trust'];
+    case 'medium': return ['consumer-trust', 'workspace-trust', 'commerce-trust', 'community-trust'];
+    case 'low': return ['general-trust', 'creator-trust'];
+  }
+}
+
+function profileMatchesTrustLevel(profile: string, level: TrustLevel): boolean {
+  return trustProfilesForLevel(level).includes(profile);
+}
+
+function toneSignature(tone: ProductToneParameters): string {
+  return [
+    tone.trust_level,
+    tone.energy_level,
+    tone.density,
+    tone.radius_profile,
+    tone.motion_profile,
+    tone.contrast_profile,
+  ].join('/');
+}
+
+function briefAllowsToneRepeat(brief: string): boolean {
+  return /\b(same tone|same look|matching style|keep the same|as before|такой же тон|такой же стиль|как раньше|как до этого)\b/i.test(brief);
+}
+
 function scoreCandidate(input: {
   pack: NormalizedVisualPack;
   variant: NormalizedVisualVariant;
@@ -852,21 +1610,41 @@ function scoreCandidate(input: {
   signals: VisualSelectionSignals;
 }): VisualCandidate {
   const { pack, variant, skeletonId, signals } = input;
-  let relevanceScore = 0;
+  let skeletonFit = 0;
+  let domainFit = 0;
+  let toneFit = 0;
+  let surfaceFit = 0;
   const relevanceReasons: string[] = [];
-  const addRelevance = (points: number, reason: string) => {
-    relevanceScore += points;
+  const add = (
+    axis: 'skeleton' | 'domain' | 'tone' | 'surface',
+    points: number,
+    reason: string,
+  ) => {
+    if (axis === 'skeleton') skeletonFit += points;
+    if (axis === 'domain') domainFit += points;
+    if (axis === 'tone') toneFit += points;
+    if (axis === 'surface') surfaceFit += points;
     relevanceReasons.push(`${reason}:+${points}`);
   };
+  const contract = getSkeletonVisualCompatibility(skeletonId);
 
-  if (pack.compatibleSkeletons.includes(skeletonId)) addRelevance(80, 'skeleton-compatible');
-  if (pack.skeleton === skeletonId) addRelevance(20, 'skeleton-exact');
-  if (pack.domains.includes(signals.productDomain)) addRelevance(22, 'product-domain');
-  if (pack.domains.includes(signals.semanticDomainId ?? '')) addRelevance(18, 'semantic-domain');
-  if (signals.recommendedVisualPacks.includes(pack.skeleton)) addRelevance(20, 'semantic-pack-bridge');
-  if (intersects(pack.subdomains, signals.subdomains)) addRelevance(14, 'subdomain');
-  if (intersects(pack.surfaces, signals.surfaces)) addRelevance(12, 'surface');
-  if (signals.productDomain === pack.skeleton) addRelevance(10, 'product-skeleton');
+  if (pack.compatibleSkeletons.includes(skeletonId)) add('skeleton', 80, 'skeleton-compatible');
+  if (pack.skeleton === skeletonId) add('skeleton', 20, 'skeleton-exact');
+  if (packMatchesCompatibilityContract(pack, contract)) add('skeleton', 24, 'skeleton-contract');
+  if (contract.allowedDensityProfiles.includes(variant.densityProfile)) add('skeleton', 5, 'density-contract');
+  if (contract.allowedMotionProfiles.includes(variant.motionPreset)) add('skeleton', 5, 'motion-contract');
+
+  if (intersects(pack.surfaces, signals.surfaces)) add('surface', 18, 'surface');
+  if (pack.surfaces.includes(signals.selectedSurface)) add('surface', 8, 'selected-surface');
+  if (intersects(pack.layoutPatterns, contract.allowedLayoutPatterns)) add('surface', 8, 'layout-pattern-contract');
+  if (intersects(pack.componentFamilies, contract.allowedComponentFamilies)) add('surface', 8, 'component-family-contract');
+
+  if (intersects(pack.domains, signals.domainTags)) add('domain', 24, 'domain-tags');
+  if (intersects(variant.domains, signals.domainTags)) add('domain', 12, 'variant-domain-tags');
+  if (signals.recommendedVisualPacks.includes(pack.skeleton)) add('domain', 18, 'semantic-pack-bridge');
+  if (intersects(pack.subdomains, signals.subdomains)) add('domain', 18, 'subdomain');
+  if (variant.subdomains.includes(signals.selectedSubdomain)) add('domain', 10, 'selected-subdomain');
+  if (signals.productDomain === pack.skeleton) add('domain', 8, 'product-skeleton');
 
   const semanticNeighbor = isSemanticNeighborVariant(variant.variantId, signals);
   const exactMatch =
@@ -874,18 +1652,28 @@ function scoreCandidate(input: {
     signals.toneProfiles.includes(variant.toneProfile) ||
     signals.toneProfiles.some(tone => variant.variantId.includes(tone));
 
-  if (signals.preferredVariants.includes(variant.variantId)) addRelevance(18, 'preferred-variant');
-  if (signals.toneProfiles.includes(variant.toneProfile)) addRelevance(14, 'tone-profile');
-  if (signals.toneProfiles.some(tone => variant.variantId.includes(tone))) addRelevance(12, 'tone-in-variant');
-  if (signals.toneProfiles.some(tone => variant.targetUsers.toLowerCase().includes(tone))) addRelevance(5, 'tone-in-users');
-  if (signals.semanticDomainId && variant.targetUsers.toLowerCase().includes(signals.semanticDomainId)) addRelevance(6, 'semantic-in-users');
-  if (semanticNeighbor) addRelevance(12, 'semantic-neighbor');
-  relevanceScore += pack.priorityScore;
+  if (signals.preferredVariants.includes(variant.variantId)) add('tone', 18, 'preferred-variant');
+  if (signals.toneProfiles.includes(variant.toneProfile)) add('tone', 14, 'tone-profile');
+  if (signals.toneProfiles.some(tone => variant.variantId.includes(tone))) add('tone', 12, 'tone-in-variant');
+  if (signals.toneProfiles.some(tone => variant.targetUsers.toLowerCase().includes(tone))) add('tone', 5, 'tone-in-users');
+  if (signals.semanticDomainId && variant.targetUsers.toLowerCase().includes(signals.semanticDomainId)) add('domain', 6, 'semantic-in-users');
+  if (semanticNeighbor) add('domain', 12, 'semantic-neighbor');
+  if (profileMatchesTrustLevel(variant.trustProfile, signals.productTone.trust_level)) add('tone', 8, 'trust-level');
+  if (variant.densityProfile === signals.productTone.density) add('tone', 6, 'tone-density');
+  if (variant.radiusProfile === signals.productTone.radius_profile) add('tone', 6, 'tone-radius');
+  if (variant.motionPreset === signals.productTone.motion_profile) add('tone', 6, 'tone-motion');
+  if (variant.contrastProfile === signals.productTone.contrast_profile) add('tone', 6, 'tone-contrast');
+  if (intersects(variant.colorFamilies, signals.colorFamilyCandidates)) add('tone', 6, 'tone-color-family');
+  const relevanceScore = skeletonFit + domainFit + toneFit + surfaceFit + pack.priorityScore;
   if (pack.priorityScore) relevanceReasons.push(`pack-priority:+${pack.priorityScore}`);
 
   return {
     pack,
     variant,
+    skeletonFit,
+    domainFit,
+    toneFit,
+    surfaceFit,
     relevanceScore,
     diversityScore: 0,
     score: relevanceScore,
@@ -903,6 +1691,8 @@ function selectionFromCandidate(
   signals: VisualSelectionSignals,
   variationSeed: string,
   audit: VisualSelectionAudit,
+  selectedColorFamily: NormalizedColorFamily,
+  variationPreset: VariationPreset,
 ): VisualSelection {
   const pack = candidate.pack;
   const variant = withSelectionSeed(candidate.variant, variationSeed);
@@ -913,6 +1703,7 @@ function selectionFromCandidate(
   const sourceFiles = unique([
     pack.manifestPath,
     variant.variantPath,
+    selectedColorFamily.sourcePath,
     ...variant.sourceFiles,
   ]);
 
@@ -922,28 +1713,39 @@ function selectionFromCandidate(
     selectedVariantPath: variant.variantPath,
     selectedManifestPath: pack.manifestPath,
     compatibleSkeletons: pack.compatibleSkeletons,
-    domains: unique([...pack.domains, signals.semanticDomainId ?? '', signals.productDomain].filter(Boolean)),
+    domains: unique([...pack.domains, ...signals.domainTags].filter(Boolean)),
     subdomains: unique([...pack.subdomains, ...signals.subdomains]),
     surfaces: unique([...pack.surfaces, ...signals.surfaces]),
     trustProfile: variant.trustProfile,
     toneProfile: variant.toneProfile,
+    productTone: signals.productTone,
     theme: variant.theme,
-    colorFamily: variant.colorFamily,
-    colorFamilies: variant.colorFamilies,
-    spacing: variant.spacing,
+    colorFamily: selectedColorFamily.id,
+    colorFamilyTokens: selectedColorFamily.tokens,
+    colorFamilies: unique([selectedColorFamily.id, ...variant.colorFamilies]),
+    spacing: variationPreset.spacingPreset,
     typography: variant.typography,
     radius: variant.radius,
-    motionPreset: variant.motionPreset,
-    densityProfile: variant.densityProfile,
+    radiusProfile: variationPreset.radiusPreset,
+    motionPreset: variationPreset.motionPreset,
+    densityProfile: variationPreset.spacingPreset,
+    contrastProfile: variant.contrastProfile,
+    variationPreset,
     targetUsers: variant.targetUsers,
-    tokenHints: variant.tokenHints,
+    tokenHints: unique([
+      ...variant.tokenHints,
+      `color-family:${selectedColorFamily.id}`,
+      `tone:${toneSignature(signals.productTone)}`,
+      `variation:${variationPreset.id}`,
+      `contrast:${variant.contrastProfile}`,
+    ]),
     componentHints: variant.componentHints,
     layoutHints: variant.layoutHints,
     forbiddenPatterns: unique([...pack.forbiddenPatterns, ...variant.forbiddenPatterns]),
     requiredFiles,
     sourceFiles,
     variationSeed,
-    antiRepeatGroup: variant.antiRepeatGroup,
+    antiRepeatGroup: `${variant.packId}:${variant.variantId}:${selectedColorFamily.id}:${variationPreset.id}:${pack.antiRepeatGroup}`,
     fallbackVisualSelection: false,
     pack,
     variant,
@@ -957,24 +1759,41 @@ function fallbackVisualSelection(
   input: ResolveVisualSelectionInput,
   signals: VisualSelectionSignals,
   variationSeed: string,
+  pipelineStages: VisualSelectionAudit['pipelineStages'] = [],
 ): VisualSelection {
+  const fallbackColorTokens = defaultColorTokens('neutral');
+  const fallbackVariationPreset: VariationPreset = {
+    id: 'fallback-comfortable',
+    visualPackVariant: 'generated-theme-fallback',
+    colorFamilyVariant: 'neutral',
+    spacingPreset: 'comfortable',
+    radiusPreset: 'soft',
+    elevationPreset: 'subtle',
+    motionPreset: 'gentle',
+    blockEmphasisPreset: 'content-first',
+  };
   return {
     selectedPackId: 'hardcoded-fallback',
     selectedVariantId: 'generated-theme-fallback',
     compatibleSkeletons: [input.skeletonId],
-    domains: unique([signals.semanticDomainId ?? '', signals.productDomain, input.skeletonId].filter(Boolean)),
+    domains: unique([...signals.domainTags, input.skeletonId].filter(Boolean)),
     subdomains: signals.subdomains,
     surfaces: unique([...(SURFACE_BY_SKELETON[input.skeletonId] ?? []), ...signals.surfaces]),
     trustProfile: 'fallback-trust',
     toneProfile: signals.toneProfiles[0] ?? 'corporate',
+    productTone: signals.productTone,
     theme: 'generated',
-    colorFamily: 'generated',
-    colorFamilies: ['generated'],
+    colorFamily: 'neutral',
+    colorFamilyTokens: fallbackColorTokens,
+    colorFamilies: ['neutral'],
     spacing: 'comfortable',
     typography: 'sans-technical',
     radius: 'soft',
+    radiusProfile: 'soft',
     motionPreset: 'gentle',
     densityProfile: 'comfortable',
+    contrastProfile: 'medium',
+    variationPreset: fallbackVariationPreset,
     targetUsers: 'generic users',
     tokenHints: ['generated-theme-fallback'],
     componentHints: [],
@@ -989,6 +1808,7 @@ function fallbackVisualSelection(
     variant: null,
     score: 0,
     audit: {
+      pipelineStages,
       bestScore: 0,
       bestRelevanceScore: 0,
       relevanceWindow: 0,
@@ -1030,7 +1850,7 @@ function diversityScoreForCandidate(
     reasons.push(`${reason}:-${points}`);
   };
 
-  const seedOffset = parseInt(deterministicHash(`${variant.antiRepeatGroup}:${variationSeed}`).slice(0, 2), 16) % 7;
+  const seedOffset = antiRepeatBonus(variant.antiRepeatGroup, variationSeed);
   addBonus(seedOffset, 'seed-offset');
   if (isSemanticNeighborVariant(variant.variantId, signals)) addBonus(8, 'fresh-semantic-neighbor');
 
@@ -1038,16 +1858,22 @@ function diversityScoreForCandidate(
     const sameSkeleton = !recent.skeletonId || recent.skeletonId === variant.skeleton;
     const sameDomain =
       !recent.domain ||
-      recent.domain === signals.productDomain ||
-      recent.domain === signals.semanticDomainId;
+      signals.domainTags.includes(recent.domain);
     const sameSemantic =
       !recent.semanticDomainId ||
       recent.semanticDomainId === signals.semanticDomainId ||
-      recent.semanticDomainId === signals.productDomain;
+      signals.domainTags.includes(recent.semanticDomainId);
     if (!sameSkeleton || (!sameDomain && !sameSemantic)) continue;
-    if (recent.antiRepeatGroup && recent.antiRepeatGroup === variant.antiRepeatGroup) addPenalty(16, 'recent-anti-repeat-group');
-    if (recent.selectedVariantId && recent.selectedVariantId === variant.variantId) addPenalty(12, 'recent-same-variant');
-    if (recent.colorFamily && recent.colorFamily === variant.colorFamily) addPenalty(6, 'recent-same-color-family');
+    const repeatMultiplier = signals.allowToneRepeat ? 0.25 : 1;
+    if (recent.antiRepeatGroup && recent.antiRepeatGroup.includes(`${variant.packId}:${variant.variantId}`)) {
+      addPenalty(Math.round(18 * repeatMultiplier), 'recent-visual-combination');
+    }
+    if (recent.antiRepeatGroup && recent.antiRepeatGroup === variant.antiRepeatGroup) addPenalty(Math.round(16 * repeatMultiplier), 'recent-anti-repeat-group');
+    if (recent.selectedVariantId && recent.selectedVariantId === variant.variantId) addPenalty(Math.round(12 * repeatMultiplier), 'recent-same-variant');
+    if (recent.colorFamily && recent.colorFamily === variant.colorFamily) addPenalty(Math.round(6 * repeatMultiplier), 'recent-same-color-family');
+    if (recent.productToneSignature && recent.productToneSignature === toneSignature(signals.productTone)) {
+      addPenalty(Math.round(4 * repeatMultiplier), 'recent-same-product-tone');
+    }
   }
 
   return { score: bonus - penalty, bonus, penalty, reasons };
@@ -1129,9 +1955,10 @@ function applyPreferredVariantFloor(
 function candidateHasRequiredMeaning(candidate: VisualCandidate, signals: VisualSelectionSignals): boolean {
   if (!intersects(candidate.pack.surfaces, signals.surfaces)) return false;
   if (candidate.exactMatch || candidate.semanticNeighbor) return true;
-  if (candidate.pack.domains.includes(signals.productDomain)) return true;
-  if (signals.semanticDomainId && candidate.pack.domains.includes(signals.semanticDomainId)) return true;
+  if (intersects(candidate.pack.domains, signals.domainTags)) return true;
+  if (intersects(candidate.variant.domains, signals.domainTags)) return true;
   if (intersects(candidate.pack.subdomains, signals.subdomains)) return true;
+  if (intersects(candidate.variant.subdomains, signals.subdomains)) return true;
   return !isStrongSelectionSignals(signals);
 }
 
@@ -1152,7 +1979,7 @@ function semanticNeighborIdsForSignals(signals: VisualSelectionSignals): string[
   if (signals.semanticDomainId === 'fintech') {
     return ['fintech-corporate', 'premium-dark', 'minimal-brutal', 'calm'];
   }
-  if (signals.semanticDomainId === 'medicine') {
+  if (signals.semanticDomainId === 'medicine' || signals.domainTags.includes('health')) {
     return ['clinical', 'calm', 'premium-dark', 'mobile-soft'];
   }
   if (signals.semanticDomainId === 'wellness') {
@@ -1219,12 +2046,14 @@ function selectionAudit(input: {
   bestRelevanceScore: number;
   relevanceWindow: number;
   minimumRelevanceFloor: number;
+  pipelineStages: VisualSelectionAudit['pipelineStages'];
 }): VisualSelectionAudit {
   const relevanceSelected = input.viableByRelevance.find(candidate =>
     candidate.pack.packId === input.selected.pack.packId &&
     candidate.variant.variantId === input.selected.variant.variantId
   );
   return {
+    pipelineStages: input.pipelineStages,
     bestScore: input.candidates[0]?.score ?? 0,
     bestRelevanceScore: input.bestRelevanceScore,
     relevanceWindow: input.relevanceWindow,
@@ -1250,6 +2079,10 @@ function candidateAudit(candidate: VisualCandidate): VisualCandidateAudit {
   return {
     packId: candidate.pack.packId,
     variantId: candidate.variant.variantId,
+    skeletonFit: candidate.skeletonFit,
+    domainFit: candidate.domainFit,
+    toneFit: candidate.toneFit,
+    surfaceFit: candidate.surfaceFit,
     relevanceScore: candidate.relevanceScore,
     diversityScore: candidate.diversityScore,
     finalScore: candidate.score,
@@ -1268,7 +2101,7 @@ function inferProductDomain(brief: string, skeletonId: SkeletonId): string {
 
 function inferSemanticDomainId(brief: string, semanticDomains: SemanticDomainManifestSchema[]): string | null {
   const keyword = SEMANTIC_KEYWORDS.find(item => item.rx.test(brief));
-  if (keyword) return keyword.id;
+  if (keyword) return normalizeSemanticDomainId(keyword.id);
   const lower = brief.toLowerCase();
   for (const domain of semanticDomains) {
     const haystack = [
@@ -1279,7 +2112,7 @@ function inferSemanticDomainId(brief: string, semanticDomains: SemanticDomainMan
       ...(domain.uiPatterns ?? []),
     ].filter(Boolean).join(' ').toLowerCase();
     if (haystack && lower.split(/\W+/).some(word => word.length > 4 && haystack.includes(word))) {
-      return domain.id;
+      return normalizeSemanticDomainId(domain.id);
     }
   }
   return null;
@@ -1297,7 +2130,11 @@ function surfaceHintsFromBrief(brief: string): string[] {
 
 function subdomainsFromBrief(brief: string): string[] {
   const hints: string[] = [];
-  if (/\b(clinic|patient|doctor|care|medical|health)\b/i.test(brief)) hints.push('healthcare', 'clinic', 'patient-care');
+  if (/\b(clinic|patient|doctor|care|medical|health)\b/i.test(brief)) hints.push('clinical', 'healthcare', 'clinic', 'patient-care');
+  if (/\b(women|woman|fertility|cycle|period|pregnancy|maternal)\b/i.test(brief)) hints.push('women-health');
+  if (/\b(nutrition|supplement|meal|diet|protein|vitamin)\b/i.test(brief)) hints.push('supplements-nutrition', 'nutrition');
+  if (/\b(mental|therapy|mood|anxiety|mindful|meditation)\b/i.test(brief)) hints.push('mental-health');
+  if (/\b(fitness|habit|workout|training|streak)\b/i.test(brief)) hints.push('habit-fitness', 'habit-tracking');
   if (/\b(bank|wallet|payment|budget|transaction|invoice)\b/i.test(brief)) hints.push('finance-ops', 'payments', 'wallet');
   if (/\b(creator|content|campaign|social)\b/i.test(brief)) hints.push('creator-network', 'creator');
   if (/\b(task|kanban|note|planner|calendar)\b/i.test(brief)) hints.push('task-management', 'kanban', 'notes');
@@ -1317,11 +2154,13 @@ function toneHintsFromBrief(brief: string): string[] {
   return hints;
 }
 
-function assetSourceFiles(theme: string, spacing: string): string[] {
+function assetSourceFiles(theme: string, spacing: string, colorFamily?: string): string[] {
   const colorPath = `prototype-bank/design-packs/assets/color-ramps/${theme}.json`;
+  const familyPath = colorFamily ? `prototype-bank/design-packs/assets/color-ramps/${colorFamily}.json` : '';
   const spacingPath = `prototype-bank/design-packs/assets/spacing/${spacing}.json`;
   return [
     COLOR_RAMP_PATHS.has(colorPath) ? colorPath : '',
+    familyPath && COLOR_RAMP_PATHS.has(familyPath) ? familyPath : '',
     SPACING_PATHS.has(spacingPath) ? spacingPath : '',
     'prototype-bank/design-packs/assets/typography/presets.json',
     'prototype-bank/design-packs/assets/motion/presets.json',
@@ -1360,9 +2199,104 @@ function layoutHintsFromRaw(raw: VisualVariantSchema): string[] {
   return hints;
 }
 
+function subdomainsFromVariantText(text: string): string[] {
+  const lower = text.toLowerCase();
+  const hints: string[] = [];
+  if (/(clinical|clinic|medical|patient|doctor|health)/.test(lower)) hints.push('clinical', 'healthcare');
+  if (/(wellness|self-care|sage)/.test(lower)) hints.push('wellness');
+  if (/(habit|fitness|workout|training)/.test(lower)) hints.push('habit-fitness');
+  if (/(women|woman|fertility|cycle|pregnancy|rose)/.test(lower)) hints.push('women-health');
+  if (/(nutrition|supplement|meal|amber)/.test(lower)) hints.push('supplements-nutrition', 'nutrition');
+  if (/(mental|therapy|mood|lavender|calm)/.test(lower)) hints.push('mental-health');
+  if (/(finance|fintech|bank|wallet|payment)/.test(lower)) hints.push('finance-ops', 'payments');
+  if (/(creator|social|community|feed)/.test(lower)) hints.push('creator-network', 'community');
+  return hints;
+}
+
+function colorFamiliesForDomains(domains: string[], subdomains: string[] = []): string[] {
+  const families = new Set<string>();
+  for (const domain of domains) {
+    const normalized = normalizeSemanticDomainId(domain) ?? domain;
+    for (const family of DOMAIN_COLOR_FAMILY_REGISTRY[domain] ?? []) families.add(family);
+    for (const family of DOMAIN_COLOR_FAMILY_REGISTRY[normalized] ?? []) families.add(family);
+    for (const alias of domainAliases(domain)) {
+      for (const family of DOMAIN_COLOR_FAMILY_REGISTRY[alias] ?? []) families.add(family);
+    }
+  }
+  const subdomainText = subdomains.join(' ').toLowerCase();
+  if (/clinical|clinic|patient|care/.test(subdomainText)) {
+    families.add('clinical-teal');
+    families.add('medical-navy-teal');
+  }
+  if (/wellness|self-care/.test(subdomainText)) families.add('wellness-sage');
+  if (/women|fertility|cycle|pregnancy/.test(subdomainText)) families.add('soft-womens-health');
+  if (/nutrition|supplement|meal|diet/.test(subdomainText)) families.add('nutrition-amber-green');
+  if (/mental|therapy|mood|calm/.test(subdomainText)) families.add('calm-lavender');
+  return Array.from(families);
+}
+
+function domainAliases(value: string | null | undefined): string[] {
+  switch (value) {
+    case 'medicine': return ['health', 'medical', 'clinical', 'wellness'];
+    case 'health': return ['medicine', 'medical', 'clinical', 'wellness'];
+    case 'mobile-app': return ['consumer', 'habit', 'lifestyle'];
+    case 'saas-dashboard': return ['saas', 'b2b', 'admin', 'analytics', 'operations'];
+    case 'productivity-tool': return ['productivity', 'workspace', 'tasks', 'notes'];
+    case 'social-community': return ['social', 'community', 'creator', 'feed'];
+    case 'landing-page': return ['marketing', 'launch', 'conversion'];
+    case 'ecommerce': return ['commerce', 'retail', 'storefront', 'marketplace'];
+    case 'wellness': return ['health', 'habit', 'self-care'];
+    case 'fintech': return ['finance', 'banking', 'payments'];
+    default: return [];
+  }
+}
+
+function normalizeSemanticDomainId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const id = value.trim().toLowerCase();
+  if (!id) return null;
+  if (id === 'health' || id === 'medical' || id === 'healthcare') return 'medicine';
+  if (id === 'commerce') return 'ecommerce';
+  if (id === 'ai' || id === 'ai-tools') return 'ai-tools';
+  return id;
+}
+
+function inferDomainsForColorFamily(familyId: string): string[] {
+  const text = familyId.toLowerCase();
+  const domains: string[] = [];
+  if (/(clinical|medical|wellness|women|nutrition|lavender|sage|health)/.test(text)) domains.push('health', 'medicine', 'wellness');
+  if (/(fintech|indigo|navy)/.test(text)) domains.push('fintech');
+  if (/(gaming|neon)/.test(text)) domains.push('gaming');
+  if (/(playful|coral|cool-blue)/.test(text)) domains.push('social', 'ecommerce');
+  if (/(neutral|cool-blue)/.test(text)) domains.push('productivity', 'ai-tools');
+  return domains;
+}
+
+function defaultLayoutPatternsForSkeleton(skeleton: SkeletonId): string[] {
+  switch (skeleton) {
+    case 'mobile-app': return ['bottom-tabs', 'card-feed', 'list-detail', 'onboarding-flow', 'bottom-sheet', 'profile-stack'];
+    case 'saas-dashboard': return ['sidebar-shell', 'kpi-grid', 'data-table', 'settings-tabs', 'operator-dashboard'];
+    case 'landing-page': return ['top-nav', 'hero-section', 'bento-grid', 'pricing-grid', 'faq-stack', 'landing-scroll'];
+    case 'social-community': return ['bottom-tabs', 'social-feed', 'story-rail', 'profile-stack', 'comment-thread', 'composer-flow'];
+    case 'productivity-tool': return ['sidebar-workspace', 'kanban-board', 'list-detail', 'split-pane', 'command-palette', 'detail-sheet'];
+    case 'ecommerce': return ['product-grid', 'product-detail', 'checkout-flow', 'bottom-tabs', 'cart-stack', 'wishlist-list'];
+  }
+}
+
+function defaultComponentFamiliesForSkeleton(skeleton: SkeletonId): string[] {
+  switch (skeleton) {
+    case 'mobile-app': return ['mobile-nav', 'feed-item', 'onboarding-step', 'profile-card', 'bottom-sheet', 'card', 'list-item'];
+    case 'saas-dashboard': return ['sidebar-nav', 'dashboard-header', 'stat-card', 'metric-card', 'data-table', 'tabs'];
+    case 'landing-page': return ['nav', 'hero', 'bento', 'pricing-card', 'faq', 'cta'];
+    case 'social-community': return ['mobile-nav', 'post-card', 'comment-item', 'notification-item', 'user-avatar', 'feed-card'];
+    case 'productivity-tool': return ['sidebar-nav', 'top-bar', 'kanban-card', 'list-item', 'tabs', 'command-palette', 'sheet'];
+    case 'ecommerce': return ['product-card', 'product-image', 'image-gallery', 'rating-stars', 'review-item', 'filters', 'bottom-tabs'];
+  }
+}
+
 function defaultSubdomainsForSkeleton(skeleton: SkeletonId): string[] {
   switch (skeleton) {
-    case 'mobile-app': return ['consumer-mobile', 'habit-tracking'];
+    case 'mobile-app': return ['consumer-mobile', 'habit-tracking', 'wellness', 'women-health', 'nutrition'];
     case 'saas-dashboard': return ['analytics', 'operations'];
     case 'landing-page': return ['launch', 'conversion'];
     case 'social-community': return ['feed', 'community'];
@@ -1415,6 +2349,13 @@ function inferToneProfile(theme: string, variantId: string, targetUsers: string)
   return 'calm';
 }
 
+function inferContrastProfile(theme: string, variantId: string, targetUsers: string): string {
+  const text = `${theme} ${variantId} ${targetUsers}`.toLowerCase();
+  if (/premium|dark|fintech|bank|brutal|minimal|gaming|neon/.test(text)) return 'high';
+  if (/soft|wellness|women|calm|lavender|sage/.test(text)) return 'low';
+  return 'medium';
+}
+
 function inferDensityProfile(spacing: string, variantId: string): string {
   if (spacing === 'compact' || variantId.includes('corporate') || variantId.includes('minimal')) return 'compact';
   if (spacing === 'spacious' || variantId.includes('playful') || variantId.includes('soft')) return 'spacious';
@@ -1437,6 +2378,10 @@ function packIdFromPath(path: string): string | null {
   return path.replace(/\\/g, '/').match(/prototype-bank\/design-packs\/domain\/([^/]+)\/manifest\.json$/)?.[1]
     ?? path.replace(/\\/g, '/').match(/prototype-bank\/design-packs\/domain\/([^/]+)\/visual-variants\//)?.[1]
     ?? null;
+}
+
+function colorFamilyIdFromPath(path: string): string | null {
+  return path.replace(/\\/g, '/').match(/color-ramps\/([^/]+)\.json$/)?.[1] ?? null;
 }
 
 function variantIdFromPath(path: string): string | null {
