@@ -46,6 +46,14 @@ export interface CollabState {
 
 type FileChangeCallback  = (files: FileMap) => void;
 type StateChangeCallback = (state: CollabState) => void;
+type AwarenessUserState = {
+  user?: {
+    name?: string;
+    color?: string;
+  };
+  cursor?: { file: string; line: number; col: number };
+  activeFile?: string;
+};
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
@@ -115,7 +123,7 @@ class CollabServiceClass {
     // ── Observe изменения файлов ────────────────────────────────────────────
     yFiles.observe(() => {
       const updatedFiles: FileMap = {};
-      yFiles.forEach((yText, name) => {
+      yFiles.forEach((yText: Y.Text, name: string) => {
         updatedFiles[name] = yText.toString();
       });
       this.onFileChange?.(updatedFiles);
@@ -133,7 +141,7 @@ class CollabServiceClass {
       if (synced) {
         // После синхронизации — читаем актуальные файлы
         const syncedFiles: FileMap = {};
-        yFiles.forEach((yText, name) => {
+        yFiles.forEach((yText: Y.Text, name: string) => {
           syncedFiles[name] = yText.toString();
         });
         if (Object.keys(syncedFiles).length > 0) {
@@ -237,7 +245,7 @@ class CollabServiceClass {
     if (!this.provider || !this.awareness) return;
 
     const participants: Participant[] = [];
-    this.awareness.getStates().forEach((state, clientId) => {
+    this.awareness.getStates().forEach((state: AwarenessUserState, clientId: number) => {
       if (!state?.user) return;
       participants.push({
         clientId,
