@@ -1,0 +1,38 @@
+{
+  "presets": [
+    {
+      "id": "mobile-bottom-tab-product",
+      "skeletons": ["mobile-app", "social-community"],
+      "surfaces": ["mobile", "bottom-tabs", "feed", "profile"],
+      "description": "Phone-frame shell with sticky bottom navigation, stacked cards, and full-width primary CTA zones.",
+      "linkedFiles": [
+        "prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx",
+        "prototype-bank/design-packs/surfaces/blocks/feed-item.tsx",
+        "prototype-bank/design-packs/surfaces/cards/profile-card.tsx"
+      ]
+    },
+    {
+      "id": "operator-sidebar-workspace",
+      "skeletons": ["saas-dashboard", "productivity-tool"],
+      "surfaces": ["dashboard", "sidebar", "workspace", "metrics", "list"],
+      "description": "Sidebar-led workspace with top analytics header, metric cards, and dense operational rows.",
+      "linkedFiles": [
+        "prototype-bank/design-packs/surfaces/blocks/sidebar-nav.tsx",
+        "prototype-bank/design-packs/surfaces/blocks/dashboard-header.tsx",
+        "prototype-bank/design-packs/surfaces/cards/metric-card.tsx",
+        "prototype-bank/design-packs/surfaces/cards/list-item.tsx"
+      ]
+    },
+    {
+      "id": "conversion-landing-flow",
+      "skeletons": ["landing-page", "ecommerce"],
+      "surfaces": ["marketing", "hero", "pricing", "cta", "storefront", "checkout"],
+      "description": "Top-nav hero layout with proof modules, feature cards, and commercial CTA sections.",
+      "linkedFiles": [
+        "prototype-bank/design-packs/surfaces/primitives/button.tsx",
+        "prototype-bank/design-packs/surfaces/primitives/card.tsx",
+        "prototype-bank/design-packs/surfaces/cards/stat-card.tsx"
+      ]
+    }
+  ]
+}

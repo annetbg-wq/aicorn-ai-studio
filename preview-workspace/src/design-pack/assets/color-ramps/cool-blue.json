@@ -1,0 +1,25 @@
+{
+  "id": "cool-blue",
+  "name": "Cool Blue",
+  "description": "Clear blue family for productivity, social, and AI tools.",
+  "domains": ["productivity", "social", "ai-tools", "ecommerce"],
+  "subdomains": ["workspace", "creator-network", "automation", "marketplace"],
+  "toneProfiles": ["calm", "corporate", "creator"],
+  "trustProfiles": ["workspace-trust", "creator-trust"],
+  "densityProfiles": ["compact", "comfortable"],
+  "contrastProfiles": ["medium"],
+  "tokens": {
+    "background": "210 58% 98%",
+    "foreground": "218 38% 16%",
+    "muted": "214 38% 91%",
+    "card": "0 0% 100%",
+    "primary": "211 78% 46%",
+    "secondary": "212 42% 88%",
+    "accent": "185 70% 42%",
+    "border": "214 28% 82%",
+    "success": "142 56% 40%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["211 78% 46%", "185 70% 42%", "238 58% 58%", "160 52% 42%"]
+  }
+}

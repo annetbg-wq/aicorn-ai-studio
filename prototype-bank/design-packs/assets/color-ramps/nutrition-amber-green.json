@@ -1,0 +1,25 @@
+{
+  "id": "nutrition-amber-green",
+  "name": "Nutrition Amber Green",
+  "description": "Amber-green palette for nutrition, supplements, and meal habit products.",
+  "domains": ["health", "medicine", "wellness", "ecommerce"],
+  "subdomains": ["supplements-nutrition", "nutrition", "habit-fitness", "catalog"],
+  "toneProfiles": ["wellness", "calm", "playful"],
+  "trustProfiles": ["wellness-trust", "commerce-trust"],
+  "densityProfiles": ["comfortable"],
+  "contrastProfiles": ["medium"],
+  "tokens": {
+    "background": "44 86% 96%",
+    "foreground": "100 28% 16%",
+    "muted": "54 44% 88%",
+    "card": "0 0% 100%",
+    "primary": "93 46% 35%",
+    "secondary": "42 82% 86%",
+    "accent": "36 92% 50%",
+    "border": "50 32% 78%",
+    "success": "142 56% 40%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["93 46% 35%", "36 92% 50%", "142 50% 42%", "24 76% 52%"]
+  }
+}

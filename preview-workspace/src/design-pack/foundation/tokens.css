@@ -1,0 +1,77 @@
+/*
+ * Visual Bank — Foundation Tokens
+ * Source normalization: shadcn/ui + daisyUI
+ * License: MIT (see design-sources/)
+ *
+ * Usage: Link this file in <head>, then override with a theme.css.
+ * All values below are the neutral/default baseline.
+ */
+
+:root {
+  /* ── Canvas & Surfaces ── */
+  --vb-bg:              #fafafa;
+  --vb-bg-alt:          #f4f4f5;
+  --vb-surface:         #ffffff;
+  --vb-surface-hover:   #f9f9f9;
+  --vb-surface-alt:     #f0f0f2;
+  --vb-overlay:         rgba(0, 0, 0, 0.48);
+
+  /* ── Borders ── */
+  --vb-border:          rgba(0, 0, 0, 0.08);
+  --vb-border-strong:   rgba(0, 0, 0, 0.16);
+  --vb-border-focus:    #18181b;
+
+  /* ── Text ── */
+  --vb-text:            #09090b;
+  --vb-text-muted:      #71717a;
+  --vb-text-subtle:     #a1a1aa;
+  --vb-text-inverse:    #fafafa;
+
+  /* ── Accent (brand) ── */
+  --vb-accent:          #18181b;
+  --vb-accent-fg:       #fafafa;
+  --vb-accent-hover:    #27272a;
+  --vb-accent-subtle:   #f4f4f5;
+
+  /* ── Semantic ── */
+  --vb-success:         #16a34a;
+  --vb-success-fg:      #ffffff;
+  --vb-success-subtle:  #f0fdf4;
+  --vb-warning:         #ca8a04;
+  --vb-warning-fg:      #ffffff;
+  --vb-warning-subtle:  #fefce8;
+  --vb-danger:          #dc2626;
+  --vb-danger-fg:       #ffffff;
+  --vb-danger-subtle:   #fef2f2;
+  --vb-info:            #2563eb;
+  --vb-info-fg:         #ffffff;
+  --vb-info-subtle:     #eff6ff;
+
+  /* ── Radius ── */
+  --vb-radius-xs:       4px;
+  --vb-radius-sm:       6px;
+  --vb-radius-md:       10px;
+  --vb-radius-lg:       16px;
+  --vb-radius-xl:       24px;
+  --vb-radius-2xl:      32px;
+  --vb-radius-full:     9999px;
+
+  /* ── Spacing (base 4px grid) ── */
+  --vb-space-1:         4px;
+  --vb-space-2:         8px;
+  --vb-space-3:         12px;
+  --vb-space-4:         16px;
+  --vb-space-5:         20px;
+  --vb-space-6:         24px;
+  --vb-space-8:         32px;
+  --vb-space-10:        40px;
+  --vb-space-12:        48px;
+  --vb-space-16:        64px;
+
+  /* ── Transitions ── */
+  --vb-duration-fast:   120ms;
+  --vb-duration-base:   200ms;
+  --vb-duration-slow:   350ms;
+  --vb-ease-out:        cubic-bezier(0.16, 1, 0.3, 1);
+  --vb-ease-in-out:     cubic-bezier(0.4, 0, 0.2, 1);
+}

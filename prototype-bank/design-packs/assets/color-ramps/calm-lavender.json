@@ -1,0 +1,25 @@
+{
+  "id": "calm-lavender",
+  "name": "Calm Lavender",
+  "description": "Lavender-blue family for mental health, calm coaching, and reflection products.",
+  "domains": ["health", "medicine", "wellness", "ai-tools"],
+  "subdomains": ["mental-health", "therapy", "self-care", "assistant"],
+  "toneProfiles": ["calm", "soft", "wellness"],
+  "trustProfiles": ["wellness-trust", "clinical-trust"],
+  "densityProfiles": ["comfortable", "spacious"],
+  "contrastProfiles": ["low", "medium"],
+  "tokens": {
+    "background": "250 52% 98%",
+    "foreground": "252 32% 18%",
+    "muted": "250 34% 91%",
+    "card": "0 0% 100%",
+    "primary": "256 52% 54%",
+    "secondary": "246 38% 90%",
+    "accent": "196 64% 47%",
+    "border": "248 24% 84%",
+    "success": "142 48% 42%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["256 52% 54%", "196 64% 47%", "286 46% 58%", "222 52% 52%"]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "medical-navy-teal",
+  "name": "Medical Navy Teal",
+  "description": "Dark clinical navy-teal palette for regulated dashboards and high-trust workspaces.",
+  "domains": ["health", "medicine", "fintech", "saas"],
+  "subdomains": ["clinical", "care-team", "health-admin", "compliance", "finance-ops"],
+  "toneProfiles": ["clinical", "corporate", "premium"],
+  "trustProfiles": ["clinical-trust", "enterprise-trust", "financial-trust"],
+  "densityProfiles": ["compact", "comfortable"],
+  "contrastProfiles": ["high"],
+  "tokens": {
+    "background": "210 42% 8%",
+    "foreground": "190 36% 96%",
+    "muted": "207 32% 16%",
+    "card": "210 38% 11%",
+    "primary": "181 72% 42%",
+    "secondary": "207 28% 20%",
+    "accent": "199 84% 56%",
+    "border": "205 25% 24%",
+    "success": "142 56% 46%",
+    "warning": "38 92% 56%",
+    "danger": "0 72% 58%",
+    "chartPalette": ["181 72% 42%", "199 84% 56%", "160 58% 48%", "220 68% 62%"]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "references": [
+    {
+      "id": "clinical-trust",
+      "domains": ["medicine", "wellness"],
+      "themes": ["clinical-teal", "medical-navy-teal", "calm-lavender"],
+      "direction": "Quiet trust, generous whitespace, low-noise data surfaces, explicit care-state hierarchy.",
+      "signals": ["status pills", "supporting microcopy", "gentle charts", "structured empty states"]
+    },
+    {
+      "id": "fintech-operator",
+      "domains": ["fintech", "saas-dashboard", "productivity-tool"],
+      "themes": ["fintech-indigo", "luxury-dark-gold", "neutral"],
+      "direction": "Number-first operator feel, dense workspace chrome, compact spacing, elevated data credibility.",
+      "signals": ["metric cards", "tabular detail", "high-contrast primary CTA", "audit-friendly chips"]
+    },
+    {
+      "id": "creator-social-energy",
+      "domains": ["social", "landing-page", "social-community"],
+      "themes": ["cool-blue", "playful-coral", "soft-womens-health"],
+      "direction": "Expressive social proof, creator identity emphasis, richer media framing, playful CTA motion.",
+      "signals": ["avatar-led cards", "social proof walls", "engagement counters", "accent gradients"]
+    },
+    {
+      "id": "commerce-conversion",
+      "domains": ["ecommerce", "landing-page"],
+      "themes": ["playful-coral", "luxury-dark-gold", "neutral"],
+      "direction": "Merchandising clarity, product-first hierarchy, strong add-to-cart affordances, value proof blocks.",
+      "signals": ["product cards", "price emphasis", "benefit chips", "checkout reassurance rows"]
+    }
+  ]
+}

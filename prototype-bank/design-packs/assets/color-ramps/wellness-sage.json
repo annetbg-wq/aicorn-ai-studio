@@ -1,0 +1,25 @@
+{
+  "id": "wellness-sage",
+  "name": "Wellness Sage",
+  "description": "Sage-green health palette for calm wellness and habit products.",
+  "domains": ["health", "medicine", "wellness"],
+  "subdomains": ["wellness", "habit-fitness", "self-care", "daily-focus"],
+  "toneProfiles": ["calm", "soft", "wellness"],
+  "trustProfiles": ["wellness-trust", "consumer-trust"],
+  "densityProfiles": ["comfortable", "spacious"],
+  "contrastProfiles": ["low", "medium"],
+  "tokens": {
+    "background": "96 32% 96%",
+    "foreground": "142 28% 18%",
+    "muted": "94 22% 88%",
+    "card": "90 36% 99%",
+    "primary": "142 35% 36%",
+    "secondary": "82 28% 86%",
+    "accent": "38 72% 58%",
+    "border": "96 18% 80%",
+    "success": "142 56% 40%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["142 35% 36%", "82 38% 42%", "38 72% 58%", "174 40% 42%"]
+  }
+}

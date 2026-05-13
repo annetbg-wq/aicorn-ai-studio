@@ -1,0 +1,29 @@
+{
+  "id": "assets",
+  "purpose": "Cross-pack asset and preset registry for spacing, typography, motion, layout references, and visual direction files used by the studio as concrete design evidence.",
+  "whenToUse": [
+    "Use whenever a visual pack needs linked motion, typography, spacing, or reference files",
+    "Use when Quality or Showcase should prove the visual system comes from real repository files",
+    "Use when generation must export a traceable asset manifest alongside code output"
+  ],
+  "requiredComponents": [],
+  "allowedSurfaces": ["mobile", "dashboard", "marketing", "workspace", "storefront", "community"],
+  "forbiddenPatterns": [
+    "describing visual direction without linking a real preset or reference file"
+  ],
+  "linkedStyleFiles": [],
+  "linkedComponentFiles": [],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json",
+    "prototype-bank/design-packs/assets/typography/presets.json",
+    "prototype-bank/design-packs/assets/spacing/compact.json",
+    "prototype-bank/design-packs/assets/spacing/comfortable.json",
+    "prototype-bank/design-packs/assets/spacing/spacious.json"
+  ]
+}
