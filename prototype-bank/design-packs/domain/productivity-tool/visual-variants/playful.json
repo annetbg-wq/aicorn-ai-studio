@@ -1,0 +1,17 @@
+{
+  "id": "playful",
+  "packId": "productivity-tool",
+  "skeleton": "productivity-tool",
+  "name": "Playful",
+  "theme": "playful-coral",
+  "spacing": "spacious",
+  "typography": "soft-rounded",
+  "radius": { "card": "18px", "button": "9999px", "input": "14px", "panel": "20px" },
+  "motionPreset": "expressive",
+  "densityProfile": "spacious",
+  "targetUsers": "creative planning teams, education tools, lightweight task apps",
+  "layout": "friendly workspace with kanban columns, progress moments, playful empty states",
+  "componentHints": ["kanban-card", "badge", "progress", "empty-state"],
+  "layoutHints": ["roomy columns", "soft colored status chips", "celebratory completion state"],
+  "forbiddenPatterns": ["dense enterprise table-first layout", "generic blank Tailwind fallback"]
+}

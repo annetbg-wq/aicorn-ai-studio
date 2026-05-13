@@ -1,0 +1,17 @@
+{
+  "id": "calm",
+  "packId": "productivity-tool",
+  "skeleton": "productivity-tool",
+  "name": "Calm",
+  "theme": "neutral",
+  "spacing": "comfortable",
+  "typography": "sans-technical",
+  "radius": { "card": "12px", "button": "10px", "input": "10px", "panel": "14px" },
+  "motionPreset": "gentle",
+  "densityProfile": "comfortable",
+  "targetUsers": "individual productivity users, calm planning workspaces",
+  "layout": "quiet sidebar workspace with list and kanban views, soft detail sheet",
+  "componentHints": ["sidebar-nav", "list-item", "tabs", "detail-sheet"],
+  "layoutHints": ["balanced gutters", "single primary action per view", "clear selected item state"],
+  "forbiddenPatterns": ["noisy marketing hero", "generic blank Tailwind fallback"]
+}

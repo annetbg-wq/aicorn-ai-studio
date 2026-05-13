@@ -1,0 +1,17 @@
+{
+  "id": "mobile-soft",
+  "packId": "productivity-tool",
+  "skeleton": "productivity-tool",
+  "name": "Mobile Soft",
+  "theme": "soft-womens-health",
+  "spacing": "spacious",
+  "typography": "soft-rounded",
+  "radius": { "card": "20px", "button": "9999px", "input": "16px", "panel": "22px" },
+  "motionPreset": "gentle",
+  "densityProfile": "spacious",
+  "targetUsers": "personal planning, wellness productivity, gentle daily organization",
+  "layout": "soft workspace with relaxed task cards, guided daily focus, gentle detail panels",
+  "componentHints": ["progress", "list-item", "profile-card", "onboarding-step"],
+  "layoutHints": ["large touch targets", "gentle status colors", "daily focus card above list"],
+  "forbiddenPatterns": ["hard-edged dense admin shell", "generic blank Tailwind fallback"]
+}

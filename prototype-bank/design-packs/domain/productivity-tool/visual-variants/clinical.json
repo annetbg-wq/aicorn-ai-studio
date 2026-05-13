@@ -1,0 +1,17 @@
+{
+  "id": "clinical",
+  "packId": "productivity-tool",
+  "skeleton": "productivity-tool",
+  "name": "Clinical",
+  "theme": "clinical-teal",
+  "spacing": "comfortable",
+  "typography": "sans-technical",
+  "radius": { "card": "8px", "button": "6px", "input": "8px", "panel": "10px" },
+  "motionPreset": "gentle",
+  "densityProfile": "comfortable",
+  "targetUsers": "clinical task boards, care-team worklists, healthcare operations",
+  "layout": "structured workspace with clear statuses, patient-safe hierarchy, audit-friendly panels",
+  "componentHints": ["list-item", "status-badge", "tabs", "detail-sheet"],
+  "layoutHints": ["explicit status labels", "high readability", "separate urgent and routine work"],
+  "forbiddenPatterns": ["ambiguous icon-only medical statuses", "generic blank Tailwind fallback"]
+}

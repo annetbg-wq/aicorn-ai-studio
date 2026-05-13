@@ -1,0 +1,17 @@
+{
+  "id": "fintech-corporate",
+  "packId": "productivity-tool",
+  "skeleton": "productivity-tool",
+  "name": "Fintech Corporate",
+  "theme": "fintech-indigo",
+  "spacing": "compact",
+  "typography": "mono-technical",
+  "radius": { "card": "8px", "button": "6px", "input": "6px", "panel": "10px" },
+  "motionPreset": "gentle",
+  "densityProfile": "compact",
+  "targetUsers": "finance operations teams, compliance work queues, regulated task systems",
+  "layout": "compact sidebar workspace with queue metrics, approval lists, audit detail sheet",
+  "componentHints": ["sidebar-nav", "metric-card", "data-list", "approval-badge"],
+  "layoutHints": ["dense rows", "numeric alignment", "audit trail visible in detail panel"],
+  "forbiddenPatterns": ["playful gamified finance UI", "generic blank Tailwind fallback"]
+}

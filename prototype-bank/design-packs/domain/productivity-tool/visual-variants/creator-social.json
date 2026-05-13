@@ -1,0 +1,17 @@
+{
+  "id": "creator-social",
+  "packId": "productivity-tool",
+  "skeleton": "productivity-tool",
+  "name": "Creator Social",
+  "theme": "cool-blue",
+  "spacing": "comfortable",
+  "typography": "display-editorial",
+  "radius": { "card": "16px", "button": "12px", "input": "12px", "panel": "18px" },
+  "motionPreset": "expressive",
+  "densityProfile": "comfortable",
+  "targetUsers": "creator planning tools, content calendars, social production teams",
+  "layout": "creator workspace with content calendar, idea list, campaign detail sheet",
+  "componentHints": ["calendar-card", "profile-card", "list-item", "badge"],
+  "layoutHints": ["thumbnail-forward tasks", "creator profile context", "campaign status rhythm"],
+  "forbiddenPatterns": ["anonymous enterprise-only chrome", "generic blank Tailwind fallback"]
+}

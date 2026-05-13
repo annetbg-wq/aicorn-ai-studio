@@ -532,6 +532,11 @@ export interface GenerationRunStepTelemetry {
     build_size_kb?: number;
     preview_url?: string;
     files?: string[];
+    selected_visual_pack_id?: string;
+    selected_visual_variant_id?: string;
+    selected_visual_variant_path?: string;
+    visual_source_files?: string[];
+    fallback_visual_selection?: boolean;
   };
   warnings?: string[];
 }
@@ -549,6 +554,15 @@ export interface GenerationRunTelemetry {
   domainId?: string;
   domainName?: string;
   themeName?: string;
+  visualBank?: {
+    selectedPackId: string;
+    selectedVariantId: string;
+    selectedVariantPath?: string;
+    selectedManifestPath?: string;
+    sourceFiles: string[];
+    requiredFiles: string[];
+    fallbackVisualSelection: boolean;
+  };
   designIntent: string[];
   architectSummary?: string;
   designSummary?: string;
