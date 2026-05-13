@@ -40,6 +40,10 @@ import {
   type NormalizedVisualPack,
   type VisualSelection,
 } from './FileVisualBankService';
+import {
+  resolvePremiumComponentSelection,
+  type PremiumComponentSelection,
+} from './PremiumComponentBankService';
 import { generateTheme, type DesignIntent, type ThemeMood } from './ThemeEngine';
 import type { SkeletonId } from './SkeletonRegistry';
 
@@ -50,6 +54,7 @@ export interface DesignContext {
   domain:    DomainManifest    | null;
   intent:    DesignIntent;
   visualSelection: VisualSelection;
+  premiumComponentSelection: PremiumComponentSelection;
   fallbackVisualSelection: boolean;
   /** Materialised theme: name + cssVars block + tailwindExtend */
   theme: ReturnType<typeof generateTheme>;
@@ -138,6 +143,12 @@ export async function resolveDesignContext(
     visualBankOverride: options.visualBankOverride,
     visualPacksOverride: options.visualPacksOverride,
   });
+  const premiumComponentSelection = resolvePremiumComponentSelection({
+    brief: prompt,
+    skeletonId,
+    domainId,
+    surfaces: visualSelection.surfaces,
+  });
 
   const mood = visualSelection.fallbackVisualSelection
     ? pickMood(domainId, prompt)
@@ -156,6 +167,7 @@ export async function resolveDesignContext(
     domain,
     intent,
     visualSelection,
+    premiumComponentSelection,
     fallbackVisualSelection: visualSelection.fallbackVisualSelection,
     theme,
   };
@@ -275,6 +287,44 @@ function visualSelectionPromptBlock(
   return lines.join('\n');
 }
 
+function premiumSelectionPromptBlock(selection: PremiumComponentSelection): string {
+  const lines = [
+    '',
+    'PREMIUM_COMPONENT_SELECTION:',
+    `selectedRecipeId: ${selection.selectedRecipeId ?? '(none)'}`,
+    `compatibleSkeletons: ${inlineList(selection.compatibleSkeletons)}`,
+    arrayBlock('componentSourceFiles', selection.componentSourceFiles),
+    arrayBlock('previewAdapterFiles', selection.previewAdapterFiles),
+    arrayBlock('mediaSlots', selection.mediaSlots),
+    arrayBlock('dependencyNotes', selection.dependencyNotes),
+    arrayBlock('usageRules', selection.usageRules),
+    arrayBlock('forbiddenPatterns', selection.forbiddenPatterns),
+    selection.selectedComponents.length === 0
+      ? 'selectedComponents: []'
+      : `selectedComponents:\n${selection.selectedComponents.map(component => [
+          `  - ${component.id}`,
+          `    source: ${component.source} (${component.sourceLicense} · ${component.sourceCommitOrVersion})`,
+          `    file: ${component.file}`,
+          `    previewAdapter: ${component.previewAdapter}`,
+          `    compatibleSkeletons: ${inlineList(component.compatibleSkeletons)}`,
+          `    mediaSlots: ${inlineList(component.mediaSlots)}`,
+          `    renderSafe: ${component.renderSafe}`,
+        ].join('\n')).join('\n')}`,
+  ];
+
+  lines.push(
+    '',
+    'CODER PREMIUM COMPONENT INSTRUCTIONS:',
+    '- Before inventing UI, check selected premium component recipe.',
+    '- Use available premium blocks if compatible.',
+    '- Do not recreate low-quality generic cards if a premium component exists.',
+    '- Do not use remote random media.',
+    '- Use generated media slots or local fallback assets.',
+  );
+
+  return lines.join('\n');
+}
+
 function inlineList(values: readonly string[]): string {
   return values.length > 0 ? values.join(', ') : '(none)';
 }
@@ -313,6 +363,7 @@ export function archetypeContextForArchitect(ctx: DesignContext): string {
     );
   }
   lines.push(visualSelectionPromptBlock(ctx.visualSelection, 'architect'));
+  lines.push(premiumSelectionPromptBlock(ctx.premiumComponentSelection));
   if (lines.length === 0) return '';
   return `\nPACK CONTEXT — your plan MUST satisfy this:\n${lines.join('\n')}\n`;
 }
@@ -346,6 +397,7 @@ DESIGN CONTRACT — ENFORCED BY VALIDATOR (your build will fail if you break thi
 
 Theme: ${ctx.theme.name}  (mood=${ctx.intent.mood}, contrast=${ctx.intent.contrast}, radius=${ctx.intent.radius})
 ${visualSelectionPromptBlock(ctx.visualSelection, 'coder')}
+${premiumSelectionPromptBlock(ctx.premiumComponentSelection)}
 ${archetypeSection}${domainSection}
 You may use ONLY these semantic Tailwind utilities for colour and surfaces:
   ${tokenList.join('  ')}
