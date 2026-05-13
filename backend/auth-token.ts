@@ -915,7 +915,7 @@ app.post('/dev-agent-mode', (req, res) => {
 
   const newMode = writeMode(requestedProvider);
   currentMode = newMode;
-  const claude = getClaudeCliStatus();
+  const claude = newMode.provider === 'claude' ? getClaudeCliStatus() : { available: false, version: null };
   const codex = getCodexCliStatus();
   const providerAvailable = newMode.provider !== 'off' && isProviderAvailable(newMode.provider);
   res.json({
@@ -935,7 +935,7 @@ app.post('/dev-agent-mode', (req, res) => {
 // Legacy compatibility for old frontend callers.
 app.get('/claude-mode', (_req, res) => {
   const mode = readMode();
-  const claude = getClaudeCliStatus();
+  const claude = mode.provider === 'claude' ? getClaudeCliStatus() : { available: false, version: null };
   res.json({
     provider: mode.provider,
     claudeMode: mode.claudeMode,
@@ -951,7 +951,7 @@ app.post('/claude-mode/toggle', (_req, res) => {
   const current = readMode();
   const newMode = writeMode(current.provider === 'claude' ? 'off' : 'claude');
   currentMode = newMode;
-  const claude = getClaudeCliStatus();
+  const claude = newMode.provider === 'claude' ? getClaudeCliStatus() : { available: false, version: null };
   res.json({
     provider: newMode.provider,
     claudeMode: newMode.claudeMode,
