@@ -1,5 +1,72 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import type { ArchetypeManifest, DomainManifest } from '../PrototypeBankService';
+
+const archetypes: Record<string, ArchetypeManifest> = {
+  'dashboard-workspace': {
+    id: 'dashboard-workspace',
+    type: 'archetype',
+    name: 'Dashboard Workspace',
+    description: 'Desktop-first operating workspace',
+    whenToUse: ['operator dashboards'],
+    navigation: 'sidebar',
+    includes: ['KPICard', 'DataTable', 'OnboardingChecklist'],
+    forbids: ['bottom-tab navigation'],
+    routes: ['/', '/dashboard'],
+    requiredModules: ['dashboard', 'table', 'settings'],
+    optionalModules: ['notifications'],
+    entities: ['workspace', 'report', 'task'],
+  },
+  'consumer-feed': {
+    id: 'consumer-feed',
+    type: 'archetype',
+    name: 'Consumer Feed',
+    description: 'Scroll-friendly consumer product shell',
+    whenToUse: ['consumer mobile experiences'],
+    navigation: 'bottom-tabs',
+    includes: ['Hero', 'Feed', 'BottomTabs'],
+    forbids: ['dense desktop-only tables'],
+    routes: ['/', '/feed'],
+    requiredModules: ['feed', 'profile'],
+    optionalModules: ['search'],
+    entities: ['user', 'post', 'message'],
+  },
+};
+
+const domains: Record<string, DomainManifest> = {
+  medicine: {
+    id: 'medicine',
+    type: 'domain',
+    name: 'Medicine',
+    entities: ['patient', 'appointment'],
+    roles: ['clinician'],
+    typicalFlows: ['review status', 'plan follow-up'],
+    restrictions: ['Avoid alarming visuals'],
+    uiPatterns: ['status cards', 'calm summaries'],
+    recommendedDesign: 'calm',
+    recommendedArchetypes: ['dashboard-workspace'],
+  },
+  fintech: {
+    id: 'fintech',
+    type: 'domain',
+    name: 'Fintech',
+    entities: ['wallet', 'transaction'],
+    roles: ['operator'],
+    typicalFlows: ['track balances', 'review transactions'],
+    restrictions: ['Emphasize trust'],
+    uiPatterns: ['metrics', 'tables'],
+    recommendedDesign: 'corporate',
+    recommendedArchetypes: ['dashboard-workspace'],
+  },
+};
+
+vi.mock('../PrototypeBankService', () => ({
+  PrototypeBankService: {
+    getArchetype: vi.fn(async (id: string) => archetypes[id] ?? null),
+    getDomain: vi.fn(async (id: string) => domains[id] ?? null),
+  },
+}));
+
 import {
   resolveDesignContext,
   validateDesignContract,
@@ -55,6 +122,7 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/navigation/);
     expect(txt).toMatch(/DOMAIN/);
     expect(txt).toMatch(/VISUAL_BANK_SELECTION/);
+    expect(txt).toMatch(/PREMIUM_COMPONENT_SELECTION/);
     expect(txt).toMatch(/selectedVariantPath: prototype-bank\/design-packs\/domain\/saas-dashboard\/visual-variants\/.+\.json/);
   });
 
@@ -65,10 +133,15 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/bg-blue-500/);
     expect(txt).toMatch(/bg-background text-foreground/);
     expect(txt).toMatch(/VISUAL_BANK_SELECTION/);
+    expect(txt).toMatch(/PREMIUM_COMPONENT_SELECTION/);
+    expect(txt).toMatch(/selectedRecipeId: health-wellness-mobile|selectedRecipeId: mobile-consumer-app/);
+    expect(txt).toMatch(/componentSourceFiles:/);
+    expect(txt).toMatch(/previewAdapterFiles:/);
     expect(txt).toMatch(/fallbackVisualSelection: false/);
     expect(txt).toMatch(/prototype-bank\/design-packs\/domain\/mobile-app\/visual-variants\/.+\.json/);
     expect(txt).toMatch(/sourceFiles:/);
     expect(txt).toMatch(/Use this selected visual variant as the source of design truth/);
+    expect(txt).toMatch(/Before inventing UI, check selected premium component recipe/);
   });
 
   it('marks hardcoded visual selection as fallback when file packs are unavailable', async () => {

@@ -1,0 +1,68 @@
+{
+  "id": "premium-social-profile-header-01",
+  "name": "Profile Header",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "social",
+  "kind": "profile-header",
+  "file": "prototype-bank/design-packs/premium-components/social/premium-social-profile-header-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-social-profile-header-01.preview.tsx",
+  "compatibleSkeletons": [
+    "social-community"
+  ],
+  "domains": [
+    "social",
+    "creator",
+    "community"
+  ],
+  "surfaces": [
+    "profile",
+    "social"
+  ],
+  "toneProfiles": [
+    "premium",
+    "friendly"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not use for anonymous moderation flows"
+  ],
+  "requiresMedia": true,
+  "supportsMediaSlot": true,
+  "mediaSlots": [
+    "cover-image",
+    "avatar"
+  ],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite React profile header layout adapted to Studio-safe media slots."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

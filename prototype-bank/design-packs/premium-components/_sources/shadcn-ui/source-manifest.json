@@ -1,0 +1,17 @@
+{
+  "id": "shadcn-ui",
+  "name": "shadcn/ui",
+  "officialUrl": "https://ui.shadcn.com",
+  "repoUrl": "https://github.com/shadcn-ui/ui",
+  "license": "MIT",
+  "licenseFileVerified": true,
+  "licenseFilePathOrUrl": "https://raw.githubusercontent.com/shadcn-ui/ui/main/LICENSE.md",
+  "sourceCommitOrVersion": "package.json:0.0.1",
+  "allowedForLocalImport": true,
+  "importMode": "copy-paste-normalized",
+  "dependencyRisk": "low",
+  "notes": [
+    "License verified from upstream LICENSE.md.",
+    "Used for primitives, filters, and token-safe component composition."
+  ]
+}

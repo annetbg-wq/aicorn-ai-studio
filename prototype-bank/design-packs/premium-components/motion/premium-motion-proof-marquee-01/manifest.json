@@ -1,0 +1,65 @@
+{
+  "id": "premium-motion-proof-marquee-01",
+  "name": "Proof Marquee Strip",
+  "source": "magic-ui",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "apps/www/package.json:0.1.1",
+  "category": "motion",
+  "kind": "marquee",
+  "file": "prototype-bank/design-packs/premium-components/motion/premium-motion-proof-marquee-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-motion-proof-marquee-01.preview.tsx",
+  "compatibleSkeletons": [
+    "landing-page"
+  ],
+  "domains": [
+    "saas",
+    "social",
+    "ai-tools"
+  ],
+  "surfaces": [
+    "marquee",
+    "social-proof"
+  ],
+  "toneProfiles": [
+    "premium",
+    "modern"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "expressive",
+  "dependencies": [
+    "framer-motion"
+  ],
+  "forbiddenUseCases": [
+    "Do not use for long compliance copy"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Magic UI marquee adapted to local text-only proof strip."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

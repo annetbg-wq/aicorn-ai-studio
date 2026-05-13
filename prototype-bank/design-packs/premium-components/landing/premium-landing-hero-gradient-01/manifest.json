@@ -1,0 +1,72 @@
+{
+  "id": "premium-landing-hero-gradient-01",
+  "name": "Gradient Hero",
+  "source": "magic-ui",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "apps/www/package.json:0.1.1",
+  "category": "landing",
+  "kind": "hero",
+  "file": "prototype-bank/design-packs/premium-components/landing/premium-landing-hero-gradient-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-landing-hero-gradient-01.preview.tsx",
+  "compatibleSkeletons": [
+    "landing-page",
+    "saas-dashboard"
+  ],
+  "domains": [
+    "saas",
+    "ai-tools",
+    "productivity",
+    "fintech"
+  ],
+  "surfaces": [
+    "landing",
+    "hero",
+    "marketing"
+  ],
+  "toneProfiles": [
+    "premium",
+    "modern",
+    "trustworthy"
+  ],
+  "densityProfiles": [
+    "comfortable",
+    "spacious"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Avoid clinical-heavy medical positioning if using decorative effects"
+  ],
+  "requiresMedia": true,
+  "supportsMediaSlot": true,
+  "mediaSlots": [
+    "hero-visual"
+  ],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Adapted from Magic UI hero/spotlight compositions."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

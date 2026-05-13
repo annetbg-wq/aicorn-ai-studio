@@ -1,0 +1,66 @@
+{
+  "id": "premium-primitives-button-icon-01",
+  "name": "Icon Split Button",
+  "source": "shadcn-ui",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "package.json:0.0.1",
+  "category": "primitives",
+  "kind": "button",
+  "file": "prototype-bank/design-packs/premium-components/primitives/premium-primitives-button-icon-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-primitives-button-icon-01.preview.tsx",
+  "compatibleSkeletons": [
+    "saas-dashboard",
+    "mobile-app"
+  ],
+  "domains": [
+    "ai-tools",
+    "productivity",
+    "fintech"
+  ],
+  "surfaces": [
+    "toolbar",
+    "composer"
+  ],
+  "toneProfiles": [
+    "modern",
+    "efficient"
+  ],
+  "densityProfiles": [
+    "compact"
+  ],
+  "motionProfile": "gentle",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not use for text-heavy flows"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Derived from shadcn/ui icon button conventions."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

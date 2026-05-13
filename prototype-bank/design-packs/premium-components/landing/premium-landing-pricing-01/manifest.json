@@ -1,0 +1,66 @@
+{
+  "id": "premium-landing-pricing-01",
+  "name": "Pricing Block",
+  "source": "flowbite-react",
+  "sourceLicense": "MIT",
+  "sourceCommitOrVersion": "packages/ui/package.json:0.12.17",
+  "category": "landing",
+  "kind": "pricing",
+  "file": "prototype-bank/design-packs/premium-components/landing/premium-landing-pricing-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-landing-pricing-01.preview.tsx",
+  "compatibleSkeletons": [
+    "landing-page"
+  ],
+  "domains": [
+    "saas",
+    "ai-tools",
+    "productivity",
+    "fintech"
+  ],
+  "surfaces": [
+    "landing",
+    "pricing"
+  ],
+  "toneProfiles": [
+    "premium",
+    "clear"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "none",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not promise unsupported enterprise features"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Flowbite pricing card layout normalized to token vars."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

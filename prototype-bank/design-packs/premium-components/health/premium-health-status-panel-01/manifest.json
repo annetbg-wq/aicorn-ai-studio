@@ -1,0 +1,65 @@
+{
+  "id": "premium-health-status-panel-01",
+  "name": "Medical-safe Status Panel",
+  "source": "tremor",
+  "sourceLicense": "Apache-2.0",
+  "sourceCommitOrVersion": "package.json:0.0.0-development",
+  "category": "health",
+  "kind": "status-panel",
+  "file": "prototype-bank/design-packs/premium-components/health/premium-health-status-panel-01/component.tsx",
+  "previewAdapter": "prototype-bank/design-packs/premium-components/preview-adapters/premium-health-status-panel-01.preview.tsx",
+  "compatibleSkeletons": [
+    "mobile-app",
+    "saas-dashboard"
+  ],
+  "domains": [
+    "health",
+    "care"
+  ],
+  "surfaces": [
+    "status",
+    "panel"
+  ],
+  "toneProfiles": [
+    "trustworthy",
+    "calm"
+  ],
+  "densityProfiles": [
+    "comfortable"
+  ],
+  "motionProfile": "none",
+  "dependencies": [
+    "lucide-react"
+  ],
+  "forbiddenUseCases": [
+    "Do not display emergency claims or diagnoses"
+  ],
+  "requiresMedia": false,
+  "supportsMediaSlot": false,
+  "mediaSlots": [],
+  "tokensUsed": [
+    "--vb-bg",
+    "--vb-surface",
+    "--vb-text",
+    "--vb-text-muted",
+    "--vb-accent",
+    "--vb-border",
+    "--vb-radius-md",
+    "--vb-radius-lg",
+    "--vb-shadow-sm",
+    "--vb-duration-base"
+  ],
+  "renderSafe": true,
+  "qualityNotes": [
+    "Tremor status panel adapted for calm health dashboards."
+  ],
+  "usageRules": [
+    "Accept className overrides only; keep token variables intact.",
+    "Use local or generated media for declared media slots.",
+    "Do not replace with generic low-fidelity cards when this premium block is selected."
+  ],
+  "dependencyNotes": [
+    "No remote assets or CDN dependencies.",
+    "Compatible with React + Vite runtime in Studio."
+  ]
+}

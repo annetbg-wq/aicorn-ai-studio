@@ -1,0 +1,17 @@
+{
+  "id": "magic-ui",
+  "name": "Magic UI",
+  "officialUrl": "https://magicui.design",
+  "repoUrl": "https://github.com/magicuidesign/magicui",
+  "license": "MIT",
+  "licenseFileVerified": true,
+  "licenseFilePathOrUrl": "https://raw.githubusercontent.com/magicuidesign/magicui/main/LICENSE.md",
+  "sourceCommitOrVersion": "apps/www/package.json:0.1.1",
+  "allowedForLocalImport": true,
+  "importMode": "copy-paste-normalized",
+  "dependencyRisk": "medium",
+  "notes": [
+    "License verified from upstream LICENSE.md.",
+    "Used selectively for motion-rich hero and animation patterns adapted to plain React/Vite."
+  ]
+}
