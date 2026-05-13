@@ -1,0 +1,33 @@
+{
+  "id": "dashboard-operator",
+  "compatibleSkeletons": [
+    "saas-dashboard",
+    "productivity-tool"
+  ],
+  "domains": [
+    "saas",
+    "ai-tools",
+    "productivity",
+    "fintech"
+  ],
+  "requiredBlocks": [
+    "kpi",
+    "chart-shell",
+    "table-list",
+    "filter-search",
+    "activity-feed"
+  ],
+  "optionalBlocks": [
+    "analytics-chart",
+    "comparison-table"
+  ],
+  "mediaPolicy": {
+    "mediaNeeded": true,
+    "types": [
+      "dashboard-preview",
+      "abstract-visual"
+    ]
+  },
+  "motionProfile": "gentle",
+  "qualityBar": "premium"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "react-bits",
+  "name": "React Bits",
+  "officialUrl": "https://reactbits.dev",
+  "repoUrl": "https://github.com/DavidHDev/react-bits",
+  "license": "unverified/restricted",
+  "licenseFileVerified": false,
+  "licenseFilePathOrUrl": "https://github.com/DavidHDev/react-bits",
+  "sourceCommitOrVersion": "package.json:0.0.0",
+  "allowedForLocalImport": false,
+  "importMode": "copy-paste-normalized",
+  "dependencyRisk": "high",
+  "notes": [
+    "Public package metadata was found but no verifiable upstream license file was confirmed in this session.",
+    "React Bits remains excluded from local import because the licensing terms are not cleanly verified for copy-paste normalization here."
+  ]
+}
