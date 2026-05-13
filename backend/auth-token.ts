@@ -157,7 +157,7 @@ function readMode(): ModeConfig {
   } catch {
     // fallthrough to default mode
   }
-  return { provider: 'claude', claudeMode: true, updatedAt: '' };
+  return { provider: 'off', claudeMode: false, updatedAt: '' };
 }
 
 function writeMode(provider: DevAgentProvider): ModeConfig {
@@ -876,7 +876,8 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.get('/token', (_req, res) => {
-  const claude = getClaudeCliStatus();
+  const mode = readMode();
+  const claude = mode.provider === 'claude' ? getClaudeCliStatus() : { available: false, version: null };
   const codex = getCodexCliStatus();
   res.json({
     hasToken: claude.available || codex.available,
@@ -889,7 +890,7 @@ app.get('/token', (_req, res) => {
 
 app.get('/dev-agent-mode', (_req, res) => {
   const mode = readMode();
-  const claude = getClaudeCliStatus();
+  const claude = mode.provider === 'claude' ? getClaudeCliStatus() : { available: false, version: null };
   const codex = getCodexCliStatus();
   const providerAvailable = mode.provider !== 'off' && isProviderAvailable(mode.provider);
   res.json({
