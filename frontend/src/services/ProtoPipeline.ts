@@ -72,6 +72,11 @@ export interface StepOutputMetrics {
   build_size_kb?: number;
   preview_url?: string;
   files?: string[];
+  selected_visual_pack_id?: string;
+  selected_visual_variant_id?: string;
+  selected_visual_variant_path?: string;
+  visual_source_files?: string[];
+  fallback_visual_selection?: boolean;
 }
 
 export interface StepExecutionMetrics {
@@ -363,22 +368,38 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     let designCtx: DesignContext;
     const packStartedAt = Date.now();
     try {
-      designCtx = await resolveDesignContext(clarifiedPrompt, config.skeletonId);
+      designCtx = await resolveDesignContext(clarifiedPrompt, config.skeletonId, {
+        projectId: config.buildId,
+      });
       log(
         `[design] archetype=${designCtx.archetype?.id ?? 'none'}` +
         ` domain=${designCtx.domain?.id ?? 'none'}` +
-        ` theme=${designCtx.theme.name}`,
+        ` theme=${designCtx.theme.name}` +
+        ` visual=${designCtx.visualSelection.selectedPackId}/${designCtx.visualSelection.selectedVariantId}` +
+        ` fallback=${designCtx.visualSelection.fallbackVisualSelection}`,
       );
+      stepResults.pack = {
+        output: {
+          selected_visual_pack_id: designCtx.visualSelection.selectedPackId,
+          selected_visual_variant_id: designCtx.visualSelection.selectedVariantId,
+          selected_visual_variant_path: designCtx.visualSelection.selectedVariantPath,
+          visual_source_files: designCtx.visualSelection.sourceFiles,
+          fallback_visual_selection: designCtx.visualSelection.fallbackVisualSelection,
+        },
+      };
       emit(
         'pack', 'done',
-        `${designCtx.archetype?.id ?? 'base'} · ${designCtx.theme.name}`,
+        `${designCtx.visualSelection.selectedPackId} · ${designCtx.visualSelection.selectedVariantId}`,
+        stepResults.pack,
       );
     } catch (err) {
       if (isAbort(err)) return fail('pack', 'aborted');
       log(`[design] resolveDesignContext failed: ${(err as Error).message}`, 'warn');
       emit('pack', 'error', 'failed — using default');
       // Fall back to a default corporate-medium theme so the pipeline still runs.
-      designCtx = await resolveDesignContext('', config.skeletonId);
+      designCtx = await resolveDesignContext('', config.skeletonId, {
+        projectId: config.buildId,
+      });
     }
     fastPathTelemetry.steps.packageMs = Date.now() - packStartedAt;
 
@@ -539,6 +560,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
             signal:      config.signal,
             routeOverrides: config.routeOverrides,
             onLog:       log,
+            designCtx,
           });
           currentFiles = { ...currentFiles, ...repaired };
         } catch (repairErr) {
@@ -588,16 +610,31 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       domainId: designCtx.domain?.id ?? undefined,
       domainName: designCtx.domain?.name ?? undefined,
       themeName: designCtx.theme.name,
+      visualBank: {
+        selectedPackId: designCtx.visualSelection.selectedPackId,
+        selectedVariantId: designCtx.visualSelection.selectedVariantId,
+        selectedVariantPath: designCtx.visualSelection.selectedVariantPath,
+        selectedManifestPath: designCtx.visualSelection.selectedManifestPath,
+        sourceFiles: designCtx.visualSelection.sourceFiles,
+        requiredFiles: designCtx.visualSelection.requiredFiles,
+        fallbackVisualSelection: designCtx.visualSelection.fallbackVisualSelection,
+      },
       designIntent: [
         designCtx.archetype ? `${designCtx.archetype.name} (${designCtx.archetype.id})` : null,
         designCtx.domain ? `${designCtx.domain.name} (${designCtx.domain.id})` : null,
+        `Visual bank ${designCtx.visualSelection.selectedPackId}/${designCtx.visualSelection.selectedVariantId}`,
+        designCtx.visualSelection.selectedVariantPath ? `Variant file ${designCtx.visualSelection.selectedVariantPath}` : null,
+        `Visual fallback ${designCtx.visualSelection.fallbackVisualSelection}`,
         `Theme ${designCtx.theme.name}`,
         `Mood ${designCtx.intent.mood}`,
         `Contrast ${designCtx.intent.contrast}`,
         `Radius ${designCtx.intent.radius}`,
       ].filter((item): item is string => Boolean(item)),
       architectSummary: plan.summary,
-      designSummary: `Theme ${designCtx.theme.name} with ${designCtx.intent.mood} mood, ${designCtx.intent.contrast} contrast, ${designCtx.intent.radius} radius.`,
+      designSummary:
+        `Visual ${designCtx.visualSelection.selectedPackId}/${designCtx.visualSelection.selectedVariantId} ` +
+        `(${designCtx.visualSelection.selectedVariantPath ?? 'fallback'}) with theme ${designCtx.theme.name}; ` +
+        `fallbackVisualSelection=${designCtx.visualSelection.fallbackVisualSelection}.`,
       steps: stepTimeline,
       compileCount,
       finalPreviewMounted,
@@ -1087,6 +1124,7 @@ async function runRepair(input: {
   routeOverrides?: RouteOverrideMap;
   onLog:        (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onUsage?:     (usage: StepLlmMetrics) => void;
+  designCtx?:   DesignContext;
 }): Promise<Record<string, string>> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   // Heuristic: pull file paths the error log references; fall back to all files.
@@ -1104,6 +1142,7 @@ async function runRepair(input: {
   const system = `You are fixing build errors. Re-emit the files below with the bugs fixed.
 Same FILE/END marker format. Only emit files you actually changed. Do not modify any skeleton-locked path.
 SKELETON: ${skeleton.label} (${skeleton.id})
+${input.designCtx ? '\n' + designContractForCoder(input.designCtx) : ''}
 
 BUILD ERROR LOG (truncated):
 ${input.errorLog.slice(0, 4000)}`;

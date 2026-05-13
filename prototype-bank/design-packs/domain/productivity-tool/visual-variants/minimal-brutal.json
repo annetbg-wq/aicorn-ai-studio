@@ -1,0 +1,17 @@
+{
+  "id": "minimal-brutal",
+  "packId": "productivity-tool",
+  "skeleton": "productivity-tool",
+  "name": "Minimal Brutal",
+  "theme": "neutral",
+  "spacing": "comfortable",
+  "typography": "sans-technical",
+  "radius": { "card": "4px", "button": "4px", "input": "4px", "panel": "4px" },
+  "motionPreset": "reduced",
+  "densityProfile": "compact",
+  "targetUsers": "minimal task systems, keyboard-first productivity tools, operator workspaces",
+  "layout": "sharp monochrome workspace with strong borders, keyboard-first command palette",
+  "componentHints": ["command-palette", "list-item", "tabs", "sidebar-nav"],
+  "layoutHints": ["visible grid", "low ornament", "keyboard shortcut affordances"],
+  "forbiddenPatterns": ["rounded bubbly card stacks", "generic blank Tailwind fallback"]
+}

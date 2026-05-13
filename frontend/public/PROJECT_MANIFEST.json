@@ -110,6 +110,7 @@
     "modules/quality/QualityPanel.tsx",
     "modules/quality/__tests__/QualityPanel.architect-real.test.ts",
     "modules/quality/__tests__/QualityPanel.flow-chain.test.tsx",
+    "modules/visual-bank/VisualBankModule.tsx",
     "pages/LoginPage.tsx",
     "pages/ProjectsPage.tsx",
     "scripts/generateManifest.ts",
@@ -161,6 +162,7 @@
     "services/FigmaClient.ts",
     "services/FigmaOAuthService.ts",
     "services/FigmaService.ts",
+    "services/FileVisualBankService.ts",
     "services/founderBriefBuilder.ts",
     "services/GeminiService.ts",
     "services/GenerationTracer.ts",
@@ -234,6 +236,7 @@
     "services/__tests__/compileGuard.test.ts",
     "services/__tests__/DesignContract.test.ts",
     "services/__tests__/diffReviewFlow.test.ts",
+    "services/__tests__/FileVisualBankService.test.ts",
     "services/__tests__/GenerationQualityService.test.ts",
     "services/__tests__/GenerationTracer.designTelemetry.test.ts",
     "services/__tests__/GenerationTracer.traceLayers.test.ts",
@@ -322,5 +325,5 @@
     "public/PROJECT_MANIFEST.json",
     "supabase/migrations/"
   ],
-  "last_scan_timestamp": "2026-05-12T21:02:11.833Z"
+  "last_scan_timestamp": "2026-05-13T09:13:04.391Z"
 }

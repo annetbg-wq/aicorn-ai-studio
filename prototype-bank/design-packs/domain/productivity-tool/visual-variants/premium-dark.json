@@ -1,0 +1,17 @@
+{
+  "id": "premium-dark",
+  "packId": "productivity-tool",
+  "skeleton": "productivity-tool",
+  "name": "Premium Dark",
+  "theme": "fintech-indigo",
+  "spacing": "comfortable",
+  "typography": "sans-technical",
+  "radius": { "card": "14px", "button": "10px", "input": "10px", "panel": "16px" },
+  "motionPreset": "gentle",
+  "densityProfile": "comfortable",
+  "targetUsers": "premium productivity suites, executive workspaces, focused teams",
+  "layout": "dark sidebar workspace, high-contrast command palette, premium task panels",
+  "componentHints": ["sidebar-nav", "dashboard-header", "metric-card", "command-palette"],
+  "layoutHints": ["dark shell", "strong active states", "compact KPI strip above work area"],
+  "forbiddenPatterns": ["pastel-only palette", "generic blank Tailwind fallback"]
+}

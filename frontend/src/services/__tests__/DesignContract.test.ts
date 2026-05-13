@@ -13,6 +13,9 @@ describe('DesignContract — resolver', () => {
     const ctx = await resolveDesignContext('a project tracker for teams', 'saas-dashboard');
     expect(ctx.archetype?.id).toBe('dashboard-workspace');
     expect(ctx.theme.cssVars).toMatch(/--background:/);
+    expect(ctx.fallbackVisualSelection).toBe(false);
+    expect(ctx.visualSelection.selectedPackId).toBe('saas-dashboard');
+    expect(ctx.visualSelection.selectedVariantPath).toMatch(/prototype-bank\/design-packs\/domain\/saas-dashboard\/visual-variants\/.+\.json/);
   });
 
   it('picks medicine domain on medical keywords', async () => {
@@ -28,9 +31,11 @@ describe('DesignContract — resolver', () => {
     expect(ctx.intent.mood).toBe('corporate');
   });
 
-  it('falls back to generic mood when no domain matches', async () => {
+  it('uses file-backed visual bank for known skeleton even when no semantic domain matches', async () => {
     const ctx = await resolveDesignContext('a thing', 'saas-dashboard');
     expect(ctx.domain).toBeNull();
+    expect(ctx.fallbackVisualSelection).toBe(false);
+    expect(ctx.visualSelection.selectedPackId).toBe('saas-dashboard');
     expect(ctx.theme.cssVars.length).toBeGreaterThan(50);
   });
 
@@ -49,6 +54,8 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/ARCHETYPE/);
     expect(txt).toMatch(/navigation/);
     expect(txt).toMatch(/DOMAIN/);
+    expect(txt).toMatch(/VISUAL_BANK_SELECTION/);
+    expect(txt).toMatch(/selectedVariantPath: prototype-bank\/design-packs\/domain\/saas-dashboard\/visual-variants\/.+\.json/);
   });
 
   it('coder contract bans raw colors and forbids tailwind palette utilities', async () => {
@@ -57,6 +64,21 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/FORBIDDEN/);
     expect(txt).toMatch(/bg-blue-500/);
     expect(txt).toMatch(/bg-background text-foreground/);
+    expect(txt).toMatch(/VISUAL_BANK_SELECTION/);
+    expect(txt).toMatch(/fallbackVisualSelection: false/);
+    expect(txt).toMatch(/prototype-bank\/design-packs\/domain\/mobile-app\/visual-variants\/.+\.json/);
+    expect(txt).toMatch(/sourceFiles:/);
+    expect(txt).toMatch(/Use this selected visual variant as the source of design truth/);
+  });
+
+  it('marks hardcoded visual selection as fallback when file packs are unavailable', async () => {
+    const ctx = await resolveDesignContext('test', 'mobile-app', { visualPacksOverride: [] });
+    const txt = designContractForCoder(ctx);
+
+    expect(ctx.fallbackVisualSelection).toBe(true);
+    expect(ctx.visualSelection.selectedPackId).toBe('hardcoded-fallback');
+    expect(txt).toMatch(/VISUAL_BANK_SELECTION/);
+    expect(txt).toMatch(/fallbackVisualSelection: true/);
   });
 });
 

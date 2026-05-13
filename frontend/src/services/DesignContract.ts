@@ -34,6 +34,12 @@ import {
   type ArchetypeManifest,
   type DomainManifest,
 } from './PrototypeBankService';
+import {
+  resolveFileVisualSelection,
+  type NormalizedVisualBank,
+  type NormalizedVisualPack,
+  type VisualSelection,
+} from './FileVisualBankService';
 import { generateTheme, type DesignIntent, type ThemeMood } from './ThemeEngine';
 import type { SkeletonId } from './SkeletonRegistry';
 
@@ -43,8 +49,20 @@ export interface DesignContext {
   archetype: ArchetypeManifest | null;
   domain:    DomainManifest    | null;
   intent:    DesignIntent;
+  visualSelection: VisualSelection;
+  fallbackVisualSelection: boolean;
   /** Materialised theme: name + cssVars block + tailwindExtend */
   theme: ReturnType<typeof generateTheme>;
+}
+
+export interface ResolveDesignContextOptions {
+  projectId?: string;
+  semanticDomainId?: string | null;
+  surface?: string | null;
+  subdomain?: string | null;
+  tone?: string | null;
+  visualBankOverride?: NormalizedVisualBank;
+  visualPacksOverride?: NormalizedVisualPack[];
 }
 
 export interface DesignViolation {
@@ -102,22 +120,149 @@ function pickMood(domainId: string | null, prompt: string): ThemeMood {
 export async function resolveDesignContext(
   prompt: string,
   skeletonId: SkeletonId,
+  options: ResolveDesignContextOptions = {},
 ): Promise<DesignContext> {
   const archetypeId = ARCHETYPE_BY_SKELETON[skeletonId] ?? null;
   const archetype   = archetypeId ? await PrototypeBankService.getArchetype(archetypeId) : null;
-  const domainId    = pickDomainId(prompt);
+  const domainId    = options.semanticDomainId ?? pickDomainId(prompt);
   const domain      = domainId ? await PrototypeBankService.getDomain(domainId) : null;
+  const visualSelection = resolveFileVisualSelection({
+    brief: prompt,
+    skeletonId,
+    projectId: options.projectId,
+    semanticDomainId: domainId,
+    semanticDomain: domain,
+    surface: options.surface,
+    subdomain: options.subdomain,
+    tone: options.tone,
+    visualBankOverride: options.visualBankOverride,
+    visualPacksOverride: options.visualPacksOverride,
+  });
 
-  const mood = pickMood(domainId, prompt);
+  const mood = visualSelection.fallbackVisualSelection
+    ? pickMood(domainId, prompt)
+    : moodFromVisualSelection(visualSelection);
   const intent: DesignIntent = {
     mood,
-    contrast: mood === 'luxury' || mood === 'brutal' ? 'high' : 'medium',
-    radius:   mood === 'brutal' ? 'sharp' : mood === 'playful' ? 'pill' : 'soft',
-    seed:     `${skeletonId}:${domainId ?? 'generic'}`,
+    contrast: contrastFromVisualSelection(visualSelection, mood),
+    radius:   radiusFromVisualSelection(visualSelection, mood),
+    seed:     visualSelection.variationSeed || `${skeletonId}:${domainId ?? 'generic'}`,
   };
   const theme = generateTheme(intent);
 
-  return { archetype, domain, intent, theme };
+  return {
+    archetype,
+    domain,
+    intent,
+    visualSelection,
+    fallbackVisualSelection: visualSelection.fallbackVisualSelection,
+    theme,
+  };
+}
+
+function moodFromVisualSelection(selection: VisualSelection): ThemeMood {
+  const text = [
+    selection.selectedVariantId,
+    selection.theme,
+    selection.trustProfile,
+    selection.toneProfile,
+    selection.colorFamily,
+    selection.targetUsers,
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (/(fintech|finance|financial|corporate|bank|compliance)/.test(text)) return 'corporate';
+  if (/(clinical|medical|health|patient|care|calm|soft|wellness)/.test(text)) return 'calm';
+  if (/(playful|creator|social|game|fun)/.test(text)) return 'playful';
+  if (/(brutal|minimal|sharp)/.test(text)) return 'brutal';
+  if (/(premium|luxury|elite|dark)/.test(text)) return 'luxury';
+  return 'corporate';
+}
+
+function contrastFromVisualSelection(
+  selection: VisualSelection,
+  mood: ThemeMood,
+): NonNullable<DesignIntent['contrast']> {
+  const text = [
+    selection.selectedVariantId,
+    selection.toneProfile,
+    selection.colorFamily,
+    selection.theme,
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (/(premium|dark|brutal|minimal|fintech)/.test(text)) return 'high';
+  if (/(soft|calm|clinical|wellness)/.test(text)) return 'low';
+  return mood === 'luxury' || mood === 'brutal' ? 'high' : 'medium';
+}
+
+function radiusFromVisualSelection(
+  selection: VisualSelection,
+  mood: ThemeMood,
+): NonNullable<DesignIntent['radius']> {
+  const radiusText = typeof selection.radius === 'string'
+    ? selection.radius
+    : JSON.stringify(selection.radius);
+  const text = `${selection.selectedVariantId} ${selection.toneProfile} ${radiusText}`.toLowerCase();
+  if (/9999|full|pill|rounded/.test(text)) return 'pill';
+  if (/\b(4px|6px|8px|sharp|brutal|minimal|corporate|clinical)\b/.test(text)) return 'sharp';
+  return mood === 'brutal' ? 'sharp' : mood === 'playful' ? 'pill' : 'soft';
+}
+
+function visualSelectionPromptBlock(
+  selection: VisualSelection,
+  audience: 'architect' | 'coder',
+): string {
+  const lines = [
+    '',
+    'VISUAL_BANK_SELECTION:',
+    `selectedPackId: ${selection.selectedPackId}`,
+    `selectedVariantId: ${selection.selectedVariantId}`,
+    `selectedVariantPath: ${selection.selectedVariantPath ?? '(none)'}`,
+    `selectedManifestPath: ${selection.selectedManifestPath ?? '(none)'}`,
+    `compatibleSkeletons: ${inlineList(selection.compatibleSkeletons)}`,
+    `domains: ${inlineList(selection.domains)}`,
+    `subdomains: ${inlineList(selection.subdomains)}`,
+    `surfaces: ${inlineList(selection.surfaces)}`,
+    `trustProfile: ${selection.trustProfile}`,
+    `toneProfile: ${selection.toneProfile}`,
+    `theme: ${selection.theme}`,
+    `colorFamily: ${selection.colorFamily}`,
+    `spacing: ${selection.spacing}`,
+    `typography: ${selection.typography}`,
+    `radius: ${formatJson(selection.radius)}`,
+    `motionPreset: ${selection.motionPreset}`,
+    arrayBlock('tokenHints', selection.tokenHints),
+    arrayBlock('componentHints', selection.componentHints),
+    arrayBlock('layoutHints', selection.layoutHints),
+    arrayBlock('forbiddenPatterns', selection.forbiddenPatterns),
+    arrayBlock('requiredFiles', selection.requiredFiles),
+    arrayBlock('sourceFiles', selection.sourceFiles),
+    `fallbackVisualSelection: ${selection.fallbackVisualSelection}`,
+  ];
+
+  if (audience === 'coder') {
+    lines.push(
+      '',
+      'CODER VISUAL BANK INSTRUCTIONS:',
+      '- Use this selected visual variant as the source of design truth.',
+      '- Do not invent a separate visual system if fallbackVisualSelection is false.',
+      '- Respect spacing, typography, radius, motionPreset, colorFamily, componentHints, and layoutHints.',
+      '- Do not use forbiddenPatterns.',
+      '- If requiredFiles/sourceFiles are provided, copy, import, or adapt them into generated output where applicable.',
+    );
+  }
+
+  return lines.join('\n');
+}
+
+function inlineList(values: readonly string[]): string {
+  return values.length > 0 ? values.join(', ') : '(none)';
+}
+
+function arrayBlock(label: string, values: readonly string[]): string {
+  if (values.length === 0) return `${label}: []`;
+  return `${label}:\n${values.map(value => `  - ${value}`).join('\n')}`;
+}
+
+function formatJson(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
 // ─── Prompt fragments ─────────────────────────────────────────────────────────
@@ -144,6 +289,7 @@ export function archetypeContextForArchitect(ctx: DesignContext): string {
       `  restrictions:    ${ctx.domain.restrictions.join('; ') || '(none)'}`,
     );
   }
+  lines.push(visualSelectionPromptBlock(ctx.visualSelection, 'architect'));
   if (lines.length === 0) return '';
   return `\nPACK CONTEXT — your plan MUST satisfy this:\n${lines.join('\n')}\n`;
 }
@@ -176,6 +322,7 @@ export function designContractForCoder(ctx: DesignContext): string {
 DESIGN CONTRACT — ENFORCED BY VALIDATOR (your build will fail if you break this)
 
 Theme: ${ctx.theme.name}  (mood=${ctx.intent.mood}, contrast=${ctx.intent.contrast}, radius=${ctx.intent.radius})
+${visualSelectionPromptBlock(ctx.visualSelection, 'coder')}
 ${archetypeSection}${domainSection}
 You may use ONLY these semantic Tailwind utilities for colour and surfaces:
   ${tokenList.join('  ')}
@@ -187,7 +334,7 @@ FORBIDDEN — any of these will fail validation:
   • Generic blank fallback such as  className="bg-white text-black"
     (use bg-background text-foreground instead)
 
-Use lucide-react icons; use rounded-2xl/rounded-3xl for cards;
+Use lucide-react icons; choose Tailwind radius utilities that match VISUAL_BANK_SELECTION.radius;
 respect the archetype's navigation choice (do NOT add a sidebar to a bottom-tabs app and vice versa).
 `.trim() + '\n';
 }
@@ -199,6 +346,7 @@ const THEME_FILE_PATH = 'styles/generated-theme.css';
 export function themeFile(ctx: DesignContext): { path: string; content: string } {
   const content = `/* AUTO-GENERATED by DesignContract — do not edit by hand. */
 /* mood=${ctx.intent.mood} contrast=${ctx.intent.contrast} radius=${ctx.intent.radius} */
+/* visualBank=${ctx.visualSelection.selectedPackId}/${ctx.visualSelection.selectedVariantId} fallback=${ctx.visualSelection.fallbackVisualSelection} */
 ${ctx.theme.cssVars}
 `;
   return { path: THEME_FILE_PATH, content };
