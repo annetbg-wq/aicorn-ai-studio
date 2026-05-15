@@ -64,6 +64,19 @@ export function useSettingsState() {
     setAgentConfigsState(prev => ({ ...prev, [key]: config }));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const refreshFromConfig = useCallback(() => {
+    setModelState(ConfigService.resolveModel('chat'));
+    setFullCtxState(ConfigService.getFullContext());
+    setAutoRouteRaw(ConfigService.getAutoRoute());
+    setAgentConfigsState({
+      primary: ConfigService.getAgentConfig('agent_primary'),
+      fix:     ConfigService.getAgentConfig('agent_fix'),
+      spec:    ConfigService.getAgentConfig('agent_spec'),
+      build:   ConfigService.getAgentConfig('agent_build'),
+      qa:      ConfigService.getAgentConfig('agent_qa'),
+    });
+  }, []);
+
   return {
     apiKey, setApiKey,
     selectedModel, setSelectedModel,
@@ -72,5 +85,6 @@ export function useSettingsState() {
     autoRoute, setAutoRoute,
     appLanguage, setAppLanguage,
     agentConfigs, setAgentConfig,
+    refreshFromConfig,
   } as const;
 }
