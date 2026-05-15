@@ -1425,7 +1425,7 @@ async function compile(
 
   // 4. Wait for preview-mounted postMessage from MountReporter (timeout: 45s)
   const previewMountStartedAt = Date.now();
-  const ready = await waitForIframeMounted(buildId, signal);
+  const ready = await waitForIframeMounted(buildId, signal, nextPreviewUrl);
   const previewMountMs = Date.now() - previewMountStartedAt;
   if (!ready) {
     // Don't throw — preview might still load; just log and continue
@@ -1442,9 +1442,10 @@ async function compile(
   };
 }
 
-function waitForIframeMounted(buildId: string, signal?: AbortSignal): Promise<boolean> {
+function waitForIframeMounted(buildId: string, signal?: AbortSignal, previewUrl = `/preview/${buildId}`): Promise<boolean> {
   return new Promise((resolve) => {
     const timeoutMs = 45_000;
+    const expectedOrigin = new URL(previewUrl, window.location.origin).origin;
     let settled = false;
     const settle = (result: boolean) => {
       if (settled) return;
@@ -1455,6 +1456,7 @@ function waitForIframeMounted(buildId: string, signal?: AbortSignal): Promise<bo
     };
     const onMessage = (e: MessageEvent) => {
       if (!e.data || typeof e.data !== 'object') return;
+      if (e.origin !== expectedOrigin) return;
       if (e.data.type === 'preview-mounted' && e.data.buildId === buildId) settle(true);
       if (e.data.type === 'iframe-error') settle(false);
     };
