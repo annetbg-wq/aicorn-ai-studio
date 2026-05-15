@@ -1,4 +1,6 @@
 import { EventEmitter } from 'events';
+import type { Server } from 'http';
+import type { AddressInfo } from 'net';
 import { PassThrough } from 'stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -10,7 +12,29 @@ import {
   requireLocalDevOrDevToken,
   resolveClaudeModel,
   runClaudePrompt,
+  startServer,
 } from './auth-token';
+
+let activeServer: Server | null = null;
+
+async function startTestServer(): Promise<{ baseUrl: string }> {
+  const server = startServer(0);
+  activeServer = server;
+  if (!server.listening) {
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+  }
+  const address = server.address() as AddressInfo | null;
+  if (!address || typeof address.port !== 'number') {
+    throw new Error('Failed to resolve test server port');
+  }
+  return { baseUrl: `http://127.0.0.1:${address.port}` };
+}
+
+afterEach(async () => {
+  if (!activeServer) return;
+  await new Promise<void>((resolve) => activeServer!.close(() => resolve()));
+  activeServer = null;
+});
 
 describe('auth-token Claude runner', () => {
   it('formats quality prompt with system and user sections', () => {
@@ -215,5 +239,62 @@ describe('auth-token dangerous endpoint guard', () => {
     expect(isProductionRuntime()).toBe(true);
     expect(isLoopbackRequest(createReq({ remoteAddress: '::1' }) as any)).toBe(true);
     expect(isLoopbackRequest(createReq({ remoteAddress: '198.51.100.5' }) as any)).toBe(false);
+  });
+});
+
+describe('auth-token provider key routes', () => {
+  it('returns 410 and never exposes key payload on /provider-key/:provider', async () => {
+    const originalOpenAIKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'sk-live-backend-secret';
+
+    try {
+      const { baseUrl } = await startTestServer();
+      const response = await fetch(`${baseUrl}/provider-key/openai`);
+      const body = await response.json() as Record<string, unknown>;
+
+      expect(response.status).toBe(410);
+      expect(body).toEqual({ error: 'Provider key retrieval is disabled' });
+      expect(Object.prototype.hasOwnProperty.call(body, 'key')).toBe(false);
+      expect(JSON.stringify(body)).not.toContain('sk-live-backend-secret');
+    } finally {
+      if (originalOpenAIKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = originalOpenAIKey;
+    }
+  });
+
+  it('keeps /provider-keys response as flags only', async () => {
+    const originalOpenRouterKey = process.env.OPENROUTER_API_KEY;
+    const originalOpenAIKey = process.env.OPENAI_API_KEY;
+    const originalGoogleKey = process.env.GOOGLE_API_KEY;
+
+    process.env.OPENROUTER_API_KEY = 'or-secret';
+    process.env.OPENAI_API_KEY = '';
+    process.env.GOOGLE_API_KEY = 'google-secret';
+
+    try {
+      const { baseUrl } = await startTestServer();
+      const response = await fetch(`${baseUrl}/provider-keys`);
+      const body = await response.json() as Record<string, unknown>;
+
+      expect(response.ok).toBe(true);
+      expect(body.openrouter).toBe(true);
+      expect(body.openai).toBe(false);
+      expect(body.google).toBe(true);
+      expect(typeof body.openrouter).toBe('boolean');
+      expect(typeof body.openai).toBe('boolean');
+      expect(typeof body.google).toBe('boolean');
+      expect(Object.prototype.hasOwnProperty.call(body, 'key')).toBe(false);
+      expect(JSON.stringify(body)).not.toContain('or-secret');
+      expect(JSON.stringify(body)).not.toContain('google-secret');
+    } finally {
+      if (originalOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = originalOpenRouterKey;
+
+      if (originalOpenAIKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = originalOpenAIKey;
+
+      if (originalGoogleKey === undefined) delete process.env.GOOGLE_API_KEY;
+      else process.env.GOOGLE_API_KEY = originalGoogleKey;
+    }
   });
 });

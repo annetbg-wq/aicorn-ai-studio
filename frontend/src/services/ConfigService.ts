@@ -621,27 +621,16 @@ export const ConfigService = {
   },
 
   /**
-   * Loads all provider API keys from the backend (.env via /provider-key/:provider)
-   * and writes them into localStorage.  Runs once on app startup.
+   * Compatibility shim for legacy bootstrap path.
+   * Provider key retrieval is disabled by backend policy; this method must not
+   * request or write raw provider key values.
    */
   async loadProviderKeysFromBackend(): Promise<void> {
-    const providers = Object.keys(PROVIDER_KEYS);
     try {
-      const results = await Promise.allSettled(
-        providers.map(async (provider) => {
-          const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-key/${provider}`);
-          if (!res.ok) return;
-          const data = await res.json() as { key?: string };
-          if (data.key) {
-            const storageKey = PROVIDER_KEYS[provider];
-            if (storageKey) set(storageKey, data.key);
-          }
-        }),
-      );
-      const loaded = results.filter(r => r.status === 'fulfilled').length;
-      if (loaded > 0) console.log('[ConfigService] Loaded provider keys from backend .env');
+      // Optional flags-only probe, never fetches key values and never mutates localStorage.
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-keys`);
     } catch {
-      // backend not running — silently fall back to localStorage
+      // backend not running — keep existing local/user/cloud values untouched
     }
   },
 
