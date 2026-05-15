@@ -53,6 +53,7 @@
  */
 
 import { previewController, previewLog, setTimelineContext } from './PreviewController';
+import { getPreviewSessionToken } from './PreviewSessionService';
 import { checkPreviewWrite } from './previewGuard';
 import {
   clearPreview as gatewayClear,
@@ -1123,11 +1124,12 @@ async function triggerCompile(
   skeletonId?: string,
 ): Promise<void> {
   let res: Response;
+  const sessionId = getPreviewSessionToken();
   try {
     res = await fetch(`/api/preview/${buildId}/compile`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files, ...(skeletonId ? { skeletonId } : {}) }),
+      headers: { 'Content-Type': 'application/json', 'X-Preview-Session': sessionId },
+      body: JSON.stringify({ files, ...(skeletonId ? { skeletonId } : {}), sessionId }),
     });
   } catch (networkErr: any) {
     throw new Error(

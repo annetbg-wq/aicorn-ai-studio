@@ -53,6 +53,7 @@ import { ProjectRepository, getCanonicalProjectName } from '../services/ProjectR
 import { BenchmarkService } from '../services/benchmark/BenchmarkService';
 import { revisionManager } from '../services/RevisionManager';
 import { previewController } from '../services/PreviewController';
+import { getPreviewSessionToken } from '../services/PreviewSessionService';
 import { normalizePath } from '../services/PreviewWriteGateway';
 import { generationTracer } from '../services/GenerationTracer';
 import {
@@ -5308,11 +5309,13 @@ export const useStudio = () => {
         lastPreviewReadyRevisionRef.current = null;
 
         const buildId = crypto.randomUUID();
+        const sessionId = getPreviewSessionToken();
         previewController.notifyCompiling(buildId, 'e2e-seed');
         const res = await fetch(`/api/preview/${buildId}/compile`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Preview-Session': sessionId },
           body: JSON.stringify({
+            sessionId,
             files: Object.fromEntries(
               Object.entries(previewFiles).map(([path, content]) => [normalizePath(path), content]),
             ),

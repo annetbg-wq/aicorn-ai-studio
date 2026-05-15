@@ -43,6 +43,7 @@ import {
   type DesignContext,
 } from './DesignContract';
 import { normalizePath as normalizePreviewPath } from './PreviewWriteGateway';
+import { getPreviewSessionToken } from './PreviewSessionService';
 import type { FastPathTelemetry, GenerationRunTelemetry } from '../shared/projectModel';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -1390,10 +1391,11 @@ async function compile(
 
   // 2. Call backend compile endpoint
   const compileStartedAt = Date.now();
+  const sessionId = getPreviewSessionToken();
   const resp = await fetch(`/api/preview/${encodeURIComponent(buildId)}/compile`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ files, skeletonId }),
+    headers: { 'Content-Type': 'application/json', 'X-Preview-Session': sessionId },
+    body:    JSON.stringify({ files, skeletonId, sessionId }),
     signal,
   });
   const text = await resp.text();
