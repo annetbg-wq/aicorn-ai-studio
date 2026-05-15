@@ -2,6 +2,7 @@ import path from 'path';
 import { describe, expect, it } from 'vitest';
 import {
   bindPreviewBuildSession,
+  canReadPreviewBuild,
   getPreservedPreviewDirs,
   normalizePreviewSessionToken,
   prunePreviewSessionBindings,
@@ -110,5 +111,57 @@ describe('preview-manager session binding', () => {
     const bindings = new Map<string, string>([['build-1', validToken]]);
     expect(prunePreviewSessionBindings(new Set(['build-1']), bindings)).toBe(0);
     expect(bindings.get('build-1')).toBe(validToken);
+  });
+});
+
+describe('preview-manager read access binding', () => {
+  const validToken = 'preview-session-token-123';
+
+  it('allows a bound build with a matching token', () => {
+    const bindings = new Map<string, string>([['build-1', validToken]]);
+    expect(canReadPreviewBuild('build-1', validToken, bindings, {
+      nodeEnv: 'production',
+      serverMode: 'production',
+    })).toBe(true);
+  });
+
+  it('denies a bound build with a missing token', () => {
+    const bindings = new Map<string, string>([['build-1', validToken]]);
+    expect(canReadPreviewBuild('build-1', null, bindings, {
+      nodeEnv: 'development',
+      serverMode: 'development',
+    })).toBe(false);
+  });
+
+  it('denies a bound build with an invalid token', () => {
+    const bindings = new Map<string, string>([['build-1', validToken]]);
+    expect(canReadPreviewBuild('build-1', 'too-short', bindings, {
+      nodeEnv: 'development',
+      serverMode: 'development',
+    })).toBe(false);
+  });
+
+  it('denies a bound build with a different token', () => {
+    const bindings = new Map<string, string>([['build-1', validToken]]);
+    expect(canReadPreviewBuild('build-1', 'different-session-token', bindings, {
+      nodeEnv: 'development',
+      serverMode: 'development',
+    })).toBe(false);
+  });
+
+  it('allows an unbound build in dev legacy mode', () => {
+    const bindings = new Map<string, string>();
+    expect(canReadPreviewBuild('build-1', null, bindings, {
+      nodeEnv: 'development',
+      serverMode: 'development',
+    })).toBe(true);
+  });
+
+  it('denies an unbound build in production', () => {
+    const bindings = new Map<string, string>();
+    expect(canReadPreviewBuild('build-1', validToken, bindings, {
+      nodeEnv: 'production',
+      serverMode: 'production',
+    })).toBe(false);
   });
 });

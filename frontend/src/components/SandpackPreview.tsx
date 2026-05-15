@@ -25,6 +25,7 @@ import { revisionManager } from '../services/RevisionManager';
 import { SimpleGeneration } from '../services/SimpleGeneration';
 import { useProjectScreenshot } from '../hooks/useProjectScreenshot';
 import { resolvePreviewUI } from '../services/previewLifecycleResolver';
+import { appendPreviewSessionToUrl } from '../services/PreviewSessionService';
 import { visualEditBridge, type VisualEditState, type SelectedElement } from '../services/VisualEditBridge';
 
 /* ── Welcome / Loading bundles (IIFE, used for srcdoc path only) ─────────────── */
@@ -369,7 +370,10 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
     return () => window.removeEventListener('preview-mounted', handler);
   }, []);
   const buildId = mountedBuildId ?? previewState.expectingBuildId ?? previewState.activeRevisionId ?? '';
-  const previewUrl = buildId ? `/preview/${buildId}` : '';
+  const previewUrl = useMemo(
+    () => (buildId ? appendPreviewSessionToUrl(`/preview/${buildId}`) : ''),
+    [buildId],
+  );
   const previewOrigin = useMemo(() => {
     try {
       return new URL(previewUrl, window.location.origin).origin;
@@ -670,8 +674,8 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
               <button
                 onClick={() => {
                   setShowLoadingOverlay(false);
-                  if (viteIframeRef.current) {
-                    viteIframeRef.current.src = previewUrl + '?r=' + Date.now();
+                  if (viteIframeRef.current && buildId) {
+                    viteIframeRef.current.src = appendPreviewSessionToUrl(`/preview/${buildId}?r=${Date.now()}`);
                   }
                 }}
                 style={{

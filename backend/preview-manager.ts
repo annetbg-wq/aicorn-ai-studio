@@ -152,6 +152,25 @@ export function prunePreviewSessionBindings(
   return pruned;
 }
 
+export interface PreviewBuildReadOptions {
+  nodeEnv?: string;
+  serverMode?: string;
+}
+
+export function canReadPreviewBuild(
+  buildId: string,
+  sessionToken: unknown,
+  bindings: Map<string, string> = previewSessionBindings,
+  options: PreviewBuildReadOptions = {},
+): boolean {
+  const boundToken = bindings.get(buildId);
+  if (boundToken) {
+    return normalizePreviewSessionToken(sessionToken) === boundToken;
+  }
+
+  return options.nodeEnv !== 'production' && options.serverMode !== 'production';
+}
+
 // ── public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -160,8 +179,19 @@ export function prunePreviewSessionBindings(
  */
 export function registerPreviewBuildRoute(app: express.Express): void {
   app.use('/preview/:buildId', (req, res, next) => {
-    const buildPath = path.join(BUILDS_WORKSPACE, req.params.buildId);
+    const { buildId } = req.params;
+    const buildPath = path.join(BUILDS_WORKSPACE, buildId);
     if (!fs.existsSync(buildPath)) return res.status(404).send('Build not found');
+
+    const queryToken = normalizePreviewSessionToken(req.query.previewSession);
+    const headerToken = normalizePreviewSessionToken(req.get('X-Preview-Session'));
+    if (!canReadPreviewBuild(buildId, queryToken ?? headerToken, previewSessionBindings, {
+      nodeEnv: process.env.NODE_ENV,
+      serverMode: process.env.AIC_SERVER_MODE,
+    })) {
+      return res.status(403).send('Preview access denied');
+    }
+
     return express.static(buildPath)(req, res, (err) => {
       if (err) return next(err);
       // SPA fallback — serve index.html for any unmatched path inside the build
