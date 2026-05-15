@@ -4,11 +4,14 @@ import type { AddressInfo } from 'net';
 import { PassThrough } from 'stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  applyCorsHeaders,
   buildQualityLlmPrompt,
   DEFAULT_CLAUDE_MODEL,
   hasValidDevToken,
   isLoopbackRequest,
+  isOriginAllowed,
   isProductionRuntime,
+  parseAllowedOrigins,
   requireLocalDevOrDevToken,
   resolveClaudeModel,
   runClaudePrompt,
@@ -239,6 +242,87 @@ describe('auth-token dangerous endpoint guard', () => {
     expect(isProductionRuntime()).toBe(true);
     expect(isLoopbackRequest(createReq({ remoteAddress: '::1' }) as any)).toBe(true);
     expect(isLoopbackRequest(createReq({ remoteAddress: '198.51.100.5' }) as any)).toBe(false);
+  });
+});
+
+describe('CORS helpers', () => {
+  it('parseAllowedOrigins parses comma-separated env value and trims spaces', () => {
+    const result = parseAllowedOrigins('http://example.com , http://test.com');
+    expect(result).toEqual(['http://example.com', 'http://test.com']);
+  });
+
+  it('default allowed origins include localhost and 127.0.0.1', () => {
+    const defaults = parseAllowedOrigins(undefined);
+    expect(defaults).toContain('http://127.0.0.1:5183');
+    expect(defaults).toContain('http://localhost:5183');
+    expect(defaults).toContain('http://127.0.0.1:3100');
+    expect(defaults).toContain('http://localhost:3100');
+  });
+
+  it('allowed origin returns true', () => {
+    const origins = parseAllowedOrigins(undefined);
+    expect(isOriginAllowed('http://localhost:5183', origins)).toBe(true);
+  });
+
+  it('unknown origin returns false', () => {
+    const origins = parseAllowedOrigins(undefined);
+    expect(isOriginAllowed('http://evil.com', origins)).toBe(false);
+  });
+
+  it('missing origin returns true', () => {
+    const origins = parseAllowedOrigins(undefined);
+    expect(isOriginAllowed(undefined, origins)).toBe(true);
+  });
+
+  function makeCorsReq(origin?: string) {
+    return { headers: { origin }, method: 'GET' } as any;
+  }
+
+  function makeCorsRes() {
+    const headers: Record<string, string> = {};
+    const res: any = { _headers: headers };
+    res.setHeader = vi.fn((name: string, value: string) => { headers[name.toLowerCase()] = value; });
+    res.status = vi.fn().mockReturnValue(res);
+    res.json = vi.fn().mockReturnValue(res);
+    res.sendStatus = vi.fn().mockReturnValue(res);
+    return res;
+  }
+
+  it('CORS never returns wildcard "*"', () => {
+    const req = makeCorsReq('http://localhost:5183');
+    const res = makeCorsRes();
+    applyCorsHeaders(req, res);
+    const aco = res._headers['access-control-allow-origin'];
+    expect(aco).not.toBe('*');
+    expect(aco).toBe('http://localhost:5183');
+  });
+
+  it('preflight from allowed origin gets exact Access-Control-Allow-Origin', async () => {
+    const { baseUrl } = await startTestServer();
+    const response = await fetch(`${baseUrl}/health`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'http://localhost:5183' },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:5183');
+  });
+
+  it('preflight from unknown origin gets 403', async () => {
+    const { baseUrl } = await startTestServer();
+    const response = await fetch(`${baseUrl}/health`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'http://evil.com' },
+    });
+    expect(response.status).toBe(403);
+  });
+
+  it('allowed headers include X-AIC-Dev-Token and X-Preview-Session', () => {
+    const req = makeCorsReq('http://localhost:5183');
+    const res = makeCorsRes();
+    applyCorsHeaders(req, res);
+    const allowedHeaders = res._headers['access-control-allow-headers'] ?? '';
+    expect(allowedHeaders).toContain('X-AIC-Dev-Token');
+    expect(allowedHeaders).toContain('X-Preview-Session');
   });
 });
 

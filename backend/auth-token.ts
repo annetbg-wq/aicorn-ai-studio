@@ -8,18 +8,54 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+const DEFAULT_ALLOWED_ORIGINS = [
+  'http://127.0.0.1:5183',
+  'http://localhost:5183',
+  'http://127.0.0.1:3100',
+  'http://localhost:3100',
+];
+
+export function parseAllowedOrigins(raw?: string): string[] {
+  if (!raw || !raw.trim()) return [...DEFAULT_ALLOWED_ORIGINS];
+  return raw.split(',').map((o) => o.trim()).filter(Boolean);
+}
+
+export function isOriginAllowed(origin: string | undefined, allowedOrigins: string[]): boolean {
+  if (!origin) return true;
+  return allowedOrigins.includes(origin);
+}
+
+export function applyCorsHeaders(req: express.Request, res: express.Response): boolean {
+  const allowedOrigins = parseAllowedOrigins(process.env.AIC_ALLOWED_ORIGINS);
+  const origin = req.headers.origin as string | undefined;
+
+  res.setHeader('Vary', 'Origin');
+
+  if (!isOriginAllowed(origin, allowedOrigins)) {
+    res.status(403).json({ error: 'Forbidden: origin not allowed' });
+    return false;
+  }
+
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE, PATCH, PUT');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-AIC-Dev-Token, X-Preview-Session');
+  }
+
+  return true;
+}
+
 const app = express();
 const PORT = 3000;
-registerPreviewBuildRoute(app);
-registerPreviewCompileRoute(app);
 
-app.use((_req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
-  if (_req.method === 'OPTIONS') return res.sendStatus(200);
+app.use((req, res, next) => {
+  if (!applyCorsHeaders(req, res)) return;
+  if (req.method === 'OPTIONS') { res.sendStatus(200); return; }
   next();
 });
+
+registerPreviewBuildRoute(app);
+registerPreviewCompileRoute(app);
 
 app.use(express.json({ limit: '10mb' }));
 
