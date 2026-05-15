@@ -53,7 +53,7 @@ import { ProjectRepository, getCanonicalProjectName } from '../services/ProjectR
 import { BenchmarkService } from '../services/benchmark/BenchmarkService';
 import { revisionManager } from '../services/RevisionManager';
 import { previewController } from '../services/PreviewController';
-import { getPreviewSessionToken } from '../services/PreviewSessionService';
+import { appendPreviewSessionToUrl, getPreviewSessionToken } from '../services/PreviewSessionService';
 import { normalizePath } from '../services/PreviewWriteGateway';
 import { generationTracer } from '../services/GenerationTracer';
 import {
@@ -1711,7 +1711,7 @@ export const useStudio = () => {
   useEffect(() => {
     const syncPreviewState = (state: ReturnType<typeof previewController.getState>) => {
       if (state.status === 'compiling' && state.activeRevisionId) {
-        const nextUrl = `/preview/${state.activeRevisionId}`;
+        const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
         setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
         setPreviewReady(false);
         invalidatePendingProjectSaveReady();
@@ -1723,7 +1723,7 @@ export const useStudio = () => {
       }
 
       if (state.status === 'ready' && state.activeRevisionId) {
-        const nextUrl = `/preview/${state.activeRevisionId}`;
+        const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
         setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
         setPreviewBlockedReason(null);
         if (state.buildStage === 'skeleton') {
@@ -5333,7 +5333,7 @@ export const useStudio = () => {
           throw new Error(body?.error ?? `Preview seed compile failed (HTTP ${res.status})`);
         }
 
-        const nextUrl = body?.url ?? `/preview/${buildId}`;
+        const nextUrl = appendPreviewSessionToUrl(body?.url ?? `/preview/${buildId}`);
         setPreviewUrl(nextUrl);
         await new Promise<void>((resolve, reject) => {
           const timeoutId = window.setTimeout(() => {
@@ -5553,15 +5553,16 @@ export const useStudio = () => {
       commandBus.subscribe('PREVIEW_READY', (cmd) => {
         const data = (cmd as Extract<typeof cmd, { type: 'PREVIEW_READY' }>).payload;
         if (data?.url) {
-          setPreviewUrl(data.url);
+          const previewUrl = appendPreviewSessionToUrl(data.url);
+          setPreviewUrl(previewUrl);
           setPreviewReady(true);
           if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') {
-            (window as any).__E2E_PREVIEW_URL__ = data.url;
+            (window as any).__E2E_PREVIEW_URL__ = previewUrl;
           }
           // Extract buildId from URL and notify SandpackPreview
-          const buildId = data.url.split('/preview/')[1]?.split('?')[0] ?? '';
+          const buildId = previewUrl.split('/preview/')[1]?.split('?')[0] ?? '';
           window.dispatchEvent(new CustomEvent('preview-mounted', {
-            detail: { buildId, previewUrl: data.url },
+            detail: { buildId, previewUrl },
           }));
         }
       }),

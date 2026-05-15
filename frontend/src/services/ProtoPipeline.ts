@@ -43,7 +43,7 @@ import {
   type DesignContext,
 } from './DesignContract';
 import { normalizePath as normalizePreviewPath } from './PreviewWriteGateway';
-import { getPreviewSessionToken } from './PreviewSessionService';
+import { appendPreviewSessionToUrl, getPreviewSessionToken } from './PreviewSessionService';
 import type { FastPathTelemetry, GenerationRunTelemetry } from '../shared/projectModel';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -751,9 +751,10 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
 
     // ── Step 8 — Preview ready ────────────────────────────────────────────
     const url = `/preview/${config.buildId}`;
+    const previewNavigationUrl = appendPreviewSessionToUrl(url);
     stepResults.preview = { output: { preview_url: url } };
     emit('preview', 'done', url, stepResults.preview);
-    config.onPreviewReady?.(url, config.buildId);
+    config.onPreviewReady?.(previewNavigationUrl, config.buildId);
     log(
       `[fast-path] package=${fastPathTelemetry.steps.packageMs}ms architecture=${fastPathTelemetry.steps.architectureMs}ms ` +
       `skeleton=${fastPathTelemetry.steps.skeletonMs}ms coder=${fastPathTelemetry.steps.coderMs}ms ` +
@@ -1412,7 +1413,7 @@ async function compile(
   const iframe = typeof document !== 'undefined'
     ? document.querySelector<HTMLIFrameElement>('iframe[data-testid="preview-iframe"]')
     : null;
-  const nextPreviewUrl = `/preview/${buildId}`;
+  const nextPreviewUrl = appendPreviewSessionToUrl(`/preview/${buildId}`);
   if (iframe) {
     const absoluteNextUrl = new URL(nextPreviewUrl, window.location.origin).toString();
     if (iframe.src === absoluteNextUrl) {

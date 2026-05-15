@@ -62,3 +62,33 @@ export function getPreviewSessionToken(): string {
   }
   return token;
 }
+
+export function appendPreviewSessionToUrl(url: string): string {
+  if (!url) return url;
+
+  const baseUrl = typeof window !== 'undefined'
+    ? window.location.origin
+    : 'http://aic-preview.local';
+  const isAbsolute = /^[a-z][a-z\d+\-.]*:/i.test(url) || url.startsWith('//');
+
+  try {
+    const parsed = new URL(url, baseUrl);
+    if (parsed.searchParams.has('previewSession')) {
+      return url;
+    }
+
+    parsed.searchParams.set('previewSession', getPreviewSessionToken());
+    return isAbsolute
+      ? parsed.toString()
+      : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    const hashIndex = url.indexOf('#');
+    const pathAndSearch = hashIndex === -1 ? url : url.slice(0, hashIndex);
+    const hash = hashIndex === -1 ? '' : url.slice(hashIndex);
+    if (/(^|[?&])previewSession=/.test(pathAndSearch)) {
+      return url;
+    }
+    const separator = pathAndSearch.includes('?') ? '&' : '?';
+    return `${pathAndSearch}${separator}previewSession=${encodeURIComponent(getPreviewSessionToken())}${hash}`;
+  }
+}

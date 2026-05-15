@@ -7,6 +7,7 @@ import {
   MousePointer2, Save, X,
 } from 'lucide-react';
 import { visualEditBridge, type VisualEditMode, type SelectedElement } from '../services/VisualEditBridge';
+import { appendPreviewSessionToUrl } from '../services/PreviewSessionService';
 import type { FileMap } from '../hooks/useStudio';
 import type { TraceRunSummary, VisibleReasoningTrace, VisibleReasoningStep } from '../shared/projectModel';
 import { generationTracer } from '../services/GenerationTracer';
@@ -1768,7 +1769,9 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   appLanguage = 'en',
   onVisualElementSelected,
 }) => {
-  const iframeUrl = previewUrl || (projectId ? `/preview/${projectId}` : '');
+  const iframeUrl = previewUrl
+    ? appendPreviewSessionToUrl(previewUrl)
+    : (projectId ? appendPreviewSessionToUrl(`/preview/${projectId}`) : '');
   const [tab, setTab] = useState<TabId>('preview');
   const resolveBinding = useCallback(() => resolveWorkspaceBinding({
     projectId,
