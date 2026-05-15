@@ -28,6 +28,71 @@ const MODE_FILE       = path.join(process.cwd(), 'backend', 'mode.json');
 const CODEX_HOME_DIR  = path.join(process.cwd(), 'backend', '.codex-home');
 const ENV_FILE        = path.join(process.cwd(), 'backend', '.env');
 
+type DevGuardRequest = {
+  get?: (name: string) => string | undefined;
+  headers?: Record<string, string | string[] | undefined>;
+  socket?: { remoteAddress?: string | null };
+  ip?: string;
+};
+
+export function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.AIC_SERVER_MODE === 'production';
+}
+
+export function isLoopbackRequest(req: DevGuardRequest): boolean {
+  const remoteIp = req.socket?.remoteAddress ?? '';
+  const requestIp = req.ip ?? '';
+  return (
+    remoteIp === '127.0.0.1'
+    || remoteIp === '::1'
+    || remoteIp === '::ffff:127.0.0.1'
+    || requestIp === '127.0.0.1'
+    || requestIp === '::1'
+    || requestIp === '::ffff:127.0.0.1'
+  );
+}
+
+export function hasValidDevToken(req: DevGuardRequest): boolean {
+  const expectedToken = process.env.AIC_DEV_TOKEN?.trim();
+  if (!expectedToken) return false;
+
+  let providedToken = '';
+  if (typeof req.get === 'function') {
+    providedToken = req.get('X-AIC-Dev-Token') ?? '';
+  }
+  if (!providedToken) {
+    const rawHeader = req.headers?.['x-aic-dev-token'] ?? req.headers?.['X-AIC-Dev-Token'];
+    if (typeof rawHeader === 'string') providedToken = rawHeader;
+    else if (Array.isArray(rawHeader)) providedToken = rawHeader[0] ?? '';
+  }
+
+  return providedToken.trim() === expectedToken;
+}
+
+export function requireLocalDevOrDevToken(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+): void {
+  const tokenOk = hasValidDevToken(req);
+
+  if (isProductionRuntime()) {
+    if (!tokenOk) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+    next();
+    return;
+  }
+
+  if (isLoopbackRequest(req) || tokenOk) {
+    next();
+    return;
+  }
+
+  res.status(403).json({ error: 'Forbidden' });
+}
+
 /** Maps provider ID → .env variable name */
 const PROVIDER_ENV_KEYS: Record<string, string> = {
   openrouter: 'OPENROUTER_API_KEY',
@@ -1186,7 +1251,7 @@ app.get('/provider-keys', (_req, res) => {
 });
 
 // ── POST /provider-keys — write one key to .env ───────────────────────────────
-app.post('/provider-keys', (req, res) => {
+app.post('/provider-keys', requireLocalDevOrDevToken, (req, res) => {
   try {
     const { provider, key } = req.body as { provider: string; key: string };
     if (!provider || typeof provider !== 'string' || typeof key !== 'string') {
@@ -1283,7 +1348,7 @@ app.put('/agent-config/reset', (_req, res) => {
 
 
 // ── POST /api/skeleton/install — copies skeleton src/ into preview-workspace/src/ ──
-app.post('/api/skeleton/install', (req, res) => {
+app.post('/api/skeleton/install', requireLocalDevOrDevToken, (req, res) => {
   const { skeletonId } = req.body as { skeletonId?: string };
   if (!skeletonId || typeof skeletonId !== 'string') {
     return res.status(400).json({ error: 'skeletonId required' });
@@ -1696,7 +1761,7 @@ app.get('/api/quality/workspace-snapshot', (_req, res) => {
   }
 });
 
-app.post('/api/quality/llm-run', async (req, res) => {
+app.post('/api/quality/llm-run', requireLocalDevOrDevToken, async (req, res) => {
   try {
     const body = (req.body ?? {}) as {
       provider?: string;
@@ -1780,7 +1845,7 @@ app.get('/api/launcher-status', (_req, res) => {
 });
 
 // ── POST /api/restart-backend — graceful exit so launcher auto-restarts ───────
-app.post('/api/restart-backend', (_req, res) => {
+app.post('/api/restart-backend', requireLocalDevOrDevToken, (_req, res) => {
   res.json({ ok: true, message: 'Backend restarting…' });
   setTimeout(() => process.exit(0), 300);
 });
