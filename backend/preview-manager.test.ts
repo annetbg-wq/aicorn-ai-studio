@@ -1,10 +1,14 @@
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 import {
+  bindPreviewBuildSession,
   getPreservedPreviewDirs,
+  normalizePreviewSessionToken,
+  prunePreviewSessionBindings,
   resolvePreviewSrcPath,
   resolveSectionTemplatePaths,
   sanitizeCompileFiles,
+  validatePreviewBuildSession,
 } from './preview-manager';
 
 describe('preview-manager path hardening', () => {
@@ -39,7 +43,7 @@ describe('preview-manager path hardening', () => {
   it('resolves section template source and preview destination paths', () => {
     const paths = resolveSectionTemplatePaths(path.resolve('c:/ai_studio/preview-workspace'));
 
-    expect(paths.templatesSrc.toLowerCase()).toBe(path.resolve('c:/ai_studio/frontend/src/templates/components').toLowerCase());
+    expect(paths.templatesSrc.toLowerCase()).toBe(path.resolve('frontend/src/templates/components').toLowerCase());
     expect(paths.sectionsDest.toLowerCase()).toBe(path.resolve('c:/ai_studio/preview-workspace/src/components/sections').toLowerCase());
   });
 
@@ -47,5 +51,64 @@ describe('preview-manager path hardening', () => {
     expect(getPreservedPreviewDirs()).toEqual(
       expect.arrayContaining(['components', 'config', 'context', 'hooks', 'lib', 'themes']),
     );
+  });
+});
+
+describe('preview-manager session binding', () => {
+  const validToken = 'preview-session-token-123';
+
+  it('rejects missing, empty, too-short, and too-long session tokens', () => {
+    expect(normalizePreviewSessionToken(undefined)).toBeNull();
+    expect(normalizePreviewSessionToken(null)).toBeNull();
+    expect(normalizePreviewSessionToken(123)).toBeNull();
+    expect(normalizePreviewSessionToken('')).toBeNull();
+    expect(normalizePreviewSessionToken('   ')).toBeNull();
+    expect(normalizePreviewSessionToken('123456789012345')).toBeNull();
+    expect(normalizePreviewSessionToken('x'.repeat(201))).toBeNull();
+  });
+
+  it('accepts and trims valid session tokens', () => {
+    expect(normalizePreviewSessionToken(`  ${validToken}  `)).toBe(validToken);
+  });
+
+  it('binds a buildId the first time', () => {
+    const bindings = new Map<string, string>();
+    expect(bindPreviewBuildSession('build-1', validToken, bindings)).toBe('bound');
+    expect(bindings.get('build-1')).toBe(validToken);
+  });
+
+  it('allows the same buildId and same token', () => {
+    const bindings = new Map<string, string>([['build-1', validToken]]);
+    expect(bindPreviewBuildSession('build-1', validToken, bindings)).toBe('already-bound');
+  });
+
+  it('rejects the same buildId with a different token', () => {
+    const bindings = new Map<string, string>([['build-1', validToken]]);
+    expect(bindPreviewBuildSession('build-1', 'different-session-token', bindings)).toBe('conflict');
+    expect(bindings.get('build-1')).toBe(validToken);
+  });
+
+  it('validates only a matching buildId and token', () => {
+    const bindings = new Map<string, string>([['build-1', validToken]]);
+    expect(validatePreviewBuildSession('build-1', validToken, bindings)).toBe(true);
+    expect(validatePreviewBuildSession('build-1', 'different-session-token', bindings)).toBe(false);
+    expect(validatePreviewBuildSession('build-2', validToken, bindings)).toBe(false);
+  });
+
+  it('prunes bindings whose buildId no longer exists', () => {
+    const bindings = new Map<string, string>([
+      ['build-1', validToken],
+      ['build-2', 'another-session-token'],
+    ]);
+
+    expect(prunePreviewSessionBindings(new Set(['build-1']), bindings)).toBe(1);
+    expect(bindings.has('build-1')).toBe(true);
+    expect(bindings.has('build-2')).toBe(false);
+  });
+
+  it('keeps bindings whose buildId exists', () => {
+    const bindings = new Map<string, string>([['build-1', validToken]]);
+    expect(prunePreviewSessionBindings(new Set(['build-1']), bindings)).toBe(0);
+    expect(bindings.get('build-1')).toBe(validToken);
   });
 });
