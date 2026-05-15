@@ -1270,18 +1270,9 @@ app.post('/provider-keys', requireLocalDevOrDevToken, (req, res) => {
   }
 });
 
-// ── GET /provider-key/:provider — return actual key (localhost only) ──────────
-app.get('/provider-key/:provider', (req, res) => {
-  const remoteIp = req.socket.remoteAddress ?? '';
-  const isLocal  = remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '::ffff:127.0.0.1';
-  if (!isLocal) return res.status(403).json({ error: 'Forbidden' });
-
-  const { provider } = req.params;
-  const envKey = PROVIDER_ENV_KEYS[provider];
-  if (!envKey) return res.status(400).json({ error: `Unknown provider: ${provider}` });
-
-  const key = process.env[envKey] ?? '';
-  res.json({ key });
+// ── GET /provider-key/:provider — disabled (no key material exposure) ──────────
+app.get('/provider-key/:provider', (_req, res) => {
+  res.status(410).json({ error: 'Provider key retrieval is disabled' });
 });
 
 // ── Agent config file path ────────────────────────────────────────────────────
