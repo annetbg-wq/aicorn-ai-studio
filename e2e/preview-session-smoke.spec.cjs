@@ -11,17 +11,12 @@
  * E2E seed-path race — not a product bug, fixed only in test infra:
  *   A. previewController.notifyCompiling() sets previewUrl before compile completes
  *      → iframe GETs /preview/:id while build dir doesn't exist yet (race).
- *      Fix: hold the premature document request until fs.existsSync passes,
- *           then redirect to trailing-slash URL (/preview/:id/) so Vite's
- *           `base: './'` relative asset paths resolve correctly.
- *   B. Session-bound builds require ?previewSession= on every sub-resource
- *      (JS/CSS), but HTML-relative asset imports don't carry the token.
- *      Fix: in the route handler, inject ?previewSession= into asset sub-requests
- *           for the same buildId.
+ *      Fix: hold the premature document request until fs.existsSync passes.
+ *      Product code handles trailing-slash semantics and session-bound assets.
  *
  * Phase 1 — HTTP assertions via page.request (bypasses page.route entirely):
  *   Proves the session binding contract. Also primes the shadcn/ui install.
- * Phase 2 — iframe mount via mountPreview() with route handler:
+ * Phase 2 — iframe mount via mountPreview() with document retry only:
  *   No LLM, no generation pipeline, no API credits spent.
  */
 
@@ -90,6 +85,18 @@ async function waitForPreviewHook(page) {
   }).toPass({ timeout: 15_000, intervals: [200, 400, 800] });
 }
 
+/** Open the Engine workspace, tolerating an already-open composer after auth reload. */
+async function openEngineWorkspace(page) {
+  const textarea = page.locator('textarea').first();
+  if (await textarea.isVisible().catch(() => false)) {
+    return;
+  }
+  const engineButton = page.locator('button[title="System Engine"]').first();
+  await expect(engineButton).toBeVisible({ timeout: 60_000 });
+  await engineButton.click();
+  await textarea.waitFor({ state: 'visible', timeout: 30_000 });
+}
+
 /** Redact the session token from a URL string (safe error messages). */
 function redactSession(url) {
   return url.replace(/(previewSession=)[^&]+/, '$1<redacted>');
@@ -104,65 +111,32 @@ function extractBuildId(url) {
 /**
  * Install a narrow page.route handler for /preview/* requests.
  *
- * Fixes two E2E seed-path issues without touching product code:
- *
- * Issue A — premature 404:
+ * Fixes the E2E seed-path premature 404 without touching product code:
  *   previewController.notifyCompiling() triggers syncPreviewState which sets
  *   previewUrl before the vite build completes. The iframe requests /preview/:id
- *   when the build dir doesn't exist yet. This handler polls the filesystem and
- *   holds the request until the dir appears, then issues a 301 to the trailing-
- *   slash form so Vite's `base: './'` relative asset imports resolve correctly.
- *
- * Issue B — session 403 on subrequests:
- *   The session binding (P0) requires ?previewSession= on all GET /preview/:id/*
- *   requests. HTML-relative imports (./assets/xxx.js) don't carry the token.
- *   This handler intercepts those asset requests and appends ?previewSession=<tok>
- *   so canReadPreviewBuild() returns 200 for each file.
+ *   when the build dir doesn't exist yet. This handler only polls the filesystem
+ *   and holds the document request until the dir appears. It does not rewrite
+ *   asset URLs or inject previewSession into subrequests.
  *
  * page.request.get/post (Phase 1) is unaffected — Playwright APIRequestContext
  * bypasses page.route entirely.
  */
-async function installPreviewIframeRetry(page) {
-  // Session token and buildId captured from the first session-bound document
-  // request so subsequent asset sub-requests can reuse them.
-  let capturedSession = null;
-  let capturedBuildId = null;
-
+async function installPreviewDocumentRetry(page) {
   await page.route('**/preview/**', async (route) => {
     const request = route.request();
     const url     = request.url();
-    const parsed  = new URL(url);
     const buildId = extractBuildId(url);
 
     // No UUID buildId (e.g. Phase 1's custom testBuildId) — pass through.
     if (!buildId) { await route.continue(); return; }
 
-    // ── Case A: session-bound document (iframe navigation) ─────────────────
     if (url.includes('previewSession=') && request.resourceType() === 'document') {
-      // Capture session token (strip URL-encoding; tokens are hex+hyphen only).
-      const m = url.match(/[?&]previewSession=([^&]+)/);
-      if (m && !capturedSession) {
-        capturedSession = decodeURIComponent(m[1]);
-        capturedBuildId = buildId;
-      }
-
-      // If path already has a trailing slash, build should be ready — continue.
-      if (parsed.pathname.endsWith('/')) {
-        await route.continue();
-        return;
-      }
-
-      // Without trailing slash: hold until the build directory appears, then
-      // redirect to the slash form. Vite builds relative paths (base: './') that
-      // only resolve correctly when the document URL ends with a slash.
       const buildPath = path.join(BUILDS_DIR, buildId);
       const deadline  = Date.now() + IFRAME_HOLD_TIMEOUT_MS;
 
       while (Date.now() < deadline) {
         if (fs.existsSync(buildPath)) {
-          // Redirect to trailing-slash URL, preserving the session query param.
-          const location = parsed.pathname + '/' + parsed.search;
-          await route.fulfill({ status: 301, headers: { Location: location } });
+          await route.continue();
           return;
         }
         await new Promise(r => setTimeout(r, IFRAME_POLL_MS));
@@ -173,15 +147,7 @@ async function installPreviewIframeRetry(page) {
       return;
     }
 
-    // ── Case B: asset sub-request without session token ────────────────────
-    // Inject ?previewSession= so canReadPreviewBuild() passes for bound builds.
-    if (!url.includes('previewSession=') && capturedSession && buildId === capturedBuildId) {
-      parsed.searchParams.set('previewSession', capturedSession);
-      await route.continue({ url: parsed.toString() });
-      return;
-    }
-
-    // Everything else (non-session requests, other routes) — pass through.
+    // Everything else (assets, non-session requests, other routes) — pass through.
     await route.continue();
   });
 }
@@ -206,8 +172,7 @@ test.describe('Preview session smoke — P0 regression guard', () => {
       await page.reload({ waitUntil: 'domcontentloaded' });
 
       // ── 2. Navigate into the Engine view (LeftPanel + PreviewCanvas visible) ─
-      await page.locator('[title="System Engine"]').click();
-      await page.locator('textarea').first().waitFor({ state: 'visible', timeout: 15_000 });
+      await openEngineWorkspace(page);
 
       // ── 3. Wait for E2E preview hook (VITE_PLAYWRIGHT_TEST=1 gate) ───────────
       await waitForPreviewHook(page);
@@ -255,14 +220,11 @@ test.describe('Preview session smoke — P0 regression guard', () => {
       // ── Phase 2: iframe mount ────────────────────────────────────────────────
       //
       // Install route handler BEFORE mountPreview so the premature iframe GET is
-      // intercepted before the browser sees a 404. The handler:
-      //   - Holds the request until the build dir appears (filesystem poll).
-      //   - Redirects to /preview/:id/ (trailing slash) for correct asset paths.
-      //   - Injects ?previewSession= on JS/CSS sub-requests so canReadPreviewBuild
-      //     returns 200 for session-bound builds.
+      // intercepted before the browser sees a 404. Product code must handle the
+      // trailing slash redirect and asset session propagation.
 
-      // 7. Install route handler (Issue A + B fixes).
-      await installPreviewIframeRetry(page);
+      // 7. Install route handler (document retry only).
+      await installPreviewDocumentRetry(page);
 
       // 8. Compile and mount deterministic preview — no LLM, no generation.
       //    shadcn is pre-warmed from Phase 1; vite build only (~30 s).
