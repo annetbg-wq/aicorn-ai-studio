@@ -55,6 +55,13 @@ import {
 import { normalizePath as normalizePreviewPath } from './PreviewWriteGateway';
 import { appendPreviewSessionToUrl, getPreviewSessionToken } from './PreviewSessionService';
 import type { FastPathTelemetry, GenerationRunTelemetry } from '../shared/projectModel';
+import {
+  buildScreenCompositionPlan,
+  buildCompositionPlanPromptBlock,
+  serializeScreenCompositionPlan,
+  type ScreenCompositionPlan,
+  type ScreenCompositionPlanTelemetry,
+} from './ScreenCompositionPlanner';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -98,6 +105,10 @@ export interface DesignSelectionDiagnostics {
   selectedMediaReasons: string[];
   designDecisionNotes: string[];
   possibleMismatchWarnings: string[];
+  compositionPlanCreated?: boolean;
+  compositionFirstScreenId?: string;
+  compositionScreenCount?: number;
+  compositionZoneCountOnFirstScreen?: number;
 }
 
 export interface VisualUsageDiagnostics {
@@ -141,6 +152,10 @@ export interface DesignSelectionDiagnosticsTelemetry {
   selected_media_reasons: string[];
   design_decision_notes: string[];
   possible_mismatch_warnings: string[];
+  composition_plan_created?: boolean;
+  composition_first_screen_id?: string;
+  composition_screen_count?: number;
+  composition_zone_count_on_first_screen?: number;
 }
 
 export interface VisualUsageDiagnosticsTelemetry {
@@ -192,6 +207,7 @@ export interface StepOutputMetrics {
   selected_media_kinds?: string[];
   design_selection_diagnostics?: DesignSelectionDiagnosticsTelemetry;
   visual_usage_diagnostics?: VisualUsageDiagnosticsTelemetry;
+  screen_composition_plan?: ScreenCompositionPlanTelemetry;
 }
 
 export interface StepExecutionMetrics {
@@ -974,6 +990,10 @@ export function serializeDesignSelectionDiagnostics(
     selected_media_reasons: diagnostics.selectedMediaReasons,
     design_decision_notes: diagnostics.designDecisionNotes,
     possible_mismatch_warnings: diagnostics.possibleMismatchWarnings,
+    composition_plan_created: diagnostics.compositionPlanCreated,
+    composition_first_screen_id: diagnostics.compositionFirstScreenId,
+    composition_screen_count: diagnostics.compositionScreenCount,
+    composition_zone_count_on_first_screen: diagnostics.compositionZoneCountOnFirstScreen,
   };
 }
 
@@ -1273,6 +1293,19 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       log(`[media] materialized ${mediaMaterialization.mediaHints.length} media asset(s): ${mediaMaterialization.mediaHints.map(h => h.id).join(', ')}`);
     }
 
+    // ── Screen composition planning (deterministic, no LLM) ──────────────────
+    const compositionPlan = buildScreenCompositionPlan({
+      brief: clarifiedPrompt,
+      skeletonId: config.skeletonId,
+      designCtx,
+      premiumComponentIds: designCtx.premiumComponentSelection.selectedComponents.map(c => c.id),
+      mediaHints: mediaMaterialization.mediaHints,
+      architectPlan: plan,
+    });
+    if (compositionPlan.screens.length > 0) {
+      log(`[composition] built plan: ${compositionPlan.screens.length} screens, firstScreenId=${compositionPlan.firstScreenId}, zones=${compositionPlan.screens.find(s => s.id === compositionPlan.firstScreenId)?.zones.length ?? 0} on first screen`);
+    }
+
     // ── Step 5 — Coder (one shot + at most one targeted retry) ────────────
     emit('coder', 'active');
     let deltaFiles: Record<string, string>;
@@ -1290,6 +1323,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           onUsage:    (usage) => { coderUsage = usage; },
         designCtx,
         mediaHints: mediaMaterialization.mediaHints,
+        compositionPlan,
       });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
@@ -1375,6 +1409,12 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       selectedMediaReasons: mediaMaterialization.selectionReasons,
       visualUsageDiagnostics,
     });
+    // Enrich design selection diagnostics with composition plan info
+    const firstCompositionScreen = compositionPlan.screens.find(s => s.id === compositionPlan.firstScreenId);
+    designSelectionDiagnostics.compositionPlanCreated = true;
+    designSelectionDiagnostics.compositionFirstScreenId = compositionPlan.firstScreenId;
+    designSelectionDiagnostics.compositionScreenCount = compositionPlan.screens.length;
+    designSelectionDiagnostics.compositionZoneCountOnFirstScreen = firstCompositionScreen?.zones.length ?? 0;
     stepResults.apply = {
       output: {
         file_count: Object.keys(filteredFiles).length,
@@ -1389,6 +1429,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         selected_media_kinds: selectedMediaKinds,
         design_selection_diagnostics: serializeDesignSelectionDiagnostics(designSelectionDiagnostics),
         visual_usage_diagnostics: serializeVisualUsageDiagnostics(visualUsageDiagnostics),
+        screen_composition_plan: serializeScreenCompositionPlan(compositionPlan),
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
@@ -1854,7 +1895,8 @@ async function runCoder(input: {
   onUsage?:   (usage: StepLlmMetrics) => void;
   designCtx?: DesignContext;
   mediaHints?: MediaHint[];
-}): Promise<Record<string, string>> {
+  compositionPlan?: ScreenCompositionPlan;
+}): Promise<Record<string, string>>{
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
     plan: {
@@ -1899,6 +1941,7 @@ PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)
 PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
 UI PRIMITIVES: ${skeleton.uiPrimitives.join(', ') || '(see registry)'}
 ${contractBlock ? `\n${contractBlock}\n` : ''}${input.designCtx ? '\n' + designContractForCoder(input.designCtx, input.mediaHints) : ''}
+${input.compositionPlan ? '\n' + buildCompositionPlanPromptBlock(input.compositionPlan) : ''}
 ${skeletonPromptBlock}
 DELTA FILE TREE FROM ARCHITECT (source of truth):
 ${fileTreeBlock || '  - (none)'}
