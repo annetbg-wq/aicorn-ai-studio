@@ -698,6 +698,695 @@ function buildProductivityToolTemplate(): {
   };
 }
 
+function buildB2bOperationsWorkspaceTemplate(): {
+  screens: ScreenCompositionEntry[];
+  firstScreenId: string;
+  globalLayoutRules: string[];
+  avoidPatterns: string[];
+} {
+  const dashboardScreen = makeScreen(
+    'dashboard', 'Dashboard', 'dashboard', 'primary',
+    'Operations overview: sidebar shell, KPI cards, workflow queue, and team activity.',
+    [
+      makeZone('sidebar-nav', 'navigation', 'primary',
+        'Sidebar navigation with workspace sections and user identity',
+        ['navigate sections'],
+        ['product-specific nav labels']),
+      makeZone('kpi-cards', 'insight', 'primary',
+        'KPI card strip: key business metrics at a glance',
+        ['view metric', 'click for detail'],
+        ['real operations metrics']),
+      makeZone('work-queue', 'table', 'primary',
+        'Primary records/work queue table',
+        ['click row', 'create record', 'filter'],
+        ['real records, not placeholder rows']),
+      makeZone('activity-feed', 'feed', 'secondary',
+        'Team activity stream',
+        ['scroll feed'],
+        ['real activity entries']),
+    ],
+    '/',
+    ['create record', 'filter queue', 'navigate sections'],
+    ['workspace data', 'user identity'],
+    ['real records', 'meaningful KPI values'],
+  );
+
+  const recordsScreen = makeScreen(
+    'records', 'Records', 'other', 'secondary',
+    'Full record table view with filters and detail access.',
+    [
+      makeZone('records-table', 'table', 'primary', 'Full sortable/filterable record table', ['click row', 'sort', 'filter'], ['real record data']),
+      makeZone('record-actions', 'primary_action', 'primary', 'Bulk and per-row action bar', ['select', 'bulk action'], ['functional actions']),
+      makeZone('records-filters', 'shortcut', 'secondary', 'Filter and search controls', ['apply filter'], ['meaningful filter options']),
+    ],
+    '/records',
+  );
+
+  const recordDetailScreen = makeScreen(
+    'record-detail', 'Record Detail', 'detail', 'secondary',
+    'Individual record detail view with edit actions.',
+    [
+      makeZone('record-header', 'hero', 'primary', 'Record header with key fields', ['view header'], ['real field values']),
+      makeZone('record-fields', 'secondary_feature', 'primary', 'Full record field set', ['edit field', 'save'], ['real field content']),
+      makeZone('record-actions', 'primary_action', 'primary', 'Record action buttons', ['tap action'], ['functional actions']),
+      makeZone('record-activity', 'feed', 'secondary', 'Record-level activity log', ['view history'], ['real activity']),
+    ],
+    '/records/:id',
+  );
+
+  const workflowScreen = makeScreen(
+    'workflow', 'Workflow', 'other', 'secondary',
+    'Workflow and process management view.',
+    [
+      makeZone('workflow-board', 'table', 'primary', 'Kanban or workflow stage board', ['move item', 'view stage'], ['real workflow stages']),
+      makeZone('workflow-actions', 'primary_action', 'secondary', 'Add/edit workflow steps', ['add step'], ['product-specific workflow']),
+    ],
+    '/workflow',
+  );
+
+  const settingsScreen = makeScreen(
+    'settings', 'Settings', 'settings', 'supporting',
+    'Workspace and team settings.',
+    [
+      makeZone('settings-nav', 'navigation', 'primary', 'Settings category navigation', ['navigate'], ['real settings categories']),
+      makeZone('settings-form', 'form', 'primary', 'Settings form fields', ['update', 'save'], ['product-specific settings']),
+    ],
+    '/settings',
+  );
+
+  return {
+    screens: [dashboardScreen, recordsScreen, recordDetailScreen, workflowScreen, settingsScreen],
+    firstScreenId: 'dashboard',
+    globalLayoutRules: [
+      'Use sidebar navigation; do NOT use bottom-tabs.',
+      'Dashboard KPI cards must show real operations metrics.',
+      'Records table must be functional with sort and filter controls.',
+      'Keep sidebar contextual — nav labels match the domain.',
+    ],
+    avoidPatterns: [
+      'bottom-tabs-in-sidebar-app: do not use bottom-tabs for a sidebar B2B app',
+      'placeholder-kpis: KPI cards must show real-looking values',
+      'empty-record-table: record table must have meaningful columns and rows',
+    ],
+  };
+}
+
+function buildMarketplacePlatformTemplate(): {
+  screens: ScreenCompositionEntry[];
+  firstScreenId: string;
+  globalLayoutRules: string[];
+  avoidPatterns: string[];
+} {
+  const homeScreen = makeScreen(
+    'home', 'Home', 'home', 'primary',
+    'Marketplace home: featured listings, category shortcuts, and bottom tab navigation.',
+    [
+      makeZone('search-bar', 'status', 'primary',
+        'Search bar and filter entry point',
+        ['search listings', 'open filters'],
+        ['prominent search, not decorative']),
+      makeZone('category-shortcuts', 'shortcut', 'primary',
+        'Category quick-access tiles',
+        ['tap category'],
+        ['real marketplace categories']),
+      makeZone('featured-listings', 'list', 'primary',
+        'Featured or trending listing cards',
+        ['tap listing'],
+        ['real listing-like content with images and prices']),
+      makeZone('bottom-nav', 'navigation', 'primary',
+        'Bottom tab navigation',
+        ['tap tab'],
+        ['match skeleton BOTTOM_TABS config']),
+    ],
+    '/',
+    ['search', 'browse listings', 'tap listing'],
+    ['listing catalog', 'user session'],
+    ['real listing-like items', 'prices', 'images'],
+  );
+
+  const listingDetailScreen = makeScreen(
+    'listing', 'Listing Detail', 'detail', 'secondary',
+    'Full listing detail with seller info and contact.',
+    [
+      makeZone('listing-images', 'hero', 'primary', 'Listing image gallery', ['swipe images'], ['real listing images']),
+      makeZone('listing-info', 'secondary_feature', 'primary', 'Listing details, description, price', ['read'], ['real listing content']),
+      makeZone('seller-card', 'status', 'primary', 'Seller identity card with rating', ['view seller', 'contact'], ['real seller info']),
+      makeZone('contact-cta', 'cta', 'primary', 'Contact seller or buy CTA', ['tap CTA'], ['functional action']),
+    ],
+    '/listing/:id',
+  );
+
+  const sellerDashboardScreen = makeScreen(
+    'seller-dashboard', 'Seller Dashboard', 'dashboard', 'secondary',
+    'Seller management: my listings, messages, and performance metrics.',
+    [
+      makeZone('seller-metrics', 'insight', 'primary', 'Seller KPIs: views, messages, sales', ['view metrics'], ['real seller metrics']),
+      makeZone('my-listings', 'list', 'primary', 'My active and draft listings', ['edit listing', 'create new'], ['real listing items']),
+      makeZone('seller-actions', 'primary_action', 'secondary', 'Create listing CTA and quick actions', ['create listing'], ['functional actions']),
+    ],
+    '/seller',
+  );
+
+  const messagesScreen = makeScreen(
+    'messages', 'Messages', 'other', 'secondary',
+    'Buyer-seller messaging threads.',
+    [
+      makeZone('thread-list', 'list', 'primary', 'Message thread list with previews', ['tap thread'], ['real conversation threads']),
+      makeZone('thread-detail', 'feed', 'primary', 'Active message thread', ['send message', 'view history'], ['real message content']),
+    ],
+    '/messages',
+  );
+
+  return {
+    screens: [homeScreen, listingDetailScreen, sellerDashboardScreen, messagesScreen],
+    firstScreenId: 'home',
+    globalLayoutRules: [
+      'Use bottom-tabs for primary navigation.',
+      'Home features editorial listing discovery, not just a flat list.',
+      'Listing cards must show images and price-like content.',
+      'Messaging must feel like a real chat thread, not a placeholder.',
+    ],
+    avoidPatterns: [
+      'flat-listing-wall: home must not be a featureless list of listings',
+      'no-seller-context: listing detail must show real seller info',
+      'placeholder-messages: message threads must contain real-looking content',
+    ],
+  };
+}
+
+function buildCreatorEditorWorkspaceTemplate(): {
+  screens: ScreenCompositionEntry[];
+  firstScreenId: string;
+  globalLayoutRules: string[];
+  avoidPatterns: string[];
+} {
+  const homeScreen = makeScreen(
+    'home', 'Projects', 'home', 'primary',
+    'Project list with recent work and quick-start options.',
+    [
+      makeZone('sidebar-nav', 'navigation', 'primary',
+        'Sidebar with workspace navigation',
+        ['navigate sections'],
+        ['product-specific nav items']),
+      makeZone('recent-projects', 'list', 'primary',
+        'Recent project card grid with thumbnails',
+        ['open project', 'create new'],
+        ['real project thumbnails and titles']),
+      makeZone('quick-start', 'shortcut', 'primary',
+        'Quick-start template shortcuts',
+        ['pick template'],
+        ['domain-specific templates']),
+      makeZone('usage-stats', 'insight', 'secondary',
+        'Usage or storage stats',
+        ['view usage'],
+        ['real-looking usage data']),
+    ],
+    '/',
+    ['open project', 'create project'],
+    ['project list', 'user identity'],
+    ['real project-like content'],
+  );
+
+  const editorScreen = makeScreen(
+    'editor', 'Editor', 'other', 'primary',
+    'Canvas editor screen with tools, properties panel, and asset library.',
+    [
+      makeZone('toolbar', 'shortcut', 'primary',
+        'Tool selection toolbar',
+        ['select tool', 'undo', 'redo'],
+        ['functional tool options']),
+      makeZone('canvas-area', 'primary_action', 'primary',
+        'Main editor canvas',
+        ['draw', 'place element', 'interact'],
+        ['functional editing surface']),
+      makeZone('properties-panel', 'secondary_feature', 'primary',
+        'Properties and style panel',
+        ['adjust property', 'apply style'],
+        ['real property controls']),
+      makeZone('asset-library', 'list', 'secondary',
+        'Asset and component library panel',
+        ['drag asset', 'search assets'],
+        ['domain-specific assets']),
+    ],
+    '/editor/:projectId',
+    ['edit canvas', 'adjust properties', 'save work'],
+    ['current project', 'asset library'],
+    ['functional editor controls'],
+  );
+
+  return {
+    screens: [homeScreen, editorScreen],
+    firstScreenId: 'home',
+    globalLayoutRules: [
+      'Use sidebar navigation; do NOT use bottom-tabs.',
+      'Editor screen must occupy full viewport with no bottom-tabs overlay.',
+      'Canvas area is the central focus — tools and panels are adjacent.',
+      'Project list uses card grid with real thumbnails.',
+    ],
+    avoidPatterns: [
+      'bottom-tabs-in-sidebar-app: do not use bottom-tabs for a creator workspace',
+      'placeholder-canvas: canvas must be a functional editor surface',
+      'empty-asset-panel: asset library must contain domain-specific items',
+    ],
+  };
+}
+
+function buildDatingMatchingTemplate(): {
+  screens: ScreenCompositionEntry[];
+  firstScreenId: string;
+  globalLayoutRules: string[];
+  avoidPatterns: string[];
+} {
+  const onboardingScreen = makeScreen(
+    'onboarding', 'Onboarding', 'form', 'supporting',
+    'Profile setup and preference onboarding flow.',
+    [
+      makeZone('onboarding-progress', 'progress', 'primary', 'Onboarding step indicator', ['view steps'], ['clear step progress']),
+      makeZone('onboarding-form', 'form', 'primary', 'Profile and preference form steps', ['fill fields', 'proceed'], ['real preference fields']),
+      makeZone('onboarding-cta', 'cta', 'primary', 'Next/finish CTA', ['tap next'], ['clear progression action']),
+    ],
+    '/onboarding',
+  );
+
+  const discoverScreen = makeScreen(
+    'discover', 'Discover', 'home', 'primary',
+    'Swipe card deck for discovering matches.',
+    [
+      makeZone('swipe-deck', 'primary_action', 'primary',
+        'Profile card swipe deck',
+        ['swipe left', 'swipe right', 'super like'],
+        ['real-looking profile cards with photos and bio']),
+      makeZone('match-actions', 'shortcut', 'primary',
+        'Like, dislike, and super-like action buttons',
+        ['tap action'],
+        ['functional swipe actions']),
+      makeZone('bottom-nav', 'navigation', 'primary',
+        'Bottom tab navigation',
+        ['tap tab'],
+        ['match skeleton BOTTOM_TABS config']),
+    ],
+    '/discover',
+    ['swipe', 'view profile', 'like'],
+    ['profile cards', 'match state'],
+    ['real profile-like content with photos and bios'],
+  );
+
+  const matchesScreen = makeScreen(
+    'matches', 'Matches', 'feed', 'secondary',
+    'Matched profiles list and conversation starters.',
+    [
+      makeZone('new-matches', 'list', 'primary', 'New matches row with avatar circles', ['tap match'], ['real profile photos']),
+      makeZone('message-threads', 'list', 'primary', 'Recent message thread list', ['tap thread'], ['real conversation previews']),
+    ],
+    '/matches',
+  );
+
+  const conversationScreen = makeScreen(
+    'conversation', 'Conversation', 'other', 'secondary',
+    'Full chat thread with a matched user.',
+    [
+      makeZone('chat-header', 'status', 'primary', 'Match profile header', ['view profile'], ['real match profile']),
+      makeZone('message-feed', 'feed', 'primary', 'Message bubble feed', ['scroll'], ['real-looking messages']),
+      makeZone('message-input', 'form', 'primary', 'Message compose input and send button', ['type message', 'send'], ['functional message input']),
+    ],
+    '/conversation/:matchId',
+  );
+
+  return {
+    screens: [onboardingScreen, discoverScreen, matchesScreen, conversationScreen],
+    firstScreenId: 'discover',
+    globalLayoutRules: [
+      'Use bottom-tabs for primary navigation.',
+      'Discover screen centers on the swipe card deck — make it full-width and visually dominant.',
+      'Profile cards must show photos and bios, not gray placeholders.',
+      'Onboarding renders before the main shell and should not be part of bottom-tabs.',
+    ],
+    avoidPatterns: [
+      'placeholder-profile-photos: profile cards must show real-looking photos',
+      'non-functional-swipe: swipe actions must be interactive',
+      'flat-matches-list: matches must show profile photos and message previews',
+    ],
+  };
+}
+
+function buildGamingCasinoTemplate(): {
+  screens: ScreenCompositionEntry[];
+  firstScreenId: string;
+  globalLayoutRules: string[];
+  avoidPatterns: string[];
+} {
+  const lobbyScreen = makeScreen(
+    'lobby', 'Lobby', 'home', 'primary',
+    'Game lobby: featured games, categories, and promo banners.',
+    [
+      makeZone('promo-banner', 'hero', 'primary',
+        'Featured promotion or jackpot banner',
+        ['view promo', 'tap CTA'],
+        ['visually striking promo content']),
+      makeZone('game-categories', 'shortcut', 'primary',
+        'Game category quick-access tiles',
+        ['tap category'],
+        ['real game categories']),
+      makeZone('featured-games', 'list', 'primary',
+        'Featured game cards with thumbnails',
+        ['tap game', 'scroll'],
+        ['real game-like cards with thumbnails']),
+      makeZone('bottom-nav', 'navigation', 'primary',
+        'Bottom tab navigation',
+        ['tap tab'],
+        ['match skeleton BOTTOM_TABS config']),
+    ],
+    '/',
+    ['browse games', 'tap game', 'tap promo'],
+    ['game catalog', 'user balance', 'active promotions'],
+    ['real game-like content', 'promo visuals'],
+  );
+
+  const gamesScreen = makeScreen(
+    'games', 'Games', 'feed', 'secondary',
+    'Full game browser with filters.',
+    [
+      makeZone('games-filter', 'shortcut', 'primary', 'Game filter and sort controls', ['filter by category', 'sort'], ['meaningful filter options']),
+      makeZone('games-grid', 'list', 'primary', 'Full game card grid', ['tap game'], ['real game cards with thumbnails']),
+    ],
+    '/games',
+  );
+
+  const gameDetailScreen = makeScreen(
+    'game-detail', 'Game Detail', 'detail', 'secondary',
+    'Game info, rules, and play CTA.',
+    [
+      makeZone('game-hero', 'hero', 'primary', 'Game banner or thumbnail hero', ['view banner'], ['real game visual']),
+      makeZone('game-info', 'secondary_feature', 'primary', 'Game info, rules, and stats', ['read'], ['real game details']),
+      makeZone('play-cta', 'cta', 'primary', 'Play now CTA', ['tap play'], ['functional play button']),
+    ],
+    '/games/:id',
+  );
+
+  const promotionsScreen = makeScreen(
+    'promotions', 'Promotions', 'other', 'secondary',
+    'Active promotions and bonus offers.',
+    [
+      makeZone('promo-list', 'list', 'primary', 'Active promotion cards', ['tap promo', 'claim'], ['real promo content']),
+      makeZone('promo-detail', 'secondary_feature', 'secondary', 'Promotion detail and terms', ['view terms'], ['real promo terms']),
+    ],
+    '/promotions',
+  );
+
+  const accountScreen = makeScreen(
+    'account', 'Account', 'profile', 'supporting',
+    'User account, balance, and settings.',
+    [
+      makeZone('account-header', 'status', 'primary', 'User balance and identity header', ['view balance'], ['real balance display']),
+      makeZone('account-menu', 'secondary_feature', 'primary', 'Account menu: history, settings, support', ['tap menu item'], ['real account sections']),
+    ],
+    '/account',
+  );
+
+  return {
+    screens: [lobbyScreen, gamesScreen, gameDetailScreen, promotionsScreen, accountScreen],
+    firstScreenId: 'lobby',
+    globalLayoutRules: [
+      'Use bottom-tabs for primary navigation.',
+      'Lobby must be visually rich with promo banners and game thumbnails.',
+      'Game cards must show real-looking game thumbnails and titles.',
+      'Balance must be visible in the Account screen header.',
+    ],
+    avoidPatterns: [
+      'placeholder-game-cards: game cards must show real thumbnails',
+      'empty-promos: promo section must contain real-looking offer content',
+      'no-balance-display: user balance must be visible in Account',
+    ],
+  };
+}
+
+function buildGameInteractiveTemplate(): {
+  screens: ScreenCompositionEntry[];
+  firstScreenId: string;
+  globalLayoutRules: string[];
+  avoidPatterns: string[];
+} {
+  const homeScreen = makeScreen(
+    'home', 'Home', 'home', 'primary',
+    'Game home: continue, level select, leaderboard teaser.',
+    [
+      makeZone('game-hero', 'hero', 'primary',
+        'Game logo/hero visual',
+        ['view hero'],
+        ['visually engaging game branding']),
+      makeZone('play-cta', 'primary_action', 'primary',
+        'Play / Continue game CTA',
+        ['tap play', 'tap continue'],
+        ['functional primary game action']),
+      makeZone('level-teaser', 'status', 'primary',
+        'Current level and progress teaser',
+        ['view progress'],
+        ['real level progress']),
+      makeZone('leaderboard-teaser', 'insight', 'secondary',
+        'Leaderboard top entries teaser',
+        ['view leaderboard'],
+        ['real score entries']),
+      makeZone('bottom-nav', 'navigation', 'primary',
+        'Bottom tab navigation',
+        ['tap tab'],
+        ['match skeleton BOTTOM_TABS config']),
+    ],
+    '/',
+    ['play game', 'view levels', 'view leaderboard'],
+    ['game progress', 'level state'],
+    ['real game progress data'],
+  );
+
+  const levelSelectScreen = makeScreen(
+    'level-select', 'Level Select', 'other', 'secondary',
+    'Level map or grid showing unlocked and locked levels.',
+    [
+      makeZone('level-grid', 'list', 'primary', 'Level card grid with lock/unlock states', ['tap level', 'view stars'], ['real level data with star ratings']),
+      makeZone('level-progress', 'progress', 'secondary', 'Overall completion progress', ['view progress'], ['real completion percentage']),
+    ],
+    '/levels',
+  );
+
+  const gameScreen = makeScreen(
+    'game', 'Game', 'other', 'primary',
+    'Full-screen game canvas — no bottom-tabs overlay.',
+    [
+      makeZone('game-canvas', 'primary_action', 'primary',
+        'Full-screen game canvas',
+        ['interact with game', 'play'],
+        ['functional game mechanics']),
+      makeZone('game-hud', 'status', 'primary',
+        'HUD: score, lives, timer',
+        ['view score'],
+        ['real game state values']),
+    ],
+    '/game/:levelId',
+  );
+
+  const leaderboardScreen = makeScreen(
+    'leaderboard', 'Leaderboard', 'other', 'secondary',
+    'Global and friends leaderboard.',
+    [
+      makeZone('top-scores', 'list', 'primary', 'Top score rows with rank and player names', ['scroll'], ['real score-like entries']),
+      makeZone('player-rank', 'insight', 'secondary', 'Current player rank highlight', ['view rank'], ['player\'s real rank']),
+    ],
+    '/leaderboard',
+  );
+
+  return {
+    screens: [homeScreen, levelSelectScreen, gameScreen, leaderboardScreen],
+    firstScreenId: 'home',
+    globalLayoutRules: [
+      'Use bottom-tabs for primary navigation (Home, Levels, Leaderboard).',
+      'Game screen is full-screen; bottom-tabs must not overlay the game canvas.',
+      'Level grid must show lock/unlock states clearly.',
+      'HUD values must be real-looking, not zeros.',
+    ],
+    avoidPatterns: [
+      'bottom-tabs-over-game-canvas: game screen must be full-screen with no bottom-tabs',
+      'empty-level-grid: all levels must show meaningful state',
+      'placeholder-leaderboard: leaderboard must contain real-looking score entries',
+    ],
+  };
+}
+
+function buildBookingServiceTemplate(): {
+  screens: ScreenCompositionEntry[];
+  firstScreenId: string;
+  globalLayoutRules: string[];
+  avoidPatterns: string[];
+} {
+  const homeScreen = makeScreen(
+    'home', 'Home', 'home', 'primary',
+    'Service discovery: featured services, categories, and search.',
+    [
+      makeZone('search-bar', 'status', 'primary',
+        'Service search and location bar',
+        ['search services'],
+        ['prominent search input']),
+      makeZone('service-categories', 'shortcut', 'primary',
+        'Service category quick-access tiles',
+        ['tap category'],
+        ['real service categories']),
+      makeZone('featured-services', 'list', 'primary',
+        'Featured service provider cards',
+        ['tap service', 'scroll'],
+        ['real service providers with ratings and prices']),
+      makeZone('bottom-nav', 'navigation', 'primary',
+        'Bottom tab navigation',
+        ['tap tab'],
+        ['match skeleton BOTTOM_TABS config']),
+    ],
+    '/',
+    ['search services', 'browse categories', 'tap service'],
+    ['service catalog', 'user location', 'user session'],
+    ['real service-like providers with ratings'],
+  );
+
+  const serviceDetailScreen = makeScreen(
+    'service-detail', 'Service Detail', 'detail', 'secondary',
+    'Service provider detail with availability and booking CTA.',
+    [
+      makeZone('provider-hero', 'hero', 'primary', 'Service provider profile and photos', ['view photos'], ['real provider images']),
+      makeZone('service-info', 'secondary_feature', 'primary', 'Service description, price, rating', ['read'], ['real service details']),
+      makeZone('availability-slot', 'shortcut', 'primary', 'Available time slot picker', ['select slot'], ['real-looking availability slots']),
+      makeZone('book-cta', 'cta', 'primary', 'Book now CTA', ['tap book'], ['functional booking action']),
+    ],
+    '/service/:id',
+  );
+
+  const bookingFlowScreen = makeScreen(
+    'booking-flow', 'Booking', 'form', 'secondary',
+    'Step-by-step booking wizard: date, time, details, confirm.',
+    [
+      makeZone('booking-steps', 'progress', 'primary', 'Booking step indicator', ['view steps'], ['clear step progression']),
+      makeZone('booking-form', 'form', 'primary', 'Booking form: date, time, notes', ['fill fields', 'proceed'], ['real booking fields']),
+      makeZone('booking-summary', 'insight', 'primary', 'Booking summary and price', ['view summary'], ['real booking summary']),
+      makeZone('confirm-cta', 'cta', 'primary', 'Confirm booking CTA', ['tap confirm'], ['functional confirm action']),
+    ],
+    '/book/:serviceId',
+  );
+
+  const myBookingsScreen = makeScreen(
+    'my-bookings', 'My Bookings', 'other', 'secondary',
+    'User\'s booking history and upcoming appointments.',
+    [
+      makeZone('upcoming-bookings', 'list', 'primary', 'Upcoming booking cards', ['tap booking', 'cancel'], ['real upcoming bookings']),
+      makeZone('past-bookings', 'list', 'secondary', 'Past bookings and review prompts', ['view past', 'leave review'], ['real past bookings']),
+    ],
+    '/my-bookings',
+  );
+
+  return {
+    screens: [homeScreen, serviceDetailScreen, bookingFlowScreen, myBookingsScreen],
+    firstScreenId: 'home',
+    globalLayoutRules: [
+      'Use bottom-tabs for primary navigation.',
+      'Service cards must show provider photos, ratings, and price-range.',
+      'Booking flow is a multi-step wizard — show clear step progress.',
+      'My Bookings must show real-looking upcoming appointments.',
+    ],
+    avoidPatterns: [
+      'placeholder-provider-photos: service cards must show real-looking provider photos',
+      'non-wizard-booking: booking flow must use multi-step wizard structure',
+      'empty-my-bookings: booking history must contain real-looking items',
+    ],
+  };
+}
+
+function buildContentLearningTemplate(): {
+  screens: ScreenCompositionEntry[];
+  firstScreenId: string;
+  globalLayoutRules: string[];
+  avoidPatterns: string[];
+} {
+  const homeScreen = makeScreen(
+    'home', 'Home', 'home', 'primary',
+    'Learning home: continue learning, featured courses, and progress summary.',
+    [
+      makeZone('continue-learning', 'progress', 'primary',
+        'Continue learning card with progress bar',
+        ['tap continue', 'view progress'],
+        ['real course in progress']),
+      makeZone('featured-courses', 'list', 'primary',
+        'Featured course cards',
+        ['tap course'],
+        ['real course titles and thumbnails']),
+      makeZone('learning-stats', 'insight', 'secondary',
+        'Learning streak and stats',
+        ['view stats'],
+        ['real-looking streak and completion data']),
+      makeZone('bottom-nav', 'navigation', 'primary',
+        'Bottom tab navigation',
+        ['tap tab'],
+        ['match skeleton BOTTOM_TABS config']),
+    ],
+    '/',
+    ['continue course', 'browse courses', 'view progress'],
+    ['enrolled courses', 'learning progress', 'user identity'],
+    ['real course-like content with thumbnails and titles'],
+  );
+
+  const courseCatalogScreen = makeScreen(
+    'course-catalog', 'Catalog', 'feed', 'secondary',
+    'Full course catalog with category filters and search.',
+    [
+      makeZone('catalog-search', 'status', 'primary', 'Course search input', ['search courses'], ['real search']),
+      makeZone('category-filters', 'shortcut', 'primary', 'Category filter chips', ['tap category'], ['real course categories']),
+      makeZone('course-grid', 'list', 'primary', 'Course card grid', ['tap course', 'scroll'], ['real course cards with thumbnails and ratings']),
+    ],
+    '/catalog',
+  );
+
+  const courseDetailScreen = makeScreen(
+    'course-detail', 'Course Detail', 'detail', 'secondary',
+    'Course overview, curriculum, and enroll/continue CTA.',
+    [
+      makeZone('course-hero', 'hero', 'primary', 'Course banner image and title', ['view banner'], ['real course visual']),
+      makeZone('course-info', 'secondary_feature', 'primary', 'Course description, rating, instructor', ['read'], ['real course details']),
+      makeZone('curriculum-list', 'list', 'primary', 'Lesson list with duration and completion state', ['tap lesson'], ['real lesson titles and durations']),
+      makeZone('enroll-cta', 'cta', 'primary', 'Enroll / Continue CTA', ['tap enroll or continue'], ['functional course action']),
+    ],
+    '/course/:id',
+  );
+
+  const lessonPlayerScreen = makeScreen(
+    'lesson-player', 'Lesson', 'other', 'primary',
+    'Full-screen lesson video/content player.',
+    [
+      makeZone('video-player', 'media', 'primary',
+        'Lesson video or content player',
+        ['play', 'pause', 'seek'],
+        ['functional media player with real-looking content']),
+      makeZone('lesson-notes', 'secondary_feature', 'secondary',
+        'Lesson notes and transcript',
+        ['view notes', 'scroll'],
+        ['real lesson notes']),
+      makeZone('lesson-nav', 'shortcut', 'secondary',
+        'Next/previous lesson navigation',
+        ['tap next', 'tap previous'],
+        ['functional navigation between lessons']),
+    ],
+    '/lesson/:id',
+  );
+
+  return {
+    screens: [homeScreen, courseCatalogScreen, courseDetailScreen, lessonPlayerScreen],
+    firstScreenId: 'home',
+    globalLayoutRules: [
+      'Use bottom-tabs for primary navigation.',
+      'Home must prominently show continue-learning progress.',
+      'Course cards must include thumbnails, titles, and ratings.',
+      'Lesson player should be full-screen without bottom-tabs overlay.',
+    ],
+    avoidPatterns: [
+      'placeholder-course-thumbnails: course cards must show real-looking thumbnails',
+      'empty-curriculum: course detail must list real lesson titles',
+      'non-functional-player: lesson player must be a real media player',
+    ],
+  };
+}
+
 function buildFallbackTemplate(): {
   screens: ScreenCompositionEntry[];
   firstScreenId: string;
@@ -911,6 +1600,30 @@ export function buildScreenCompositionPlan(input: {
       break;
     case 'productivity-tool':
       template = buildProductivityToolTemplate();
+      break;
+    case 'b2b-operations-workspace':
+      template = buildB2bOperationsWorkspaceTemplate();
+      break;
+    case 'marketplace-platform':
+      template = buildMarketplacePlatformTemplate();
+      break;
+    case 'creator-editor-workspace':
+      template = buildCreatorEditorWorkspaceTemplate();
+      break;
+    case 'dating-matching-app':
+      template = buildDatingMatchingTemplate();
+      break;
+    case 'gaming-casino-app':
+      template = buildGamingCasinoTemplate();
+      break;
+    case 'game-interactive-app':
+      template = buildGameInteractiveTemplate();
+      break;
+    case 'booking-service-app':
+      template = buildBookingServiceTemplate();
+      break;
+    case 'content-learning-app':
+      template = buildContentLearningTemplate();
       break;
     default:
       template = buildFallbackTemplate();

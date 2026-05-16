@@ -12,8 +12,16 @@
  * is sent — zero skeleton tokens hit the LLM context.
  */
 
+import b2bOperationsWorkspaceManifest from './skeleton-manifests/b2b-operations-workspace/skeleton.manifest.json';
+import bookingServiceAppManifest from './skeleton-manifests/booking-service-app/skeleton.manifest.json';
+import contentLearningAppManifest from './skeleton-manifests/content-learning-app/skeleton.manifest.json';
+import creatorEditorWorkspaceManifest from './skeleton-manifests/creator-editor-workspace/skeleton.manifest.json';
+import datingMatchingAppManifest from './skeleton-manifests/dating-matching-app/skeleton.manifest.json';
 import ecommerceManifest from './skeleton-manifests/ecommerce/skeleton.manifest.json';
+import gameInteractiveAppManifest from './skeleton-manifests/game-interactive-app/skeleton.manifest.json';
+import gamingCasinoAppManifest from './skeleton-manifests/gaming-casino-app/skeleton.manifest.json';
 import landingPageManifest from './skeleton-manifests/landing-page/skeleton.manifest.json';
+import marketplacePlatformManifest from './skeleton-manifests/marketplace-platform/skeleton.manifest.json';
 import mobileAppManifest from './skeleton-manifests/mobile-app/skeleton.manifest.json';
 import productivityToolManifest from './skeleton-manifests/productivity-tool/skeleton.manifest.json';
 import saasDashboardManifest from './skeleton-manifests/saas-dashboard/skeleton.manifest.json';
@@ -23,9 +31,17 @@ export type SkeletonId =
   | 'mobile-app'
   | 'saas-dashboard'
   | 'landing-page'
-  | 'social-community'   // pending: skeleton not yet uploaded
-  | 'productivity-tool'  // pending
-  | 'ecommerce';          // pending
+  | 'social-community'
+  | 'productivity-tool'
+  | 'ecommerce'
+  | 'b2b-operations-workspace'
+  | 'marketplace-platform'
+  | 'creator-editor-workspace'
+  | 'dating-matching-app'
+  | 'gaming-casino-app'
+  | 'game-interactive-app'
+  | 'booking-service-app'
+  | 'content-learning-app';
 
 export interface SkeletonMeta {
   id: SkeletonId;
@@ -82,12 +98,20 @@ interface SkeletonManifest {
 }
 
 const SKELETON_MANIFESTS: Record<SkeletonId, SkeletonManifest> = {
-  'mobile-app':        mobileAppManifest as SkeletonManifest,
-  'saas-dashboard':    saasDashboardManifest as SkeletonManifest,
-  'landing-page':      landingPageManifest as SkeletonManifest,
-  'social-community':  socialCommunityManifest as SkeletonManifest,
-  'productivity-tool': productivityToolManifest as SkeletonManifest,
-  ecommerce:           ecommerceManifest as SkeletonManifest,
+  'mobile-app':                mobileAppManifest as SkeletonManifest,
+  'saas-dashboard':            saasDashboardManifest as SkeletonManifest,
+  'landing-page':              landingPageManifest as SkeletonManifest,
+  'social-community':          socialCommunityManifest as SkeletonManifest,
+  'productivity-tool':         productivityToolManifest as SkeletonManifest,
+  ecommerce:                   ecommerceManifest as SkeletonManifest,
+  'b2b-operations-workspace':  b2bOperationsWorkspaceManifest as unknown as SkeletonManifest,
+  'marketplace-platform':      marketplacePlatformManifest as unknown as SkeletonManifest,
+  'creator-editor-workspace':  creatorEditorWorkspaceManifest as unknown as SkeletonManifest,
+  'dating-matching-app':       datingMatchingAppManifest as unknown as SkeletonManifest,
+  'gaming-casino-app':         gamingCasinoAppManifest as unknown as SkeletonManifest,
+  'game-interactive-app':      gameInteractiveAppManifest as unknown as SkeletonManifest,
+  'booking-service-app':       bookingServiceAppManifest as unknown as SkeletonManifest,
+  'content-learning-app':      contentLearningAppManifest as unknown as SkeletonManifest,
 };
 
 export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
@@ -502,6 +526,430 @@ useApp() — imported from '@/context/AppContext' — returns:
 CRITICAL RULES:
 - NEVER use useLocalStorage for cart or wishlist state — use cart.addItem() / wishlist.toggle() from useApp()
 - NEVER create local cart arrays with useState — the cart is persisted automatically via AppContext
+`,
+  },
+
+  'b2b-operations-workspace': {
+    id: 'b2b-operations-workspace',
+    label: 'B2B Operations Workspace',
+    description: 'Sidebar-first B2B operations dashboard with record tables, KPI cards, workflow views, and team management.',
+    tags: [
+      'b2b', 'operations', 'workspace', 'dashboard', 'sidebar', 'records', 'workflow',
+      'team', 'admin', 'business', 'enterprise', 'kpi', 'table', 'management',
+    ],
+    navigation: 'sidebar',
+    deltaFiles: [
+      'src/pages/Dashboard.tsx',
+      'src/pages/Records.tsx',
+      'src/pages/RecordDetail.tsx',
+      'src/pages/Workflow.tsx',
+      'src/pages/Team.tsx',
+      'src/pages/Reports.tsx',
+      'src/pages/Settings.tsx',
+    ],
+    lockedPrefixes: [
+      'src/main.tsx',
+      'src/index.css',
+      'src/lib/',
+      'src/hooks/',
+      'src/context/',
+      'src/components/',
+      'src/config/routes.ts',
+      'src/config/theme.ts',
+    ],
+    providedComponents: [
+      'ErrorBoundary', 'LoadingScreen', 'EmptyState',
+      'Sidebar', 'PageHeader', 'KPICard', 'RecordTable',
+    ],
+    providedHooks: ['useLocalStorage', 'useTheme'],
+    uiPrimitives: [
+      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
+      'Input', 'Progress', 'Select', 'Tabs',
+    ],
+    visualCompatibility: {
+      allowedSurfaces: ['sidebar', 'dashboard', 'record-table', 'record-detail', 'workflow', 'team', 'settings'],
+      allowedLayoutPatterns: ['sidebar-content', 'table-detail', 'kpi-grid', 'workflow-lane'],
+      allowedDensityProfiles: ['compact', 'comfortable'],
+      allowedMotionProfiles: ['gentle', 'reduced'],
+      allowedComponentFamilies: ['kpi-card', 'record-table', 'sidebar', 'page-header'],
+      forbiddenVisualPatterns: ['bottom-tabs primary nav', 'landing hero section', 'storefront product grid'],
+    },
+    available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- Use Sidebar component for navigation, NOT bottom-tabs
+- Use RecordTable for tabular data, NOT custom table elements
+`,
+  },
+
+  'marketplace-platform': {
+    id: 'marketplace-platform',
+    label: 'Marketplace Platform',
+    description: 'Multi-sided marketplace with home feed, listings, seller dashboard, and messaging.',
+    tags: [
+      'marketplace', 'platform', 'listing', 'seller', 'buyer', 'shop', 'commerce',
+      'multi-vendor', 'messages', 'storefront', 'ecommerce', 'peer-to-peer',
+    ],
+    navigation: 'bottom-tabs',
+    deltaFiles: [
+      'src/pages/Home.tsx',
+      'src/pages/Listing.tsx',
+      'src/pages/SellerDashboard.tsx',
+      'src/pages/Messages.tsx',
+    ],
+    lockedPrefixes: [
+      'src/main.tsx',
+      'src/index.css',
+      'src/lib/',
+      'src/hooks/',
+      'src/context/',
+      'src/components/',
+      'src/config/routes.ts',
+      'src/config/theme.ts',
+    ],
+    providedComponents: [
+      'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
+    ],
+    providedHooks: ['useLocalStorage', 'useTheme'],
+    uiPrimitives: [
+      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
+      'Input', 'Progress', 'Select', 'Sheet', 'Tabs',
+    ],
+    visualCompatibility: {
+      allowedSurfaces: ['home-feed', 'listing-detail', 'seller-dashboard', 'messages', 'bottom-tabs'],
+      allowedLayoutPatterns: ['bottom-tabs', 'card-feed', 'detail-view', 'dashboard-grid'],
+      allowedDensityProfiles: ['compact', 'comfortable', 'spacious'],
+      allowedMotionProfiles: ['gentle', 'expressive', 'reduced'],
+      allowedComponentFamilies: ['listing-card', 'bottom-tabs', 'message-thread'],
+      forbiddenVisualPatterns: ['admin sidebar shell', 'data-dense admin table', 'clinical dashboard shell'],
+    },
+    available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- Use BottomTabs for primary navigation
+`,
+  },
+
+  'creator-editor-workspace': {
+    id: 'creator-editor-workspace',
+    label: 'Creator / Editor Workspace',
+    description: 'Sidebar-based creative tool workspace with a canvas editor, asset management, and project list.',
+    tags: [
+      'creator', 'editor', 'workspace', 'canvas', 'design', 'tool', 'creative',
+      'sidebar', 'assets', 'project', 'content-creation', 'studio',
+    ],
+    navigation: 'sidebar',
+    deltaFiles: [
+      'src/pages/Home.tsx',
+      'src/pages/Editor.tsx',
+    ],
+    lockedPrefixes: [
+      'src/main.tsx',
+      'src/index.css',
+      'src/lib/',
+      'src/hooks/',
+      'src/context/',
+      'src/components/',
+      'src/config/routes.ts',
+      'src/config/theme.ts',
+    ],
+    providedComponents: [
+      'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'Sidebar',
+    ],
+    providedHooks: ['useLocalStorage', 'useTheme'],
+    uiPrimitives: [
+      'Badge', 'Button', 'Card', 'Dialog',
+      'Input', 'Select', 'Tabs', 'Slider',
+    ],
+    visualCompatibility: {
+      allowedSurfaces: ['sidebar', 'editor-canvas', 'home-project-list', 'asset-panel'],
+      allowedLayoutPatterns: ['sidebar-editor', 'canvas-panel', 'project-grid'],
+      allowedDensityProfiles: ['compact', 'comfortable'],
+      allowedMotionProfiles: ['gentle', 'reduced'],
+      allowedComponentFamilies: ['sidebar', 'canvas', 'project-card'],
+      forbiddenVisualPatterns: ['bottom-tabs primary nav', 'landing hero section', 'storefront product grid'],
+    },
+    available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- Use Sidebar for navigation, NOT bottom-tabs
+`,
+  },
+
+  'dating-matching-app': {
+    id: 'dating-matching-app',
+    label: 'Dating & Matching App',
+    description: 'Mobile-first dating app with swipe discovery, matches list, messaging, and onboarding.',
+    tags: [
+      'dating', 'matching', 'swipe', 'discover', 'matches', 'chat', 'profile',
+      'mobile', 'social', 'romance', 'connect', 'conversation', 'onboarding',
+    ],
+    navigation: 'bottom-tabs',
+    deltaFiles: [
+      'src/pages/Onboarding.tsx',
+      'src/pages/Discover.tsx',
+      'src/pages/Matches.tsx',
+      'src/pages/Conversation.tsx',
+    ],
+    lockedPrefixes: [
+      'src/main.tsx',
+      'src/index.css',
+      'src/lib/',
+      'src/hooks/',
+      'src/context/',
+      'src/components/',
+      'src/config/routes.ts',
+      'src/config/theme.ts',
+    ],
+    providedComponents: [
+      'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
+    ],
+    providedHooks: ['useLocalStorage', 'useTheme'],
+    uiPrimitives: [
+      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
+      'Input', 'Progress', 'Tabs',
+    ],
+    visualCompatibility: {
+      allowedSurfaces: ['discover-deck', 'match-list', 'conversation', 'profile', 'onboarding', 'bottom-tabs'],
+      allowedLayoutPatterns: ['bottom-tabs', 'swipe-deck', 'match-grid', 'chat-thread'],
+      allowedDensityProfiles: ['comfortable', 'spacious'],
+      allowedMotionProfiles: ['gentle', 'expressive'],
+      allowedComponentFamilies: ['profile-card', 'bottom-tabs', 'chat-bubble'],
+      forbiddenVisualPatterns: ['sidebar shell', 'landing hero', 'admin table'],
+    },
+    available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- Use BottomTabs for primary navigation
+- Onboarding renders before the main tab shell
+`,
+  },
+
+  'gaming-casino-app': {
+    id: 'gaming-casino-app',
+    label: 'Gaming / Casino App',
+    description: 'Mobile gaming/casino app with lobby, game browser, promotions, and account management.',
+    tags: [
+      'gaming', 'casino', 'game', 'lobby', 'games', 'promotions', 'account',
+      'mobile', 'play', 'betting', 'slots', 'entertainment', 'rewards',
+    ],
+    navigation: 'bottom-tabs',
+    deltaFiles: [
+      'src/pages/Lobby.tsx',
+      'src/pages/Games.tsx',
+      'src/pages/GameDetail.tsx',
+      'src/pages/Promotions.tsx',
+      'src/pages/Account.tsx',
+    ],
+    lockedPrefixes: [
+      'src/main.tsx',
+      'src/index.css',
+      'src/lib/',
+      'src/hooks/',
+      'src/context/',
+      'src/components/',
+      'src/config/routes.ts',
+      'src/config/theme.ts',
+    ],
+    providedComponents: [
+      'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
+    ],
+    providedHooks: ['useLocalStorage', 'useTheme'],
+    uiPrimitives: [
+      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
+      'Input', 'Progress', 'Tabs',
+    ],
+    visualCompatibility: {
+      allowedSurfaces: ['lobby', 'game-grid', 'game-detail', 'promotions', 'account', 'bottom-tabs'],
+      allowedLayoutPatterns: ['bottom-tabs', 'card-grid', 'game-detail', 'promotion-banner'],
+      allowedDensityProfiles: ['compact', 'comfortable'],
+      allowedMotionProfiles: ['expressive', 'gentle'],
+      allowedComponentFamilies: ['game-card', 'bottom-tabs', 'promo-banner', 'progress-bar'],
+      forbiddenVisualPatterns: ['sidebar shell', 'landing hero', 'social-feed primary shell'],
+    },
+    available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- Use BottomTabs for primary navigation
+`,
+  },
+
+  'game-interactive-app': {
+    id: 'game-interactive-app',
+    label: 'Interactive Game App',
+    description: 'Mobile interactive game with a home screen, level select, game canvas, and leaderboard.',
+    tags: [
+      'game', 'interactive', 'levels', 'play', 'leaderboard', 'score', 'puzzle',
+      'mobile', 'casual', 'arcade', 'canvas', 'level-select', 'gamification',
+    ],
+    navigation: 'bottom-tabs',
+    deltaFiles: [
+      'src/pages/Home.tsx',
+      'src/pages/LevelSelect.tsx',
+      'src/pages/GameScreen.tsx',
+      'src/pages/Leaderboard.tsx',
+    ],
+    lockedPrefixes: [
+      'src/main.tsx',
+      'src/index.css',
+      'src/lib/',
+      'src/hooks/',
+      'src/context/',
+      'src/components/',
+      'src/config/routes.ts',
+      'src/config/theme.ts',
+    ],
+    providedComponents: [
+      'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
+    ],
+    providedHooks: ['useLocalStorage', 'useTheme'],
+    uiPrimitives: [
+      'Badge', 'Button', 'Card', 'Dialog',
+      'Input', 'Progress', 'Tabs',
+    ],
+    visualCompatibility: {
+      allowedSurfaces: ['home', 'level-select', 'game-screen', 'leaderboard', 'bottom-tabs'],
+      allowedLayoutPatterns: ['bottom-tabs', 'level-grid', 'game-canvas', 'score-list'],
+      allowedDensityProfiles: ['compact', 'comfortable'],
+      allowedMotionProfiles: ['expressive', 'gentle'],
+      allowedComponentFamilies: ['level-card', 'game-canvas', 'leaderboard-row', 'bottom-tabs'],
+      forbiddenVisualPatterns: ['sidebar shell', 'landing hero', 'ecommerce product grid'],
+    },
+    available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- Use BottomTabs for primary navigation
+- GameScreen is a full-canvas route with no BottomTabs overlay
+`,
+  },
+
+  'booking-service-app': {
+    id: 'booking-service-app',
+    label: 'Booking & Service App',
+    description: 'Mobile service-booking app with home, service detail, booking flow, and my-bookings.',
+    tags: [
+      'booking', 'service', 'appointment', 'reservation', 'schedule', 'calendar',
+      'mobile', 'provider', 'availability', 'confirm', 'my-bookings', 'flow',
+    ],
+    navigation: 'bottom-tabs',
+    deltaFiles: [
+      'src/pages/Home.tsx',
+      'src/pages/ServiceDetail.tsx',
+      'src/pages/BookingFlow.tsx',
+      'src/pages/MyBookings.tsx',
+    ],
+    lockedPrefixes: [
+      'src/main.tsx',
+      'src/index.css',
+      'src/lib/',
+      'src/hooks/',
+      'src/context/',
+      'src/components/',
+      'src/config/routes.ts',
+      'src/config/theme.ts',
+    ],
+    providedComponents: [
+      'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
+    ],
+    providedHooks: ['useLocalStorage', 'useTheme'],
+    uiPrimitives: [
+      'Avatar', 'Badge', 'Button', 'Card', 'Calendar', 'Dialog',
+      'Input', 'Progress', 'Select', 'Tabs',
+    ],
+    visualCompatibility: {
+      allowedSurfaces: ['home', 'service-detail', 'booking-flow', 'my-bookings', 'bottom-tabs'],
+      allowedLayoutPatterns: ['bottom-tabs', 'card-list', 'detail-view', 'wizard-flow'],
+      allowedDensityProfiles: ['comfortable', 'spacious'],
+      allowedMotionProfiles: ['gentle', 'reduced'],
+      allowedComponentFamilies: ['service-card', 'booking-flow', 'calendar-picker', 'bottom-tabs'],
+      forbiddenVisualPatterns: ['sidebar shell', 'landing hero', 'admin table'],
+    },
+    available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- Use BottomTabs for primary navigation
+- BookingFlow is a multi-step wizard
+`,
+  },
+
+  'content-learning-app': {
+    id: 'content-learning-app',
+    label: 'Content / Learning App',
+    description: 'Mobile learning app with course catalog, course detail, lesson player, and home feed.',
+    tags: [
+      'learning', 'education', 'course', 'lesson', 'video', 'content', 'lms',
+      'mobile', 'catalog', 'player', 'progress', 'quiz', 'study', 'e-learning',
+    ],
+    navigation: 'bottom-tabs',
+    deltaFiles: [
+      'src/pages/Home.tsx',
+      'src/pages/CourseCatalog.tsx',
+      'src/pages/CourseDetail.tsx',
+      'src/pages/LessonPlayer.tsx',
+    ],
+    lockedPrefixes: [
+      'src/main.tsx',
+      'src/index.css',
+      'src/lib/',
+      'src/hooks/',
+      'src/context/',
+      'src/components/',
+      'src/config/routes.ts',
+      'src/config/theme.ts',
+    ],
+    providedComponents: [
+      'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
+    ],
+    providedHooks: ['useLocalStorage', 'useTheme'],
+    uiPrimitives: [
+      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
+      'Input', 'Progress', 'Select', 'Tabs',
+    ],
+    visualCompatibility: {
+      allowedSurfaces: ['home-feed', 'course-catalog', 'course-detail', 'lesson-player', 'bottom-tabs'],
+      allowedLayoutPatterns: ['bottom-tabs', 'card-feed', 'course-grid', 'video-player'],
+      allowedDensityProfiles: ['comfortable', 'spacious'],
+      allowedMotionProfiles: ['gentle', 'reduced'],
+      allowedComponentFamilies: ['course-card', 'lesson-row', 'video-player', 'progress-bar', 'bottom-tabs'],
+      forbiddenVisualPatterns: ['sidebar shell', 'landing hero', 'ecommerce checkout'],
+    },
+    available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns:
+  loadingState: 'loading' | 'ready' | 'error'
+  themeChoice, resolvedTheme, setTheme(choice)
+
+CRITICAL RULES:
+- Use BottomTabs for primary navigation
+- LessonPlayer is a full-screen route
 `,
   },
 };

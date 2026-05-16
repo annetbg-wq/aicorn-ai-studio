@@ -15,7 +15,11 @@ import {
 
 async function buildPlannerFixture(
   brief: string,
-  skeletonId: 'mobile-app' | 'saas-dashboard' | 'landing-page' | 'social-community' | 'ecommerce' | 'productivity-tool',
+  skeletonId:
+    | 'mobile-app' | 'saas-dashboard' | 'landing-page' | 'social-community' | 'ecommerce' | 'productivity-tool'
+    | 'b2b-operations-workspace' | 'marketplace-platform' | 'creator-editor-workspace'
+    | 'dating-matching-app' | 'gaming-casino-app' | 'game-interactive-app'
+    | 'booking-service-app' | 'content-learning-app',
 ) {
   const designCtx = await resolveDesignContext(brief, skeletonId);
   const premiumComponentIds = designCtx.premiumComponentSelection.selectedComponents.map(component => component.id);
@@ -192,3 +196,95 @@ describe('Architecture implementation diagnostics', () => {
     expect(telemetry.suggested_next_action).toMatch(/none|improve_prompt|split_modules_later|add_repair_later|consider_new_skeleton_later/);
   });
 });
+
+describe('New skeleton wiring — bypass not allowed and plan completeness', () => {
+  it('b2b-operations-workspace is non-bypass with sidebar reuse strategy', async () => {
+    const { skeletonIntegrationPlan } = await buildPlannerFixture(
+      'B2B operations workspace with record management and workflow',
+      'b2b-operations-workspace',
+    );
+
+    expect(skeletonIntegrationPlan.skeletonBypassAllowed).toBe(false);
+    expect(skeletonIntegrationPlan.customModules.length).toBeGreaterThan(0);
+    expect(skeletonIntegrationPlan.reuseStrategy.some(s => /sidebar/i.test(s.area))).toBe(true);
+    expect(skeletonIntegrationPlan.forbiddenPatterns).toContain('bypassing the selected skeleton for app prototypes');
+  });
+
+  it('dating-matching-app is non-bypass with swipe-deck custom module', async () => {
+    const { skeletonIntegrationPlan } = await buildPlannerFixture(
+      'dating app with swipe discovery, matches, and messaging',
+      'dating-matching-app',
+    );
+
+    expect(skeletonIntegrationPlan.skeletonBypassAllowed).toBe(false);
+    expect(skeletonIntegrationPlan.customModules.map(m => m.id)).toContain('swipe-deck');
+    expect(skeletonIntegrationPlan.extensionStrategy.some(s => s.targetFiles.includes('pages/Discover.tsx'))).toBe(true);
+  });
+
+  it('gaming-casino-app is non-bypass with game-grid custom module', async () => {
+    const { skeletonIntegrationPlan } = await buildPlannerFixture(
+      'casino gaming app with lobby, games, and promotions',
+      'gaming-casino-app',
+    );
+
+    expect(skeletonIntegrationPlan.skeletonBypassAllowed).toBe(false);
+    expect(skeletonIntegrationPlan.customModules.map(m => m.id)).toContain('game-grid');
+    expect(skeletonIntegrationPlan.extensionStrategy.some(s => s.targetFiles.includes('pages/Lobby.tsx'))).toBe(true);
+  });
+
+  it('game-interactive-app is non-bypass with level-grid custom module', async () => {
+    const { skeletonIntegrationPlan } = await buildPlannerFixture(
+      'interactive puzzle game with levels and leaderboard',
+      'game-interactive-app',
+    );
+
+    expect(skeletonIntegrationPlan.skeletonBypassAllowed).toBe(false);
+    expect(skeletonIntegrationPlan.customModules.map(m => m.id)).toContain('level-grid');
+    expect(skeletonIntegrationPlan.extensionStrategy.some(s => s.targetFiles.includes('pages/LevelSelect.tsx'))).toBe(true);
+  });
+
+  it('booking-service-app is non-bypass with booking-wizard custom module', async () => {
+    const { skeletonIntegrationPlan } = await buildPlannerFixture(
+      'booking app for wellness services with appointment scheduling',
+      'booking-service-app',
+    );
+
+    expect(skeletonIntegrationPlan.skeletonBypassAllowed).toBe(false);
+    expect(skeletonIntegrationPlan.customModules.map(m => m.id)).toContain('booking-wizard');
+    expect(skeletonIntegrationPlan.extensionStrategy.some(s => s.targetFiles.includes('pages/BookingFlow.tsx'))).toBe(true);
+  });
+
+  it('content-learning-app is non-bypass with course-grid and lesson-list modules', async () => {
+    const { skeletonIntegrationPlan } = await buildPlannerFixture(
+      'online learning app with courses, lessons, and progress tracking',
+      'content-learning-app',
+    );
+
+    expect(skeletonIntegrationPlan.skeletonBypassAllowed).toBe(false);
+    expect(skeletonIntegrationPlan.customModules.map(m => m.id)).toContain('course-grid');
+    expect(skeletonIntegrationPlan.extensionStrategy.some(s => s.targetFiles.includes('pages/LessonPlayer.tsx'))).toBe(true);
+  });
+
+  it('marketplace-platform is non-bypass with listing-grid module', async () => {
+    const { skeletonIntegrationPlan } = await buildPlannerFixture(
+      'multi-vendor marketplace for buying and selling handmade goods',
+      'marketplace-platform',
+    );
+
+    expect(skeletonIntegrationPlan.skeletonBypassAllowed).toBe(false);
+    expect(skeletonIntegrationPlan.customModules.map(m => m.id)).toContain('listing-grid');
+    expect(skeletonIntegrationPlan.extensionStrategy.some(s => s.targetFiles.includes('pages/Home.tsx'))).toBe(true);
+  });
+
+  it('creator-editor-workspace is non-bypass with canvas-toolbar module', async () => {
+    const { skeletonIntegrationPlan } = await buildPlannerFixture(
+      'creator editor workspace with canvas and project management',
+      'creator-editor-workspace',
+    );
+
+    expect(skeletonIntegrationPlan.skeletonBypassAllowed).toBe(false);
+    expect(skeletonIntegrationPlan.customModules.map(m => m.id)).toContain('canvas-toolbar');
+    expect(skeletonIntegrationPlan.extensionStrategy.some(s => s.targetFiles.includes('pages/Editor.tsx'))).toBe(true);
+  });
+});
+

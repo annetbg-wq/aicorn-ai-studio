@@ -12,7 +12,14 @@ import {
 } from '../FunctionalFlowPlanner';
 import { buildCoderPlanningBlocks } from '../ProtoPipeline';
 
-async function buildPlan(brief: string, skeletonId: 'mobile-app' | 'saas-dashboard' | 'landing-page' | 'social-community' | 'ecommerce') {
+async function buildPlan(
+  brief: string,
+  skeletonId:
+    | 'mobile-app' | 'saas-dashboard' | 'landing-page' | 'social-community' | 'ecommerce'
+    | 'b2b-operations-workspace' | 'marketplace-platform' | 'creator-editor-workspace'
+    | 'dating-matching-app' | 'gaming-casino-app' | 'game-interactive-app'
+    | 'booking-service-app' | 'content-learning-app',
+) {
   const designCtx = await resolveDesignContext(brief, skeletonId);
   const compositionPlan = buildScreenCompositionPlan({
     brief,
@@ -217,3 +224,77 @@ describe('FunctionalFlowPlanner — implementation diagnostics', () => {
     expect(diagnostics.suggestedNextAction).toBe('add_repair_later');
   });
 });
+
+describe('FunctionalFlowPlanner — dating-matching-app', () => {
+  it('includes swipe, open-conversation, and send-message flows with profile entities', async () => {
+    const { functionalPlan } = await buildPlan('dating app with swipe discovery and messaging', 'dating-matching-app');
+    const flowIds = functionalPlan.flows.map(flow => flow.id);
+    const entityIds = functionalPlan.entities.map(entity => entity.id);
+
+    expect(flowIds).toEqual(expect.arrayContaining(['swipe-action', 'open-conversation', 'send-message']));
+    expect(entityIds).toEqual(expect.arrayContaining(['profileCard', 'match', 'message']));
+    expect(functionalPlan.navigationRules.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('FunctionalFlowPlanner — gaming-casino-app', () => {
+  it('includes category-filter, favorite-game, and claim-promotion flows', async () => {
+    const { functionalPlan } = await buildPlan('casino gaming app with lobby and promotions', 'gaming-casino-app');
+    const flowIds = functionalPlan.flows.map(flow => flow.id);
+
+    expect(flowIds).toEqual(expect.arrayContaining(['game-category-filter', 'favorite-game', 'claim-promotion']));
+    expect(functionalPlan.entities.map(e => e.id)).toEqual(expect.arrayContaining(['game', 'promotion']));
+  });
+});
+
+describe('FunctionalFlowPlanner — game-interactive-app', () => {
+  it('includes select-level, game-play-update, and complete-level flows with level entities', async () => {
+    const { functionalPlan } = await buildPlan('interactive puzzle game with levels and leaderboard', 'game-interactive-app');
+    const flowIds = functionalPlan.flows.map(flow => flow.id);
+
+    expect(flowIds).toEqual(expect.arrayContaining(['select-level', 'game-play-update', 'complete-level']));
+    expect(functionalPlan.entities.map(e => e.id)).toEqual(expect.arrayContaining(['level', 'gameSession']));
+  });
+});
+
+describe('FunctionalFlowPlanner — booking-service-app', () => {
+  it('includes browse-services, select-time-slot, confirm-booking, and cancel-booking flows', async () => {
+    const { functionalPlan } = await buildPlan('booking app for wellness services with appointments', 'booking-service-app');
+    const flowIds = functionalPlan.flows.map(flow => flow.id);
+
+    expect(flowIds).toEqual(expect.arrayContaining(['browse-services', 'select-time-slot', 'confirm-booking', 'cancel-booking']));
+    expect(functionalPlan.entities.map(e => e.id)).toEqual(expect.arrayContaining(['service', 'timeSlot', 'booking']));
+  });
+});
+
+describe('FunctionalFlowPlanner — content-learning-app', () => {
+  it('includes enroll-course, start-lesson, complete-lesson, and catalog-filter flows', async () => {
+    const { functionalPlan } = await buildPlan('online learning app with courses and lesson progress', 'content-learning-app');
+    const flowIds = functionalPlan.flows.map(flow => flow.id);
+
+    expect(flowIds).toEqual(expect.arrayContaining(['enroll-course', 'start-lesson', 'complete-lesson', 'catalog-filter']));
+    expect(functionalPlan.entities.map(e => e.id)).toEqual(expect.arrayContaining(['course', 'lesson', 'learningProgress']));
+  });
+});
+
+describe('FunctionalFlowPlanner — b2b-operations-workspace reuses saas plan', () => {
+  it('returns a plan with workspace navigation, search-and-filter, and work-item flows', async () => {
+    const { functionalPlan } = await buildPlan('B2B operations workspace with record management and team workflows', 'b2b-operations-workspace');
+    const flowIds = functionalPlan.flows.map(flow => flow.id);
+
+    expect(flowIds).toContain('workspace-navigation');
+    expect(flowIds).toContain('search-and-filter');
+    expect(functionalPlan.navigationRules.length).toBeGreaterThan(0);
+  });
+});
+
+describe('FunctionalFlowPlanner — marketplace-platform reuses ecommerce plan', () => {
+  it('returns a plan with product-level entities and commerce navigation rules', async () => {
+    const { functionalPlan } = await buildPlan('multi-vendor marketplace platform for buying and selling', 'marketplace-platform');
+
+    expect(functionalPlan.entities.length).toBeGreaterThan(0);
+    expect(functionalPlan.flows.length).toBeGreaterThan(0);
+    expect(functionalPlan.navigationRules.length).toBeGreaterThan(0);
+  });
+});
+
