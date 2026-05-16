@@ -589,6 +589,22 @@ export class AgentLoopService {
       || message.includes('agent_sessions.user_id');
   }
 
+  private static isRlsPolicyViolation(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+
+    const maybeError = error as {
+      code?: unknown;
+      message?: unknown;
+    };
+
+    const code = String(maybeError.code ?? '');
+    const message = String(maybeError.message ?? '').toLowerCase();
+
+    return code === '42501'
+      || message.includes('row-level security policy')
+      || message.includes('insufficient_privilege');
+  }
+
   private static getAgentSessionsErrorMessage(error: unknown): string {
     if (!error || typeof error !== 'object' || !('message' in error)) return 'unknown';
     return typeof error.message === 'string' ? error.message : 'unknown';
@@ -714,6 +730,9 @@ export class AgentLoopService {
     ));
 
     if (error || !session) {
+      if (AgentLoopService.isRlsPolicyViolation(error)) {
+        throw new Error('Agent Lab requires authentication. Please sign in with Google to create agent sessions.');
+      }
       throw new Error('Не удалось создать сессию: ' + AgentLoopService.getAgentSessionsErrorMessage(error));
     }
 
@@ -1278,6 +1297,9 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
     ));
 
     if (error || !newSession) {
+      if (AgentLoopService.isRlsPolicyViolation(error)) {
+        throw new Error('Agent Lab requires authentication. Please sign in with Google to create agent sessions.');
+      }
       throw new Error('Не удалось создать сессию: ' + AgentLoopService.getAgentSessionsErrorMessage(error));
     }
 

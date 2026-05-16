@@ -103,6 +103,51 @@ beforeEach(() => {
   fromMock.mockClear();
 });
 
+describe('AgentLoopService RLS denial handling', () => {
+  it('rejects startSession with auth error message when insert fails with RLS 42501', async () => {
+    supabaseState.authGetUser.mockResolvedValue({ data: { user: null }, error: null });
+
+    // Phase-cache lookup returns no cached session
+    supabaseState.queue.push({ data: null, error: null });
+    // INSERT fails with RLS violation
+    supabaseState.queue.push({
+      data: null,
+      error: { code: '42501', message: 'new row violates row-level security policy' },
+    });
+
+    await expect(
+      AgentLoopService.startSession('MyBlock', {}, 'api-key', 'model-id', vi.fn()),
+    ).rejects.toThrow('Agent Lab requires authentication. Please sign in with Google to create agent sessions.');
+  });
+
+  it('rejects restartWithSpec with auth error message when insert fails with RLS 42501', async () => {
+    supabaseState.authGetUser.mockResolvedValue({ data: { user: null }, error: null });
+
+    // getAgentSessionById fetch
+    supabaseState.queue.push({
+      data: {
+        id: 'src-1',
+        block_name: 'MyBlock',
+        spec_result: { blockName: 'MyBlock' },
+        clarify_questions: null,
+        clarify_answers: null,
+        isolated_files: {},
+        max_iterations: 2,
+      },
+      error: null,
+    });
+    // INSERT fails with RLS violation
+    supabaseState.queue.push({
+      data: null,
+      error: { code: '42501', message: 'new row violates row-level security policy' },
+    });
+
+    await expect(
+      AgentLoopService.restartWithSpec('src-1', vi.fn()),
+    ).rejects.toThrow('Agent Lab requires authentication. Please sign in with Google to create agent sessions.');
+  });
+});
+
 describe('AgentLoopService owner scoping', () => {
   it('includes user_id in insert payloads when an auth user is available', async () => {
     supabaseState.authGetUser.mockResolvedValue({ data: { user: { id: 'user-123' } }, error: null });
