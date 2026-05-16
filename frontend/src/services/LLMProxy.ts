@@ -6,6 +6,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { canUseDevAuthBypass } from './internalAccess';
 
 const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL ||
@@ -18,7 +19,6 @@ const SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpkenVhb2RwaHJscHZvcnV0cHljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NDIyMTIsImV4cCI6MjA4NzUxODIxMn0.7L5sYMedvIKnU7o0X280Y92rUTAs86Q4RwBJsppuFxI';
 
 const PROXY_URL = `${SUPABASE_URL}/functions/v1/llm-proxy`;
-const DEV_BYPASS_KEY = 'AIC_DEV_AUTH_BYPASS';
 
 async function getProxyRequestHeaders(forceAnon = false): Promise<Record<string, string>> {
   const proxyHeaders: Record<string, string> = {
@@ -33,7 +33,7 @@ async function getProxyRequestHeaders(forceAnon = false): Promise<Record<string,
 
   // Local dev bypass does not create a real Supabase user/session, so the
   // edge function must be called with the anon role instead of a fake user.
-  const devBypassEnabled = localStorage.getItem(DEV_BYPASS_KEY) === '1';
+  const devBypassEnabled = canUseDevAuthBypass();
   if (!forceAnon && !devBypassEnabled) {
     try {
       const { data } = await supabase.auth.getSession();
@@ -107,9 +107,7 @@ async function proxyRequestWithSessionFallback(
   method: string,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const devBypassEnabled = (() => {
-    try { return localStorage.getItem(DEV_BYPASS_KEY) === '1'; } catch { return false; }
-  })();
+  const devBypassEnabled = canUseDevAuthBypass();
 
   // In dev-bypass mode go directly to the LLM — avoids Supabase edge function
   // timeouts (QUIC/150 s limit) on long generation requests.
