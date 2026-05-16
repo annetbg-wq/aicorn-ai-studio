@@ -62,6 +62,16 @@ import {
   type ScreenCompositionPlan,
   type ScreenCompositionPlanTelemetry,
 } from './ScreenCompositionPlanner';
+import {
+  buildFunctionalFlowPlan,
+  buildFunctionalFlowPromptBlock,
+  buildFunctionalImplementationDiagnostics,
+  serializeFunctionalFlowPlan,
+  serializeFunctionalImplementationDiagnostics,
+  type FunctionalFlowPlan,
+  type FunctionalFlowPlanTelemetry,
+  type FunctionalImplementationDiagnosticsTelemetry,
+} from './FunctionalFlowPlanner';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -109,6 +119,9 @@ export interface DesignSelectionDiagnostics {
   compositionFirstScreenId?: string;
   compositionScreenCount?: number;
   compositionZoneCountOnFirstScreen?: number;
+  functionalFlowPlanCreated?: boolean;
+  functionalFlowCount?: number;
+  functionalEntityCount?: number;
 }
 
 export interface VisualUsageDiagnostics {
@@ -156,6 +169,9 @@ export interface DesignSelectionDiagnosticsTelemetry {
   composition_first_screen_id?: string;
   composition_screen_count?: number;
   composition_zone_count_on_first_screen?: number;
+  functional_flow_plan_created?: boolean;
+  functional_flow_count?: number;
+  functional_entity_count?: number;
 }
 
 export interface VisualUsageDiagnosticsTelemetry {
@@ -208,6 +224,8 @@ export interface StepOutputMetrics {
   design_selection_diagnostics?: DesignSelectionDiagnosticsTelemetry;
   visual_usage_diagnostics?: VisualUsageDiagnosticsTelemetry;
   screen_composition_plan?: ScreenCompositionPlanTelemetry;
+  functional_flow_plan?: FunctionalFlowPlanTelemetry;
+  functional_implementation_diagnostics?: FunctionalImplementationDiagnosticsTelemetry;
 }
 
 export interface StepExecutionMetrics {
@@ -994,6 +1012,9 @@ export function serializeDesignSelectionDiagnostics(
     composition_first_screen_id: diagnostics.compositionFirstScreenId,
     composition_screen_count: diagnostics.compositionScreenCount,
     composition_zone_count_on_first_screen: diagnostics.compositionZoneCountOnFirstScreen,
+    functional_flow_plan_created: diagnostics.functionalFlowPlanCreated,
+    functional_flow_count: diagnostics.functionalFlowCount,
+    functional_entity_count: diagnostics.functionalEntityCount,
   };
 }
 
@@ -1305,6 +1326,15 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     if (compositionPlan.screens.length > 0) {
       log(`[composition] built plan: ${compositionPlan.screens.length} screens, firstScreenId=${compositionPlan.firstScreenId}, zones=${compositionPlan.screens.find(s => s.id === compositionPlan.firstScreenId)?.zones.length ?? 0} on first screen`);
     }
+    const functionalFlowPlan = buildFunctionalFlowPlan({
+      brief: clarifiedPrompt,
+      skeletonId: config.skeletonId,
+      screenCompositionPlan: compositionPlan,
+      architectPlan: plan,
+    });
+    if (functionalFlowPlan.flows.length > 0) {
+      log(`[functional] built plan: ${functionalFlowPlan.flows.length} flows, entities=${functionalFlowPlan.entities.length}, goal="${functionalFlowPlan.primaryUserGoal}"`);
+    }
 
     // ── Step 5 — Coder (one shot + at most one targeted retry) ────────────
     emit('coder', 'active');
@@ -1324,6 +1354,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         designCtx,
         mediaHints: mediaMaterialization.mediaHints,
         compositionPlan,
+        functionalFlowPlan,
       });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
@@ -1415,6 +1446,13 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     designSelectionDiagnostics.compositionFirstScreenId = compositionPlan.firstScreenId;
     designSelectionDiagnostics.compositionScreenCount = compositionPlan.screens.length;
     designSelectionDiagnostics.compositionZoneCountOnFirstScreen = firstCompositionScreen?.zones.length ?? 0;
+    designSelectionDiagnostics.functionalFlowPlanCreated = true;
+    designSelectionDiagnostics.functionalFlowCount = functionalFlowPlan.flows.length;
+    designSelectionDiagnostics.functionalEntityCount = functionalFlowPlan.entities.length;
+    const functionalImplementationDiagnostics = buildFunctionalImplementationDiagnostics({
+      files: filteredFiles,
+      plan: functionalFlowPlan,
+    });
     stepResults.apply = {
       output: {
         file_count: Object.keys(filteredFiles).length,
@@ -1430,6 +1468,8 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         design_selection_diagnostics: serializeDesignSelectionDiagnostics(designSelectionDiagnostics),
         visual_usage_diagnostics: serializeVisualUsageDiagnostics(visualUsageDiagnostics),
         screen_composition_plan: serializeScreenCompositionPlan(compositionPlan),
+        functional_flow_plan: serializeFunctionalFlowPlan(functionalFlowPlan),
+        functional_implementation_diagnostics: serializeFunctionalImplementationDiagnostics(functionalImplementationDiagnostics),
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
@@ -1884,6 +1924,19 @@ RULES
 
 // ── Step 4 — Coder ───────────────────────────────────────────────────────────
 
+export function buildCoderPlanningBlocks(input: {
+  designCtx?: DesignContext;
+  mediaHints?: MediaHint[];
+  compositionPlan?: ScreenCompositionPlan;
+  functionalFlowPlan?: FunctionalFlowPlan;
+}): string {
+  return [
+    input.designCtx ? designContractForCoder(input.designCtx, input.mediaHints) : '',
+    input.compositionPlan ? buildCompositionPlanPromptBlock(input.compositionPlan) : '',
+    input.functionalFlowPlan ? buildFunctionalFlowPromptBlock(input.functionalFlowPlan) : '',
+  ].filter(Boolean).join('\n');
+}
+
 async function runCoder(input: {
   prompt:     string;
   plan:       ArchitectPlan;
@@ -1896,6 +1949,7 @@ async function runCoder(input: {
   designCtx?: DesignContext;
   mediaHints?: MediaHint[];
   compositionPlan?: ScreenCompositionPlan;
+  functionalFlowPlan?: FunctionalFlowPlan;
 }): Promise<Record<string, string>>{
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
@@ -1933,6 +1987,12 @@ async function runCoder(input: {
       ? `CONTEXT CONTRACT FROM ARCHITECT — READ CAREFULLY:\n${input.plan.contextContract.trim()}`
       : '',
   ].filter(Boolean).join('\n\n');
+  const planningBlocks = buildCoderPlanningBlocks({
+    designCtx: input.designCtx,
+    mediaHints: input.mediaHints,
+    compositionPlan: input.compositionPlan,
+    functionalFlowPlan: input.functionalFlowPlan,
+  });
 
   const system = `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.
 
@@ -1940,8 +2000,7 @@ SKELETON: ${skeleton.label} (${skeleton.id})
 PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}
 PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
 UI PRIMITIVES: ${skeleton.uiPrimitives.join(', ') || '(see registry)'}
-${contractBlock ? `\n${contractBlock}\n` : ''}${input.designCtx ? '\n' + designContractForCoder(input.designCtx, input.mediaHints) : ''}
-${input.compositionPlan ? '\n' + buildCompositionPlanPromptBlock(input.compositionPlan) : ''}
+${contractBlock ? `\n${contractBlock}\n` : ''}${planningBlocks ? '\n' + planningBlocks + '\n' : ''}
 ${skeletonPromptBlock}
 DELTA FILE TREE FROM ARCHITECT (source of truth):
 ${fileTreeBlock || '  - (none)'}
