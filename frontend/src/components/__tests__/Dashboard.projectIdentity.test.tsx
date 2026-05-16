@@ -10,10 +10,6 @@ vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ googleAccessToken: null }),
 }));
 
-vi.mock('../../services/internalAccess', () => ({
-  isCreatorMode: () => false,
-}));
-
 vi.mock('../../services/ideaFeedService', () => ({
   ensureNicheIdeas: vi.fn(() => Promise.resolve([])),
   ensureTrendNichesModel: vi.fn(() => Promise.resolve({
