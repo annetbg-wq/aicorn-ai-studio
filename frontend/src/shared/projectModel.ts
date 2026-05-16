@@ -525,10 +525,10 @@ export interface GenerationRunStepTelemetry {
     total_tokens: number;
     cost_usd?: number;
   };
-  output?: {
-    file_count?: number;
-    total_bytes?: number;
-    asset_count?: number;
+    output?: {
+      file_count?: number;
+      total_bytes?: number;
+      asset_count?: number;
     build_size_kb?: number;
     preview_url?: string;
     files?: string[];
@@ -539,10 +539,57 @@ export interface GenerationRunStepTelemetry {
     visual_source_files?: string[];
     visual_linked_style_files?: string[];
     visual_linked_component_files?: string[];
-    visual_material_files?: string[];
-    materialized_visual_files?: string[];
-    fallback_visual_selection?: boolean;
-  };
+      visual_material_files?: string[];
+      materialized_visual_files?: string[];
+      materialized_premium_files?: string[];
+      selected_premium_component_ids?: string[];
+      selected_premium_recipe_id?: string | null;
+      fallback_visual_selection?: boolean;
+      materialized_media_files?: string[];
+      media_manifest_path?: string;
+      selected_media_kinds?: string[];
+      design_selection_diagnostics?: {
+        input_brief: string;
+        detected_product_type?: string;
+        detected_domain?: string;
+        detected_tone?: string;
+        detected_mood?: string;
+        selected_skeleton_id?: string;
+        skeleton_selection_reason?: string;
+        selected_visual_pack_id?: string;
+        selected_visual_variant_id?: string;
+        visual_pack_selection_reason?: string;
+        visual_pack_fallback_used?: boolean;
+        selected_premium_recipe_id?: string;
+        selected_premium_recipe_reason?: string;
+        selected_premium_component_ids: string[];
+        premium_component_selection_reason?: string;
+        selected_media_kinds: string[];
+        selected_media_reasons: string[];
+        design_decision_notes: string[];
+        possible_mismatch_warnings: string[];
+      };
+      visual_usage_diagnostics?: {
+        premium_usage_checked: boolean;
+        premium_components_selected: string[];
+        premium_component_imports_found: string[];
+        premium_component_usage_count: number;
+        premium_usage_observed: boolean;
+        media_usage_checked: boolean;
+        media_assets_materialized: string[];
+        media_asset_references_found: string[];
+        media_usage_count: number;
+        media_usage_observed: boolean;
+        first_screen_files_checked: string[];
+        first_screen_premium_usage_observed: boolean;
+        first_screen_media_usage_observed: boolean;
+        meaningful_screen_files: string[];
+        meaningful_screen_count: number;
+        generic_placeholder_findings: string[];
+        visual_usage_notes: string[];
+        suggested_next_action: 'none' | 'improve_prompt' | 'improve_assets' | 'add_repair_later';
+      };
+    };
   warnings?: string[];
 }
 

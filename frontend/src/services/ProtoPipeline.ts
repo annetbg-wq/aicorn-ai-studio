@@ -47,7 +47,11 @@ import { resolveMediaIntent } from './media/MediaIntentService';
 import { LocalPlaceholderMediaProvider } from './media/MediaProvider';
 import { mergeGeneratedMediaBundles } from './media/GeneratedMediaStore';
 import type { GeneratedMediaAsset } from './media/MediaAssetManifestService';
-import { selectPremiumRecipe } from './PremiumComponentBankService';
+import {
+  describePremiumComponentSelection,
+  describePremiumRecipeSelection,
+  selectPremiumRecipe,
+} from './PremiumComponentBankService';
 import { normalizePath as normalizePreviewPath } from './PreviewWriteGateway';
 import { appendPreviewSessionToUrl, getPreviewSessionToken } from './PreviewSessionService';
 import type { FastPathTelemetry, GenerationRunTelemetry } from '../shared/projectModel';
@@ -72,6 +76,92 @@ export interface StepLlmMetrics {
   completion_tokens: number;
   total_tokens: number;
   cost_usd?: number;
+}
+
+export interface DesignSelectionDiagnostics {
+  inputBrief: string;
+  detectedProductType?: string;
+  detectedDomain?: string;
+  detectedTone?: string;
+  detectedMood?: string;
+  selectedSkeletonId?: string;
+  skeletonSelectionReason?: string;
+  selectedVisualPackId?: string;
+  selectedVisualVariantId?: string;
+  visualPackSelectionReason?: string;
+  visualPackFallbackUsed?: boolean;
+  selectedPremiumRecipeId?: string;
+  selectedPremiumRecipeReason?: string;
+  selectedPremiumComponentIds: string[];
+  premiumComponentSelectionReason?: string;
+  selectedMediaKinds: string[];
+  selectedMediaReasons: string[];
+  designDecisionNotes: string[];
+  possibleMismatchWarnings: string[];
+}
+
+export interface VisualUsageDiagnostics {
+  premiumUsageChecked: boolean;
+  premiumComponentsSelected: string[];
+  premiumComponentImportsFound: string[];
+  premiumUsageCount: number;
+  premiumUsageObserved: boolean;
+  mediaUsageChecked: boolean;
+  mediaAssetsMaterialized: string[];
+  mediaAssetReferencesFound: string[];
+  mediaUsageCount: number;
+  mediaUsageObserved: boolean;
+  firstScreenFilesChecked: string[];
+  firstScreenPremiumUsageObserved: boolean;
+  firstScreenMediaUsageObserved: boolean;
+  meaningfulScreenFiles: string[];
+  meaningfulScreenCount: number;
+  genericPlaceholderFindings: string[];
+  visualUsageNotes: string[];
+  suggestedNextAction: 'none' | 'improve_prompt' | 'improve_assets' | 'add_repair_later';
+}
+
+export interface DesignSelectionDiagnosticsTelemetry {
+  input_brief: string;
+  detected_product_type?: string;
+  detected_domain?: string;
+  detected_tone?: string;
+  detected_mood?: string;
+  selected_skeleton_id?: string;
+  skeleton_selection_reason?: string;
+  selected_visual_pack_id?: string;
+  selected_visual_variant_id?: string;
+  visual_pack_selection_reason?: string;
+  visual_pack_fallback_used?: boolean;
+  selected_premium_recipe_id?: string;
+  selected_premium_recipe_reason?: string;
+  selected_premium_component_ids: string[];
+  premium_component_selection_reason?: string;
+  selected_media_kinds: string[];
+  selected_media_reasons: string[];
+  design_decision_notes: string[];
+  possible_mismatch_warnings: string[];
+}
+
+export interface VisualUsageDiagnosticsTelemetry {
+  premium_usage_checked: boolean;
+  premium_components_selected: string[];
+  premium_component_imports_found: string[];
+  premium_component_usage_count: number;
+  premium_usage_observed: boolean;
+  media_usage_checked: boolean;
+  media_assets_materialized: string[];
+  media_asset_references_found: string[];
+  media_usage_count: number;
+  media_usage_observed: boolean;
+  first_screen_files_checked: string[];
+  first_screen_premium_usage_observed: boolean;
+  first_screen_media_usage_observed: boolean;
+  meaningful_screen_files: string[];
+  meaningful_screen_count: number;
+  generic_placeholder_findings: string[];
+  visual_usage_notes: string[];
+  suggested_next_action: 'none' | 'improve_prompt' | 'improve_assets' | 'add_repair_later';
 }
 
 export interface StepOutputMetrics {
@@ -100,6 +190,8 @@ export interface StepOutputMetrics {
   materialized_media_files?: string[];
   media_manifest_path?: string;
   selected_media_kinds?: string[];
+  design_selection_diagnostics?: DesignSelectionDiagnosticsTelemetry;
+  visual_usage_diagnostics?: VisualUsageDiagnosticsTelemetry;
 }
 
 export interface StepExecutionMetrics {
@@ -418,6 +510,7 @@ export interface MaterializedMediaAssets {
   materializedFiles: string[];
   mediaManifestPath?: string;
   mediaHints: MediaHint[];
+  selectionReasons: string[];
 }
 
 const MEDIA_MANIFEST_PATH = 'src/assets/generated/media-manifest.json';
@@ -436,7 +529,12 @@ export async function materializeMediaAssets(
   });
 
   if (!intentResult.mediaNeeded || intentResult.mediaRequests.length === 0) {
-    return { files: {}, materializedFiles: [], mediaHints: [] };
+    return {
+      files: {},
+      materializedFiles: [],
+      mediaHints: [],
+      selectionReasons: intentResult.selectionReasons,
+    };
   }
 
   const provider = new LocalPlaceholderMediaProvider();
@@ -459,7 +557,449 @@ export async function materializeMediaAssets(
   }));
 
   const materializedFiles = Object.keys(files).sort((a, b) => a.localeCompare(b));
-  return { files, materializedFiles, mediaManifestPath: MEDIA_MANIFEST_PATH, mediaHints };
+  return {
+    files,
+    materializedFiles,
+    mediaManifestPath: MEDIA_MANIFEST_PATH,
+    mediaHints,
+    selectionReasons: intentResult.selectionReasons,
+  };
+}
+
+const FIRST_SCREEN_CANDIDATES = [
+  'App.tsx',
+  'src/App.tsx',
+  'pages/Home.tsx',
+  'pages/Dashboard.tsx',
+  'pages/Landing.tsx',
+  'pages/Index.tsx',
+  'app/page.tsx',
+  'app/home/page.tsx',
+  'app/dashboard/page.tsx',
+] as const;
+
+const GENERIC_PLACEHOLDER_PATTERNS: Array<{ label: string; rx: RegExp }> = [
+  { label: 'Lorem', rx: /\blorem\b/i },
+  { label: 'lorem ipsum', rx: /\blorem ipsum\b/i },
+  { label: 'Feature 1', rx: /\bFeature 1\b/i },
+  { label: 'Feature 2', rx: /\bFeature 2\b/i },
+  { label: 'Feature 3', rx: /\bFeature 3\b/i },
+  { label: 'AppName', rx: /\bAppName\b/i },
+  { label: 'PRODUCT', rx: /\bPRODUCT\b/i },
+  { label: 'Coming soon', rx: /\bComing soon\b/i },
+  { label: 'Untitled', rx: /\bUntitled\b/i },
+  { label: 'TODO', rx: /\bTODO\b/i },
+  { label: 'placeholder image', rx: /\bplaceholder image\b/i },
+  { label: 'gray placeholder', rx: /\bgray placeholder\b/i },
+  { label: 'generic dashboard', rx: /\bgeneric dashboard\b/i },
+  { label: 'generic app', rx: /\bgeneric app\b/i },
+];
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)));
+}
+
+function productTypeLabel(productType?: string): string {
+  switch (productType) {
+    case 'landing-page': return 'landing-page';
+    case 'mobile-app': return 'mobile-app';
+    case 'saas-dashboard': return 'saas-dashboard';
+    case 'social-community': return 'social-community';
+    case 'productivity-tool': return 'productivity-tool';
+    case 'ecommerce': return 'ecommerce';
+    default: return productType ?? 'unknown';
+  }
+}
+
+function isObviousSkeletonMismatch(detectedProductType: string | undefined, selectedSkeletonId: string): boolean {
+  if (!detectedProductType || detectedProductType === selectedSkeletonId) return false;
+  const obviousPairs = new Set([
+    'mobile-app>landing-page',
+    'mobile-app>saas-dashboard',
+    'landing-page>mobile-app',
+    'landing-page>saas-dashboard',
+    'saas-dashboard>mobile-app',
+    'saas-dashboard>landing-page',
+    'ecommerce>mobile-app',
+    'social-community>landing-page',
+  ]);
+  return obviousPairs.has(`${detectedProductType}>${selectedSkeletonId}`);
+}
+
+function buildSkeletonSelectionReason(
+  detectedProductType: string | undefined,
+  selectedSkeletonId: SkeletonId,
+): string {
+  if (detectedProductType === selectedSkeletonId) {
+    return 'selected by brief product-type match';
+  }
+  return 'selected by pipeline skeletonId input; reason unavailable from current selector';
+}
+
+function readableVisualReason(reason: string): string {
+  const code = reason.split(':')[0];
+  switch (code) {
+    case 'skeleton-compatible': return 'skeleton compatibility match';
+    case 'skeleton-exact': return 'exact skeleton match';
+    case 'skeleton-contract': return 'skeleton visual contract match';
+    case 'density-contract': return 'density contract match';
+    case 'motion-contract': return 'motion contract match';
+    case 'surface': return 'surface match';
+    case 'selected-surface': return 'selected surface match';
+    case 'layout-pattern-contract': return 'layout pattern contract match';
+    case 'component-family-contract': return 'component family contract match';
+    case 'domain-tags': return 'domain match';
+    case 'variant-domain-tags': return 'variant domain match';
+    case 'semantic-pack-bridge': return 'semantic domain bridge';
+    case 'subdomain': return 'subdomain match';
+    case 'selected-subdomain': return 'selected subdomain match';
+    case 'product-skeleton': return 'product-type skeleton match';
+    case 'preferred-variant': return 'preferred variant match';
+    case 'tone-profile': return 'tone profile match';
+    case 'tone-in-variant': return 'tone-aligned variant';
+    case 'tone-in-users': return 'target-user tone match';
+    case 'semantic-in-users': return 'semantic domain target-user match';
+    case 'semantic-neighbor': return 'semantic neighbor match';
+    case 'trust-level': return 'trust-level match';
+    case 'tone-density': return 'density match';
+    case 'tone-radius': return 'radius match';
+    case 'tone-motion': return 'motion match';
+    case 'tone-contrast': return 'contrast match';
+    case 'tone-color-family': return 'color-family match';
+    case 'pack-priority': return 'pack priority weighting';
+    case 'preferred-variant-floor': return 'preferred variant floor';
+    default: return code.replace(/-/g, ' ');
+  }
+}
+
+function buildVisualPackSelectionReason(ctx: DesignContext): string {
+  if (ctx.visualSelection.fallbackVisualSelection) {
+    return 'selected by fallback visual selection';
+  }
+  const selectedCandidate =
+    ctx.visualSelection.audit.viableCandidates.find(candidate =>
+      candidate.packId === ctx.visualSelection.selectedPackId &&
+      candidate.variantId === ctx.visualSelection.selectedVariantId
+    ) ??
+    ctx.visualSelection.audit.candidates.find(candidate =>
+      candidate.packId === ctx.visualSelection.selectedPackId &&
+      candidate.variantId === ctx.visualSelection.selectedVariantId
+    );
+  if (!selectedCandidate) return 'reason unavailable from current selector';
+  const reasons = uniqueStrings(selectedCandidate.reasons.map(readableVisualReason)).slice(0, 4);
+  return reasons.length > 0
+    ? `selected by ${reasons.join(', ')}`
+    : 'reason unavailable from current selector';
+}
+
+function normalizeOutputPath(path: string): string {
+  return normalizePreviewPath(path);
+}
+
+function isCodeFile(path: string): boolean {
+  const normalized = normalizeOutputPath(path);
+  return /\.(?:ts|tsx|css)$/.test(normalized);
+}
+
+function isSourceScanFile(path: string): boolean {
+  const normalized = normalizeOutputPath(path);
+  if (!isCodeFile(path)) return false;
+  if (normalized.startsWith('design-pack/')) return false;
+  if (normalized.startsWith('assets/generated/')) return false;
+  if (normalized.includes('__tests__/')) return false;
+  if (/\.(?:test|spec)\.tsx?$/.test(normalized)) return false;
+  return true;
+}
+
+function isMeaningfulScreenFile(path: string): boolean {
+  const normalized = normalizeOutputPath(path);
+  if (!/\.tsx$/.test(normalized)) return false;
+  if (!isSourceScanFile(path)) return false;
+  if (normalized === 'App.tsx') return true;
+  if (/^pages\/[^/]+\.tsx$/.test(normalized)) return true;
+  if (/^app(?:\/[^/]+)*\/page\.tsx$/.test(normalized)) return true;
+  if (/^screens\/[^/]+\.tsx$/.test(normalized)) return true;
+  if (/^components\/screens\/[^/]+\.tsx$/.test(normalized)) return true;
+  return false;
+}
+
+function findMatches(content: string, patterns: RegExp[]): string[] {
+  const matches: string[] = [];
+  for (const pattern of patterns) {
+    const rx = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`);
+    let match: RegExpExecArray | null;
+    while ((match = rx.exec(content)) !== null) {
+      matches.push(match[0]);
+    }
+  }
+  return matches;
+}
+
+export function buildVisualUsageDiagnostics(input: {
+  files: Record<string, string>;
+  skeletonId: SkeletonId;
+  selectedPremiumComponentIds: string[];
+  materializedMediaFiles: string[];
+  designSelectionDiagnostics?: DesignSelectionDiagnostics;
+}): VisualUsageDiagnostics {
+  const fileEntries = Object.entries(input.files).filter(([path]) => isSourceScanFile(path));
+  const premiumPatterns = [
+    /@\/design-pack\/premium-components\/[^"'`\s)]+/g,
+    /design-pack\/premium-components\/[^"'`\s)]+/g,
+  ];
+  const mediaAssetFiles = input.materializedMediaFiles
+    .filter(path => path !== MEDIA_MANIFEST_PATH)
+    .filter(path => /\.(?:svg|png|jpg|jpeg|webp|gif|avif)$/i.test(path));
+  const mediaBasenames = mediaAssetFiles.map(path => path.split('/').pop()).filter((value): value is string => Boolean(value));
+  const mediaPatterns = [
+    /src\/assets\/generated\/[^"'`\s)]+/g,
+    /\/assets\/generated\/[^"'`\s)]+/g,
+    /generated-media/gi,
+    ...mediaBasenames.map(name => new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')),
+  ];
+
+  const premiumFindings = fileEntries.flatMap(([path, content]) =>
+    findMatches(content, premiumPatterns).map(match => `${normalizeOutputPath(path)}: ${match}`),
+  );
+  const mediaFindings = fileEntries
+    .filter(([path]) => /\.(?:ts|tsx|css)$/.test(normalizeOutputPath(path)))
+    .flatMap(([path, content]) =>
+      findMatches(content, mediaPatterns).map(match => `${normalizeOutputPath(path)}: ${match}`),
+    );
+
+  const normalizedFileMap = new Map(fileEntries.map(([path]) => [normalizeOutputPath(path), normalizeOutputPath(path)]));
+  const meaningfulScreenFiles = uniqueStrings(
+    Object.keys(input.files)
+      .filter(path => isMeaningfulScreenFile(path))
+      .map(path => normalizeOutputPath(path)),
+  ).sort((a, b) => a.localeCompare(b));
+  const firstScreenFilesChecked = uniqueStrings(
+    FIRST_SCREEN_CANDIDATES
+      .map(path => normalizedFileMap.get(normalizeOutputPath(path)))
+      .concat(meaningfulScreenFiles.length > 0 ? [meaningfulScreenFiles[0]] : []),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const firstScreenSet = new Set(firstScreenFilesChecked);
+  const firstScreenPremiumUsageObserved = premiumFindings.some(entry => firstScreenSet.has(entry.split(': ')[0] ?? ''));
+  const firstScreenMediaUsageObserved = mediaFindings.some(entry => firstScreenSet.has(entry.split(': ')[0] ?? ''));
+
+  const genericPlaceholderFindings = uniqueStrings(
+    fileEntries.flatMap(([path, content]) =>
+      GENERIC_PLACEHOLDER_PATTERNS
+        .filter(pattern => pattern.rx.test(content))
+        .map(pattern => `${normalizeOutputPath(path)}: ${pattern.label}`),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const premiumUsageChecked = input.selectedPremiumComponentIds.length > 0;
+  const mediaUsageChecked = mediaAssetFiles.length > 0;
+  const premiumComponentImportsFound = uniqueStrings(premiumFindings).sort((a, b) => a.localeCompare(b));
+  const mediaAssetReferencesFound = uniqueStrings(mediaFindings).sort((a, b) => a.localeCompare(b));
+  const premiumUsageObserved = premiumComponentImportsFound.length > 0;
+  const mediaUsageObserved = mediaAssetReferencesFound.length > 0;
+
+  const visualUsageNotes: string[] = [];
+  if (premiumUsageChecked && !premiumUsageObserved) {
+    visualUsageNotes.push('Premium components were selected, but generated source did not reference premium component imports.');
+  }
+  if (mediaUsageChecked && !mediaUsageObserved) {
+    visualUsageNotes.push('Generated media assets were materialized, but generated source did not reference them.');
+  }
+  if (input.skeletonId === 'saas-dashboard' && meaningfulScreenFiles.length < 3) {
+    visualUsageNotes.push('SaaS dashboard selected but fewer than 3 meaningful screens were observed.');
+  }
+  if (genericPlaceholderFindings.length > 0) {
+    visualUsageNotes.push('Obvious generic placeholder content remains in generated source.');
+  }
+
+  const designMismatchObserved = (input.designSelectionDiagnostics?.possibleMismatchWarnings.length ?? 0) > 0;
+  const assetsExistButUnused =
+    (premiumUsageChecked && !premiumUsageObserved) ||
+    (mediaUsageChecked && !mediaUsageObserved);
+  const firstScreenVisualUsageObserved = firstScreenPremiumUsageObserved || firstScreenMediaUsageObserved;
+  const repeatedUnusedSignals =
+    (!firstScreenVisualUsageObserved && (premiumUsageObserved || mediaUsageObserved)) ||
+    (premiumUsageChecked && mediaUsageChecked && !premiumUsageObserved && !mediaUsageObserved) ||
+    genericPlaceholderFindings.length > 0;
+  const suggestedNextAction: VisualUsageDiagnostics['suggestedNextAction'] =
+    designMismatchObserved
+      ? 'improve_assets'
+      : assetsExistButUnused
+        ? 'improve_prompt'
+        : repeatedUnusedSignals
+          ? 'add_repair_later'
+          : 'none';
+
+  return {
+    premiumUsageChecked,
+    premiumComponentsSelected: [...input.selectedPremiumComponentIds].sort((a, b) => a.localeCompare(b)),
+    premiumComponentImportsFound,
+    premiumUsageCount: premiumFindings.length,
+    premiumUsageObserved,
+    mediaUsageChecked,
+    mediaAssetsMaterialized: [...mediaAssetFiles].sort((a, b) => a.localeCompare(b)),
+    mediaAssetReferencesFound,
+    mediaUsageCount: mediaFindings.length,
+    mediaUsageObserved,
+    firstScreenFilesChecked,
+    firstScreenPremiumUsageObserved,
+    firstScreenMediaUsageObserved,
+    meaningfulScreenFiles,
+    meaningfulScreenCount: meaningfulScreenFiles.length,
+    genericPlaceholderFindings,
+    visualUsageNotes,
+    suggestedNextAction,
+  };
+}
+
+export function buildDesignSelectionDiagnostics(input: {
+  inputBrief: string;
+  selectedSkeletonId: SkeletonId;
+  designCtx: DesignContext;
+  selectedMediaKinds: string[];
+  selectedMediaReasons: string[];
+  visualUsageDiagnostics?: VisualUsageDiagnostics;
+}): DesignSelectionDiagnostics {
+  const detectedProductType = input.designCtx.visualSelection.signals.productDomain || undefined;
+  const detectedDomain =
+    input.designCtx.domain?.id ??
+    input.designCtx.visualSelection.signals.semanticDomainId ??
+    undefined;
+  const detectedTone =
+    input.designCtx.visualSelection.signals.toneProfiles[0] ??
+    input.designCtx.visualSelection.toneProfile ??
+    undefined;
+  const selectedPremiumRecipeId = input.designCtx.premiumComponentSelection.selectedRecipeId ?? undefined;
+  const selectedPremiumComponentIds = input.designCtx.premiumComponentSelection.selectedComponents
+    .map(component => component.id)
+    .sort((a, b) => a.localeCompare(b));
+  const diagnostics: DesignSelectionDiagnostics = {
+    inputBrief: input.inputBrief,
+    detectedProductType,
+    detectedDomain,
+    detectedTone,
+    detectedMood: input.designCtx.intent.mood,
+    selectedSkeletonId: input.selectedSkeletonId,
+    skeletonSelectionReason: buildSkeletonSelectionReason(detectedProductType, input.selectedSkeletonId),
+    selectedVisualPackId: input.designCtx.visualSelection.selectedPackId,
+    selectedVisualVariantId: input.designCtx.visualSelection.selectedVariantId,
+    visualPackSelectionReason: buildVisualPackSelectionReason(input.designCtx),
+    visualPackFallbackUsed: input.designCtx.visualSelection.fallbackVisualSelection,
+    selectedPremiumRecipeId,
+    selectedPremiumRecipeReason: selectedPremiumRecipeId
+      ? describePremiumRecipeSelection({
+          brief: input.inputBrief,
+          skeletonId: input.selectedSkeletonId,
+          domainId: detectedDomain,
+          surfaces: input.designCtx.visualSelection.surfaces,
+        })
+      : undefined,
+    selectedPremiumComponentIds,
+    premiumComponentSelectionReason: describePremiumComponentSelection(
+      input.designCtx.premiumComponentSelection,
+      {
+        brief: input.inputBrief,
+        skeletonId: input.selectedSkeletonId,
+        domainId: detectedDomain,
+        surfaces: input.designCtx.visualSelection.surfaces,
+      },
+    ),
+    selectedMediaKinds: [...input.selectedMediaKinds].sort((a, b) => a.localeCompare(b)),
+    selectedMediaReasons: [...input.selectedMediaReasons],
+    designDecisionNotes: uniqueStrings([
+      `visual selection pipeline: ${input.designCtx.visualSelection.audit.pipelineStages.map(stage => stage.stage).join(' > ') || 'fallback'}`,
+      input.designCtx.visualSelection.audit.selectedByExactMatch ? 'visual variant matched an exact preferred signal' : null,
+      input.designCtx.visualSelection.audit.selectedAfterDiversity ? 'visual selection changed after diversity balancing' : null,
+      input.designCtx.visualSelection.audit.selectedBySeed ? 'visual selection was resolved by stable seed within the viable pool' : null,
+      input.designCtx.visualSelection.signals.recommendedDesign
+        ? `recommended design hint: ${input.designCtx.visualSelection.signals.recommendedDesign}`
+        : null,
+    ]),
+    possibleMismatchWarnings: [],
+  };
+
+  if (isObviousSkeletonMismatch(diagnostics.detectedProductType, input.selectedSkeletonId)) {
+    diagnostics.possibleMismatchWarnings.push(
+      `Brief looks like ${productTypeLabel(diagnostics.detectedProductType)}, but selected skeleton is ${input.selectedSkeletonId}.`,
+    );
+  }
+  if (diagnostics.visualPackFallbackUsed) {
+    diagnostics.possibleMismatchWarnings.push('Visual fallback was used, so design direction may be less product-specific.');
+  }
+  if (
+    input.visualUsageDiagnostics &&
+    input.selectedSkeletonId === 'saas-dashboard' &&
+    input.visualUsageDiagnostics.meaningfulScreenCount < 3
+  ) {
+    diagnostics.possibleMismatchWarnings.push('SaaS dashboard selected but fewer than 3 meaningful screens were observed.');
+  }
+  if (
+    selectedPremiumRecipeId === 'health-wellness-mobile' &&
+    input.visualUsageDiagnostics &&
+    !input.visualUsageDiagnostics.premiumUsageObserved
+  ) {
+    diagnostics.possibleMismatchWarnings.push('Premium health recipe selected, but no premium component usage was later observed.');
+  }
+  if (
+    diagnostics.selectedMediaKinds.length > 0 &&
+    input.visualUsageDiagnostics &&
+    !input.visualUsageDiagnostics.firstScreenMediaUsageObserved
+  ) {
+    diagnostics.possibleMismatchWarnings.push('Media asset selected for hero/background, but no first-screen media usage was observed.');
+  }
+
+  return diagnostics;
+}
+
+export function serializeDesignSelectionDiagnostics(
+  diagnostics: DesignSelectionDiagnostics,
+): DesignSelectionDiagnosticsTelemetry {
+  return {
+    input_brief: diagnostics.inputBrief,
+    detected_product_type: diagnostics.detectedProductType,
+    detected_domain: diagnostics.detectedDomain,
+    detected_tone: diagnostics.detectedTone,
+    detected_mood: diagnostics.detectedMood,
+    selected_skeleton_id: diagnostics.selectedSkeletonId,
+    skeleton_selection_reason: diagnostics.skeletonSelectionReason,
+    selected_visual_pack_id: diagnostics.selectedVisualPackId,
+    selected_visual_variant_id: diagnostics.selectedVisualVariantId,
+    visual_pack_selection_reason: diagnostics.visualPackSelectionReason,
+    visual_pack_fallback_used: diagnostics.visualPackFallbackUsed,
+    selected_premium_recipe_id: diagnostics.selectedPremiumRecipeId,
+    selected_premium_recipe_reason: diagnostics.selectedPremiumRecipeReason,
+    selected_premium_component_ids: diagnostics.selectedPremiumComponentIds,
+    premium_component_selection_reason: diagnostics.premiumComponentSelectionReason,
+    selected_media_kinds: diagnostics.selectedMediaKinds,
+    selected_media_reasons: diagnostics.selectedMediaReasons,
+    design_decision_notes: diagnostics.designDecisionNotes,
+    possible_mismatch_warnings: diagnostics.possibleMismatchWarnings,
+  };
+}
+
+export function serializeVisualUsageDiagnostics(
+  diagnostics: VisualUsageDiagnostics,
+): VisualUsageDiagnosticsTelemetry {
+  return {
+    premium_usage_checked: diagnostics.premiumUsageChecked,
+    premium_components_selected: diagnostics.premiumComponentsSelected,
+    premium_component_imports_found: diagnostics.premiumComponentImportsFound,
+    premium_component_usage_count: diagnostics.premiumUsageCount,
+    premium_usage_observed: diagnostics.premiumUsageObserved,
+    media_usage_checked: diagnostics.mediaUsageChecked,
+    media_assets_materialized: diagnostics.mediaAssetsMaterialized,
+    media_asset_references_found: diagnostics.mediaAssetReferencesFound,
+    media_usage_count: diagnostics.mediaUsageCount,
+    media_usage_observed: diagnostics.mediaUsageObserved,
+    first_screen_files_checked: diagnostics.firstScreenFilesChecked,
+    first_screen_premium_usage_observed: diagnostics.firstScreenPremiumUsageObserved,
+    first_screen_media_usage_observed: diagnostics.firstScreenMediaUsageObserved,
+    meaningful_screen_files: diagnostics.meaningfulScreenFiles,
+    meaningful_screen_count: diagnostics.meaningfulScreenCount,
+    generic_placeholder_findings: diagnostics.genericPlaceholderFindings,
+    visual_usage_notes: diagnostics.visualUsageNotes,
+    suggested_next_action: diagnostics.suggestedNextAction,
+  };
 }
 
 // ── Implementation ────────────────────────────────────────────────────────────
@@ -807,6 +1347,34 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     if (Object.keys(filteredFiles).length === 0) {
       return fail('apply', 'All produced files are skeleton-protected — nothing to write');
     }
+    const selectedPremiumComponentIds = designCtx.premiumComponentSelection.selectedComponents
+      .map(component => component.id)
+      .sort((a, b) => a.localeCompare(b));
+    const selectedMediaKinds = mediaMaterialization.mediaHints
+      .map(hint => hint.kind)
+      .sort((a, b) => a.localeCompare(b));
+    const preliminaryDesignSelectionDiagnostics = buildDesignSelectionDiagnostics({
+      inputBrief: clarifiedPrompt,
+      selectedSkeletonId: config.skeletonId,
+      designCtx,
+      selectedMediaKinds,
+      selectedMediaReasons: mediaMaterialization.selectionReasons,
+    });
+    const visualUsageDiagnostics = buildVisualUsageDiagnostics({
+      files: filteredFiles,
+      skeletonId: config.skeletonId,
+      selectedPremiumComponentIds,
+      materializedMediaFiles: mediaMaterialization.materializedFiles,
+      designSelectionDiagnostics: preliminaryDesignSelectionDiagnostics,
+    });
+    const designSelectionDiagnostics = buildDesignSelectionDiagnostics({
+      inputBrief: clarifiedPrompt,
+      selectedSkeletonId: config.skeletonId,
+      designCtx,
+      selectedMediaKinds,
+      selectedMediaReasons: mediaMaterialization.selectionReasons,
+      visualUsageDiagnostics,
+    });
     stepResults.apply = {
       output: {
         file_count: Object.keys(filteredFiles).length,
@@ -814,11 +1382,13 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         files: Object.keys(filteredFiles),
         materialized_visual_files: visualMaterialization.materializedFiles,
         materialized_premium_files: premiumMaterialization.materializedFiles,
-        selected_premium_component_ids: designCtx.premiumComponentSelection.selectedComponents.map(component => component.id),
+        selected_premium_component_ids: selectedPremiumComponentIds,
         selected_premium_recipe_id: designCtx.premiumComponentSelection.selectedRecipeId,
         materialized_media_files: mediaMaterialization.materializedFiles,
         media_manifest_path: mediaMaterialization.mediaManifestPath,
-        selected_media_kinds: mediaMaterialization.mediaHints.map(h => h.kind),
+        selected_media_kinds: selectedMediaKinds,
+        design_selection_diagnostics: serializeDesignSelectionDiagnostics(designSelectionDiagnostics),
+        visual_usage_diagnostics: serializeVisualUsageDiagnostics(visualUsageDiagnostics),
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
