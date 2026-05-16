@@ -1,6 +1,8 @@
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 import {
+  getPreviewDocumentTrailingSlashRedirectPath,
+  injectPreviewSessionIntoHtmlAssetUrls,
   bindPreviewBuildSession,
   canReadPreviewBuild,
   getPreservedPreviewDirs,
@@ -52,6 +54,63 @@ describe('preview-manager path hardening', () => {
     expect(getPreservedPreviewDirs()).toEqual(
       expect.arrayContaining(['components', 'config', 'context', 'hooks', 'lib', 'themes']),
     );
+  });
+});
+
+describe('preview-manager preview asset sessions', () => {
+  const validToken = 'preview-session-token-123';
+
+  it('appends previewSession to Vite JS asset URLs in HTML', () => {
+    const html = '<script type="module" crossorigin src="./assets/index-abc123.js"></script>';
+
+    expect(injectPreviewSessionIntoHtmlAssetUrls(html, validToken)).toBe(
+      '<script type="module" crossorigin src="./assets/index-abc123.js?previewSession=preview-session-token-123"></script>',
+    );
+  });
+
+  it('appends previewSession to Vite CSS asset URLs in HTML', () => {
+    const html = '<link rel="stylesheet" crossorigin href="./assets/index-def456.css">';
+
+    expect(injectPreviewSessionIntoHtmlAssetUrls(html, validToken)).toBe(
+      '<link rel="stylesheet" crossorigin href="./assets/index-def456.css?previewSession=preview-session-token-123">',
+    );
+  });
+
+  it('does not double-add previewSession to asset URLs', () => {
+    const html = '<script type="module" src="./assets/index-abc123.js?previewSession=existing-session-token"></script>';
+
+    expect(injectPreviewSessionIntoHtmlAssetUrls(html, validToken)).toBe(html);
+  });
+
+  it('does not inject previewSession into external http(s) URLs', () => {
+    const html = [
+      '<script src="https://cdn.example.com/assets/index.js"></script>',
+      '<link rel="stylesheet" href="http://cdn.example.com/assets/index.css">',
+    ].join('');
+
+    expect(injectPreviewSessionIntoHtmlAssetUrls(html, validToken)).toBe(html);
+  });
+
+  it('preserves non-asset HTML', () => {
+    const html = [
+      '<main data-testid="smoke-root">',
+      '<img src="./logo.svg" alt="Logo">',
+      '<div data-src="./assets/index-abc123.js">Preview</div>',
+      '</main>',
+    ].join('');
+
+    expect(injectPreviewSessionIntoHtmlAssetUrls(html, validToken)).toBe(html);
+  });
+
+  it('builds a trailing-slash redirect path and preserves previewSession', () => {
+    expect(
+      getPreviewDocumentTrailingSlashRedirectPath(
+        '/preview/build-1?previewSession=preview-session-token-123&view=full',
+        'build-1',
+      ),
+    ).toBe('/preview/build-1/?previewSession=preview-session-token-123&view=full');
+    expect(getPreviewDocumentTrailingSlashRedirectPath('/preview/build-1/?previewSession=preview-session-token-123', 'build-1')).toBeNull();
+    expect(getPreviewDocumentTrailingSlashRedirectPath('/preview/build-1/assets/index.js?previewSession=preview-session-token-123', 'build-1')).toBeNull();
   });
 });
 
