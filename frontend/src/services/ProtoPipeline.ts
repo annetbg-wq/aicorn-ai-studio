@@ -87,6 +87,9 @@ export interface StepOutputMetrics {
   visual_linked_component_files?: string[];
   visual_material_files?: string[];
   materialized_visual_files?: string[];
+  materialized_premium_files?: string[];
+  selected_premium_component_ids?: string[];
+  selected_premium_recipe_id?: string | null;
   fallback_visual_selection?: boolean;
 }
 
@@ -225,6 +228,12 @@ interface MaterializedVisualPack {
   materializedFiles: string[];
 }
 
+interface MaterializedPremiumComponents {
+  files: Record<string, string>;
+  materializedFiles: string[];
+  importHints: Array<{ componentId: string; importPath: string; sourcePath: string }>;
+}
+
 function normalizeRepoAssetPath(modulePath: string): string {
   return modulePath.replace(/^(\.\.\/)+/, '').replace(/\\/g, '/');
 }
@@ -245,6 +254,10 @@ function getDesignPackRawFile(path: string | undefined): string | null {
 function outputPathForDesignPackAsset(path: string): string {
   const relative = path.replace(/^prototype-bank\/design-packs\//, '');
   return normalizePreviewPath(`design-pack/${relative}`);
+}
+
+function premiumComponentImportPath(sourcePath: string): string {
+  return `@/${outputPathForDesignPackAsset(sourcePath).replace(/\.[^.]+$/, '')}`;
 }
 
 function getSkeletonAppTemplate(skeletonId: SkeletonId): string | null {
@@ -340,6 +353,52 @@ function materializeVisualPack(ctx: DesignContext): MaterializedVisualPack {
     linkedComponentFiles,
     materialFiles: repoMaterialFiles,
     materializedFiles,
+  };
+}
+
+const PREMIUM_COMPONENT_REGISTRY_SOURCE =
+  'prototype-bank/design-packs/premium-components/_registry/premiumComponentPrimitives.tsx';
+
+export function materializePremiumComponents(ctx: DesignContext): MaterializedPremiumComponents {
+  const selection = ctx.premiumComponentSelection;
+  const componentSourceFiles = Array.from(new Set(
+    selection.componentSourceFiles.filter(path => (
+      path.startsWith('prototype-bank/design-packs/premium-components/') &&
+      path.endsWith('/component.tsx') &&
+      !path.includes('/preview-adapters/') &&
+      !/\/(?:LICENSE|license|import-notes?)\b/.test(path)
+    )),
+  ));
+
+  if (componentSourceFiles.length === 0) {
+    return { files: {}, materializedFiles: [], importHints: [] };
+  }
+
+  const repoMaterialFiles = [
+    PREMIUM_COMPONENT_REGISTRY_SOURCE,
+    ...componentSourceFiles,
+  ];
+
+  const files = Object.fromEntries(
+    repoMaterialFiles.flatMap(path => {
+      const raw = getDesignPackRawFile(path);
+      if (!raw) return [];
+      return [[outputPathForDesignPackAsset(path), raw] as const];
+    }),
+  );
+
+  const importHints = selection.selectedComponents
+    .filter(component => componentSourceFiles.includes(component.file))
+    .map(component => ({
+      componentId: component.id,
+      importPath: premiumComponentImportPath(component.file),
+      sourcePath: component.file,
+    }));
+
+  return {
+    files,
+    materializedFiles: Object.keys(files).sort((a, b) => a.localeCompare(b)),
+    importHints,
   };
 }
 
@@ -647,6 +706,8 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     deltaFiles[tf.path] = tf.content;
     const visualMaterialization = materializeVisualPack(designCtx);
     Object.assign(deltaFiles, visualMaterialization.files);
+    const premiumMaterialization = materializePremiumComponents(designCtx);
+    Object.assign(deltaFiles, premiumMaterialization.files);
     const appPath = Object.keys(deltaFiles).find(path => normalizePreviewPath(path) === 'App.tsx');
     const appSource =
       (appPath ? deltaFiles[appPath] : null) ??
@@ -684,6 +745,9 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         total_bytes: totalFileBytes(filteredFiles),
         files: Object.keys(filteredFiles),
         materialized_visual_files: visualMaterialization.materializedFiles,
+        materialized_premium_files: premiumMaterialization.materializedFiles,
+        selected_premium_component_ids: designCtx.premiumComponentSelection.selectedComponents.map(component => component.id),
+        selected_premium_recipe_id: designCtx.premiumComponentSelection.selectedRecipeId,
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };

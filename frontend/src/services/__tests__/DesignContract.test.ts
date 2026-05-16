@@ -154,6 +154,26 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/Before inventing UI, check selected premium component recipe/);
   });
 
+  it('includes generated import path hints for selected premium components', async () => {
+    const ctx = await resolveDesignContext('wellness mobile app with habit routine tracking', 'mobile-app');
+    const txt = designContractForCoder(ctx);
+    const component = ctx.premiumComponentSelection.selectedComponents[0];
+
+    expect(ctx.premiumComponentSelection.selectedRecipeId).toBe('health-wellness-mobile');
+    if (!component) {
+      throw new Error('Expected at least one selected premium component');
+    }
+
+    const expectedImportPath = `@/design-pack/${component.file
+      .replace(/^prototype-bank\/design-packs\//, '')
+      .replace(/\.[^.]+$/, '')}`;
+
+    expect(txt).toContain(`generatedImportPath: ${expectedImportPath}`);
+    expect(txt).toContain(`import: import ${component.name} from '${expectedImportPath}';`);
+    expect(txt).toMatch(/Prefer these imported premium components before inventing generic cards/);
+    expect(txt).toMatch(/Do not downgrade selected premium blocks to generic Card layouts/);
+  });
+
   it('marks hardcoded visual selection as fallback when file packs are unavailable', async () => {
     const ctx = await resolveDesignContext('test', 'mobile-app', { visualPacksOverride: [] });
     const txt = designContractForCoder(ctx);

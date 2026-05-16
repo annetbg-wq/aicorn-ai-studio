@@ -64,4 +64,19 @@ describe('PremiumComponentBankService', () => {
     expect(selection.usageRules).toContain('Use available premium blocks if compatible with the selected skeleton.');
     expect(selection.forbiddenPatterns).toContain('Do not use remote random media URLs.');
   });
+
+  it('returns health component source files for the wellness mobile recipe', () => {
+    const selection = resolvePremiumComponentSelection({
+      brief: 'wellness mobile app with habit routine tracking',
+      skeletonId: 'mobile-app',
+      domainId: 'wellness',
+      surfaces: ['mobile', 'health', 'habit'],
+    });
+
+    expect(selection.selectedRecipeId).toBe('health-wellness-mobile');
+    expect(selection.componentSourceFiles.length).toBeGreaterThan(0);
+    expect(
+      selection.componentSourceFiles.some(path => path.includes('prototype-bank/design-packs/premium-components/health/')),
+    ).toBe(true);
+  });
 });

@@ -288,6 +288,26 @@ function visualSelectionPromptBlock(
 }
 
 function premiumSelectionPromptBlock(selection: PremiumComponentSelection): string {
+  const selectedComponentsBlock = selection.selectedComponents.length === 0
+    ? 'selectedComponents: []'
+    : `selectedComponents:\n${selection.selectedComponents.map(component => {
+        const generatedImportPath = premiumComponentGeneratedImportPath(component.file);
+        const generatedImportHint = generatedImportPath
+          ? `    import: import ${component.name} from '${generatedImportPath}';`
+          : null;
+
+        return [
+          `  - ${component.id}`,
+          `    name: ${component.name}`,
+          `    file: ${component.file}`,
+          generatedImportPath ? `    generatedImportPath: ${generatedImportPath}` : null,
+          generatedImportHint,
+          `    compatibleSkeletons: ${inlineList(component.compatibleSkeletons)}`,
+          `    mediaSlots: ${inlineList(component.mediaSlots)}`,
+          `    renderSafe: ${component.renderSafe}`,
+        ].filter((line): line is string => Boolean(line)).join('\n');
+      }).join('\n')}`;
+
   const lines = [
     '',
     'PREMIUM_COMPONENT_SELECTION:',
@@ -299,30 +319,26 @@ function premiumSelectionPromptBlock(selection: PremiumComponentSelection): stri
     arrayBlock('dependencyNotes', selection.dependencyNotes),
     arrayBlock('usageRules', selection.usageRules),
     arrayBlock('forbiddenPatterns', selection.forbiddenPatterns),
-    selection.selectedComponents.length === 0
-      ? 'selectedComponents: []'
-      : `selectedComponents:\n${selection.selectedComponents.map(component => [
-          `  - ${component.id}`,
-          `    source: ${component.source} (${component.sourceLicense} · ${component.sourceCommitOrVersion})`,
-          `    file: ${component.file}`,
-          `    previewAdapter: ${component.previewAdapter}`,
-          `    compatibleSkeletons: ${inlineList(component.compatibleSkeletons)}`,
-          `    mediaSlots: ${inlineList(component.mediaSlots)}`,
-          `    renderSafe: ${component.renderSafe}`,
-        ].join('\n')).join('\n')}`,
+    selectedComponentsBlock,
   ];
 
   lines.push(
     '',
     'CODER PREMIUM COMPONENT INSTRUCTIONS:',
     '- Before inventing UI, check selected premium component recipe.',
-    '- Use available premium blocks if compatible.',
-    '- Do not recreate low-quality generic cards if a premium component exists.',
+    '- Prefer these imported premium components before inventing generic cards.',
+    '- If a selected premium component fits a screen slot, use it directly and wrap it with product-specific copy/state.',
+    '- Do not downgrade selected premium blocks to generic Card layouts.',
     '- Do not use remote random media.',
     '- Use generated media slots or local fallback assets.',
   );
 
   return lines.join('\n');
+}
+
+function premiumComponentGeneratedImportPath(sourceFile: string): string | null {
+  if (!sourceFile.startsWith('prototype-bank/design-packs/premium-components/')) return null;
+  return `@/design-pack/${sourceFile.replace(/^prototype-bank\/design-packs\//, '').replace(/\.[^.]+$/, '')}`;
 }
 
 function inlineList(values: readonly string[]): string {
