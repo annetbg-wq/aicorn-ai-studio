@@ -1,11 +1,52 @@
-export function isCreatorMode(): boolean {
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
-    return false;
-  }
+export const DEV_BYPASS_KEY = 'AIC_DEV_AUTH_BYPASS';
 
-  const host = window.location.hostname;
-  return localStorage.getItem('AIC_DEV_AUTH_BYPASS') === '1'
-    || host === 'localhost'
-    || host === '127.0.0.1';
+function resolveHostname(hostname?: string): string {
+  if (typeof hostname === 'string') {
+    return hostname.trim().toLowerCase();
+  }
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  return window.location.hostname.trim().toLowerCase();
 }
 
+export function normalizeEmail(email?: string | null): string | null {
+  if (typeof email !== 'string') return null;
+  const normalized = email.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function isLocalDevHost(hostname?: string): boolean {
+  const host = resolveHostname(hostname);
+  return host === 'localhost' || host === '127.0.0.1';
+}
+
+export function canUseDevAuthBypass(
+  hostname?: string,
+  bypassValue?: string | null,
+): boolean {
+  const effectiveBypassValue = typeof bypassValue === 'string'
+    ? bypassValue
+    : typeof localStorage !== 'undefined'
+      ? localStorage.getItem(DEV_BYPASS_KEY)
+      : null;
+
+  return isLocalDevHost(hostname) && effectiveBypassValue === '1';
+}
+
+export function isFounderAdminEmail(email?: string | null): boolean {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return false;
+
+  const rawEmails = String(import.meta.env.VITE_FOUNDER_ADMIN_EMAILS ?? '');
+  const founderEmails = rawEmails
+    .split(',')
+    .map((entry) => normalizeEmail(entry))
+    .filter((entry): entry is string => entry !== null);
+
+  return founderEmails.includes(normalizedEmail);
+}
+
+export function isCreatorMode(): boolean {
+  return canUseDevAuthBypass();
+}
