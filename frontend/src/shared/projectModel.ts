@@ -568,6 +568,13 @@ export interface GenerationRunStepTelemetry {
         selected_media_reasons: string[];
         design_decision_notes: string[];
         possible_mismatch_warnings: string[];
+        composition_plan_created?: boolean;
+        composition_first_screen_id?: string;
+        composition_screen_count?: number;
+        composition_zone_count_on_first_screen?: number;
+        functional_flow_plan_created?: boolean;
+        functional_flow_count?: number;
+        functional_entity_count?: number;
       };
       visual_usage_diagnostics?: {
         premium_usage_checked: boolean;
@@ -588,6 +595,97 @@ export interface GenerationRunStepTelemetry {
         generic_placeholder_findings: string[];
         visual_usage_notes: string[];
         suggested_next_action: 'none' | 'improve_prompt' | 'improve_assets' | 'add_repair_later';
+      };
+      screen_composition_plan?: {
+        product_type?: string;
+        skeleton_id: string;
+        selected_recipe_id?: string;
+        first_screen_id: string;
+        screen_count: number;
+        screens: Array<{
+          id: string;
+          title: string;
+          route_hint?: string;
+          role: string;
+          priority: string;
+          layout_intent: string;
+          zones: Array<{
+            id: string;
+            role: string;
+            priority: string;
+            intent: string;
+            suggested_components: string[];
+            suggested_media: string[];
+            interactions: string[];
+            content_rules: string[];
+          }>;
+          premium_component_targets: string[];
+          media_targets: string[];
+          required_interactions: string[];
+          state_requirements: string[];
+          content_requirements: string[];
+        }>;
+        global_layout_rules: string[];
+        avoid_patterns: string[];
+        composition_notes: string[];
+      };
+      functional_flow_plan?: {
+        product_type?: string;
+        skeleton_id: string;
+        primary_user_goal: string;
+        entity_count: number;
+        flow_count: number;
+        entities: Array<{
+          id: string;
+          label: string;
+          sample_count: number;
+          fields: Array<{
+            name: string;
+            type: 'string' | 'number' | 'boolean' | 'date' | 'enum' | 'array';
+            example: string;
+          }>;
+        }>;
+        flows: Array<{
+          id: string;
+          title: string;
+          screen_id: string;
+          user_intent: string;
+          trigger_elements: string[];
+          state_changes: string[];
+          affected_entities: string[];
+          visible_feedback: string[];
+          navigation_target?: string;
+          required_implementation: string[];
+        }>;
+        navigation_rules: Array<{
+          from: string;
+          to: string;
+          trigger: string;
+          expected_behavior: string;
+        }>;
+        non_decorative_rules: string[];
+        functional_notes: string[];
+      };
+      functional_implementation_diagnostics?: {
+        functional_diagnostics_checked: boolean;
+        planned_flow_count: number;
+        flows_with_likely_implementation: string[];
+        flows_without_implementation_signals: string[];
+        state_hook_count: number;
+        reducer_hook_count: number;
+        handler_count: number;
+        empty_handler_count: number;
+        form_count: number;
+        controlled_input_count: number;
+        submit_handler_count: number;
+        search_or_filter_signals: string[];
+        tab_state_signals: string[];
+        navigation_signals: string[];
+        local_create_update_signals: string[];
+        derived_data_signals: string[];
+        decorative_interaction_warnings: string[];
+        implementation_coverage_ratio: number;
+        suggested_next_action: 'none' | 'improve_prompt' | 'add_repair_later';
       };
     };
   warnings?: string[];
