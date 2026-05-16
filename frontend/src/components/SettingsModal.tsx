@@ -13,7 +13,6 @@ import {
   syncLocalDevAgentMode,
   type DevAgentProvider,
 } from '../services/devAgentMode';
-import { isCreatorMode } from '../services/internalAccess';
 
 /* ── ПОЛНЫЙ КАТАЛОГ МОДЕЛЕЙ OPENROUTER ───────────────────────────────────── */
 interface ModelInfo {
@@ -215,6 +214,7 @@ const PRESETS: AgentPreset[] = [
 
 interface SettingsModalProps {
   isOpen: boolean; onClose: () => void;
+  isAdmin?: boolean;
   theme?: string; setTheme?: (t: string) => void;
   apiKey: string; setApiKey: (k: string) => void;
   onDownloadSnapshot?: () => void;
@@ -232,7 +232,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
-  isOpen, onClose, apiKey, setApiKey,
+  isOpen, onClose, isAdmin = false, apiKey, setApiKey,
   onDownloadSnapshot, onRestoreFromFile, canUndoRestore, onUndoRestore,
   appLanguage = 'en', setAppLanguage,
   figmaAccounts = [], addFigmaAccount, removeFigmaAccount,
@@ -287,7 +287,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [search, setSearch] = useState('');
   const [provFilter, setProvFilter] = useState('All');
   const [devAgentProvider, setDevAgentProvider] = useState<DevAgentProvider>(() => getLocalDevAgentProvider());
-  const canSeeDevMode = isCreatorMode();
+  const canSeeDevMode = isAdmin;
   // Per-provider dynamic model loading
   const [providerModels, setProviderModels] = useState<Record<string, { models: Model[]; loading: boolean }>>({});
   // PAT form state

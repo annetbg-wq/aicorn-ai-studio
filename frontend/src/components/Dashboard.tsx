@@ -8,7 +8,6 @@ import React, { useState } from 'react';
 import {
   LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, ArrowRight, Code2,
 } from 'lucide-react';
-import { isCreatorMode } from '../services/internalAccess';
 import { storageService } from '../services/storageService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -26,6 +25,7 @@ interface DashboardProps {
   onNewProject?:          () => void;
   onOpenAllProjects?: () => void;
   onOpenTrendNiches?: () => void;
+  isAdmin?:           boolean;
   appLanguage?:       string;
 }
 
@@ -212,6 +212,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   sessionCost, sessionTokens, cloudAvailable, projects,
   onEnterEngine, onLoadProject, onStartBlueprint,
   onNavigateFigma, onNavigateCodeStudio, onNewProject, onOpenAllProjects, onOpenTrendNiches,
+  isAdmin = false,
   appLanguage = 'en',
 }) => {
   const repairMojibake = (value: string): string => {
@@ -227,8 +228,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const L = Object.fromEntries(
     Object.entries(LRaw).map(([k, v]) => [k, repairMojibake(v)]),
   ) as typeof LRaw;
-  const creatorMode = isCreatorMode();
-  const visibleModules = creatorMode
+  const visibleModules = isAdmin
     ? MODULES
     : MODULES.filter(mod => mod.id !== 'code-studio');
 

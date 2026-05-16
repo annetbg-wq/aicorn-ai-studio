@@ -46,6 +46,7 @@ export type SupabaseUser = {
   name?:       string;
   avatar_url?: string;
   provider?:   string;
+  role?:       string | null;
 };
 
 export function getUserFromSession(session: any): SupabaseUser | null {
@@ -57,5 +58,6 @@ export function getUserFromSession(session: any): SupabaseUser | null {
     name:       user.user_metadata?.full_name ?? user.email,
     avatar_url: user.user_metadata?.avatar_url,
     provider:   user.app_metadata?.provider,
+    role:       user.role ?? user.app_metadata?.role ?? null,
   };
 }

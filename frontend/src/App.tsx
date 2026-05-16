@@ -40,7 +40,6 @@ import { ConfigService }           from './services/ConfigService';
 import { FigmaOAuthService }       from './services/FigmaOAuthService';
 import { metricsService }       from './services/MetricsService';
 import { ShareService }            from './services/ShareService';
-import { isCreatorMode }          from './services/internalAccess';
 import {
   getTrendIdeaText,
   type ProductBlueprint,
@@ -84,9 +83,19 @@ function lazyWithRetry<T>(importer: () => Promise<T>): Promise<T> {
 }
 
 export default function App() {
+  return (
+    <AuthProvider>
+      <AuthGate>
+        <StudioApp />
+      </AuthGate>
+    </AuthProvider>
+  );
+}
+
+function StudioApp() {
+  const { isAdmin } = useAuth();
   const studio  = useStudio();
   const uiStore = useUIStore();
-  const creatorMode = isCreatorMode();
 
   // ── Local snapshot export / restore (Survival Backup System) ───────────────
   const _projectName = React.useMemo(
@@ -220,10 +229,11 @@ export default function App() {
     title: string;
     description: string;
   }) => {
+    if (!isAdmin) return;
     setCodeStudioInitialIdea(idea);
     try { localStorage.setItem(CODE_STUDIO_INPUT_KEY, `${idea.title}: ${idea.description}`); } catch { /* ignore quota */ }
     setView('code-studio');
-  }, []);
+  }, [isAdmin]);
 
 
 
@@ -274,8 +284,19 @@ export default function App() {
     }
   }, [sessionCost, sessionTokens, selectedModel]);
 
+  React.useEffect(() => {
+    if (isAdmin) return;
+    if (view === 'quality' || view === 'benchmark' || view === 'code-studio' || view === 'db-console') {
+      setView('dashboard');
+    }
+  }, [isAdmin, view]);
+
   // ── Navigation ────────────────────────────────────────────────────────────
   const handleNavigate = (id: ModuleId) => {
+    if (!isAdmin && (id === 'quality' || id === 'benchmark' || id === 'code-studio' || id === 'db-console')) {
+      return;
+    }
+
     // Analytics → floating overlay, not view change
     if (id === 'analytics') {
       uiStore.setShowAnalytics(!uiStore.showAnalytics);
@@ -289,8 +310,8 @@ export default function App() {
     if (id === 'projects')  setView('projects');
     if (id === 'benchmark')    setView('quality');
     if (id === 'quality')      setView('quality');
-    if (id === 'code-studio' && creatorMode) setView('code-studio');
-    if (id === 'db-console')   setView('db-console');
+    if (id === 'code-studio' && isAdmin) setView('code-studio');
+    if (id === 'db-console' && isAdmin)   setView('db-console');
     if (id === 'visual-bank')  setView('visual-bank');
   };
 
@@ -441,16 +462,13 @@ export default function App() {
     : view === 'figma'      ? 'figma'
     : view === 'architect'  ? 'architect'
     : view === 'projects'   ? 'projects'
-    : view === 'benchmark'    ? 'quality'
-    : view === 'quality'      ? 'quality'
-    : view === 'code-studio' && creatorMode ? 'code-studio'
-    : view === 'db-console'  ? 'db-console'
+    : (view === 'benchmark' || view === 'quality') && isAdmin ? 'quality'
+    : view === 'code-studio' && isAdmin ? 'code-studio'
+    : view === 'db-console' && isAdmin ? 'db-console'
     : view === 'visual-bank' ? 'visual-bank'
     : 'dashboard';
 
   return (
-    <AuthProvider>
-    <AuthGate>
     <GlobalErrorBoundary>
     <RootLayout>
       {/* NOTE: NO single outer Suspense here — each lazy component has its own.
@@ -464,6 +482,7 @@ export default function App() {
           activeModule={activeModule}
           onNavigate={handleNavigate}
           onHome={() => setView('dashboard')}
+          isAdmin={isAdmin}
           appLanguage={studio.appLanguage}
         />
 
@@ -650,7 +669,7 @@ export default function App() {
           </div>
         )}
 
-        {(view === 'quality' || view === 'benchmark') && (
+        {isAdmin && (view === 'quality' || view === 'benchmark') && (
           <div className="flex flex-1 overflow-hidden"
                style={{ animation: 'viewFadeIn 0.28s ease' }}>
             <Suspense fallback={<PageLoader />}>
@@ -662,7 +681,7 @@ export default function App() {
           </div>
         )}
 
-        {creatorMode && view === 'code-studio' && (
+        {isAdmin && view === 'code-studio' && (
           <div className="flex flex-1 overflow-hidden"
                style={{ animation: 'viewFadeIn 0.28s ease' }}>
             <Suspense fallback={<PageLoader />}>
@@ -688,7 +707,7 @@ export default function App() {
 
 
 
-        {view === 'db-console' && (
+        {isAdmin && view === 'db-console' && (
           <div className="flex flex-1 overflow-hidden"
                style={{ animation: 'viewFadeIn 0.28s ease' }}>
             <Suspense fallback={<PageLoader />}>
@@ -717,10 +736,11 @@ export default function App() {
                 projects={studio.projects ?? []}
                 onEnterEngine={() => setView('engine')}
                 onNavigateFigma={() => setView('figma')}
-                onNavigateCodeStudio={creatorMode ? () => setView('code-studio') : undefined}
+                onNavigateCodeStudio={isAdmin ? () => setView('code-studio') : undefined}
                 onLoadProject={handleLoadProject}
                 onStartBlueprint={handleStartBlueprint}
                 onOpenTrendNiches={() => setView('trend-niches')}
+                isAdmin={isAdmin}
                 appLanguage={studio.appLanguage}
               />
             </Suspense>
@@ -734,6 +754,7 @@ export default function App() {
           <SettingsModal
             isOpen={studio.showSettings}
             onClose={() => studio.setShowSettings(false)}
+            isAdmin={isAdmin}
             theme={studio.theme}
             setTheme={(t: string) => studio.setTheme(t as 'dark' | 'medium' | 'light')}
             apiKey={studio.apiKey ?? ''}
@@ -845,14 +866,12 @@ export default function App() {
       <StudioToast />
     </RootLayout>
     </GlobalErrorBoundary>
-    </AuthGate>
-    </AuthProvider>
   );
 }
 
 /** Gates the app behind authentication. Shows LoginPage when signed out. */
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, accessStatus, isAccessApproved } = useAuth();
 
   if (loading) {
     return (
@@ -863,6 +882,14 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) return <LoginPage />;
+  if (!isAccessApproved) {
+    return (
+      <LoginPage
+        mode={accessStatus === 'approved' ? 'unknown' : accessStatus}
+        email={user.email ?? null}
+      />
+    );
+  }
 
   return <>{children}</>;
 }

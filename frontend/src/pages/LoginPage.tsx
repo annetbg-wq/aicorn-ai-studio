@@ -1,21 +1,52 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { DEV_BYPASS_KEY, isLocalDevHost } from '../services/internalAccess';
 
-const DEV_BYPASS_KEY = 'AIC_DEV_AUTH_BYPASS';
+type LoginPageMode = 'login' | 'pending' | 'revoked' | 'unknown';
 
-function isLocalDevHost(): boolean {
-  const host = window.location.hostname;
-  return host === 'localhost' || host === '127.0.0.1';
+interface LoginPageProps {
+  mode?: LoginPageMode;
+  email?: string | null;
 }
 
-export const LoginPage: React.FC = () => {
-  const { signInWithGoogle } = useAuth();
+const STATUS_COPY: Record<Exclude<LoginPageMode, 'login'>, { title: string; body: string }> = {
+  pending: {
+    title: 'Access request sent',
+    body: 'Access request sent. Waiting for founder approval.',
+  },
+  revoked: {
+    title: 'Access revoked',
+    body: 'Access revoked.',
+  },
+  unknown: {
+    title: 'Access unavailable',
+    body: 'We could not verify staging access for this account.',
+  },
+};
+
+export const LoginPage: React.FC<LoginPageProps> = ({
+  mode = 'login',
+  email = null,
+}) => {
+  const { signInWithGoogle, signOut } = useAuth();
   const [busy, setBusy] = React.useState(false);
+  const isLoginMode = mode === 'login';
+  const showDevBypass = isLoginMode && isLocalDevHost();
+  const statusCopy = !isLoginMode ? STATUS_COPY[mode] : null;
 
   const handleGoogle = async () => {
     setBusy(true);
     try { await signInWithGoogle(); }
     catch { setBusy(false); }
+  };
+
+  const handleSignOut = async () => {
+    setBusy(true);
+    try {
+      await signOut();
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleDevBypass = () => {
@@ -26,8 +57,6 @@ export const LoginPage: React.FC = () => {
       // ignore storage errors in local dev
     }
   };
-
-  const showDevBypass = isLocalDevHost();
 
   return (
     <div className="h-screen w-full flex items-center justify-center bg-[#050505] relative overflow-hidden">
@@ -62,36 +91,64 @@ export const LoginPage: React.FC = () => {
               AI Studio
             </h1>
             <p className="text-xs text-white/30 mt-1">
-              Sign in to continue
+              {isLoginMode ? 'Sign in to continue' : statusCopy?.title}
             </p>
           </div>
         </div>
 
         {/* Sign in card */}
         <div className="w-full rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 backdrop-blur-sm">
-          <button
-            onClick={handleGoogle}
-            disabled={busy}
-            className="w-full flex items-center justify-center gap-3 h-11 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/80 text-sm font-medium transition-all hover:bg-white/[0.1] hover:border-white/[0.14] active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
-          >
-            {/* Google icon */}
-            <svg width="16" height="16" viewBox="0 0 48 48">
-              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-              <path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 019.5 24c0-1.59.28-3.14.76-4.59l-7.98-6.19A23.998 23.998 0 000 24c0 3.77.9 7.35 2.56 10.53l7.97-5.94z"/>
-              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.94C6.51 42.62 14.62 48 24 48z"/>
-            </svg>
-            {busy ? 'Redirecting…' : 'Continue with Google'}
-          </button>
+          {isLoginMode ? (
+            <>
+              <button
+                onClick={handleGoogle}
+                disabled={busy}
+                className="w-full flex items-center justify-center gap-3 h-11 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/80 text-sm font-medium transition-all hover:bg-white/[0.1] hover:border-white/[0.14] active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
+              >
+                {/* Google icon */}
+                <svg width="16" height="16" viewBox="0 0 48 48">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                  <path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 019.5 24c0-1.59.28-3.14.76-4.59l-7.98-6.19A23.998 23.998 0 000 24c0 3.77.9 7.35 2.56 10.53l7.97-5.94z"/>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.94C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
+                {busy ? 'Redirecting…' : 'Continue with Google'}
+              </button>
 
-          {showDevBypass && (
-            <button
-              onClick={handleDevBypass}
-              className="mt-3 w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-purple-500/15 border border-purple-400/30 text-purple-300 text-sm font-semibold transition-all hover:bg-purple-500/20 hover:border-purple-300/40 active:scale-[0.98]"
-              title="Localhost only test login bypass"
-            >
-              🧪 Test Login (localhost)
-            </button>
+              {showDevBypass && (
+                <button
+                  onClick={handleDevBypass}
+                  className="mt-3 w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-purple-500/15 border border-purple-400/30 text-purple-300 text-sm font-semibold transition-all hover:bg-purple-500/20 hover:border-purple-300/40 active:scale-[0.98]"
+                  title="Localhost only test login bypass"
+                >
+                  🧪 Test Login (localhost)
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-4 text-center">
+                <div className="text-sm font-semibold text-white/85">
+                  {statusCopy?.title}
+                </div>
+                <div className="mt-2 text-xs leading-relaxed text-white/45">
+                  {statusCopy?.body}
+                </div>
+                {email && (
+                  <div className="mt-3 text-[11px] text-white/28">
+                    Signed in as {email}
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => void handleSignOut()}
+                disabled={busy}
+                className="mt-3 w-full flex items-center justify-center gap-3 h-11 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/80 text-sm font-medium transition-all hover:bg-white/[0.1] hover:border-white/[0.14] active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
+              >
+                {busy ? 'Signing out…' : 'Use another account'}
+              </button>
+            </>
           )}
         </div>
 
