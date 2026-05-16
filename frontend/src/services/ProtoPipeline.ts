@@ -72,6 +72,17 @@ import {
   type FunctionalFlowPlanTelemetry,
   type FunctionalImplementationDiagnosticsTelemetry,
 } from './FunctionalFlowPlanner';
+import {
+  buildArchitectureImplementationDiagnostics,
+  buildArchitectureQualityRulesBlock,
+  buildSkeletonIntegrationPlan,
+  buildSkeletonIntegrationPromptBlock,
+  serializeArchitectureImplementationDiagnostics,
+  serializeSkeletonIntegrationPlan,
+  type ArchitectureImplementationDiagnosticsTelemetry,
+  type SkeletonIntegrationPlan,
+  type SkeletonIntegrationPlanTelemetry,
+} from './SkeletonIntegrationPlanner';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -122,6 +133,11 @@ export interface DesignSelectionDiagnostics {
   functionalFlowPlanCreated?: boolean;
   functionalFlowCount?: number;
   functionalEntityCount?: number;
+  skeletonIntegrationPlanCreated?: boolean;
+  skeletonFit?: 'strong' | 'partial' | 'weak';
+  skeletonBypassAllowed?: boolean;
+  customModuleCount?: number;
+  architectureDiagnosticsChecked?: boolean;
 }
 
 export interface VisualUsageDiagnostics {
@@ -172,6 +188,11 @@ export interface DesignSelectionDiagnosticsTelemetry {
   functional_flow_plan_created?: boolean;
   functional_flow_count?: number;
   functional_entity_count?: number;
+  skeleton_integration_plan_created?: boolean;
+  skeleton_fit?: 'strong' | 'partial' | 'weak';
+  skeleton_bypass_allowed?: boolean;
+  custom_module_count?: number;
+  architecture_diagnostics_checked?: boolean;
 }
 
 export interface VisualUsageDiagnosticsTelemetry {
@@ -225,7 +246,9 @@ export interface StepOutputMetrics {
   visual_usage_diagnostics?: VisualUsageDiagnosticsTelemetry;
   screen_composition_plan?: ScreenCompositionPlanTelemetry;
   functional_flow_plan?: FunctionalFlowPlanTelemetry;
+  skeleton_integration_plan?: SkeletonIntegrationPlanTelemetry;
   functional_implementation_diagnostics?: FunctionalImplementationDiagnosticsTelemetry;
+  architecture_implementation_diagnostics?: ArchitectureImplementationDiagnosticsTelemetry;
 }
 
 export interface StepExecutionMetrics {
@@ -1015,6 +1038,11 @@ export function serializeDesignSelectionDiagnostics(
     functional_flow_plan_created: diagnostics.functionalFlowPlanCreated,
     functional_flow_count: diagnostics.functionalFlowCount,
     functional_entity_count: diagnostics.functionalEntityCount,
+    skeleton_integration_plan_created: diagnostics.skeletonIntegrationPlanCreated,
+    skeleton_fit: diagnostics.skeletonFit,
+    skeleton_bypass_allowed: diagnostics.skeletonBypassAllowed,
+    custom_module_count: diagnostics.customModuleCount,
+    architecture_diagnostics_checked: diagnostics.architectureDiagnosticsChecked,
   };
 }
 
@@ -1335,6 +1363,18 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     if (functionalFlowPlan.flows.length > 0) {
       log(`[functional] built plan: ${functionalFlowPlan.flows.length} flows, entities=${functionalFlowPlan.entities.length}, goal="${functionalFlowPlan.primaryUserGoal}"`);
     }
+    const skeletonIntegrationPlan = buildSkeletonIntegrationPlan({
+      brief: clarifiedPrompt,
+      skeletonId: config.skeletonId,
+      screenCompositionPlan: compositionPlan,
+      functionalFlowPlan,
+      premiumComponentIds: designCtx.premiumComponentSelection.selectedComponents.map(c => c.id),
+      mediaHints: mediaMaterialization.mediaHints,
+      architectPlan: plan,
+    });
+    log(
+      `[skeleton-integration] fit=${skeletonIntegrationPlan.skeletonFit} bypassAllowed=${String(skeletonIntegrationPlan.skeletonBypassAllowed)} customModules=${skeletonIntegrationPlan.customModules.length}`,
+    );
 
     // ── Step 5 — Coder (one shot + at most one targeted retry) ────────────
     emit('coder', 'active');
@@ -1355,6 +1395,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         mediaHints: mediaMaterialization.mediaHints,
         compositionPlan,
         functionalFlowPlan,
+        skeletonIntegrationPlan,
       });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
@@ -1453,6 +1494,23 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       files: filteredFiles,
       plan: functionalFlowPlan,
     });
+    const architectureImplementationDiagnostics = buildArchitectureImplementationDiagnostics({
+      files: filteredFiles,
+      skeletonId: config.skeletonId,
+      screenCompositionPlan: compositionPlan,
+      functionalFlowPlan,
+      skeletonIntegrationPlan,
+    });
+    if (skeletonIntegrationPlan.skeletonFit === 'weak' && config.skeletonId !== 'landing-page') {
+      designSelectionDiagnostics.possibleMismatchWarnings.push(
+        `Skeleton integration fit is weak for ${config.skeletonId}; keep the selected skeleton as the foundation and extend it cleanly.`,
+      );
+    }
+    designSelectionDiagnostics.skeletonIntegrationPlanCreated = true;
+    designSelectionDiagnostics.skeletonFit = skeletonIntegrationPlan.skeletonFit;
+    designSelectionDiagnostics.skeletonBypassAllowed = skeletonIntegrationPlan.skeletonBypassAllowed;
+    designSelectionDiagnostics.customModuleCount = skeletonIntegrationPlan.customModules.length;
+    designSelectionDiagnostics.architectureDiagnosticsChecked = architectureImplementationDiagnostics.architectureDiagnosticsChecked;
     stepResults.apply = {
       output: {
         file_count: Object.keys(filteredFiles).length,
@@ -1469,7 +1527,9 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         visual_usage_diagnostics: serializeVisualUsageDiagnostics(visualUsageDiagnostics),
         screen_composition_plan: serializeScreenCompositionPlan(compositionPlan),
         functional_flow_plan: serializeFunctionalFlowPlan(functionalFlowPlan),
+        skeleton_integration_plan: serializeSkeletonIntegrationPlan(skeletonIntegrationPlan),
         functional_implementation_diagnostics: serializeFunctionalImplementationDiagnostics(functionalImplementationDiagnostics),
+        architecture_implementation_diagnostics: serializeArchitectureImplementationDiagnostics(architectureImplementationDiagnostics),
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
@@ -1765,6 +1825,7 @@ async function runArchitect(input: {
     ? installedFiles.map(path => `- ${path}`).join('\n')
     : '- (none)';
   const shapeRequirement = buildArchitectShapeRequirement(input.prompt, input.skeletonId);
+  const architectureQualityRules = buildArchitectureQualityRulesBlock();
 
   const system = `You are a senior product architect. The user wants a React + Tailwind app built on top of an EXISTING SKELETON.
 
@@ -1780,6 +1841,7 @@ ${editableExistingLines || '- (none)'}
 SKELETON SNAPSHOT (already on disk; use this to avoid duplicates):
 ${installedList}
 ${input.designCtx ? archetypeContextForArchitect(input.designCtx) : ''}
+${architectureQualityRules}
 YOUR TASK: Return fileTree with ONLY the delta files this specific app needs.
 The skeleton is already installed. You MAY include editable skeleton files in fileTree when they need meaningful product-specific rewrites.
 Typical delta for a mobile app: multiple routed pages, product navigation config, a real data layer, one domain hook, and at least one reusable product component.
@@ -1798,6 +1860,10 @@ Return ONLY valid JSON matching this schema:
   "pages": [
     { "path": "/dashboard", "name": "Dashboard", "file": "pages/Dashboard.tsx", "purpose": "..." }
   ],
+  "skeletonFitNotes": ["optional note about why the skeleton fits or where it needs clean extension"],
+  "skeletonBypassNotes": ["optional note about preserving the selected skeleton foundation"],
+  "customModuleNotes": ["optional note about product-specific modules to add"],
+  "fileOwnershipNotes": ["optional note about which file types own screens/data/hooks/components"],
   "contextContract": "<optional: cross-file contract, e.g. which hook/context to use for shared state>",
   "dataModel": "<optional: compact entity shape, e.g. Habit: { id, name, completedDates[] }>",
   "notes": ["any cross-cutting requirement worth telling the coder"]
@@ -1929,11 +1995,13 @@ export function buildCoderPlanningBlocks(input: {
   mediaHints?: MediaHint[];
   compositionPlan?: ScreenCompositionPlan;
   functionalFlowPlan?: FunctionalFlowPlan;
+  skeletonIntegrationPlan?: SkeletonIntegrationPlan;
 }): string {
   return [
     input.designCtx ? designContractForCoder(input.designCtx, input.mediaHints) : '',
     input.compositionPlan ? buildCompositionPlanPromptBlock(input.compositionPlan) : '',
     input.functionalFlowPlan ? buildFunctionalFlowPromptBlock(input.functionalFlowPlan) : '',
+    input.skeletonIntegrationPlan ? buildSkeletonIntegrationPromptBlock(input.skeletonIntegrationPlan) : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -1950,6 +2018,7 @@ async function runCoder(input: {
   mediaHints?: MediaHint[];
   compositionPlan?: ScreenCompositionPlan;
   functionalFlowPlan?: FunctionalFlowPlan;
+  skeletonIntegrationPlan?: SkeletonIntegrationPlan;
 }): Promise<Record<string, string>>{
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
@@ -1992,6 +2061,7 @@ async function runCoder(input: {
     mediaHints: input.mediaHints,
     compositionPlan: input.compositionPlan,
     functionalFlowPlan: input.functionalFlowPlan,
+    skeletonIntegrationPlan: input.skeletonIntegrationPlan,
   });
 
   const system = `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.
