@@ -278,6 +278,55 @@ export function selectPremiumRecipe(input: ResolvePremiumComponentSelectionInput
   return null;
 }
 
+export function describePremiumRecipeSelection(input: ResolvePremiumComponentSelectionInput): string {
+  const domainId = (input.domainId ?? '').toLowerCase();
+  const brief = input.brief.toLowerCase();
+
+  if (input.skeletonId === 'landing-page') {
+    return 'selected by landing-page skeleton match';
+  }
+  if (input.skeletonId === 'saas-dashboard' || input.skeletonId === 'productivity-tool') {
+    return 'selected by dashboard/productivity skeleton match';
+  }
+  if (input.skeletonId === 'ecommerce') {
+    return 'selected by ecommerce skeleton match';
+  }
+  if (input.skeletonId === 'social-community') {
+    return 'selected by social-community skeleton match';
+  }
+  if (input.skeletonId === 'mobile-app') {
+    if (['health', 'wellness', 'medicine'].includes(domainId) || /(health|wellness|clinic|patient|care|calm)/i.test(brief)) {
+      return 'selected by mobile health/wellness domain match';
+    }
+    return 'selected by mobile-app default recipe';
+  }
+  return 'reason unavailable from current selector';
+}
+
+export function describePremiumComponentSelection(
+  selection: PremiumComponentSelection,
+  input: ResolvePremiumComponentSelectionInput,
+): string {
+  if (!selection.selectedRecipeId) return 'reason unavailable from current selector';
+  if (selection.selectedComponents.length === 0) {
+    return `selected by recipe ${selection.selectedRecipeId}, but no compatible premium components were available`;
+  }
+  return [
+    `selected by recipe ${selection.selectedRecipeId}`,
+    `compatible with ${input.skeletonId}`,
+    selection.selectedComponents.some(component => component.compatibleSkeletons.includes(input.skeletonId))
+      ? 'component compatibility match'
+      : null,
+    input.domainId && selection.selectedComponents.some(component =>
+      component.id.toLowerCase().includes(String(input.domainId).toLowerCase()) ||
+      component.category.toLowerCase().includes(String(input.domainId).toLowerCase()) ||
+      component.kind.toLowerCase().includes(String(input.domainId).toLowerCase())
+    )
+      ? 'domain-affinity match'
+      : null,
+  ].filter((value): value is string => Boolean(value)).join('; ');
+}
+
 function scoreComponent(component: PremiumComponentRecord, block: string, input: ResolvePremiumComponentSelectionInput): number {
   const normalizedBlock = block.toLowerCase();
   const surfaceText = (input.surfaces ?? []).join(' ').toLowerCase();
