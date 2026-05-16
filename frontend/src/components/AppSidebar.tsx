@@ -5,7 +5,6 @@
 import React, { useState } from 'react';
 import { LayoutGrid, PenTool, Figma, Cloud, Rocket, TrendingUp, BarChart2, FolderOpen, Code2, Database, FlaskConical, Layers } from 'lucide-react';
 import type { ModuleId, ViewId } from '../shared/types';
-import { isCreatorMode } from '../services/internalAccess';
 
 interface NavItem {
   id:        ModuleId;
@@ -34,18 +33,21 @@ interface AppSidebarProps {
   activeModule:      ViewId;
   onNavigate:        (id: ModuleId) => void;
   onHome:            () => void;
+  isAdmin:           boolean;
   appLanguage?:      string;
 }
 
 export const AppSidebar: React.FC<AppSidebarProps> = ({
-  activeModule, onNavigate, onHome,
+  activeModule, onNavigate, onHome, isAdmin,
   appLanguage = 'en',
 }) => {
   const [tooltip,  setTooltip]  = useState<string | null>(null);
-  const creatorMode = isCreatorMode();
-  const visibleNavItems = creatorMode
+  const visibleNavItems = isAdmin
     ? NAV_ITEMS
-    : NAV_ITEMS.filter(item => item.id !== 'code-studio');
+    : NAV_ITEMS.filter((item) =>
+      item.id !== 'quality'
+      && item.id !== 'code-studio'
+      && item.id !== 'db-console');
 
   return (
     <>
