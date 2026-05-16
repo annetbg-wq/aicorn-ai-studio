@@ -41,7 +41,13 @@ import {
   validateDesignContract,
   describeViolations,
   type DesignContext,
+  type MediaHint,
 } from './DesignContract';
+import { resolveMediaIntent } from './media/MediaIntentService';
+import { LocalPlaceholderMediaProvider } from './media/MediaProvider';
+import { mergeGeneratedMediaBundles } from './media/GeneratedMediaStore';
+import type { GeneratedMediaAsset } from './media/MediaAssetManifestService';
+import { selectPremiumRecipe } from './PremiumComponentBankService';
 import { normalizePath as normalizePreviewPath } from './PreviewWriteGateway';
 import { appendPreviewSessionToUrl, getPreviewSessionToken } from './PreviewSessionService';
 import type { FastPathTelemetry, GenerationRunTelemetry } from '../shared/projectModel';
@@ -91,6 +97,9 @@ export interface StepOutputMetrics {
   selected_premium_component_ids?: string[];
   selected_premium_recipe_id?: string | null;
   fallback_visual_selection?: boolean;
+  materialized_media_files?: string[];
+  media_manifest_path?: string;
+  selected_media_kinds?: string[];
 }
 
 export interface StepExecutionMetrics {
@@ -402,6 +411,57 @@ export function materializePremiumComponents(ctx: DesignContext): MaterializedPr
   };
 }
 
+// ── Media materialization ─────────────────────────────────────────────────────
+
+export interface MaterializedMediaAssets {
+  files: Record<string, string>;
+  materializedFiles: string[];
+  mediaManifestPath?: string;
+  mediaHints: MediaHint[];
+}
+
+const MEDIA_MANIFEST_PATH = 'src/assets/generated/media-manifest.json';
+
+export async function materializeMediaAssets(
+  ctx: DesignContext,
+  brief: string,
+  skeletonId: SkeletonId,
+): Promise<MaterializedMediaAssets> {
+  const recipe = selectPremiumRecipe({ brief, skeletonId, domainId: ctx.domain?.id });
+  const intentResult = resolveMediaIntent({
+    brief,
+    skeleton: skeletonId,
+    domain: ctx.domain?.id,
+    selectedComponentRecipe: recipe,
+  });
+
+  if (!intentResult.mediaNeeded || intentResult.mediaRequests.length === 0) {
+    return { files: {}, materializedFiles: [], mediaHints: [] };
+  }
+
+  const provider = new LocalPlaceholderMediaProvider();
+  const allAssets: GeneratedMediaAsset[] = [];
+  const svgFiles: Record<string, string> = {};
+
+  for (const request of intentResult.mediaRequests) {
+    const bundle = await provider.generateImage(request);
+    allAssets.push(bundle.asset);
+    svgFiles[bundle.asset.assetPath] = bundle.files[bundle.asset.assetPath] ?? '';
+  }
+
+  const files = mergeGeneratedMediaBundles(allAssets, svgFiles);
+
+  const mediaHints: MediaHint[] = allAssets.map(asset => ({
+    id: asset.id,
+    kind: asset.type,
+    importPath: asset.assetPath,
+    recommendedUse: `${asset.targetSlot} on ${asset.targetScreen}`,
+  }));
+
+  const materializedFiles = Object.keys(files).sort((a, b) => a.localeCompare(b));
+  return { files, materializedFiles, mediaManifestPath: MEDIA_MANIFEST_PATH, mediaHints };
+}
+
 // ── Implementation ────────────────────────────────────────────────────────────
 
 export class ProtoPipeline {
@@ -667,6 +727,12 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     }
     emit('skeleton', 'done', SKELETON_REGISTRY[config.skeletonId].label);
 
+    // ── Media materialization (deterministic, no LLM) ─────────────────────
+    const mediaMaterialization = await materializeMediaAssets(designCtx, clarifiedPrompt, config.skeletonId);
+    if (mediaMaterialization.mediaHints.length > 0) {
+      log(`[media] materialized ${mediaMaterialization.mediaHints.length} media asset(s): ${mediaMaterialization.mediaHints.map(h => h.id).join(', ')}`);
+    }
+
     // ── Step 5 — Coder (one shot + at most one targeted retry) ────────────
     emit('coder', 'active');
     let deltaFiles: Record<string, string>;
@@ -683,6 +749,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           onStream:   config.onCoderStream,
           onUsage:    (usage) => { coderUsage = usage; },
         designCtx,
+        mediaHints: mediaMaterialization.mediaHints,
       });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
@@ -708,6 +775,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     Object.assign(deltaFiles, visualMaterialization.files);
     const premiumMaterialization = materializePremiumComponents(designCtx);
     Object.assign(deltaFiles, premiumMaterialization.files);
+    Object.assign(deltaFiles, mediaMaterialization.files);
     const appPath = Object.keys(deltaFiles).find(path => normalizePreviewPath(path) === 'App.tsx');
     const appSource =
       (appPath ? deltaFiles[appPath] : null) ??
@@ -748,6 +816,9 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         materialized_premium_files: premiumMaterialization.materializedFiles,
         selected_premium_component_ids: designCtx.premiumComponentSelection.selectedComponents.map(component => component.id),
         selected_premium_recipe_id: designCtx.premiumComponentSelection.selectedRecipeId,
+        materialized_media_files: mediaMaterialization.materializedFiles,
+        media_manifest_path: mediaMaterialization.mediaManifestPath,
+        selected_media_kinds: mediaMaterialization.mediaHints.map(h => h.kind),
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
@@ -789,6 +860,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
             routeOverrides: config.routeOverrides,
             onLog:       log,
             designCtx,
+            mediaHints:  mediaMaterialization.mediaHints,
           });
           currentFiles = { ...currentFiles, ...repaired };
         } catch (repairErr) {
@@ -1211,6 +1283,7 @@ async function runCoder(input: {
   onStream?:  (delta: string) => void;
   onUsage?:   (usage: StepLlmMetrics) => void;
   designCtx?: DesignContext;
+  mediaHints?: MediaHint[];
 }): Promise<Record<string, string>> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
@@ -1255,7 +1328,7 @@ SKELETON: ${skeleton.label} (${skeleton.id})
 PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}
 PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
 UI PRIMITIVES: ${skeleton.uiPrimitives.join(', ') || '(see registry)'}
-${contractBlock ? `\n${contractBlock}\n` : ''}${input.designCtx ? '\n' + designContractForCoder(input.designCtx) : ''}
+${contractBlock ? `\n${contractBlock}\n` : ''}${input.designCtx ? '\n' + designContractForCoder(input.designCtx, input.mediaHints) : ''}
 ${skeletonPromptBlock}
 DELTA FILE TREE FROM ARCHITECT (source of truth):
 ${fileTreeBlock || '  - (none)'}
@@ -1401,6 +1474,7 @@ async function runRepair(input: {
   onLog:        (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onUsage?:     (usage: StepLlmMetrics) => void;
   designCtx?:   DesignContext;
+  mediaHints?:  MediaHint[];
 }): Promise<Record<string, string>> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   // Heuristic: pull file paths the error log references; fall back to all files.
@@ -1418,7 +1492,7 @@ async function runRepair(input: {
   const system = `You are fixing build errors. Re-emit the files below with the bugs fixed.
 Same FILE/END marker format. Only emit files you actually changed. Do not modify any skeleton-locked path.
 SKELETON: ${skeleton.label} (${skeleton.id})
-${input.designCtx ? '\n' + designContractForCoder(input.designCtx) : ''}
+${input.designCtx ? '\n' + designContractForCoder(input.designCtx, input.mediaHints) : ''}
 
 BUILD ERROR LOG (truncated):
 ${input.errorLog.slice(0, 4000)}`;

@@ -77,6 +77,14 @@ export interface DesignViolation {
   line?:   number;
 }
 
+export interface MediaHint {
+  id: string;
+  kind: string;
+  importPath?: string;
+  publicPath?: string;
+  recommendedUse: string;
+}
+
 // ─── Pack resolver ────────────────────────────────────────────────────────────
 
 const ARCHETYPE_BY_SKELETON: Record<SkeletonId, string> = {
@@ -384,7 +392,7 @@ export function archetypeContextForArchitect(ctx: DesignContext): string {
   return `\nPACK CONTEXT — your plan MUST satisfy this:\n${lines.join('\n')}\n`;
 }
 
-export function designContractForCoder(ctx: DesignContext): string {
+export function designContractForCoder(ctx: DesignContext, mediaHints?: MediaHint[]): string {
   const tokenList = [
     'bg-background', 'text-foreground',
     'bg-card text-card-foreground',
@@ -408,13 +416,15 @@ export function designContractForCoder(ctx: DesignContext): string {
       ctx.domain.restrictions.slice(0, 4).map(r => `  • ${r}`).join('\n') + '\n'
     : '';
 
+  const mediaSection = buildMediaHintsSection(mediaHints);
+
   return `
 DESIGN CONTRACT — ENFORCED BY VALIDATOR (your build will fail if you break this)
 
 Theme: ${ctx.theme.name}  (mood=${ctx.intent.mood}, contrast=${ctx.intent.contrast}, radius=${ctx.intent.radius})
 ${visualSelectionPromptBlock(ctx.visualSelection, 'coder')}
 ${premiumSelectionPromptBlock(ctx.premiumComponentSelection)}
-${archetypeSection}${domainSection}
+${archetypeSection}${domainSection}${mediaSection}
 You may use ONLY these semantic Tailwind utilities for colour and surfaces:
   ${tokenList.join('  ')}
 
@@ -428,6 +438,28 @@ FORBIDDEN — any of these will fail validation:
 Use lucide-react icons; choose Tailwind radius utilities that match VISUAL_BANK_SELECTION.radius;
 respect the archetype's navigation choice (do NOT add a sidebar to a bottom-tabs app and vice versa).
 `.trim() + '\n';
+}
+
+function buildMediaHintsSection(hints?: MediaHint[]): string {
+  if (!hints || hints.length === 0) return '';
+  const assetLines = hints.map(h => [
+    `  - id: ${h.id}`,
+    `    kind: ${h.kind}`,
+    h.importPath ? `    importPath: ${h.importPath}` : null,
+    h.publicPath  ? `    publicPath: ${h.publicPath}`  : null,
+    `    recommendedUse: ${h.recommendedUse}`,
+  ].filter((line): line is string => Boolean(line)).join('\n')).join('\n');
+  return `
+GENERATED_MEDIA_ASSETS:
+${assetLines}
+
+CODER MEDIA INSTRUCTIONS:
+- Use provided generated media assets as real visual elements: hero backgrounds, decorative blobs, section backgrounds, product mockup frames, or atmospheric panels. Do not replace them with empty gray placeholders.
+- Use at least one media/background asset on the first screen.
+- Do not leave all media slots empty.
+- Prefer provided media assets over generic gray boxes/placeholders.
+- Import SVG assets with: import assetName from './relative/path/to/asset.svg'; (adjust path to your file location).
+`;
 }
 
 // ─── Theme materialisation ────────────────────────────────────────────────────
