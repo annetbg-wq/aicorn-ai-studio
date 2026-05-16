@@ -1,19 +1,25 @@
 {
   "id": "luxury-dark-gold",
   "name": "Luxury Dark Gold",
-  "description": "Near-black canvas with gold accents. Exclusive, premium, luxury brand.",
-  "ramp": {
-    "dark": {
-      "1000": "#09080a", "900": "#0f0d10", "800": "#141114", "700": "#1c181c", "600": "#1e1a1e"
-    },
-    "gold": {
-      "light":  "#f5d98b",
-      "mid":    "#d4af37",
-      "deep":   "#c4a028",
-      "muted":  "#b5a992",
-      "subtle": "#6b5f4a"
-    },
-    "cream": "#f5f0e8"
-  },
-  "usage": { "bg": "dark.1000", "surface": "dark.800", "accent": "gold.mid", "text": "cream" }
+  "description": "Premium dark-gold palette for luxury, premium, and high-value surfaces.",
+  "domains": ["fintech", "ecommerce", "social", "gaming"],
+  "subdomains": ["premium", "luxury-retail", "creator-commerce"],
+  "toneProfiles": ["premium", "luxury", "corporate"],
+  "trustProfiles": ["luxury-trust", "enterprise-trust"],
+  "densityProfiles": ["compact", "comfortable"],
+  "contrastProfiles": ["high"],
+  "tokens": {
+    "background": "42 30% 7%",
+    "foreground": "42 48% 94%",
+    "muted": "42 20% 16%",
+    "card": "40 28% 11%",
+    "primary": "43 76% 56%",
+    "secondary": "39 24% 18%",
+    "accent": "18 72% 58%",
+    "border": "42 18% 24%",
+    "success": "142 46% 44%",
+    "warning": "43 86% 58%",
+    "danger": "0 70% 58%",
+    "chartPalette": ["43 76% 56%", "18 72% 58%", "148 42% 42%", "215 28% 64%"]
+  }
 }

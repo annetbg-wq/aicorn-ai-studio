@@ -1,17 +1,52 @@
 {
   "id": "ecommerce",
+  "purpose": "Commerce visual pack for storefront, catalog, product, and checkout prototypes that need productized buying surfaces and linked style evidence.",
+  "whenToUse": [
+    "Use for storefronts, creator commerce, subscriptions, and checkout-led products",
+    "Use when the prototype must read as a real shopping flow instead of generic cards",
+    "Use when product cards, lists, CTA controls, and account surfaces should be tied to actual files"
+  ],
+  "requiredComponents": ["button", "card", "list-item", "profile-card", "badge", "input"],
+  "allowedSurfaces": ["storefront", "product-grid", "product-detail", "cart", "checkout", "account"],
+  "linkedStyleFiles": [
+    "prototype-bank/design-packs/foundation/tokens.css",
+    "prototype-bank/design-packs/foundation/typography.css",
+    "prototype-bank/design-packs/foundation/elevation.css"
+  ],
+  "linkedComponentFiles": [
+    "prototype-bank/design-packs/surfaces/primitives/button.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/card.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/badge.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/input.tsx",
+    "prototype-bank/design-packs/surfaces/cards/list-item.tsx",
+    "prototype-bank/design-packs/surfaces/cards/profile-card.tsx"
+  ],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json",
+    "prototype-bank/design-packs/assets/typography/presets.json",
+    "prototype-bank/design-packs/assets/spacing/comfortable.json"
+  ],
   "skeleton": "ecommerce",
   "compatibleSkeletons": ["ecommerce"],
   "skeletonPath": "skeletons/ecommerce/",
   "domains": ["ecommerce", "commerce", "storefront", "retail", "creator", "marketplace"],
   "subdomains": ["catalog", "checkout", "cart", "product-detail", "creator-store", "marketplace"],
-  "surfaces": ["storefront", "product-grid", "product-detail", "cart", "checkout", "account"],
+  "surfaces": ["storefront", "product-grid", "product-detail", "cart", "checkout", "account", "bottom-tabs"],
   "trustProfiles": ["commerce-trust", "payment-trust", "creator-trust", "luxury-trust"],
   "toneProfiles": ["calm", "premium", "playful", "clinical", "corporate", "creator", "minimal", "soft"],
   "densityProfiles": ["compact", "comfortable", "spacious"],
   "radiusProfiles": ["soft", "pill", "sharp"],
   "motionProfiles": ["gentle", "expressive", "reduced"],
-  "colorFamilies": ["neutral", "clinical-teal", "fintech-indigo", "cool-blue", "playful-coral", "soft-womens-health"],
+  "contrastProfiles": ["low", "medium", "high"],
+  "layoutPatterns": ["product-grid", "product-detail", "checkout-flow", "bottom-tabs", "cart-stack", "wishlist-list"],
+  "componentFamilies": ["product-card", "product-image", "image-gallery", "rating-stars", "review-item", "filters", "bottom-tabs"],
+  "colorFamilies": ["neutral", "fintech-indigo", "cool-blue", "playful-coral", "soft-womens-health", "luxury-dark-gold"],
   "requiredBlocks": ["product-card", "cart", "checkout", "profile-card"],
   "requiredFiles": [],
   "forbiddenPatterns": ["admin-only dashboard chrome", "generic blank Tailwind fallback"],

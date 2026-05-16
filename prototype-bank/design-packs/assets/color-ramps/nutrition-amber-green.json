@@ -1,0 +1,25 @@
+{
+  "id": "nutrition-amber-green",
+  "name": "Nutrition Amber Green",
+  "description": "Warm amber and fresh green family for nutrition, supplements, and food-health products.",
+  "domains": ["health", "wellness", "medicine"],
+  "subdomains": ["nutrition", "supplements-nutrition", "supplements", "meal", "diet", "habit-fitness"],
+  "toneProfiles": ["energetic", "wellness", "warm"],
+  "trustProfiles": ["wellness-trust", "general-trust"],
+  "densityProfiles": ["comfortable", "compact"],
+  "contrastProfiles": ["medium", "high"],
+  "tokens": {
+    "background": "42 64% 97%",
+    "foreground": "35 40% 14%",
+    "muted": "44 34% 90%",
+    "card": "0 0% 100%",
+    "primary": "38 86% 46%",
+    "secondary": "44 54% 88%",
+    "accent": "128 56% 38%",
+    "border": "42 28% 82%",
+    "success": "128 56% 38%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["38 86% 46%", "128 56% 38%", "58 72% 48%", "20 78% 52%"]
+  }
+}

@@ -1,17 +1,54 @@
 {
   "id": "saas-dashboard",
+  "purpose": "Operational dashboard visual pack for metrics-heavy, enterprise, fintech, and admin prototypes that need strong hierarchy and file-backed workspace chrome.",
+  "whenToUse": [
+    "Use for dashboards, analytics tools, operator workspaces, and admin products",
+    "Use when the prototype must look like a structured multi-panel product instead of placeholder charts",
+    "Use when KPI cards, side navigation, header systems, and data surfaces should come from real presets"
+  ],
+  "requiredComponents": ["sidebar-nav", "dashboard-header", "metric-card", "stat-card", "list-item", "tabs", "button"],
+  "allowedSurfaces": ["dashboard", "sidebar", "metrics", "data-table", "settings", "workspace"],
+  "linkedStyleFiles": [
+    "prototype-bank/design-packs/foundation/tokens.css",
+    "prototype-bank/design-packs/foundation/typography.css",
+    "prototype-bank/design-packs/foundation/elevation.css"
+  ],
+  "linkedComponentFiles": [
+    "prototype-bank/design-packs/surfaces/blocks/sidebar-nav.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/dashboard-header.tsx",
+    "prototype-bank/design-packs/surfaces/cards/metric-card.tsx",
+    "prototype-bank/design-packs/surfaces/cards/stat-card.tsx",
+    "prototype-bank/design-packs/surfaces/cards/list-item.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/tabs.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/button.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/card.tsx"
+  ],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json",
+    "prototype-bank/design-packs/assets/typography/presets.json",
+    "prototype-bank/design-packs/assets/spacing/compact.json"
+  ],
   "skeleton": "saas-dashboard",
   "compatibleSkeletons": ["saas-dashboard"],
   "skeletonPath": "skeletons/saas-dashboard/",
   "domains": ["saas-dashboard", "saas", "b2b", "admin", "analytics", "fintech", "medicine", "ai-tools"],
-  "subdomains": ["crm", "analytics", "operations", "finance-ops", "health-admin", "team-workspace"],
+  "subdomains": ["crm", "analytics", "operations", "finance-ops", "health-admin", "team-workspace", "clinical", "patient-care", "care-team", "compliance"],
   "surfaces": ["dashboard", "sidebar", "metrics", "data-table", "settings", "workspace"],
   "trustProfiles": ["enterprise-trust", "financial-trust", "clinical-trust", "operator-trust"],
   "toneProfiles": ["calm", "premium", "playful", "clinical", "corporate", "creator", "minimal", "soft"],
   "densityProfiles": ["compact", "comfortable", "spacious"],
   "radiusProfiles": ["soft", "pill", "sharp"],
   "motionProfiles": ["gentle", "expressive", "reduced"],
-  "colorFamilies": ["neutral", "clinical-teal", "fintech-indigo", "cool-blue", "playful-coral"],
+  "contrastProfiles": ["medium", "high"],
+  "layoutPatterns": ["sidebar-shell", "kpi-grid", "data-table", "settings-tabs", "operator-dashboard"],
+  "componentFamilies": ["sidebar-nav", "dashboard-header", "stat-card", "metric-card", "data-table", "tabs"],
+  "colorFamilies": ["neutral", "clinical-teal", "medical-navy-teal", "fintech-indigo", "cool-blue", "playful-coral"],
   "requiredBlocks": ["sidebar-nav", "dashboard-header", "stat-card", "metric-card", "list-item"],
   "requiredFiles": [],
   "forbiddenPatterns": ["bottom-tab-only mobile shell", "generic blank Tailwind fallback"],

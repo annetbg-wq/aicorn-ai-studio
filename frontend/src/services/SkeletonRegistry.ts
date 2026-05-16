@@ -42,6 +42,8 @@ export interface SkeletonMeta {
   providedComponents: string[];
   providedHooks: string[];
   uiPrimitives: string[];
+  /** Visual pack compatibility gate applied before domain/tone scoring. */
+  visualCompatibility: SkeletonVisualCompatibilityContract;
   /** true = skeleton files are on disk and ready to copy */
   available: boolean;
   /**
@@ -50,6 +52,15 @@ export interface SkeletonMeta {
    * context provides and what it must NOT reinvent with raw localStorage calls.
    */
   contextContract?: string;
+}
+
+export interface SkeletonVisualCompatibilityContract {
+  allowedSurfaces: string[];
+  allowedLayoutPatterns: string[];
+  allowedDensityProfiles: string[];
+  allowedMotionProfiles: string[];
+  allowedComponentFamilies: string[];
+  forbiddenVisualPatterns: string[];
 }
 
 export interface SkeletonPromptContext {
@@ -122,6 +133,14 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
+    visualCompatibility: {
+      allowedSurfaces: ['mobile', 'bottom-tabs', 'feed', 'detail', 'profile', 'onboarding', 'progress', 'create'],
+      allowedLayoutPatterns: ['bottom-tabs', 'card-feed', 'list-detail', 'onboarding-flow', 'bottom-sheet', 'profile-stack'],
+      allowedDensityProfiles: ['compact', 'comfortable', 'spacious'],
+      allowedMotionProfiles: ['gentle', 'expressive', 'reduced'],
+      allowedComponentFamilies: ['mobile-nav', 'feed-item', 'onboarding-step', 'profile-card', 'bottom-sheet', 'card', 'list-item'],
+      forbiddenVisualPatterns: ['desktop-only sidebar shell', 'data-dense admin table', 'nested dashboard grid', 'tiny tap targets'],
+    },
     available: true,
     contextContract: `
 useApp() — imported from '@/context/AppContext' — returns:
@@ -184,6 +203,14 @@ CRITICAL RULES:
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
+    visualCompatibility: {
+      allowedSurfaces: ['dashboard', 'sidebar', 'metrics', 'data-table', 'settings', 'workspace'],
+      allowedLayoutPatterns: ['sidebar-shell', 'kpi-grid', 'data-table', 'settings-tabs', 'operator-dashboard'],
+      allowedDensityProfiles: ['compact', 'comfortable'],
+      allowedMotionProfiles: ['reduced', 'gentle'],
+      allowedComponentFamilies: ['sidebar-nav', 'dashboard-header', 'stat-card', 'metric-card', 'data-table', 'tabs'],
+      forbiddenVisualPatterns: ['bottom-tab-only mobile shell', 'oversized consumer feed', 'full-bleed marketing hero', 'playful sticker ui'],
+    },
     available: true,
     contextContract: `
 useApp() — imported from '@/context/AppContext' — returns:
@@ -237,6 +264,14 @@ CRITICAL RULES:
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
+    visualCompatibility: {
+      allowedSurfaces: ['marketing', 'hero', 'pricing', 'faq', 'cta', 'top-nav', 'social-proof'],
+      allowedLayoutPatterns: ['top-nav', 'hero-section', 'bento-grid', 'pricing-grid', 'faq-stack', 'landing-scroll'],
+      allowedDensityProfiles: ['comfortable', 'spacious'],
+      allowedMotionProfiles: ['gentle', 'expressive', 'reduced'],
+      allowedComponentFamilies: ['nav', 'hero', 'bento', 'pricing-card', 'faq', 'cta'],
+      forbiddenVisualPatterns: ['admin sidebar shell', 'data table first screen', 'bottom-tab app shell', 'nested app dashboard'],
+    },
     available: true,
     contextContract: `
 No AppContext / useApp() in this skeleton — it is a single-page static marketing site.
@@ -287,6 +322,14 @@ Do NOT import from '@/context/AppContext'.
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
+    visualCompatibility: {
+      allowedSurfaces: ['mobile', 'bottom-tabs', 'feed', 'explore', 'notifications', 'profile', 'post-detail'],
+      allowedLayoutPatterns: ['bottom-tabs', 'social-feed', 'story-rail', 'profile-stack', 'comment-thread', 'composer-flow'],
+      allowedDensityProfiles: ['compact', 'comfortable', 'spacious'],
+      allowedMotionProfiles: ['gentle', 'expressive', 'reduced'],
+      allowedComponentFamilies: ['mobile-nav', 'post-card', 'comment-item', 'notification-item', 'user-avatar', 'feed-card'],
+      forbiddenVisualPatterns: ['desktop-only sidebar shell', 'data-dense admin table', 'checkout-first store shell'],
+    },
     available: true,
     contextContract: `
 useApp() — imported from '@/context/AppContext' — returns:
@@ -347,6 +390,14 @@ CRITICAL RULES:
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
+    visualCompatibility: {
+      allowedSurfaces: ['workspace', 'sidebar', 'kanban', 'list', 'detail-sheet', 'command-palette'],
+      allowedLayoutPatterns: ['sidebar-workspace', 'kanban-board', 'list-detail', 'split-pane', 'command-palette', 'detail-sheet'],
+      allowedDensityProfiles: ['compact', 'comfortable'],
+      allowedMotionProfiles: ['reduced', 'gentle'],
+      allowedComponentFamilies: ['sidebar-nav', 'top-bar', 'kanban-card', 'list-item', 'tabs', 'command-palette', 'sheet'],
+      forbiddenVisualPatterns: ['bottom-tab-only mobile shell', 'marketing hero first screen', 'playful sticker ui'],
+    },
     available: true,
     contextContract: `
 useApp() — imported from '@/context/AppContext' — returns:
@@ -419,6 +470,14 @@ CRITICAL RULES:
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
       'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
+    visualCompatibility: {
+      allowedSurfaces: ['storefront', 'product-grid', 'product-detail', 'cart', 'checkout', 'account', 'bottom-tabs'],
+      allowedLayoutPatterns: ['product-grid', 'product-detail', 'checkout-flow', 'bottom-tabs', 'cart-stack', 'wishlist-list'],
+      allowedDensityProfiles: ['compact', 'comfortable', 'spacious'],
+      allowedMotionProfiles: ['gentle', 'expressive', 'reduced'],
+      allowedComponentFamilies: ['product-card', 'product-image', 'image-gallery', 'rating-stars', 'review-item', 'filters', 'bottom-tabs'],
+      forbiddenVisualPatterns: ['admin sidebar shell', 'data-dense admin table', 'social feed primary shell', 'clinical dashboard shell'],
+    },
     available: true,
     contextContract: `
 useApp() — imported from '@/context/AppContext' — returns:
@@ -446,6 +505,12 @@ CRITICAL RULES:
 `,
   },
 };
+
+export function getSkeletonVisualCompatibility(
+  skeletonId: SkeletonId,
+): SkeletonVisualCompatibilityContract {
+  return SKELETON_REGISTRY[skeletonId].visualCompatibility;
+}
 
 /**
  * Select the best skeleton for a project based on tags from ProductPlan.
@@ -532,6 +597,12 @@ export function getSkeletonInstalledFiles(skeletonId: SkeletonId): string[] {
   const manifest = SKELETON_MANIFESTS[skeletonId];
   if (!manifest) return [];
   return uniqueSorted(manifest.workingGroups.flatMap(group => group.paths));
+}
+
+export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
+  const manifest = SKELETON_MANIFESTS[skeletonId];
+  if (!manifest) return [];
+  return uniqueSorted(manifest.editableFiles);
 }
 
 function globPatternToRegExp(pattern: string): RegExp {

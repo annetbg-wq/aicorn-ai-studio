@@ -6,6 +6,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Search, FolderOpen, Copy, Check, FileCode2 } from 'lucide-react';
 import { ProjectStorage } from '../services/ProjectStorage';
+import { appendPreviewSessionToUrl } from '../services/PreviewSessionService';
 import type { StoredProject, ProjectRevision } from '../services/ProjectStorage';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -314,7 +315,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                         preview-mounted handshake contract.
                       */}
                       <iframe
-                        src={`/preview/${selectedProject.id}`}
+                        src={appendPreviewSessionToUrl(`/preview/${selectedProject.id}`)}
                         style={{
                           width: 960, height: 720, border: 'none',
                           transform: 'scale(0.208)', transformOrigin: '0 0',

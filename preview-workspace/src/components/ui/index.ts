@@ -9,3 +9,7 @@ export * from './Select';
 export * from './Sheet';
 export * from './Skeleton';
 export * from './Tabs';
+
+export * from './label';
+
+export * from './alert-dialog';

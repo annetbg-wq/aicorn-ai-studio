@@ -38,7 +38,10 @@
       "Bash(node -e ' *)",
       "Bash(npm list *)",
       "mcp__playwright__browser_tabs",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(cd /mnt/c/ai_studio/frontend && npx vitest run src/modules/visual-bank/__tests__/VisualBankModule.test.tsx --reporter=verbose 2>&1)",
+      "Read(//mnt/c/ai_studio/**)",
+      "Bash(git log *)"
     ],
     "additionalDirectories": [
       "c:\\ai_studio\\supabase\\functions",

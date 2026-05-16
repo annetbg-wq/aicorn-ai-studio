@@ -4,9 +4,11 @@
   "name": "Gaming",
   "entities": ["Player", "Game", "Score", "Achievement", "Leaderboard"],
   "roles": ["player"],
+  "subdomains": ["game-loop", "leaderboard", "achievement", "community", "streaming"],
   "typicalFlows": ["Начать игру/сессию", "Просмотр таблицы лидеров", "Открытие достижений", "Просмотр статистики"],
   "restrictions": [],
   "uiPatterns": ["Яркие неоновые акценты", "Анимации и переходы", "XP прогресс-бары", "Аватары игроков", "Значки и трофеи"],
+  "colorFamilies": ["gaming-neon", "luxury-dark-gold", "playful-coral", "cool-blue"],
   "recommendedDesign": "neon-dark",
   "recommendedArchetypes": ["superapp-shell", "consumer-feed"]
 }

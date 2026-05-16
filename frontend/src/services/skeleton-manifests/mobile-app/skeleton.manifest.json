@@ -39,6 +39,7 @@
   "deltaFiles": [
     "src/config/app.ts",
     "src/config/navigation.ts",
+    "src/config/routes.ts",
     "src/data/types.ts",
     "src/data/seed.ts",
     "src/pages/Onboarding.tsx",

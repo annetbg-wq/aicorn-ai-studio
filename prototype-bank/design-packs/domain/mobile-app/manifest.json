@@ -1,17 +1,54 @@
 {
   "id": "mobile-app",
+  "purpose": "Mobile-first visual pack for serious consumer and health-adjacent product prototypes with bottom-nav structure, card feeds, onboarding, and profile depth.",
+  "whenToUse": [
+    "Use for mobile consumer products, trackers, wellness tools, and guided onboarding flows",
+    "Use when the skeleton should clearly read as an app product instead of a rough screen mock",
+    "Use when the result needs bottom-nav, feed, onboarding, and profile presets wired from real files"
+  ],
+  "requiredComponents": ["mobile-nav", "feed-item", "onboarding-step", "profile-card", "button", "card", "input"],
+  "allowedSurfaces": ["mobile", "bottom-tabs", "feed", "detail", "profile", "onboarding"],
+  "linkedStyleFiles": [
+    "prototype-bank/design-packs/foundation/tokens.css",
+    "prototype-bank/design-packs/foundation/typography.css",
+    "prototype-bank/design-packs/foundation/elevation.css"
+  ],
+  "linkedComponentFiles": [
+    "prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/feed-item.tsx",
+    "prototype-bank/design-packs/surfaces/blocks/onboarding-step.tsx",
+    "prototype-bank/design-packs/surfaces/cards/profile-card.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/button.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/card.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/input.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/badge.tsx"
+  ],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json",
+    "prototype-bank/design-packs/assets/typography/presets.json",
+    "prototype-bank/design-packs/assets/spacing/comfortable.json"
+  ],
   "skeleton": "mobile-app",
   "compatibleSkeletons": ["mobile-app"],
   "skeletonPath": "skeletons/mobile-app/",
   "domains": ["mobile-app", "consumer", "wellness", "health", "habit", "lifestyle"],
-  "subdomains": ["consumer-mobile", "habit-tracking", "wellness", "personal-productivity"],
+  "subdomains": ["consumer-mobile", "habit-tracking", "wellness", "personal-productivity", "clinical", "habit-fitness", "women-health", "supplements-nutrition", "nutrition", "mental-health"],
   "surfaces": ["mobile", "bottom-tabs", "feed", "detail", "profile", "onboarding"],
   "trustProfiles": ["consumer-trust", "wellness-trust", "clinical-trust", "financial-trust"],
   "toneProfiles": ["calm", "premium", "playful", "clinical", "corporate", "creator", "minimal", "soft"],
   "densityProfiles": ["compact", "comfortable", "spacious"],
   "radiusProfiles": ["soft", "pill", "sharp"],
   "motionProfiles": ["gentle", "expressive", "reduced"],
-  "colorFamilies": ["neutral", "clinical-teal", "fintech-indigo", "cool-blue", "playful-coral", "soft-womens-health"],
+  "contrastProfiles": ["low", "medium", "high"],
+  "layoutPatterns": ["bottom-tabs", "card-feed", "list-detail", "onboarding-flow", "bottom-sheet", "profile-stack"],
+  "componentFamilies": ["mobile-nav", "feed-item", "onboarding-step", "profile-card", "bottom-sheet", "card", "list-item"],
+  "colorFamilies": ["neutral", "clinical-teal", "wellness-sage", "soft-womens-health", "nutrition-amber-green", "calm-lavender", "medical-navy-teal", "fintech-indigo", "cool-blue", "playful-coral"],
   "requiredBlocks": ["mobile-nav", "feed-item", "onboarding-step", "profile-card"],
   "requiredFiles": [],
   "forbiddenPatterns": ["desktop-only sidebar shell", "generic blank Tailwind fallback"],

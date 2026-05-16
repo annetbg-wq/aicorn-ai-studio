@@ -104,6 +104,73 @@ export function sanitizeCompileFiles(
 /** Ensures only one `vite build` runs at a time. */
 let compileQueue: Promise<void> = Promise.resolve();
 
+const previewSessionBindings = new Map<string, string>();
+
+export function normalizePreviewSessionToken(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const token = value.trim();
+  if (token.length < 16 || token.length > 200) return null;
+  return token;
+}
+
+export function bindPreviewBuildSession(
+  buildId: string,
+  sessionToken: string,
+  bindings: Map<string, string> = previewSessionBindings,
+): 'bound' | 'already-bound' | 'conflict' {
+  const token = normalizePreviewSessionToken(sessionToken);
+  if (!token) return 'conflict';
+
+  const existingToken = bindings.get(buildId);
+  if (!existingToken) {
+    bindings.set(buildId, token);
+    return 'bound';
+  }
+  return existingToken === token ? 'already-bound' : 'conflict';
+}
+
+export function validatePreviewBuildSession(
+  buildId: string,
+  sessionToken: string,
+  bindings: Map<string, string> = previewSessionBindings,
+): boolean {
+  const token = normalizePreviewSessionToken(sessionToken);
+  return token !== null && bindings.get(buildId) === token;
+}
+
+export function prunePreviewSessionBindings(
+  existingBuildIds: Set<string>,
+  bindings: Map<string, string> = previewSessionBindings,
+): number {
+  let pruned = 0;
+  for (const buildId of bindings.keys()) {
+    if (!existingBuildIds.has(buildId)) {
+      bindings.delete(buildId);
+      pruned += 1;
+    }
+  }
+  return pruned;
+}
+
+export interface PreviewBuildReadOptions {
+  nodeEnv?: string;
+  serverMode?: string;
+}
+
+export function canReadPreviewBuild(
+  buildId: string,
+  sessionToken: unknown,
+  bindings: Map<string, string> = previewSessionBindings,
+  options: PreviewBuildReadOptions = {},
+): boolean {
+  const boundToken = bindings.get(buildId);
+  if (boundToken) {
+    return normalizePreviewSessionToken(sessionToken) === boundToken;
+  }
+
+  return options.nodeEnv !== 'production' && options.serverMode !== 'production';
+}
+
 // ── public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -112,8 +179,19 @@ let compileQueue: Promise<void> = Promise.resolve();
  */
 export function registerPreviewBuildRoute(app: express.Express): void {
   app.use('/preview/:buildId', (req, res, next) => {
-    const buildPath = path.join(BUILDS_WORKSPACE, req.params.buildId);
+    const { buildId } = req.params;
+    const buildPath = path.join(BUILDS_WORKSPACE, buildId);
     if (!fs.existsSync(buildPath)) return res.status(404).send('Build not found');
+
+    const queryToken = normalizePreviewSessionToken(req.query.previewSession);
+    const headerToken = normalizePreviewSessionToken(req.get('X-Preview-Session'));
+    if (!canReadPreviewBuild(buildId, queryToken ?? headerToken, previewSessionBindings, {
+      nodeEnv: process.env.NODE_ENV,
+      serverMode: process.env.AIC_SERVER_MODE,
+    })) {
+      return res.status(403).send('Preview access denied');
+    }
+
     return express.static(buildPath)(req, res, (err) => {
       if (err) return next(err);
       // SPA fallback — serve index.html for any unmatched path inside the build
@@ -139,7 +217,23 @@ export function registerPreviewCompileRoute(app: express.Express): void {
         return res.status(400).json({ success: false, error: 'Invalid buildId' });
       }
 
-      const { files, skeletonId } = req.body as { files?: Record<string, string>; skeletonId?: string };
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+        ? req.body as { files?: Record<string, string>; skeletonId?: string; sessionId?: unknown }
+        : {};
+      const rawSessionToken = req.get('X-Preview-Session') ?? body.sessionId;
+      if (rawSessionToken === undefined || rawSessionToken === null) {
+        return res.status(401).json({ success: false, error: 'Preview session token is required' });
+      }
+      const sessionToken = normalizePreviewSessionToken(rawSessionToken);
+      if (!sessionToken) {
+        return res.status(400).json({ success: false, error: 'Invalid preview session token' });
+      }
+      const boundSessionToken = previewSessionBindings.get(buildId);
+      if (boundSessionToken && boundSessionToken !== sessionToken) {
+        return res.status(409).json({ success: false, error: 'Preview build is bound to another session' });
+      }
+
+      const { files, skeletonId } = body;
       if (!files || typeof files !== 'object' || Array.isArray(files)) {
         return res.status(400).json({
           success: false,
@@ -159,6 +253,11 @@ export function registerPreviewCompileRoute(app: express.Express): void {
           success: false,
           error: e?.message ?? String(e),
         });
+      }
+
+      const bindingResult = bindPreviewBuildSession(buildId, sessionToken);
+      if (bindingResult === 'conflict') {
+        return res.status(409).json({ success: false, error: 'Preview build is bound to another session' });
       }
 
       // Enqueue — only one build runs at a time
@@ -503,7 +602,10 @@ async function cleanupLRU(): Promise<void> {
     } catch { /* skip unreadable entries */ }
   }
 
-  if (dirs.length <= MAX_BUILDS) return;
+  if (dirs.length <= MAX_BUILDS) {
+    prunePreviewSessionBindings(new Set(dirs.map(({ name }) => name)));
+    return;
+  }
 
   dirs.sort((a, b) => a.mtime - b.mtime); // oldest first
   const toEvict = dirs.slice(0, dirs.length - MAX_BUILDS);
@@ -512,4 +614,8 @@ async function cleanupLRU(): Promise<void> {
     await fsPromises.rm(path.join(BUILDS_WORKSPACE, name), { recursive: true, force: true });
     console.log(`[preview-manager] LRU evicted: ${name}`);
   }
+
+  const evictedBuildIds = new Set(toEvict.map(({ name }) => name));
+  const existingBuildIds = new Set(dirs.filter(({ name }) => !evictedBuildIds.has(name)).map(({ name }) => name));
+  prunePreviewSessionBindings(existingBuildIds);
 }
