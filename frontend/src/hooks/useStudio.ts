@@ -53,8 +53,14 @@ import { ProjectRepository, getCanonicalProjectName } from '../services/ProjectR
 import { BenchmarkService } from '../services/benchmark/BenchmarkService';
 import { revisionManager } from '../services/RevisionManager';
 import { previewController } from '../services/PreviewController';
+import { appendPreviewSessionToUrl, getPreviewSessionToken } from '../services/PreviewSessionService';
 import { normalizePath } from '../services/PreviewWriteGateway';
 import { generationTracer } from '../services/GenerationTracer';
+import {
+  UserProjectSettingsService,
+  type EffectiveSettings,
+  type ProjectSettingsOverride,
+} from '../services/UserProjectSettingsService';
 import { safeSetItem } from '../lib/safeStorage';
 import { getLocalDevAgentProvider, isLocalDevAgentEnabled } from '../services/devAgentMode';
 import { buildFileDiff, type FileDiff } from '../components/DiffPreview';
@@ -659,6 +665,31 @@ function buildTraceRunSummary(input: {
         visualReasons: input.visualQualitySummary?.reasons ?? [],
       }
     : undefined;
+  const visualBank = input.telemetry?.visualBank;
+  const fileCountsByClass = outputTruth.structure.buckets.map(bucket => ({
+    id: bucket.id,
+    label: bucket.label,
+    totalCount: bucket.totalCount,
+    deltaCount: bucket.deltaCount,
+    keyPaths: bucket.keyPaths,
+  }));
+  const passedGates = quality?.gates.filter(gate => gate.passed).length ?? 0;
+  const totalGates = quality?.gates.length ?? 0;
+  const compileStatus = (input.telemetry?.compileCount ?? 0) > 0 ? 'compiled' : 'not-compiled';
+  const runtimeStatus =
+    previewMountStatus === 'mounted'
+      ? 'runtime-ready'
+      : previewMountStatus === 'pending'
+        ? 'runtime-pending'
+        : previewMountStatus === 'blocked'
+          ? 'runtime-blocked'
+          : 'runtime-missing';
+  const strength: 'strong' | 'partial' | 'weak' =
+    quality?.verdict === 'pass' && outputTruth.structure.richness === 'rich'
+      ? 'strong'
+      : quality?.verdict === 'fail' || outputTruth.structure.richness === 'weak'
+        ? 'weak'
+        : 'partial';
 
   return {
     brief: input.brief,
@@ -671,6 +702,9 @@ function buildTraceRunSummary(input: {
           archetypeName: input.telemetry.archetypeName,
           domainId: input.telemetry.domainId,
           domainName: input.telemetry.domainName,
+          domainPackId: input.telemetry.domainId,
+          visualPackId: input.telemetry.visualBank?.selectedPackId,
+          visualVariantId: input.telemetry.visualBank?.selectedVariantId,
         }
       : undefined,
     design: input.telemetry
@@ -679,6 +713,33 @@ function buildTraceRunSummary(input: {
           intent: input.telemetry.designIntent,
           architectSummary: input.telemetry.architectSummary,
           designSummary: input.telemetry.designSummary,
+          productStructure: [
+            outputTruth.structure.summary,
+            `${outputTruth.skeletonDelta.skeletonFileCount} skeleton files installed`,
+            `${changedPaths.length} delta files applied`,
+            `${fileCountsByClass.filter(bucket => bucket.deltaCount > 0).length} output classes touched`,
+          ],
+          selectedSkeleton: input.telemetry.skeletonLabel,
+          selectedDomainPack: input.telemetry.domainName ?? input.telemetry.domainId,
+          selectedVisualPack: visualBank?.selectedPackId,
+          selectedVisualVariant: visualBank?.selectedVariantId,
+          selectedThemeFile: visualBank?.selectedThemeFile,
+          purpose: visualBank?.purpose,
+          whenToUse: visualBank?.whenToUse,
+          requiredComponents: visualBank?.requiredComponents,
+          allowedSurfaces: visualBank?.allowedSurfaces,
+          linkedStyleFiles: visualBank?.linkedStyleFiles,
+          linkedComponentFiles: visualBank?.linkedComponentFiles,
+          layoutPresetFiles: visualBank?.layoutPresetFiles,
+          motionPresetFiles: visualBank?.motionPresetFiles,
+          assetReferenceFiles: visualBank?.assetReferenceFiles,
+          materialFiles: visualBank?.materialFiles,
+          materializedFiles: visualBank?.materializedFiles,
+          deltaSummary: [
+            `${filesCreated.length} created`,
+            `${filesUpdated.length} updated`,
+            `${visualBank?.materializedFiles?.length ?? 0} materialized design-pack files`,
+          ],
         }
       : undefined,
     output: {
@@ -690,6 +751,18 @@ function buildTraceRunSummary(input: {
       createdFileCount: filesCreated.length,
       deltaSizeBytes,
       keyPaths: (changedPaths.length > 0 ? changedPaths : visiblePaths).slice(0, 8),
+      fileCountsByClass,
+      stylePackUsage: visualBank
+        ? {
+            selectedPackId: visualBank.selectedPackId,
+            selectedVariantId: visualBank.selectedVariantId,
+            selectedThemeFile: visualBank.selectedThemeFile,
+            linkedStyleFiles: visualBank.linkedStyleFiles,
+            linkedComponentFiles: visualBank.linkedComponentFiles,
+            materialFiles: visualBank.materialFiles,
+            materializedFiles: visualBank.materializedFiles ?? [],
+          }
+        : undefined,
       structure: {
         richness: outputTruth.structure.richness,
         summary: outputTruth.structure.summary,
@@ -703,6 +776,10 @@ function buildTraceRunSummary(input: {
       skeletonDelta: outputTruth.skeletonDelta,
       compileCount: input.telemetry?.compileCount ?? 0,
       previewMountStatus,
+      runtimeStatus,
+      compileStatus,
+      qualityGateSummary: { passed: passedGates, total: totalGates },
+      strength,
       totalTimeToPreviewMs: input.telemetry?.timeToFirstRealPreviewMs,
       saveReady: input.saveReady,
     },
@@ -1205,6 +1282,66 @@ type ProjectPersistenceState = 'none' | 'unknown' | 'exists' | 'missing' | 'draf
 
 const LEGACY_CHAT_HISTORY_KEY = 'CHAT_HISTORY';
 const DRAFT_CHAT_KEY_PREFIX = 'AIC_DRAFT_CHAT_';
+const ACTIVE_PROJECT_PERSISTENCE_STATES: ReadonlySet<ProjectPersistenceState> = new Set(['exists', 'draft', 'preview-ready']);
+
+type ComparableScopedSettings = {
+  selectedModel?: string;
+  engineModel?: string;
+  autoRoute?: boolean;
+  fullContext?: boolean;
+  agentConfigs?: Record<string, { provider?: string; modelId?: string }>;
+};
+
+function normalizeComparableScopedSettings(input: ComparableScopedSettings): ComparableScopedSettings {
+  const normalize = (value: string | undefined): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  };
+
+  const normalizedAgentEntries = Object.entries(input.agentConfigs ?? {}).reduce<Array<[string, { provider?: string; modelId?: string }]>>(
+    (acc, [agentId, cfg]) => {
+      const provider = normalize(cfg.provider);
+      const modelId = normalize(cfg.modelId);
+      const normalizedCfg = {
+        ...(provider !== undefined && { provider }),
+        ...(modelId !== undefined && { modelId }),
+      };
+      if (Object.keys(normalizedCfg).length > 0) {
+        acc.push([agentId, normalizedCfg]);
+      }
+      return acc;
+    },
+    [],
+  ).sort((a, b) => a[0].localeCompare(b[0]));
+  const normalizedAgentConfigs = Object.fromEntries(normalizedAgentEntries);
+
+  return {
+    ...(normalize(input.selectedModel) !== undefined && { selectedModel: normalize(input.selectedModel) }),
+    ...(normalize(input.engineModel) !== undefined && { engineModel: normalize(input.engineModel) }),
+    ...(typeof input.autoRoute === 'boolean' && { autoRoute: input.autoRoute }),
+    ...(typeof input.fullContext === 'boolean' && { fullContext: input.fullContext }),
+    ...(Object.keys(normalizedAgentConfigs).length > 0 && { agentConfigs: normalizedAgentConfigs }),
+  };
+}
+
+function toComparableScopedSettings(
+  input: EffectiveSettings | ProjectSettingsOverride | ComparableScopedSettings,
+): ComparableScopedSettings {
+  return normalizeComparableScopedSettings({
+    selectedModel: input.selectedModel,
+    engineModel: input.engineModel,
+    autoRoute: input.autoRoute,
+    fullContext: input.fullContext,
+    agentConfigs: input.agentConfigs,
+  });
+}
+
+function comparableSettingsSignature(
+  input: EffectiveSettings | ProjectSettingsOverride | ComparableScopedSettings,
+): string {
+  return JSON.stringify(toComparableScopedSettings(input));
+}
 
 function getDraftChatStorageKey(draftId: string): string {
   return `${DRAFT_CHAT_KEY_PREFIX}${draftId}`;
@@ -1574,7 +1711,7 @@ export const useStudio = () => {
   useEffect(() => {
     const syncPreviewState = (state: ReturnType<typeof previewController.getState>) => {
       if (state.status === 'compiling' && state.activeRevisionId) {
-        const nextUrl = `/preview/${state.activeRevisionId}`;
+        const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
         setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
         setPreviewReady(false);
         invalidatePendingProjectSaveReady();
@@ -1586,7 +1723,7 @@ export const useStudio = () => {
       }
 
       if (state.status === 'ready' && state.activeRevisionId) {
-        const nextUrl = `/preview/${state.activeRevisionId}`;
+        const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
         setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
         setPreviewBlockedReason(null);
         if (state.buildStage === 'skeleton') {
@@ -1883,8 +2020,8 @@ export const useStudio = () => {
   // ── Settings (extracted hook) ───────────────────────────────────────────────
   const settings = useSettingsState();
   const { apiKey, setApiKey, selectedModel, setSelectedModel, theme, setTheme,
-          fullContextMode, setFullContextMode, autoRoute, setAutoRoute,
-          appLanguage, setAppLanguage, agentConfigs, setAgentConfig } = settings;
+           fullContextMode, setFullContextMode, autoRoute, setAutoRoute,
+           appLanguage, setAppLanguage, agentConfigs, setAgentConfig, refreshFromConfig } = settings;
 
   const [progress,        setProgress]        = useState(0);
   const [currentPhase,    setCurrentPhase]    = useState<string>('');
@@ -1919,6 +2056,98 @@ export const useStudio = () => {
           markFigmaProjectSynced, clearFigmaSync,
           engineApiKey, setEngineApiKey, engineModelId, setEngineModelId,
           engineStatus, engineResult } = figma;
+
+  const [settingsUserId, setSettingsUserId] = useState<string | null>(authUser?.id ?? null);
+  const isApplyingScopedSettingsRef = useRef(false);
+  const settingsInitializedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const resolveUserId = async () => {
+      if (authUser?.id) {
+        if (!cancelled) setSettingsUserId(authUser.id);
+        return;
+      }
+      const detected = await UserProjectSettingsService.getCurrentUserId();
+      if (!cancelled) setSettingsUserId(detected);
+    };
+    void resolveUserId();
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.id]);
+
+  const applyEffectiveSettingsForProject = useCallback((projectId: string | null): boolean => {
+    if (!projectId) return false;
+    isApplyingScopedSettingsRef.current = true;
+    try {
+      const applied = UserProjectSettingsService.applyEffectiveSettings(settingsUserId, projectId);
+      if (!applied) return false;
+      refreshFromConfig();
+      setEngineModelId(ConfigService.getEngineModel());
+      return true;
+    } finally {
+      isApplyingScopedSettingsRef.current = false;
+    }
+  }, [refreshFromConfig, setEngineModelId, settingsUserId]);
+
+  const persistProjectOverrideIfNeeded = useCallback((projectId: string | null): void => {
+    if (!projectId) return;
+    if (!ACTIVE_PROJECT_PERSISTENCE_STATES.has(projectPersistenceState)) return;
+
+    const currentSettings = UserProjectSettingsService.captureCurrentAsProjectOverride(settingsUserId, projectId);
+    const baselineSettings = UserProjectSettingsService.resolveEffectiveSettings(settingsUserId, projectId);
+    if (comparableSettingsSignature(currentSettings) === comparableSettingsSignature(baselineSettings)) {
+      return;
+    }
+
+    UserProjectSettingsService.saveProjectOverride(currentSettings);
+  }, [projectPersistenceState, settingsUserId]);
+
+  useEffect(() => {
+    const existingDefaults = UserProjectSettingsService.loadUserDefaults(settingsUserId ?? undefined);
+    if (existingDefaults) {
+      settingsInitializedRef.current = true;
+      return;
+    }
+    const defaults = UserProjectSettingsService.captureCurrentAsUserDefaults(settingsUserId);
+    UserProjectSettingsService.saveUserDefaults(defaults);
+    settingsInitializedRef.current = true;
+  }, [settingsUserId]);
+
+  useEffect(() => {
+    if (!settingsInitializedRef.current) return;
+    if (isApplyingScopedSettingsRef.current) return;
+
+    const hasActiveProject =
+      Boolean(currentProjectId)
+      && ACTIVE_PROJECT_PERSISTENCE_STATES.has(projectPersistenceState);
+
+    if (hasActiveProject) {
+      persistProjectOverrideIfNeeded(currentProjectId);
+      return;
+    }
+
+    const defaults = UserProjectSettingsService.captureCurrentAsUserDefaults(settingsUserId);
+    const storedDefaults = UserProjectSettingsService.loadUserDefaults(settingsUserId ?? undefined);
+    if (
+      storedDefaults
+      && comparableSettingsSignature(defaults) === comparableSettingsSignature(storedDefaults)
+    ) {
+      return;
+    }
+    UserProjectSettingsService.saveUserDefaults(defaults);
+  }, [
+    agentConfigs,
+    autoRoute,
+    currentProjectId,
+    engineModelId,
+    fullContextMode,
+    persistProjectOverrideIfNeeded,
+    projectPersistenceState,
+    selectedModel,
+    settingsUserId,
+  ]);
 
   // ── ScannerService (Fusion Protocol) ───────────────────────────────────────
   const [componentRegistry, setComponentRegistry] = useState<ComponentRegistry | null>(null);
@@ -2640,6 +2869,7 @@ export const useStudio = () => {
       autoSaveCurrentProject = true,
       sessionSource = 'new-project',
     } = options;
+    persistProjectOverrideIfNeeded(currentProjectId);
     projectLoadRequestRef.current += 1;
     abortActiveGeneration('context-switch');
     pendingProjectSaveRef.current = null;
@@ -2713,6 +2943,7 @@ export const useStudio = () => {
     localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
     setCurrentProjectId(draftId);
     setProjectPersistenceState('draft');
+    applyEffectiveSettingsForProject(draftId);
     setChatThreadKey(nextChatThreadKey('draft', draftId));
     draftArtifactJournal.appendRecord(draftId, {
       stepType: 'draft_session_started',
@@ -2720,7 +2951,7 @@ export const useStudio = () => {
       projectId: null,
       status: 'ok',
     });
-  }, [abortActiveGeneration, clearDraftChatStorage, currentProjectId, clearSnapshots, clearLogs, clearAttachments, clearComposerContextItems, addLog, nextChatThreadKey, projectPersistenceState]);
+  }, [abortActiveGeneration, applyEffectiveSettingsForProject, clearDraftChatStorage, currentProjectId, clearSnapshots, clearLogs, clearAttachments, clearComposerContextItems, addLog, nextChatThreadKey, persistProjectOverrideIfNeeded, projectPersistenceState]);
 
   const startTrendIdeaDraftSession = useCallback(async (
     mode: 'chat' | 'build',
@@ -2732,6 +2963,7 @@ export const useStudio = () => {
   }, [createNewProject]);
 
   const loadProject = useCallback(async (project: { id: string }) => {
+    persistProjectOverrideIfNeeded(currentProjectId);
     const loadRequestId = ++projectLoadRequestRef.current;
     abortActiveGeneration('context-switch');
     pendingProjectSaveRef.current = null;
@@ -2800,6 +3032,7 @@ export const useStudio = () => {
       setChatThreadKey(nextChatThreadKey('project', full.id));
       chatLoadHistory(reconciledThread.history);
       setCurrentProjectId(full.id);
+      applyEffectiveSettingsForProject(full.id);
       setProjectCost(b.cost);
       setProjectTokens(b.tokens);
       clearSnapshots();
@@ -2856,7 +3089,7 @@ export const useStudio = () => {
         timestamp: Date.now(),
       });
     }
-  }, [abortActiveGeneration, clearSnapshots, addLog, chatAppend, chatLoadHistory, clearAttachments, clearComposerContextItems, nextChatThreadKey]);
+  }, [abortActiveGeneration, addLog, applyEffectiveSettingsForProject, chatAppend, chatLoadHistory, clearAttachments, clearComposerContextItems, clearSnapshots, currentProjectId, nextChatThreadKey, persistProjectOverrideIfNeeded]);
 
   const restorePersistedRevision = useCallback(async (
     targetRevisionId: string,
@@ -3147,6 +3380,7 @@ export const useStudio = () => {
       localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
       setCurrentProjectId(draftId);
       setProjectPersistenceState('draft');
+      applyEffectiveSettingsForProject(draftId);
       setChatThreadKey(nextChatThreadKey('draft', draftId));
       chatLoadHistory(readDraftChatHistory(draftId));
       if (!existingDraftId) {
@@ -5075,11 +5309,13 @@ export const useStudio = () => {
         lastPreviewReadyRevisionRef.current = null;
 
         const buildId = crypto.randomUUID();
+        const sessionId = getPreviewSessionToken();
         previewController.notifyCompiling(buildId, 'e2e-seed');
         const res = await fetch(`/api/preview/${buildId}/compile`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Preview-Session': sessionId },
           body: JSON.stringify({
+            sessionId,
             files: Object.fromEntries(
               Object.entries(previewFiles).map(([path, content]) => [normalizePath(path), content]),
             ),
@@ -5097,7 +5333,7 @@ export const useStudio = () => {
           throw new Error(body?.error ?? `Preview seed compile failed (HTTP ${res.status})`);
         }
 
-        const nextUrl = body?.url ?? `/preview/${buildId}`;
+        const nextUrl = appendPreviewSessionToUrl(body?.url ?? `/preview/${buildId}`);
         setPreviewUrl(nextUrl);
         await new Promise<void>((resolve, reject) => {
           const timeoutId = window.setTimeout(() => {
@@ -5317,15 +5553,16 @@ export const useStudio = () => {
       commandBus.subscribe('PREVIEW_READY', (cmd) => {
         const data = (cmd as Extract<typeof cmd, { type: 'PREVIEW_READY' }>).payload;
         if (data?.url) {
-          setPreviewUrl(data.url);
+          const previewUrl = appendPreviewSessionToUrl(data.url);
+          setPreviewUrl(previewUrl);
           setPreviewReady(true);
           if (import.meta.env.VITE_PLAYWRIGHT_TEST === '1') {
-            (window as any).__E2E_PREVIEW_URL__ = data.url;
+            (window as any).__E2E_PREVIEW_URL__ = previewUrl;
           }
           // Extract buildId from URL and notify SandpackPreview
-          const buildId = data.url.split('/preview/')[1]?.split('?')[0] ?? '';
+          const buildId = previewUrl.split('/preview/')[1]?.split('?')[0] ?? '';
           window.dispatchEvent(new CustomEvent('preview-mounted', {
-            detail: { buildId, previewUrl: data.url },
+            detail: { buildId, previewUrl },
           }));
         }
       }),

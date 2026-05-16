@@ -535,7 +535,12 @@ export interface GenerationRunStepTelemetry {
     selected_visual_pack_id?: string;
     selected_visual_variant_id?: string;
     selected_visual_variant_path?: string;
+    selected_visual_theme_file?: string;
     visual_source_files?: string[];
+    visual_linked_style_files?: string[];
+    visual_linked_component_files?: string[];
+    visual_material_files?: string[];
+    materialized_visual_files?: string[];
     fallback_visual_selection?: boolean;
   };
   warnings?: string[];
@@ -559,6 +564,18 @@ export interface GenerationRunTelemetry {
     selectedVariantId: string;
     selectedVariantPath?: string;
     selectedManifestPath?: string;
+    selectedThemeFile?: string;
+    purpose?: string;
+    whenToUse?: string[];
+    requiredComponents?: string[];
+    allowedSurfaces?: string[];
+    linkedStyleFiles: string[];
+    linkedComponentFiles: string[];
+    layoutPresetFiles: string[];
+    motionPresetFiles: string[];
+    assetReferenceFiles: string[];
+    materialFiles: string[];
+    materializedFiles?: string[];
     sourceFiles: string[];
     requiredFiles: string[];
     fallbackVisualSelection: boolean;
@@ -1188,12 +1205,33 @@ export interface TraceRunSummary {
     archetypeName?: string;
     domainId?: string;
     domainName?: string;
+    domainPackId?: string;
+    visualPackId?: string;
+    visualVariantId?: string;
   };
   design?: {
     themeName?: string;
     intent: string[];
     architectSummary?: string;
     designSummary?: string;
+    productStructure?: string[];
+    selectedSkeleton?: string;
+    selectedDomainPack?: string;
+    selectedVisualPack?: string;
+    selectedVisualVariant?: string;
+    selectedThemeFile?: string;
+    purpose?: string;
+    whenToUse?: string[];
+    requiredComponents?: string[];
+    allowedSurfaces?: string[];
+    linkedStyleFiles?: string[];
+    linkedComponentFiles?: string[];
+    layoutPresetFiles?: string[];
+    motionPresetFiles?: string[];
+    assetReferenceFiles?: string[];
+    materialFiles?: string[];
+    materializedFiles?: string[];
+    deltaSummary?: string[];
   };
   output?: {
     skeletonFiles: string[];
@@ -1204,6 +1242,22 @@ export interface TraceRunSummary {
     createdFileCount: number;
     deltaSizeBytes: number;
     keyPaths: string[];
+    fileCountsByClass?: Array<{
+      id: string;
+      label: string;
+      totalCount: number;
+      deltaCount: number;
+      keyPaths: string[];
+    }>;
+    stylePackUsage?: {
+      selectedPackId?: string;
+      selectedVariantId?: string;
+      selectedThemeFile?: string;
+      linkedStyleFiles: string[];
+      linkedComponentFiles: string[];
+      materialFiles: string[];
+      materializedFiles: string[];
+    };
     structure?: {
       richness: 'rich' | 'adequate' | 'weak';
       summary: string;
@@ -1238,6 +1292,13 @@ export interface TraceRunSummary {
     };
     compileCount: number;
     previewMountStatus: TracePreviewMountStatus;
+    runtimeStatus?: string;
+    compileStatus?: string;
+    qualityGateSummary?: {
+      passed: number;
+      total: number;
+    };
+    strength?: 'strong' | 'partial' | 'weak';
     totalTimeToPreviewMs?: number;
     saveReady: boolean;
   };

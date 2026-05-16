@@ -4,9 +4,11 @@
   "name": "Medicine",
   "entities": ["Patient", "Doctor", "Appointment", "Diagnosis", "Prescription"],
   "roles": ["patient", "doctor", "admin"],
+  "subdomains": ["clinical", "wellness", "habit-fitness", "women-health", "supplements-nutrition", "nutrition", "mental-health", "patient-care", "care-team"],
   "typicalFlows": ["Запись на приём", "Просмотр истории болезни", "Получение результатов анализов", "Видеоконсультация"],
   "restrictions": ["Никаких ярких агрессивных цветов в основном UI", "Всегда показывать дисклеймер о профессиональной консультации", "Данные пациентов — только с подтверждением согласия"],
   "uiPatterns": ["Карточки с иконками медицинских специальностей", "Временная шкала для истории лечения", "Прогресс-индикаторы", "Цветовое кодирование статусов (зелёный/жёлтый/красный)"],
+  "colorFamilies": ["clinical-teal", "wellness-sage", "soft-womens-health", "nutrition-amber-green", "calm-lavender", "medical-navy-teal"],
   "recommendedDesign": "trust-medical",
   "recommendedArchetypes": ["dashboard-workspace", "scanner-app"]
 }

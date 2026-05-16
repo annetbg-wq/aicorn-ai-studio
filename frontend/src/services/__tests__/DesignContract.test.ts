@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import type { ArchetypeManifest, DomainManifest } from '../PrototypeBankService';
 
 const archetypes: Record<string, ArchetypeManifest> = {
@@ -74,6 +74,11 @@ import {
   archetypeContextForArchitect,
   themeFile,
 } from '../DesignContract';
+import { clearFileVisualSelectionMemory } from '../FileVisualBankService';
+
+beforeEach(() => {
+  clearFileVisualSelectionMemory();
+});
 
 describe('DesignContract — resolver', () => {
   it('picks dashboard-workspace archetype for saas-dashboard skeleton', async () => {
@@ -124,6 +129,8 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/VISUAL_BANK_SELECTION/);
     expect(txt).toMatch(/PREMIUM_COMPONENT_SELECTION/);
     expect(txt).toMatch(/selectedVariantPath: prototype-bank\/design-packs\/domain\/saas-dashboard\/visual-variants\/.+\.json/);
+    expect(txt).toMatch(/selectedThemeFile: prototype-bank\/design-packs\/foundation\/themes\/.+\.css/);
+    expect(txt).toMatch(/linkedStyleFiles:/);
   });
 
   it('coder contract bans raw colors and forbids tailwind palette utilities', async () => {
@@ -140,6 +147,9 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/fallbackVisualSelection: false/);
     expect(txt).toMatch(/prototype-bank\/design-packs\/domain\/mobile-app\/visual-variants\/.+\.json/);
     expect(txt).toMatch(/sourceFiles:/);
+    expect(txt).toMatch(/materialFiles:/);
+    expect(txt).toMatch(/colorTokens:/);
+    expect(txt).toMatch(/variationPreset:/);
     expect(txt).toMatch(/Use this selected visual variant as the source of design truth/);
     expect(txt).toMatch(/Before inventing UI, check selected premium component recipe/);
   });

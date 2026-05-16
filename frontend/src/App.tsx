@@ -232,7 +232,6 @@ export default function App() {
   React.useEffect(() => {
     localStorage.removeItem('SELECTED_MODEL');
     void ConfigService.loadFromBackend();
-    void ConfigService.loadProviderKeysFromBackend();
     const unsub = storageService.onSyncStatusChange(setCloudAvailable);
     storageService.init(); // async; updates _available + notifies listeners
     return unsub;

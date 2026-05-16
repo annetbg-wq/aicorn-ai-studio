@@ -1,0 +1,25 @@
+{
+  "id": "calm-lavender",
+  "name": "Calm Lavender",
+  "description": "Soft lavender family for mental health, therapy, and emotional wellness products.",
+  "domains": ["health", "wellness", "medicine"],
+  "subdomains": ["mental-health", "therapy", "mood", "calm", "self-care", "wellness"],
+  "toneProfiles": ["calm", "soft", "wellness"],
+  "trustProfiles": ["wellness-trust", "clinical-trust"],
+  "densityProfiles": ["comfortable", "spacious"],
+  "contrastProfiles": ["low", "medium"],
+  "tokens": {
+    "background": "262 52% 98%",
+    "foreground": "258 32% 16%",
+    "muted": "264 28% 91%",
+    "card": "0 0% 100%",
+    "primary": "265 52% 56%",
+    "secondary": "268 32% 89%",
+    "accent": "290 48% 62%",
+    "border": "264 24% 84%",
+    "success": "142 56% 40%",
+    "warning": "38 92% 50%",
+    "danger": "0 72% 50%",
+    "chartPalette": ["265 52% 56%", "290 48% 62%", "240 42% 58%", "320 44% 60%"]
+  }
+}

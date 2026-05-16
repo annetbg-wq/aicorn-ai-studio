@@ -1,5 +1,36 @@
 {
   "id": "landing-page",
+  "purpose": "Marketing and launch visual pack for conversion-focused prototypes with hero, social proof, pricing, and CTA sections backed by real theme and component files.",
+  "whenToUse": [
+    "Use for launch pages, waitlists, SaaS marketing, and conversion-led websites",
+    "Use when the result must prove a full landing stack instead of a generic hero section",
+    "Use when CTA, social proof, pricing, and feature surfaces should remain traceable to loaded presets"
+  ],
+  "requiredComponents": ["button", "card", "badge", "input", "stat-card"],
+  "allowedSurfaces": ["marketing", "hero", "pricing", "faq", "cta", "top-nav", "social-proof"],
+  "linkedStyleFiles": [
+    "prototype-bank/design-packs/foundation/tokens.css",
+    "prototype-bank/design-packs/foundation/typography.css",
+    "prototype-bank/design-packs/foundation/elevation.css"
+  ],
+  "linkedComponentFiles": [
+    "prototype-bank/design-packs/surfaces/primitives/button.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/card.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/badge.tsx",
+    "prototype-bank/design-packs/surfaces/primitives/input.tsx",
+    "prototype-bank/design-packs/surfaces/cards/stat-card.tsx"
+  ],
+  "layoutPresetFiles": [
+    "prototype-bank/design-packs/surfaces/layout-presets.json"
+  ],
+  "motionPresetFiles": [
+    "prototype-bank/design-packs/assets/motion/presets.json"
+  ],
+  "assetReferenceFiles": [
+    "prototype-bank/design-packs/assets/visual-references.json",
+    "prototype-bank/design-packs/assets/typography/presets.json",
+    "prototype-bank/design-packs/assets/spacing/spacious.json"
+  ],
   "skeleton": "landing-page",
   "compatibleSkeletons": ["landing-page"],
   "skeletonPath": "skeletons/landing-page/",
@@ -11,7 +42,10 @@
   "densityProfiles": ["comfortable", "spacious"],
   "radiusProfiles": ["soft", "pill", "sharp"],
   "motionProfiles": ["gentle", "expressive", "reduced"],
-  "colorFamilies": ["neutral", "clinical-teal", "fintech-indigo", "cool-blue", "playful-coral", "soft-womens-health"],
+  "contrastProfiles": ["low", "medium", "high"],
+  "layoutPatterns": ["top-nav", "hero-section", "bento-grid", "pricing-grid", "faq-stack", "landing-scroll"],
+  "componentFamilies": ["nav", "hero", "bento", "pricing-card", "faq", "cta"],
+  "colorFamilies": ["neutral", "clinical-teal", "wellness-sage", "fintech-indigo", "cool-blue", "playful-coral", "soft-womens-health", "luxury-dark-gold"],
   "requiredBlocks": ["hero", "pricing", "faq", "cta", "social-proof"],
   "requiredFiles": [],
   "forbiddenPatterns": ["dashboard chrome", "generic blank Tailwind fallback"],

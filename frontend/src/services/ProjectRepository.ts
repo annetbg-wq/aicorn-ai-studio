@@ -142,6 +142,23 @@ function removeRepositoryMeta(id: string): void {
   } catch { /* non-fatal */ }
 }
 
+async function getCurrentSupabaseUserId(): Promise<string | null> {
+  const auth = (supabase as {
+    auth?: {
+      getUser?: () => Promise<{ data?: { user?: { id?: string } | null } | null }>;
+    };
+  }).auth;
+  if (!auth?.getUser) return null;
+
+  try {
+    const { data } = await auth.getUser();
+    const userId = data?.user?.id;
+    return typeof userId === 'string' && userId ? userId : null;
+  } catch {
+    return null;
+  }
+}
+
 function createProjectBranchRecord(
   project: ProjectRecord,
   branchId: string,
@@ -272,29 +289,32 @@ export const ProjectRepository = {
           branchCount:    m.branchCount,
         }));
 
-    // Сначала пробуем Supabase
-    try {
-      const { data, error } = await supabase
-        .from('user_projects')
-        .select('id, name, last_sync_at, version, code_snapshot')
-        .order('last_sync_at', { ascending: false })
-        .limit(50);
+    const currentUserId = await getCurrentSupabaseUserId();
+    if (currentUserId) {
+      // Сначала пробуем Supabase
+      try {
+        const { data, error } = await supabase
+          .from('user_projects')
+          .select('id, name, last_sync_at, version, code_snapshot')
+          .order('last_sync_at', { ascending: false })
+          .limit(50);
 
-      if (!error && data) {
-        const supabaseMeta: ProjectMetaSummary[] = data.flatMap(row => {
-          const normalized = normalizeMetaSummary(row);
-          return normalized ? [normalized] : [];
-        });
-        // Merge: Supabase projects first, then local-only drafts not yet in Supabase
-        const supabaseIds = new Set(supabaseMeta.map(p => p.id));
-        const merged = [
-          ...supabaseMeta,
-          ...localOnlyProjects().filter(p => !supabaseIds.has(p.id)),
-        ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-        safeSetItem(LOCAL_META_KEY, JSON.stringify(merged));
-        return merged;
-      }
-    } catch { /* fall through */ }
+        if (!error && data) {
+          const supabaseMeta: ProjectMetaSummary[] = data.flatMap(row => {
+            const normalized = normalizeMetaSummary(row);
+            return normalized ? [normalized] : [];
+          });
+          // Merge: Supabase projects first, then local-only drafts not yet in Supabase
+          const supabaseIds = new Set(supabaseMeta.map(p => p.id));
+          const merged = [
+            ...supabaseMeta,
+            ...localOnlyProjects().filter(p => !supabaseIds.has(p.id)),
+          ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+          safeSetItem(LOCAL_META_KEY, JSON.stringify(merged));
+          return merged;
+        }
+      } catch { /* fall through */ }
+    }
 
     // Fallback: localStorage кэш
     try {
@@ -324,39 +344,42 @@ export const ProjectRepository = {
   async getProject(id: string): Promise<ProjectRecord | null> {
     // Сначала Supabase (только для UUID)
     if (UUID_RE.test(id)) {
-      try {
-        const { data, error } = await supabase
-          .from('user_projects')
-          .select('*')
-          .eq('id', id)
-          .single();
+      const currentUserId = await getCurrentSupabaseUserId();
+      if (currentUserId) {
+        try {
+          const { data, error } = await supabase
+            .from('user_projects')
+            .select('*')
+            .eq('id', id)
+            .single();
 
-        if (!error && data) {
-          const snap = data.code_snapshot as any;
-          const record: ProjectRecord = {
-            id:          data.id,
-            name:        getCanonicalProjectName({ name: data.name, title: snap?.title }),
-            description: snap?.description ?? '',
-            theme:       snap?.theme ?? 'dark-slate',
-            files:       snap?.files ?? snap ?? {},  // legacy: code_snapshot was FileMap directly
-            chatHistory: snap?.chatHistory ?? [],
-            createdAt:   snap?.createdAt ?? data.last_sync_at,
-            updatedAt:   data.last_sync_at,
-            version:     data.version ?? 1,
-            activeBranchId: snap?.activeBranchId,
-            branches: snap?.branches,
-          };
-          if (snap?.revisions) (record as any).revisions = snap.revisions;
-          const { activeBranchId, branches } = normalizeProjectBranches(record);
-          const activeBranch = branches[activeBranchId];
-          record.activeBranchId = activeBranchId;
-          record.branches = branches;
-          record.files = activeBranch?.files ?? record.files;
-          record.chatHistory = activeBranch?.chatHistory ?? record.chatHistory;
-          if (activeBranch?.revisions) (record as any).revisions = activeBranch.revisions;
-          return record;
-        }
-      } catch { /* fall through */ }
+          if (!error && data) {
+            const snap = data.code_snapshot as any;
+            const record: ProjectRecord = {
+              id:          data.id,
+              name:        getCanonicalProjectName({ name: data.name, title: snap?.title }),
+              description: snap?.description ?? '',
+              theme:       snap?.theme ?? 'dark-slate',
+              files:       snap?.files ?? snap ?? {},  // legacy: code_snapshot was FileMap directly
+              chatHistory: snap?.chatHistory ?? [],
+              createdAt:   snap?.createdAt ?? data.last_sync_at,
+              updatedAt:   data.last_sync_at,
+              version:     data.version ?? 1,
+              activeBranchId: snap?.activeBranchId,
+              branches: snap?.branches,
+            };
+            if (snap?.revisions) (record as any).revisions = snap.revisions;
+            const { activeBranchId, branches } = normalizeProjectBranches(record);
+            const activeBranch = branches[activeBranchId];
+            record.activeBranchId = activeBranchId;
+            record.branches = branches;
+            record.files = activeBranch?.files ?? record.files;
+            record.chatHistory = activeBranch?.chatHistory ?? record.chatHistory;
+            if (activeBranch?.revisions) (record as any).revisions = activeBranch.revisions;
+            return record;
+          }
+        } catch { /* fall through */ }
+      }
     }
 
     // Fallback: ProjectStorage (localStorage)
@@ -420,45 +443,7 @@ export const ProjectRepository = {
       ...((normalizedProject as any).revisions      !== undefined && { revisions:      (normalizedProject as any).revisions }),
     };
 
-    // Supabase — основное хранилище (только для UUID)
-    if (UUID_RE.test(normalizedProject.id)) {
-      try {
-        const { error } = await supabase
-          .from('user_projects')
-          .upsert({
-            id:            normalizedProject.id,
-            name:          normalizedProject.name,
-            code_snapshot: snapshot,
-            last_sync_at:  new Date().toISOString(),
-            version:       (normalizedProject.version ?? 0) + 1,
-            ...(normalizedProject.userId && normalizedProject.userId !== 'anonymous' && { user_id: normalizedProject.userId }),
-          }, { onConflict: 'id' });
-
-        if (error) {
-          console.error('[ProjectRepository] Supabase save failed:', error.message);
-          throw error;
-        }
-
-        console.log('[ProjectRepository] ✅ Saved to Supabase:', normalizedProject.id.slice(0, 8));
-      } catch (err) {
-        // Fallback: сохранить в localStorage через ProjectStorage
-        console.warn('[ProjectRepository] Falling back to localStorage:', err);
-        showToast('Working offline — changes saved locally', 'warn');
-        ProjectStorage.saveProject({
-          id:          normalizedProject.id,
-          name:        normalizedProject.name,
-          description: normalizedProject.description,
-          theme:       normalizedProject.theme,
-          files:       activeBranch?.files ?? normalizedProject.files,
-          chatHistory: (activeBranch?.chatHistory ?? normalizedProject.chatHistory) as Array<{ role: string; content: string }>,
-          createdAt:   normalizedProject.createdAt,
-          updatedAt:   normalizedProject.updatedAt,
-          activeBranchId,
-          branches,
-        });
-      }
-    } else {
-      // Non-UUID (legacy) — localStorage only
+    const saveToLocalStorage = () => {
       ProjectStorage.saveProject({
         id:          normalizedProject.id,
         name:        normalizedProject.name,
@@ -471,6 +456,42 @@ export const ProjectRepository = {
         activeBranchId,
         branches,
       });
+    };
+
+    // Supabase — основное хранилище (только для UUID)
+    if (UUID_RE.test(normalizedProject.id)) {
+      const currentUserId = await getCurrentSupabaseUserId();
+      if (currentUserId) {
+        try {
+          const { error } = await supabase
+            .from('user_projects')
+            .upsert({
+              id:            normalizedProject.id,
+              name:          normalizedProject.name,
+              code_snapshot: snapshot,
+              last_sync_at:  new Date().toISOString(),
+              version:       (normalizedProject.version ?? 0) + 1,
+              user_id:       currentUserId,
+            }, { onConflict: 'id' });
+
+          if (error) {
+            console.error('[ProjectRepository] Supabase save failed:', error.message);
+            throw error;
+          }
+
+          console.log('[ProjectRepository] ✅ Saved to Supabase:', normalizedProject.id.slice(0, 8));
+        } catch (err) {
+          // Fallback: сохранить в localStorage через ProjectStorage
+          console.warn('[ProjectRepository] Falling back to localStorage:', err);
+          showToast('Working offline — changes saved locally', 'warn');
+          saveToLocalStorage();
+        }
+      } else {
+        saveToLocalStorage();
+      }
+    } else {
+      // Non-UUID (legacy) — localStorage only
+      saveToLocalStorage();
     }
 
     // Обновить метаданные в localStorage кэше
@@ -497,9 +518,12 @@ export const ProjectRepository = {
 
   async deleteProject(id: string): Promise<void> {
     if (UUID_RE.test(id)) {
-      try {
-        await supabase.from('user_projects').delete().eq('id', id);
-      } catch { /* non-fatal */ }
+      const currentUserId = await getCurrentSupabaseUserId();
+      if (currentUserId) {
+        try {
+          await supabase.from('user_projects').delete().eq('id', id);
+        } catch { /* non-fatal */ }
+      }
     }
 
     // Также из localStorage
@@ -518,6 +542,8 @@ export const ProjectRepository = {
     if (!id) return false;
     if (ProjectStorage.projectDataExists(id)) return true;
     if (!UUID_RE.test(id)) return false;
+    const currentUserId = await getCurrentSupabaseUserId();
+    if (!currentUserId) return false;
 
     try {
       const { data, error } = await supabase

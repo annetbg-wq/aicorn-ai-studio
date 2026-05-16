@@ -4,9 +4,11 @@
   "name": "Fintech",
   "entities": ["Account", "Transaction", "Budget", "Goal", "Card"],
   "roles": ["user", "admin"],
+  "subdomains": ["banking", "payments", "wallet", "budgeting", "finance-ops", "compliance"],
   "typicalFlows": ["Перевод средств", "История транзакций", "Управление бюджетом", "Накопительные цели"],
   "restrictions": ["Всегда показывать реальные суммы в seed data (не round numbers)", "Цветовое разделение доходов (+green) и расходов (-red)", "Маскировка чувствительных данных (карта: ****1234)"],
   "uiPatterns": ["Баланс крупным шрифтом на главном экране", "Список транзакций с иконками категорий", "Кольцевые/столбчатые графики бюджета", "Прогресс-бары накоплений"],
+  "colorFamilies": ["fintech-indigo", "medical-navy-teal", "neutral", "luxury-dark-gold"],
   "recommendedDesign": "dark-premium",
   "recommendedArchetypes": ["dashboard-workspace"]
 }
