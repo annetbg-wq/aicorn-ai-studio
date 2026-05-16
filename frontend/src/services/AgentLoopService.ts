@@ -551,6 +551,134 @@ export function estimateBudget(
 
 export class AgentLoopService {
 
+  private static async getCurrentSupabaseUserId(): Promise<string | null> {
+    try {
+      const getUser = supabase.auth?.getUser;
+      if (typeof getUser !== 'function') return null;
+      const { data, error } = await getUser();
+      if (error) return null;
+      return data.user?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private static isMissingAgentSessionsUserIdError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+
+    const maybeError = error as {
+      code?: unknown;
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+    };
+
+    const code = String(maybeError.code ?? '').toLowerCase();
+    const message = [
+      String(maybeError.message ?? ''),
+      String(maybeError.details ?? ''),
+      String(maybeError.hint ?? ''),
+    ].join(' ').toLowerCase();
+
+    if (!message.includes('user_id')) return false;
+
+    return code === '42703'
+      || code === 'pgrst204'
+      || message.includes("could not find the 'user_id' column")
+      || message.includes('column agent_sessions.user_id does not exist')
+      || message.includes('agent_sessions.user_id');
+  }
+
+  private static isRlsPolicyViolation(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+
+    const maybeError = error as {
+      code?: unknown;
+      message?: unknown;
+    };
+
+    const code = String(maybeError.code ?? '');
+    const message = String(maybeError.message ?? '').toLowerCase();
+
+    return code === '42501'
+      || message.includes('row-level security policy')
+      || message.includes('insufficient_privilege');
+  }
+
+  private static getAgentSessionsErrorMessage(error: unknown): string {
+    if (!error || typeof error !== 'object' || !('message' in error)) return 'unknown';
+    return typeof error.message === 'string' ? error.message : 'unknown';
+  }
+
+  private static async runAgentSessionsQuery<T extends {
+    error?: unknown;
+    data?: unknown;
+    count?: number | null;
+  }>(
+    runQuery: (userId: string | null) => PromiseLike<T>,
+  ): Promise<T> {
+    const userId = await AgentLoopService.getCurrentSupabaseUserId();
+    const result = await runQuery(userId);
+
+    if (userId && AgentLoopService.isMissingAgentSessionsUserIdError(result.error)) {
+      return await runQuery(null);
+    }
+
+    return result;
+  }
+
+  private static scopeAgentSessionsQuery<T extends { eq: (column: string, value: unknown) => T }>(
+    query: T,
+    userId: string | null,
+  ): T {
+    if (!userId) return query;
+    return query.eq('user_id', userId);
+  }
+
+  private static withAgentSessionOwner<T extends Record<string, unknown>>(
+    payload: T,
+    userId: string | null,
+  ): T | (T & { user_id: string }) {
+    if (!userId) return payload;
+    return { ...payload, user_id: userId };
+  }
+
+  private static async getAgentSessionById<T>(
+    sessionId: string,
+    columns = '*',
+  ): Promise<T | null> {
+    const { data } = await AgentLoopService.runAgentSessionsQuery((userId) => {
+      if (!userId) {
+        // TODO(P1.4B): keep legacy unscoped session lookups in local/dev until the user_id migration lands.
+      }
+
+      let query = supabase
+        .from('agent_sessions')
+        .select(columns)
+        .eq('id', sessionId);
+
+      query = AgentLoopService.scopeAgentSessionsQuery(query, userId);
+      return query.single();
+    });
+
+    return (data as T | null) ?? null;
+  }
+
+  private static async updateAgentSessionById(
+    sessionId: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    await AgentLoopService.runAgentSessionsQuery((userId) => {
+      let query = supabase
+        .from('agent_sessions')
+        .update(payload)
+        .eq('id', sessionId);
+
+      query = AgentLoopService.scopeAgentSessionsQuery(query, userId);
+      return query;
+    });
+  }
+
   // ── Start new session (SpecAgent phase) ──────────────────────────────────
 
   static async startSession(
@@ -566,41 +694,54 @@ export class AgentLoopService {
     onStatus('pending', `Запускаю исследование блока: ${blockName}`);
 
     // ── Phase cache: reuse existing session waiting for clarification ────────
-    const { data: cached } = await supabase
-      .from('agent_sessions')
-      .select('*')
-      .eq('block_name', blockName)
-      .eq('status', 'needs_clarification')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    const { data: cached } = await AgentLoopService.runAgentSessionsQuery((userId) => {
+      if (!userId) {
+        // TODO(P1.4B): keep legacy unscoped phase-cache reads in local/dev until the user_id migration lands.
+      }
+
+      let query = supabase
+        .from('agent_sessions')
+        .select('*')
+        .eq('block_name', blockName)
+        .eq('status', 'needs_clarification');
+
+      query = AgentLoopService.scopeAgentSessionsQuery(query, userId);
+      return query
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+    });
 
     if (cached?.spec_result) {
       onStatus('spec_review', 'Загружаю готовый спек из кэша — пропускаем SpecAgent...');
       return cached.id as string;
     }
 
-    const { data: session, error } = await supabase
-      .from('agent_sessions')
-      .insert({
-        block_name:     blockName,
-        status:         'pending',
-        isolated_files: currentFiles,
-      })
-      .select()
-      .single();
+    const { data: session, error } = await AgentLoopService.runAgentSessionsQuery((userId) => (
+      supabase
+        .from('agent_sessions')
+        .insert(AgentLoopService.withAgentSessionOwner({
+          block_name:     blockName,
+          status:         'pending',
+          isolated_files: currentFiles,
+        }, userId))
+        .select()
+        .single()
+    ));
 
-    if (error || !session) throw new Error('Не удалось создать сессию: ' + (error?.message ?? 'unknown'));
+    if (error || !session) {
+      if (AgentLoopService.isRlsPolicyViolation(error)) {
+        throw new Error('Agent Lab requires authentication. Please sign in with Google to create agent sessions.');
+      }
+      throw new Error('Не удалось создать сессию: ' + AgentLoopService.getAgentSessionsErrorMessage(error));
+    }
 
     const spec = await AgentLoopService.runSpecAgent(
       blockName, currentFiles, apiKey, specModelId, onStatus, moduleContext, specProvider, onLog,
     );
 
     // ── Persist spec immediately so it survives restarts ────────────────────
-    await supabase
-      .from('agent_sessions')
-      .update({ spec_result: spec })
-      .eq('id', session.id);
+    await AgentLoopService.updateAgentSessionById(session.id, { spec_result: spec });
 
     // ── ClarifyAgent ──────────────────────────────────────────────────────
     onStatus('clarifying', 'Анализирую задачу...');
@@ -630,25 +771,23 @@ export class AgentLoopService {
 
     if (questions.length > 0) {
       onStatus('needs_clarification', JSON.stringify(questions));
-      await supabase
-        .from('agent_sessions')
-        .update({
-          spec,
-          spec_result:       spec,
-          clarify_questions: questions,
-          status:            'needs_clarification',
-          review_report:     JSON.stringify({ clarification_questions: questions }),
-          updated_at:        new Date().toISOString(),
-        })
-        .eq('id', session.id);
+      await AgentLoopService.updateAgentSessionById(session.id, {
+        spec,
+        spec_result:       spec,
+        clarify_questions: questions,
+        status:            'needs_clarification',
+        review_report:     JSON.stringify({ clarification_questions: questions }),
+        updated_at:        new Date().toISOString(),
+      });
       return session.id as string;
     }
 
     // ── Нет вопросов — идём дальше ───────────────────────────────────────
-    await supabase
-      .from('agent_sessions')
-      .update({ spec, status: 'spec_review', updated_at: new Date().toISOString() })
-      .eq('id', session.id);
+    await AgentLoopService.updateAgentSessionById(session.id, {
+      spec,
+      status:     'spec_review',
+      updated_at: new Date().toISOString(),
+    });
 
     onStatus('spec_review', 'Спецификация готова — ожидает подтверждения');
     return session.id as string;
@@ -729,14 +868,11 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
     buildProvider: ApiProvider = 'openrouter',
     qaProvider: ApiProvider = 'openrouter',
   ): Promise<void> {
-    const { data: session } = await supabase
-      .from('agent_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single();
+    const session = await AgentLoopService.getAgentSessionById<AgentSession>(sessionId);
 
     if (!session) throw new Error('Сессия не найдена');
 
+    if (!session.spec) throw new Error('Спецификация сессии не найдена');
     const spec: AgentSpec = session.spec;
     let files: Record<string, string> = session.isolated_files ?? {};
 
@@ -761,10 +897,10 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
       }
     }
 
-    await supabase
-      .from('agent_sessions')
-      .update({ status: 'building', updated_at: new Date().toISOString() })
-      .eq('id', sessionId);
+    await AgentLoopService.updateAgentSessionById(sessionId, {
+      status:     'building',
+      updated_at: new Date().toISOString(),
+    });
 
     onStatus('building', 'BuildAgent: начинаю реализацию...');
     onProgress(10);
@@ -838,15 +974,12 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
         const errorMsg = err instanceof Error ? err.message : String(err);
         const isTimeout = errorMsg.includes('AbortError') || errorMsg.includes('timeout');
 
-        await supabase
-          .from('agent_sessions')
-          .update({
-            status: 'paused',
-            iterations: iter - 1,
-            isolated_files: files,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', sessionId);
+        await AgentLoopService.updateAgentSessionById(sessionId, {
+          status:         'paused',
+          iterations:     iter - 1,
+          isolated_files: files,
+          updated_at:     new Date().toISOString(),
+        });
 
         onStatus('paused', `Сессия приостановлена на итерации ${iter}. ${isTimeout ? 'Timeout (30s)' : errorMsg}. Нажми Resume чтобы продолжить.`);
         if (err instanceof Error) await handleSystemError(err, `BuildAgent iter ${iter}`, sessionId);
@@ -867,21 +1000,21 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
 
         if (receivedCount > 0) {
           files = { ...files, ...recoveredFiles };
-          await supabase.from('agent_sessions').update({
+          await AgentLoopService.updateAgentSessionById(sessionId, {
             status:        'partial_success',
             result_files:  files,
             iterations:    iter,
             review_report: `Частичное восстановление: получено ${receivedCount} файлов из ${totalExpected}`,
             updated_at:    new Date().toISOString(),
-          }).eq('id', sessionId);
+          });
           onStatus('partial_success', `Частичное восстановление: получено ${receivedCount} файлов из ${totalExpected}`);
         } else {
-          await supabase.from('agent_sessions').update({
+          await AgentLoopService.updateAgentSessionById(sessionId, {
             status:         'paused',
             isolated_files: files,
             iterations:     iter - 1,
             updated_at:     new Date().toISOString(),
-          }).eq('id', sessionId);
+          });
           onStatus('paused', 'Стрим прерван, файлов не восстановлено. Нажми Resume чтобы продолжить.');
         }
         return;
@@ -896,11 +1029,11 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
           protectedFiles.some(p => f.includes(p))
         );
         if (violations.length > 0) {
-          await supabase.from('agent_sessions').update({
-            status: 'rejected',
+          await AgentLoopService.updateAgentSessionById(sessionId, {
+            status:        'rejected',
             review_report: `Security Violation: attempt to modify protected files: ${violations.join(', ')}`,
-            updated_at: new Date().toISOString(),
-          }).eq('id', sessionId);
+            updated_at:    new Date().toISOString(),
+          });
           onStatus('rejected', `Заблокировано: попытка изменить защищённые файлы: ${violations.join(', ')}`);
           return;
         }
@@ -915,9 +1048,12 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
         if (budget.actualCostUsd >= limitUsd) {
           budget.paused = true;
           budget.pausedAtIteration = iter;
-          await supabase.from('agent_sessions')
-            .update({ status: 'building', qa_report: { passed: false, issues: ['BUDGET_EXCEEDED'], warnings: [], summary: `Бюджет $${limitUsd} исчерпан на итерации ${iter}` }, result_files: files, updated_at: new Date().toISOString() })
-            .eq('id', sessionId);
+          await AgentLoopService.updateAgentSessionById(sessionId, {
+            status:      'building',
+            qa_report:   { passed: false, issues: ['BUDGET_EXCEEDED'], warnings: [], summary: `Бюджет $${limitUsd} исчерпан на итерации ${iter}` },
+            result_files: files,
+            updated_at:  new Date().toISOString(),
+          });
           onStatus('warn', `⏸ Бюджет $${limitUsd} исчерпан. Пополни баланс и нажми Resume.`);
           onBudgetUpdate({ ...budget });
           return;
@@ -954,15 +1090,12 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
         const errorMsg = err instanceof Error ? err.message : String(err);
         const isTimeout = errorMsg.includes('AbortError') || errorMsg.includes('timeout');
 
-        await supabase
-          .from('agent_sessions')
-          .update({
-            status: 'paused',
-            iterations: iter,
-            isolated_files: files,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', sessionId);
+        await AgentLoopService.updateAgentSessionById(sessionId, {
+          status:         'paused',
+          iterations:     iter,
+          isolated_files: files,
+          updated_at:     new Date().toISOString(),
+        });
 
         onStatus('paused', `Сессия приостановлена на QA итерации ${iter}. ${isTimeout ? 'Timeout (30s)' : errorMsg}. Нажми Resume чтобы продолжить.`);
         if (err instanceof Error) await handleSystemError(err, `QAAgent iter ${iter}`, sessionId);
@@ -985,25 +1118,19 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
         summary:  qaRaw.slice(0, 200),
       };
 
-      await supabase
-        .from('agent_sessions')
-        .update({
-          iterations:   iter,
-          result_files: files,
-          qa_report:    report,
-          updated_at:   new Date().toISOString(),
-        })
-        .eq('id', sessionId);
+      await AgentLoopService.updateAgentSessionById(sessionId, {
+        iterations:   iter,
+        result_files: files,
+        qa_report:    report,
+        updated_at:   new Date().toISOString(),
+      });
 
       // ── Early stopping: если QA чист — прерываем цикл ─────────────────
       if (report.issues.length === 0 && report.warnings.length === 0) {
         onStatus('building', `✅ QA прошёл чисто на итерации ${iter} — останавливаем досрочно`);
         // Mark as passed and update to ready
         const cleanReport: QAReport = { passed: true, issues: [], warnings: [], summary: 'Пройден чистым кодом' };
-        await supabase
-          .from('agent_sessions')
-          .update({ qa_report: cleanReport })
-          .eq('id', sessionId);
+        await AgentLoopService.updateAgentSessionById(sessionId, { qa_report: cleanReport });
         report.passed = true; // Trigger the ready flow below
       }
 
@@ -1011,13 +1138,11 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
         // ── Guard: BuildAgent должен был создать файлы ────────────────────
         if (!newFiles || Object.keys(newFiles).length === 0) {
           onStatus('rejected', 'BuildAgent не создал файлы — сессия отклонена');
-          await supabase.from('agent_sessions')
-            .update({
-              status: 'rejected',
-              review_report: 'Error: result_files empty',
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', sessionId);
+          await AgentLoopService.updateAgentSessionById(sessionId, {
+            status:        'rejected',
+            review_report: 'Error: result_files empty',
+            updated_at:    new Date().toISOString(),
+          });
           return;
         }
 
@@ -1042,14 +1167,11 @@ Rules: ${manifest.rules_of_engagement?.join(', ')}
           '**Готово к подключению:** ДА',
         ].join('\n');
 
-        await supabase
-          .from('agent_sessions')
-          .update({
-            status:        'ready',
-            review_report: reviewReport,
-            updated_at:    new Date().toISOString(),
-          })
-          .eq('id', sessionId);
+        await AgentLoopService.updateAgentSessionById(sessionId, {
+          status:        'ready',
+          review_report: reviewReport,
+          updated_at:    new Date().toISOString(),
+        });
 
         onStatus('ready', `✅ QA пройден на итерации ${iter}`);
         return;
@@ -1076,10 +1198,10 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
     }
 
     // Max iterations reached
-    await supabase
-      .from('agent_sessions')
-      .update({ status: 'qa_review', updated_at: new Date().toISOString() })
-      .eq('id', sessionId);
+    await AgentLoopService.updateAgentSessionById(sessionId, {
+      status:     'qa_review',
+      updated_at: new Date().toISOString(),
+    });
 
     onStatus('qa_review', '⚠️ Максимум итераций — требуется ручная проверка');
   }
@@ -1087,18 +1209,17 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
   // ── Apply result to main project ─────────────────────────────────────────
 
   static async applySession(sessionId: string): Promise<Record<string, string>> {
-    const { data: session } = await supabase
-      .from('agent_sessions')
-      .select('result_files')
-      .eq('id', sessionId)
-      .single();
+    const session = await AgentLoopService.getAgentSessionById<{ result_files: Record<string, string> | null }>(
+      sessionId,
+      'result_files',
+    );
 
     if (!session?.result_files) throw new Error('Нет результата для применения');
 
-    await supabase
-      .from('agent_sessions')
-      .update({ status: 'applied', updated_at: new Date().toISOString() })
-      .eq('id', sessionId);
+    await AgentLoopService.updateAgentSessionById(sessionId, {
+      status:     'applied',
+      updated_at: new Date().toISOString(),
+    });
 
     return session.result_files as Record<string, string>;
   }
@@ -1106,10 +1227,10 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
   // ── Reject session ────────────────────────────────────────────────────────
 
   static async rejectSession(sessionId: string): Promise<void> {
-    await supabase
-      .from('agent_sessions')
-      .update({ status: 'rejected', updated_at: new Date().toISOString() })
-      .eq('id', sessionId);
+    await AgentLoopService.updateAgentSessionById(sessionId, {
+      status:     'rejected',
+      updated_at: new Date().toISOString(),
+    });
   }
 
   // ── Resume session after pause/timeout ──────────────────────────────────
@@ -1129,11 +1250,7 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
     qaProvider: ApiProvider = 'openrouter',
   ): Promise<void> {
     // Load fresh session to get current iterations count
-    const { data: session } = await supabase
-      .from('agent_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single();
+    const session = await AgentLoopService.getAgentSessionById<AgentSession>(sessionId);
 
     if (!session) throw new Error('Сессия не найдена для возобновления');
 
@@ -1154,34 +1271,37 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
     rejectedSessionId: string,
     onStatus: (status: string, detail: string) => void,
   ): Promise<string> {
-    const { data: source } = await supabase
-      .from('agent_sessions')
-      .select('*')
-      .eq('id', rejectedSessionId)
-      .single();
+    const source = await AgentLoopService.getAgentSessionById<AgentSession>(rejectedSessionId);
 
     if (!source?.spec_result) throw new Error('Нет сохранённого спека для перезапуска');
 
-    const { data: newSession, error } = await supabase
-      .from('agent_sessions')
-      .insert({
-        block_name:        source.block_name,
-        status:            'spec_review',
-        spec:              source.spec_result,
-        spec_result:       source.spec_result,
-        clarify_questions: source.clarify_questions ?? null,
-        clarify_answers:   source.clarify_answers   ?? null,
-        isolated_files:    source.isolated_files     ?? null,
-        max_iterations:    source.max_iterations     ?? 2,
-        // Re-inject clarify answers into review_report for confirmAndBuild
-        review_report:     source.clarify_answers?.length
-          ? JSON.stringify({ clarification_answers: source.clarify_answers })
-          : null,
-      })
-      .select()
-      .single();
+    const { data: newSession, error } = await AgentLoopService.runAgentSessionsQuery((userId) => (
+      supabase
+        .from('agent_sessions')
+        .insert(AgentLoopService.withAgentSessionOwner({
+          block_name:        source.block_name,
+          status:            'spec_review',
+          spec:              source.spec_result,
+          spec_result:       source.spec_result,
+          clarify_questions: source.clarify_questions ?? null,
+          clarify_answers:   source.clarify_answers   ?? null,
+          isolated_files:    source.isolated_files    ?? null,
+          max_iterations:    source.max_iterations    ?? 2,
+          // Re-inject clarify answers into review_report for confirmAndBuild
+          review_report:     source.clarify_answers?.length
+            ? JSON.stringify({ clarification_answers: source.clarify_answers })
+            : null,
+        }, userId))
+        .select()
+        .single()
+    ));
 
-    if (error || !newSession) throw new Error('Не удалось создать сессию: ' + (error?.message ?? 'unknown'));
+    if (error || !newSession) {
+      if (AgentLoopService.isRlsPolicyViolation(error)) {
+        throw new Error('Agent Lab requires authentication. Please sign in with Google to create agent sessions.');
+      }
+      throw new Error('Не удалось создать сессию: ' + AgentLoopService.getAgentSessionsErrorMessage(error));
+    }
 
     onStatus('spec_review', `Спек загружен из кэша — SpecAgent и ClarifyAgent пропущены`);
     return newSession.id as string;
@@ -1193,23 +1313,16 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
     sessionId: string,
     answers: string[],
   ): Promise<void> {
-    const { data: session } = await supabase
-      .from('agent_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single();
+    const session = await AgentLoopService.getAgentSessionById<AgentSession>(sessionId);
 
     if (!session) throw new Error('Сессия не найдена');
 
-    await supabase
-      .from('agent_sessions')
-      .update({
-        status:          'spec_review',
-        clarify_answers: answers,    // dedicated phase-cache column
-        review_report:   JSON.stringify({ clarification_answers: answers }),
-        updated_at:      new Date().toISOString(),
-      })
-      .eq('id', sessionId);
+    await AgentLoopService.updateAgentSessionById(sessionId, {
+      status:          'spec_review',
+      clarify_answers: answers,    // dedicated phase-cache column
+      review_report:   JSON.stringify({ clarification_answers: answers }),
+      updated_at:      new Date().toISOString(),
+    });
   }
 
   // ── Refine session: one extra Build iteration with user feedback ──────────────
@@ -1229,11 +1342,7 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
     buildProvider: ApiProvider = 'openrouter',
     qaProvider:    ApiProvider = 'openrouter',
   ): Promise<void> {
-    const { data: session } = await supabase
-      .from('agent_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single();
+    const session = await AgentLoopService.getAgentSessionById<AgentSession>(sessionId);
 
     if (!session) throw new Error('Сессия не найдена');
 
@@ -1245,15 +1354,12 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
       try { existingReport = JSON.parse(session.review_report); } catch { /* ignore */ }
     }
 
-    await supabase
-      .from('agent_sessions')
-      .update({
-        status:         'building',
-        max_iterations: newMax,
-        review_report:  JSON.stringify({ ...existingReport, user_refinement: userFeedback }),
-        updated_at:     new Date().toISOString(),
-      })
-      .eq('id', sessionId);
+    await AgentLoopService.updateAgentSessionById(sessionId, {
+      status:         'building',
+      max_iterations: newMax,
+      review_report:  JSON.stringify({ ...existingReport, user_refinement: userFeedback }),
+      updated_at:     new Date().toISOString(),
+    });
 
     onStatus('building', `Доработка: итерация ${nextIter}...`);
 
@@ -1267,31 +1373,50 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
   // ── Load all sessions ─────────────────────────────────────────────────────
 
   static async getSessions(): Promise<AgentSession[]> {
-    const { data } = await supabase
-      .from('agent_sessions')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data } = await AgentLoopService.runAgentSessionsQuery((userId) => {
+      if (!userId) {
+        // TODO(P1.4B): keep legacy unscoped getSessions() reads in local/dev until the user_id migration lands.
+      }
+
+      let query = supabase
+        .from('agent_sessions')
+        .select('*');
+
+      query = AgentLoopService.scopeAgentSessionsQuery(query, userId);
+      return query.order('created_at', { ascending: false });
+    });
+
     return (data ?? []) as AgentSession[];
   }
 
   // ── Delete single session ──────────────────────────────────────────────────
 
   static async deleteSession(sessionId: string): Promise<void> {
-    await supabase
-      .from('agent_sessions')
-      .delete()
-      .eq('id', sessionId);
+    await AgentLoopService.runAgentSessionsQuery((userId) => {
+      let query = supabase
+        .from('agent_sessions')
+        .delete()
+        .eq('id', sessionId);
+
+      query = AgentLoopService.scopeAgentSessionsQuery(query, userId);
+      return query;
+    });
   }
 
   // ── Delete old pending sessions (>1 hour) ──────────────────────────────────
 
   static async deleteOldPendingSessions(): Promise<number> {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { error, count } = await supabase
-      .from('agent_sessions')
-      .delete()
-      .lt('created_at', oneHourAgo)
-      .eq('status', 'pending');
+    const { error, count } = await AgentLoopService.runAgentSessionsQuery((userId) => {
+      let query = supabase
+        .from('agent_sessions')
+        .delete()
+        .lt('created_at', oneHourAgo)
+        .eq('status', 'pending');
+
+      query = AgentLoopService.scopeAgentSessionsQuery(query, userId);
+      return query;
+    });
 
     if (error) {
       console.error('[AgentLoopService] Failed to delete old sessions:', error);
@@ -1314,24 +1439,37 @@ ${specificFixes.map(f => `Файл: ${f.file}\nПроблема: ${f.problem}\n�
     ).toISOString();
 
     // Find stalled sessions
-    const { data: stalled, error: fetchErr } = await supabase
-      .from('agent_sessions')
-      .select('id')
-      .eq('status', 'building')
-      .lt('updated_at', stallCutoff);
+    const { data: stalled, error: fetchErr } = await AgentLoopService.runAgentSessionsQuery((userId) => {
+      if (!userId) {
+        // TODO(P1.4B): keep legacy unscoped stalled-session reads in local/dev until the user_id migration lands.
+      }
+
+      let query = supabase
+        .from('agent_sessions')
+        .select('id')
+        .eq('status', 'building')
+        .lt('updated_at', stallCutoff);
+
+      query = AgentLoopService.scopeAgentSessionsQuery(query, userId);
+      return query;
+    });
 
     if (fetchErr || !stalled?.length) return 0;
 
     const ids = stalled.map((s: { id: string }) => s.id);
 
-    const { error: updateErr } = await supabase
-      .from('agent_sessions')
-      .update({
-        status:        'failed',
-        review_report: JSON.stringify({ reason: 'stalled_timeout', stall_minutes: AgentLoopService.STALL_MINUTES }),
-        updated_at:    new Date().toISOString(),
-      })
-      .in('id', ids);
+    const { error: updateErr } = await AgentLoopService.runAgentSessionsQuery((userId) => {
+      let query = supabase
+        .from('agent_sessions')
+        .update({
+          status:        'failed',
+          review_report: JSON.stringify({ reason: 'stalled_timeout', stall_minutes: AgentLoopService.STALL_MINUTES }),
+          updated_at:    new Date().toISOString(),
+        });
+
+      query = AgentLoopService.scopeAgentSessionsQuery(query, userId);
+      return query.in('id', ids);
+    });
 
     if (updateErr) {
       console.error('[AgentLoopService] cleanupStalledSessions failed:', updateErr);
