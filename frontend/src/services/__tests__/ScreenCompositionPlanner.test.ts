@@ -253,3 +253,96 @@ describe('ScreenCompositionPlanner — telemetry', () => {
     })).not.toThrow();
   });
 });
+
+describe('ScreenCompositionPlanner — b2b-operations-workspace', () => {
+  it('includes dashboard, records, and activity screens with sidebar navigation', async () => {
+    const ctx = await resolveDesignContext('B2B operations workspace for team record management', 'b2b-operations-workspace');
+    const plan = buildScreenCompositionPlan({
+      brief: 'B2B operations workspace for team record management',
+      skeletonId: 'b2b-operations-workspace',
+      designCtx: ctx,
+      premiumComponentIds: [],
+      mediaHints: [],
+    });
+
+    const ids = plan.screens.map(s => s.id);
+    expect(ids.some(id => id.includes('dashboard') || id.includes('overview'))).toBe(true);
+    expect(ids.some(id => id.includes('record') || id.includes('list') || id.includes('workspace'))).toBe(true);
+    const firstScreen = plan.screens.find(s => s.id === plan.firstScreenId)!;
+    const zoneRoles = firstScreen.zones.map(z => z.role);
+    expect(zoneRoles).toContain('navigation');
+  });
+});
+
+describe('ScreenCompositionPlanner — dating-matching-app', () => {
+  it('includes discover and matches screens with swipe-style first screen', async () => {
+    const ctx = await resolveDesignContext('dating app with swipe discovery and chat', 'dating-matching-app');
+    const plan = buildScreenCompositionPlan({
+      brief: 'dating app with swipe discovery and chat',
+      skeletonId: 'dating-matching-app',
+      designCtx: ctx,
+      premiumComponentIds: [],
+      mediaHints: [],
+    });
+
+    const ids = plan.screens.map(s => s.id);
+    expect(ids.some(id => id.includes('discover') || id.includes('swipe') || id.includes('home'))).toBe(true);
+    expect(ids.some(id => id.includes('match') || id.includes('chat') || id.includes('messages'))).toBe(true);
+    expect(plan.screens.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('ScreenCompositionPlanner — booking-service-app', () => {
+  it('includes home/services, booking-flow, and bookings-list screens', async () => {
+    const ctx = await resolveDesignContext('booking app for wellness appointments', 'booking-service-app');
+    const plan = buildScreenCompositionPlan({
+      brief: 'booking app for wellness appointments',
+      skeletonId: 'booking-service-app',
+      designCtx: ctx,
+      premiumComponentIds: [],
+      mediaHints: [],
+    });
+
+    const ids = plan.screens.map(s => s.id);
+    expect(ids.some(id => id.includes('home') || id.includes('service'))).toBe(true);
+    expect(ids.some(id => id.includes('book') || id.includes('confirm') || id.includes('slot'))).toBe(true);
+    expect(plan.screens.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('ScreenCompositionPlanner — content-learning-app', () => {
+  it('includes catalog, lesson player, and progress screens', async () => {
+    const ctx = await resolveDesignContext('online learning app with courses and progress', 'content-learning-app');
+    const plan = buildScreenCompositionPlan({
+      brief: 'online learning app with courses and progress',
+      skeletonId: 'content-learning-app',
+      designCtx: ctx,
+      premiumComponentIds: [],
+      mediaHints: [],
+    });
+
+    const ids = plan.screens.map(s => s.id);
+    expect(ids.some(id => id.includes('catalog') || id.includes('home') || id.includes('course'))).toBe(true);
+    expect(ids.some(id => id.includes('lesson') || id.includes('player') || id.includes('learn'))).toBe(true);
+    expect(plan.screens.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('ScreenCompositionPlanner — gaming-casino-app', () => {
+  it('includes lobby and game-detail screens with first screen defined', async () => {
+    const ctx = await resolveDesignContext('casino gaming app with lobby and promotions', 'gaming-casino-app');
+    const plan = buildScreenCompositionPlan({
+      brief: 'casino gaming app with lobby and promotions',
+      skeletonId: 'gaming-casino-app',
+      designCtx: ctx,
+      premiumComponentIds: [],
+      mediaHints: [],
+    });
+
+    const ids = plan.screens.map(s => s.id);
+    expect(ids.some(id => id.includes('lobby') || id.includes('home') || id.includes('game'))).toBe(true);
+    expect(plan.firstScreenId).toBeTruthy();
+    expect(plan.screens.length).toBeGreaterThanOrEqual(3);
+  });
+});
+

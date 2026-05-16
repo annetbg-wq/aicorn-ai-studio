@@ -1140,12 +1140,548 @@ function buildEcommercePlan(input: {
   };
 }
 
+function buildDatingMatchingPlan(input: {
+  screens: ScreenRef[];
+  productType?: string;
+}): Pick<FunctionalFlowPlan, 'entities' | 'flows' | 'globalStateRequirements' | 'navigationRules' | 'functionalNotes'> {
+  const discover = findScreen(input.screens, ['discover'], 0);
+  const matches = findScreen(input.screens, ['match'], 1);
+  const conversation = findScreen(input.screens, ['conversation', 'chat'], 2);
+  const onboarding = findScreen(input.screens, ['onboarding', 'profile', 'setup'], 3);
+
+  return {
+    entities: [
+      makeEntity('profileCard', 'Profile Card', 20, [
+        { name: 'id', type: 'string', example: 'profile-1' },
+        { name: 'name', type: 'string', example: 'Alex' },
+        { name: 'age', type: 'number', example: '27' },
+        { name: 'bio', type: 'string', example: 'Loves hiking and coffee.' },
+        { name: 'photoUrl', type: 'string', example: '/photos/alex.jpg' },
+      ]),
+      makeEntity('match', 'Match', 8, [
+        { name: 'id', type: 'string', example: 'match-1' },
+        { name: 'profile', type: 'string', example: 'Alex' },
+        { name: 'lastMessage', type: 'string', example: 'Hey, how are you?' },
+        { name: 'unread', type: 'boolean', example: 'true' },
+      ]),
+      makeEntity('message', 'Message', 12, [
+        { name: 'id', type: 'string', example: 'msg-1' },
+        { name: 'text', type: 'string', example: 'Would you like to grab coffee?' },
+        { name: 'sentByMe', type: 'boolean', example: 'false' },
+      ]),
+    ],
+    flows: [
+      makeFlow(
+        'swipe-action',
+        'Swipe to like or pass on a profile card',
+        discover.id,
+        'Swipe gesture or button tap removes the top card and shows the next profile.',
+        ['Swipe right', 'Like button', 'Swipe left', 'Pass button'],
+        ['remove top card', 'check for mutual match', 'show match modal if match'],
+        ['profileCard', 'match'],
+        ['Profile card dismisses', 'Next profile appears', 'Match modal shows on mutual like'],
+        ['useState(profiles)', 'setProfiles(profiles.slice(1))', 'conditional match modal'],
+      ),
+      makeFlow(
+        'open-conversation',
+        'Open a conversation with a match',
+        matches.id,
+        'Tapping a match or conversation thread shows the chat screen.',
+        ['Match avatar', 'Conversation row'],
+        ['setSelectedMatchId', 'navigate to conversation'],
+        ['match', 'message'],
+        ['Conversation screen opens', 'Messages load'],
+        ['useState(selectedMatchId)', 'setSelectedMatchId(id)'],
+        conversation.id,
+      ),
+      makeFlow(
+        'send-message',
+        'Send a local message in a conversation',
+        conversation.id,
+        'Typing and submitting a message appends it to the local thread.',
+        ['Message input', 'Send button'],
+        ['append message', 'clear draft'],
+        ['message'],
+        ['Message bubble appears', 'Input clears'],
+        ['useState(messages)', 'setMessages([...messages, newMsg])', 'setDraft(\'\')'],
+      ),
+    ],
+    globalStateRequirements: [
+      'useState(profiles) for the swipe deck.',
+      'useState(matches) for the matches list.',
+      'useState(selectedMatchId) for conversation switching.',
+      'useState(messages) for the active conversation thread.',
+      'useState(messageDraft) for message composition.',
+    ],
+    navigationRules: [
+      {
+        from: discover.id,
+        to: matches.id,
+        trigger: 'Match notification or Matches tab',
+        expectedBehavior: `Navigate to ${matches.id} to show new and existing matches.`,
+      },
+      {
+        from: matches.id,
+        to: conversation.id,
+        trigger: 'Tap match or conversation row',
+        expectedBehavior: `Open ${conversation.id} for the selected match.`,
+      },
+    ],
+    functionalNotes: uniqueStrings([
+      ...COMMON_FUNCTIONAL_NOTES,
+      'Swipe actions must remove the current card and show the next — do not leave the deck static.',
+      'Match modal should appear when a mutual like is detected.',
+      input.productType ? `Functional plan anchored to productType=${input.productType}.` : null,
+    ]),
+  };
+}
+
+function buildGamingCasinoPlan(input: {
+  screens: ScreenRef[];
+  productType?: string;
+}): Pick<FunctionalFlowPlan, 'entities' | 'flows' | 'globalStateRequirements' | 'navigationRules' | 'functionalNotes'> {
+  const lobby = findScreen(input.screens, ['lobby', 'home'], 0);
+  const games = findScreen(input.screens, ['games', 'catalog'], 1);
+  const gameDetail = findScreen(input.screens, ['game-detail', 'detail'], 2);
+  const promotions = findScreen(input.screens, ['promo'], 3);
+  const account = findScreen(input.screens, ['account', 'profile'], 4);
+
+  return {
+    entities: [
+      makeEntity('game', 'Game', 20, [
+        { name: 'id', type: 'string', example: 'game-1' },
+        { name: 'title', type: 'string', example: 'Fortune Wheel' },
+        { name: 'category', type: 'enum', example: 'slots' },
+        { name: 'isFavorite', type: 'boolean', example: 'false' },
+        { name: 'thumbnailUrl', type: 'string', example: '/thumbnails/fortune-wheel.jpg' },
+      ]),
+      makeEntity('promotion', 'Promotion', 4, [
+        { name: 'id', type: 'string', example: 'promo-1' },
+        { name: 'title', type: 'string', example: '100% Welcome Bonus' },
+        { name: 'claimed', type: 'boolean', example: 'false' },
+      ]),
+      makeEntity('accountState', 'Account State', 1, [
+        { name: 'balance', type: 'number', example: '1500.00' },
+        { name: 'username', type: 'string', example: 'Player1' },
+      ]),
+    ],
+    flows: [
+      makeFlow(
+        'game-category-filter',
+        'Filter games by category',
+        games.id,
+        'Category chips filter the visible game grid.',
+        ['Category chip', 'Filter tab'],
+        ['update selectedCategory', 'derive visible games'],
+        ['game'],
+        ['Game grid updates', 'Active category highlights'],
+        ['useState(selectedCategory)', 'games.filter(g => g.category === selectedCategory)'],
+      ),
+      makeFlow(
+        'favorite-game',
+        'Toggle game favorite',
+        lobby.id,
+        'Heart icon toggles the game\'s favorite state.',
+        ['Heart icon', 'Favorite button'],
+        ['toggle game.isFavorite'],
+        ['game'],
+        ['Heart icon fills or empties', 'Favorites count updates'],
+        ['setGames(games.map(...))'],
+      ),
+      makeFlow(
+        'claim-promotion',
+        'Claim a bonus promotion',
+        promotions.id,
+        'Tapping Claim marks the promotion as claimed and shows a confirmation.',
+        ['Claim button', 'Promo CTA'],
+        ['set promotion.claimed = true'],
+        ['promotion'],
+        ['Button becomes Claimed', 'Confirmation message shows'],
+        ['setPromotions(promotions.map(...))'],
+      ),
+      makeFlow(
+        'navigate-to-game-detail',
+        'Open game detail from lobby or catalog',
+        lobby.id,
+        'Tapping a game card opens the game detail screen.',
+        ['Game card'],
+        ['setSelectedGameId', 'navigate to detail'],
+        ['game'],
+        ['Game detail screen opens'],
+        ['useState(selectedGameId)', 'setSelectedGameId(id)'],
+        gameDetail.id,
+      ),
+    ],
+    globalStateRequirements: [
+      'useState(selectedCategory) for game catalog filter.',
+      'useState(games) for favorite toggles.',
+      'useState(promotions) for claim state.',
+      'useState(selectedGameId) for game detail navigation.',
+      'useState(accountState) for balance display.',
+    ],
+    navigationRules: [
+      {
+        from: lobby.id,
+        to: gameDetail.id,
+        trigger: 'Game card tap',
+        expectedBehavior: `Open ${gameDetail.id} for the selected game.`,
+      },
+      {
+        from: lobby.id,
+        to: promotions.id,
+        trigger: 'Promotions tab or promo banner',
+        expectedBehavior: `Switch to ${promotions.id} and show active offers.`,
+      },
+      {
+        from: lobby.id,
+        to: account.id,
+        trigger: 'Account tab',
+        expectedBehavior: `Switch to ${account.id} and show user balance.`,
+      },
+    ],
+    functionalNotes: uniqueStrings([
+      ...COMMON_FUNCTIONAL_NOTES,
+      'Balance must update visibly in Account — show a real number.',
+      'Claiming a promotion must change the button state immediately.',
+      input.productType ? `Functional plan anchored to productType=${input.productType}.` : null,
+    ]),
+  };
+}
+
+function buildGameInteractivePlan(input: {
+  screens: ScreenRef[];
+  productType?: string;
+}): Pick<FunctionalFlowPlan, 'entities' | 'flows' | 'globalStateRequirements' | 'navigationRules' | 'functionalNotes'> {
+  const home = findScreen(input.screens, ['home'], 0);
+  const levelSelect = findScreen(input.screens, ['level'], 1);
+  const gameScreen = findScreen(input.screens, ['game', 'canvas'], 2);
+  const leaderboard = findScreen(input.screens, ['leaderboard', 'score'], 3);
+
+  return {
+    entities: [
+      makeEntity('level', 'Level', 12, [
+        { name: 'id', type: 'string', example: 'level-1' },
+        { name: 'title', type: 'string', example: 'The Forest' },
+        { name: 'stars', type: 'number', example: '2' },
+        { name: 'unlocked', type: 'boolean', example: 'true' },
+      ]),
+      makeEntity('gameSession', 'Game Session', 1, [
+        { name: 'levelId', type: 'string', example: 'level-1' },
+        { name: 'score', type: 'number', example: '1450' },
+        { name: 'lives', type: 'number', example: '3' },
+        { name: 'completed', type: 'boolean', example: 'false' },
+      ]),
+      makeEntity('leaderboardEntry', 'Leaderboard Entry', 10, [
+        { name: 'rank', type: 'number', example: '1' },
+        { name: 'playerName', type: 'string', example: 'Zara' },
+        { name: 'score', type: 'number', example: '9850' },
+      ]),
+    ],
+    flows: [
+      makeFlow(
+        'select-level',
+        'Select and start a level',
+        levelSelect.id,
+        'Tapping an unlocked level sets it as active and navigates to the game screen.',
+        ['Level card', 'Play button'],
+        ['setActiveLevelId', 'navigate to game screen'],
+        ['level', 'gameSession'],
+        ['Game screen loads with the selected level'],
+        ['useState(activeLevelId)', 'setActiveLevelId(id)'],
+        gameScreen.id,
+      ),
+      makeFlow(
+        'game-play-update',
+        'Update score and lives during play',
+        gameScreen.id,
+        'Game mechanics update score and remaining lives in real time.',
+        ['Game event', 'Obstacle collision', 'Goal reached'],
+        ['increment score', 'decrement lives', 'check completion'],
+        ['gameSession'],
+        ['HUD score and lives update', 'Level complete modal shows on completion'],
+        ['useState(gameSession)', 'setGameSession({ ...session, score: session.score + points })'],
+      ),
+      makeFlow(
+        'complete-level',
+        'Complete a level and update stars',
+        gameScreen.id,
+        'Completing a level updates that level\'s star rating and unlocks the next level.',
+        ['Level complete event', 'Finish screen CTA'],
+        ['update level.stars', 'unlock next level', 'navigate back to level select'],
+        ['level', 'gameSession'],
+        ['Star rating updates', 'Next level unlocks', 'Level complete summary shows'],
+        ['setLevels(levels.map(...))', 'gameSession.completed = true'],
+        levelSelect.id,
+      ),
+    ],
+    globalStateRequirements: [
+      'useState(levels) for level unlock and star updates.',
+      'useState(activeLevelId) for level selection.',
+      'useState(gameSession) for score, lives, and completion tracking.',
+      'useState(leaderboardEntries) for leaderboard display.',
+    ],
+    navigationRules: [
+      {
+        from: home.id,
+        to: levelSelect.id,
+        trigger: 'Play or Level Select CTA',
+        expectedBehavior: `Navigate to ${levelSelect.id} and show unlocked levels.`,
+      },
+      {
+        from: levelSelect.id,
+        to: gameScreen.id,
+        trigger: 'Level card tap',
+        expectedBehavior: `Start the selected level in ${gameScreen.id}.`,
+      },
+      {
+        from: gameScreen.id,
+        to: levelSelect.id,
+        trigger: 'Level complete or back',
+        expectedBehavior: `Return to ${levelSelect.id} with updated star and unlock state.`,
+      },
+    ],
+    functionalNotes: uniqueStrings([
+      ...COMMON_FUNCTIONAL_NOTES,
+      'Score and lives must update dynamically during gameplay — do not show static zeros.',
+      'Level completion must unlock the next level and award stars.',
+      input.productType ? `Functional plan anchored to productType=${input.productType}.` : null,
+    ]),
+  };
+}
+
+function buildBookingServicePlan(input: {
+  screens: ScreenRef[];
+  productType?: string;
+}): Pick<FunctionalFlowPlan, 'entities' | 'flows' | 'globalStateRequirements' | 'navigationRules' | 'functionalNotes'> {
+  const home = findScreen(input.screens, ['home'], 0);
+  const serviceDetail = findScreen(input.screens, ['service-detail', 'detail'], 1);
+  const bookingFlow = findScreen(input.screens, ['booking', 'flow', 'form'], 2);
+  const myBookings = findScreen(input.screens, ['my-booking', 'bookings'], 3);
+
+  return {
+    entities: [
+      makeEntity('service', 'Service', 12, [
+        { name: 'id', type: 'string', example: 'service-1' },
+        { name: 'title', type: 'string', example: 'Deep Tissue Massage' },
+        { name: 'category', type: 'enum', example: 'wellness' },
+        { name: 'price', type: 'number', example: '75' },
+        { name: 'rating', type: 'number', example: '4.8' },
+      ]),
+      makeEntity('timeSlot', 'Time Slot', 8, [
+        { name: 'id', type: 'string', example: 'slot-1' },
+        { name: 'date', type: 'date', example: '2024-07-20' },
+        { name: 'time', type: 'string', example: '10:00 AM' },
+        { name: 'available', type: 'boolean', example: 'true' },
+      ]),
+      makeEntity('booking', 'Booking', 5, [
+        { name: 'id', type: 'string', example: 'booking-1' },
+        { name: 'serviceId', type: 'string', example: 'service-1' },
+        { name: 'slotId', type: 'string', example: 'slot-1' },
+        { name: 'status', type: 'enum', example: 'confirmed' },
+      ]),
+    ],
+    flows: [
+      makeFlow(
+        'browse-services',
+        'Filter and browse services by category',
+        home.id,
+        'Category tiles and search filter the visible service list.',
+        ['Category tile', 'Search bar'],
+        ['update selectedCategory', 'update searchQuery', 'derive visible services'],
+        ['service'],
+        ['Service list updates', 'Active category highlights'],
+        ['useState(selectedCategory)', 'useState(searchQuery)', 'services.filter(...)'],
+      ),
+      makeFlow(
+        'select-time-slot',
+        'Pick a date and time slot',
+        serviceDetail.id,
+        'Tapping a time slot sets it as selected for booking.',
+        ['Time slot button', 'Date picker'],
+        ['setSelectedSlotId'],
+        ['timeSlot'],
+        ['Slot highlighted', 'Book button activates'],
+        ['useState(selectedSlotId)', 'setSelectedSlotId(id)'],
+        bookingFlow.id,
+      ),
+      makeFlow(
+        'confirm-booking',
+        'Confirm a booking',
+        bookingFlow.id,
+        'Submitting the booking form adds a confirmed booking to my bookings.',
+        ['Confirm button', 'Book now CTA'],
+        ['append booking', 'mark slot unavailable', 'show confirmation'],
+        ['booking', 'timeSlot'],
+        ['Confirmation card appears', 'My Bookings updates'],
+        ['useState(bookings)', 'setBookings([...bookings, newBooking])', 'setOrderConfirmed(true)'],
+        myBookings.id,
+      ),
+      makeFlow(
+        'cancel-booking',
+        'Cancel an upcoming booking',
+        myBookings.id,
+        'Cancelling a booking updates its status to cancelled.',
+        ['Cancel button'],
+        ['update booking.status to cancelled'],
+        ['booking'],
+        ['Booking card shows cancelled state'],
+        ['setBookings(bookings.map(...))'],
+      ),
+    ],
+    globalStateRequirements: [
+      'useState(selectedCategory) and useState(searchQuery) for service browsing.',
+      'useState(selectedServiceId) for service detail navigation.',
+      'useState(selectedSlotId) for time slot selection.',
+      'useState(bookings) for confirmed and cancelled bookings.',
+    ],
+    navigationRules: [
+      {
+        from: home.id,
+        to: serviceDetail.id,
+        trigger: 'Service card tap',
+        expectedBehavior: `Open ${serviceDetail.id} with service details and available slots.`,
+      },
+      {
+        from: serviceDetail.id,
+        to: bookingFlow.id,
+        trigger: 'Book now CTA',
+        expectedBehavior: `Open ${bookingFlow.id} with the selected service and slot pre-filled.`,
+      },
+      {
+        from: bookingFlow.id,
+        to: myBookings.id,
+        trigger: 'Booking confirmed',
+        expectedBehavior: `Navigate to ${myBookings.id} and show the confirmed booking.`,
+      },
+    ],
+    functionalNotes: uniqueStrings([
+      ...COMMON_FUNCTIONAL_NOTES,
+      'Time slot selection must visibly activate the Book button.',
+      'Booking confirmation must add the booking to My Bookings immediately.',
+      input.productType ? `Functional plan anchored to productType=${input.productType}.` : null,
+    ]),
+  };
+}
+
+function buildContentLearningPlan(input: {
+  screens: ScreenRef[];
+  productType?: string;
+}): Pick<FunctionalFlowPlan, 'entities' | 'flows' | 'globalStateRequirements' | 'navigationRules' | 'functionalNotes'> {
+  const home = findScreen(input.screens, ['home'], 0);
+  const catalog = findScreen(input.screens, ['catalog', 'courses'], 1);
+  const courseDetail = findScreen(input.screens, ['course-detail', 'detail'], 2);
+  const lessonPlayer = findScreen(input.screens, ['lesson', 'player'], 3);
+
+  return {
+    entities: [
+      makeEntity('course', 'Course', 10, [
+        { name: 'id', type: 'string', example: 'course-1' },
+        { name: 'title', type: 'string', example: 'React for Beginners' },
+        { name: 'category', type: 'enum', example: 'development' },
+        { name: 'enrolled', type: 'boolean', example: 'false' },
+        { name: 'progress', type: 'number', example: '0.35' },
+      ]),
+      makeEntity('lesson', 'Lesson', 8, [
+        { name: 'id', type: 'string', example: 'lesson-1' },
+        { name: 'title', type: 'string', example: 'Introduction to JSX' },
+        { name: 'durationMinutes', type: 'number', example: '12' },
+        { name: 'completed', type: 'boolean', example: 'false' },
+      ]),
+      makeEntity('learningProgress', 'Learning Progress', 1, [
+        { name: 'streakDays', type: 'number', example: '5' },
+        { name: 'minutesThisWeek', type: 'number', example: '90' },
+        { name: 'completedLessons', type: 'number', example: '14' },
+      ]),
+    ],
+    flows: [
+      makeFlow(
+        'enroll-course',
+        'Enroll in a course',
+        courseDetail.id,
+        'Tapping Enroll marks the course as enrolled and adds it to continue-learning.',
+        ['Enroll button'],
+        ['set course.enrolled = true', 'update learningProgress'],
+        ['course'],
+        ['Button becomes Continue', 'Course appears in continue-learning'],
+        ['setCourses(courses.map(...))', 'setLearningProgress(...)'],
+      ),
+      makeFlow(
+        'start-lesson',
+        'Open a lesson and begin playing',
+        courseDetail.id,
+        'Tapping a lesson opens the lesson player.',
+        ['Lesson row', 'Continue button'],
+        ['setActiveLessonId', 'navigate to lesson player'],
+        ['lesson'],
+        ['Lesson player opens'],
+        ['useState(activeLessonId)', 'setActiveLessonId(id)'],
+        lessonPlayer.id,
+      ),
+      makeFlow(
+        'complete-lesson',
+        'Mark a lesson as complete and update progress',
+        lessonPlayer.id,
+        'Finishing a lesson marks it complete and updates course progress.',
+        ['Lesson complete event', 'Next lesson button'],
+        ['set lesson.completed = true', 'increment course.progress'],
+        ['lesson', 'course', 'learningProgress'],
+        ['Lesson row shows checkmark', 'Course progress bar updates'],
+        ['setLessons(lessons.map(...))', 'updateCourseProgress(courseId)'],
+      ),
+      makeFlow(
+        'catalog-filter',
+        'Filter course catalog by category',
+        catalog.id,
+        'Category filter chips narrow the visible course list.',
+        ['Category chip', 'Search bar'],
+        ['update selectedCategory', 'derive visible courses'],
+        ['course'],
+        ['Course grid updates', 'Active category chip highlights'],
+        ['useState(selectedCategory)', 'courses.filter(c => c.category === selectedCategory)'],
+      ),
+    ],
+    globalStateRequirements: [
+      'useState(courses) for enrollment and progress updates.',
+      'useState(lessons) for completion state.',
+      'useState(learningProgress) for streak and stats.',
+      'useState(selectedCategory) for catalog filtering.',
+      'useState(activeLessonId) for lesson player navigation.',
+    ],
+    navigationRules: [
+      {
+        from: home.id,
+        to: courseDetail.id,
+        trigger: 'Course card tap',
+        expectedBehavior: `Open ${courseDetail.id} with course info and curriculum.`,
+      },
+      {
+        from: courseDetail.id,
+        to: lessonPlayer.id,
+        trigger: 'Lesson tap or continue CTA',
+        expectedBehavior: `Open ${lessonPlayer.id} for the selected lesson.`,
+      },
+      {
+        from: lessonPlayer.id,
+        to: courseDetail.id,
+        trigger: 'Back or lesson complete',
+        expectedBehavior: `Return to ${courseDetail.id} with updated lesson completion state.`,
+      },
+    ],
+    functionalNotes: uniqueStrings([
+      ...COMMON_FUNCTIONAL_NOTES,
+      'Course progress must update visibly after completing a lesson.',
+      'Enrollment state persists — enrolled courses appear in continue-learning on Home.',
+      input.productType ? `Functional plan anchored to productType=${input.productType}.` : null,
+    ]),
+  };
+}
+
 function buildFallbackPlan(input: {
   skeletonId: string;
   screens: ScreenRef[];
   productType?: string;
 }): Pick<FunctionalFlowPlan, 'entities' | 'flows' | 'globalStateRequirements' | 'navigationRules' | 'functionalNotes'> {
-  const main = input.screens[0] ?? { id: 'main', title: 'Main', routeHint: '/', role: 'home' };
+  const main = input.screens[0]?? { id: 'main', title: 'Main', routeHint: '/', role: 'home' };
   const secondary = input.screens[1] ?? { id: 'secondary', title: 'Secondary', routeHint: '/secondary', role: 'other' };
 
   return {
@@ -1217,15 +1753,28 @@ export function buildFunctionalFlowPlan(input: {
   const planBySkeleton =
     input.skeletonId === 'mobile-app'
       ? buildMobilePlan({ brief: input.brief, screens, productType })
-      : input.skeletonId === 'saas-dashboard' || input.skeletonId === 'productivity-tool'
+      : input.skeletonId === 'saas-dashboard' ||
+        input.skeletonId === 'productivity-tool' ||
+        input.skeletonId === 'b2b-operations-workspace' ||
+        input.skeletonId === 'creator-editor-workspace'
         ? buildSaasPlan({ screens, skeletonId: input.skeletonId, productType })
         : input.skeletonId === 'landing-page'
           ? buildLandingPlan({ brief: input.brief, screens, productType })
           : input.skeletonId === 'social-community'
             ? buildSocialPlan({ screens, productType })
-            : input.skeletonId === 'ecommerce'
+            : input.skeletonId === 'ecommerce' || input.skeletonId === 'marketplace-platform'
               ? buildEcommercePlan({ screens, productType })
-              : buildFallbackPlan({ skeletonId: input.skeletonId, screens, productType });
+              : input.skeletonId === 'dating-matching-app'
+                ? buildDatingMatchingPlan({ screens, productType })
+                : input.skeletonId === 'gaming-casino-app'
+                  ? buildGamingCasinoPlan({ screens, productType })
+                  : input.skeletonId === 'game-interactive-app'
+                    ? buildGameInteractivePlan({ screens, productType })
+                    : input.skeletonId === 'booking-service-app'
+                      ? buildBookingServicePlan({ screens, productType })
+                      : input.skeletonId === 'content-learning-app'
+                        ? buildContentLearningPlan({ screens, productType })
+                        : buildFallbackPlan({ skeletonId: input.skeletonId, screens, productType });
 
   const architectDataModel =
     input.architectPlan && typeof input.architectPlan === 'object' && 'dataModel' in input.architectPlan

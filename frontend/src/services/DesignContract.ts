@@ -88,12 +88,20 @@ export interface MediaHint {
 // ─── Pack resolver ────────────────────────────────────────────────────────────
 
 const ARCHETYPE_BY_SKELETON: Record<SkeletonId, string> = {
-  'mobile-app':         'consumer-feed',
-  'saas-dashboard':     'dashboard-workspace',
-  'landing-page':       'consumer-feed',
-  'social-community':   'consumer-feed',
-  'productivity-tool':  'dashboard-workspace',
-  'ecommerce':          'consumer-feed',
+  'mobile-app':                  'consumer-feed',
+  'saas-dashboard':              'dashboard-workspace',
+  'landing-page':                'consumer-feed',
+  'social-community':            'consumer-feed',
+  'productivity-tool':           'dashboard-workspace',
+  'ecommerce':                   'consumer-feed',
+  'b2b-operations-workspace':    'dashboard-workspace',
+  'marketplace-platform':        'consumer-feed',
+  'creator-editor-workspace':    'dashboard-workspace',
+  'dating-matching-app':         'consumer-feed',
+  'gaming-casino-app':           'consumer-feed',
+  'game-interactive-app':        'consumer-feed',
+  'booking-service-app':         'consumer-feed',
+  'content-learning-app':        'consumer-feed',
 };
 
 const DOMAIN_KEYWORDS: Array<{ id: string; rx: RegExp }> = [

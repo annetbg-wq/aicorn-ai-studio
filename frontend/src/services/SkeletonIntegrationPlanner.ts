@@ -7,7 +7,15 @@ type KnownSkeletonId =
   | 'landing-page'
   | 'social-community'
   | 'ecommerce'
-  | 'productivity-tool';
+  | 'productivity-tool'
+  | 'b2b-operations-workspace'
+  | 'marketplace-platform'
+  | 'creator-editor-workspace'
+  | 'dating-matching-app'
+  | 'gaming-casino-app'
+  | 'game-interactive-app'
+  | 'booking-service-app'
+  | 'content-learning-app';
 
 type ArchitectInsights = {
   screenFiles: string[];
@@ -160,6 +168,14 @@ const APP_SKELETON_IDS: KnownSkeletonId[] = [
   'social-community',
   'ecommerce',
   'productivity-tool',
+  'b2b-operations-workspace',
+  'marketplace-platform',
+  'creator-editor-workspace',
+  'dating-matching-app',
+  'gaming-casino-app',
+  'game-interactive-app',
+  'booking-service-app',
+  'content-learning-app',
 ];
 
 const KNOWN_SKELETON_IDS: KnownSkeletonId[] = [
@@ -247,6 +263,54 @@ const SCORE_RULES: Record<KnownSkeletonId, SkeletonScoreRule[]> = {
     { pattern: /\btask|tasks|todo|work item\b/i, weight: 4 },
     { pattern: /\bproject|projects|kanban|focus\b/i, weight: 4 },
     { pattern: /\bworkspace|planner|schedule|backlog\b/i, weight: 2 },
+  ],
+  'b2b-operations-workspace': [
+    { pattern: /\bb2b|operations\b/i, weight: 6 },
+    { pattern: /\bworkspace|records|workflow\b/i, weight: 4 },
+    { pattern: /\bteam|admin|enterprise|business\b/i, weight: 3 },
+    { pattern: /\bkpi|table|management\b/i, weight: 2 },
+  ],
+  'marketplace-platform': [
+    { pattern: /\bmarketplace\b/i, weight: 6 },
+    { pattern: /\bseller|listing|multi-vendor\b/i, weight: 5 },
+    { pattern: /\bpeer.to.peer|classifieds|buy.sell\b/i, weight: 4 },
+    { pattern: /\bmessages|storefront|platform\b/i, weight: 2 },
+  ],
+  'creator-editor-workspace': [
+    { pattern: /\bcreator|editor|workspace\b/i, weight: 6 },
+    { pattern: /\bcanvas|design.tool|creative\b/i, weight: 5 },
+    { pattern: /\bcontent.creation|studio|assets\b/i, weight: 4 },
+    { pattern: /\bsidebar|project.list|templates\b/i, weight: 2 },
+  ],
+  'dating-matching-app': [
+    { pattern: /\bdating|matching\b/i, weight: 7 },
+    { pattern: /\bswipe|discover|match\b/i, weight: 5 },
+    { pattern: /\bromance|connect|partner\b/i, weight: 4 },
+    { pattern: /\bchat|conversation|profile\b/i, weight: 2 },
+  ],
+  'gaming-casino-app': [
+    { pattern: /\bcasino|gaming|gamble\b/i, weight: 7 },
+    { pattern: /\blobby|slots|promotions\b/i, weight: 5 },
+    { pattern: /\bbetting|jackpot|bonus\b/i, weight: 4 },
+    { pattern: /\bgame.catalog|account.balance\b/i, weight: 2 },
+  ],
+  'game-interactive-app': [
+    { pattern: /\binteractive.game|arcade|puzzle.game\b/i, weight: 7 },
+    { pattern: /\blevel.select|level|leaderboard\b/i, weight: 5 },
+    { pattern: /\bgame.canvas|score|lives\b/i, weight: 4 },
+    { pattern: /\bcasual.game|mobile.game\b/i, weight: 3 },
+  ],
+  'booking-service-app': [
+    { pattern: /\bbooking|service\b/i, weight: 6 },
+    { pattern: /\bappointment|reservation|schedule\b/i, weight: 5 },
+    { pattern: /\bavailability|calendar|provider\b/i, weight: 4 },
+    { pattern: /\bmy.bookings|confirm.booking\b/i, weight: 3 },
+  ],
+  'content-learning-app': [
+    { pattern: /\blearning|education|e.learning\b/i, weight: 6 },
+    { pattern: /\bcourse|lesson|lms|curriculum\b/i, weight: 5 },
+    { pattern: /\bvideo.player|progress|quiz|study\b/i, weight: 4 },
+    { pattern: /\bcatalog|enrollment|completion\b/i, weight: 2 },
   ],
 };
 
@@ -374,6 +438,14 @@ function inferProductType(input: {
   if (/\bstore|shop|ecommerce|catalog\b/.test(normalized)) return 'commerce';
   if (/\btask|project|planner|productivity\b/.test(normalized)) return 'productivity';
   if (/\blanding|marketing|launch|website\b/.test(normalized)) return 'marketing';
+  if (/\bb2b|operations|records|workflow\b/.test(normalized)) return 'b2b-operations';
+  if (/\bmarketplace|listing|seller|multi-vendor\b/.test(normalized)) return 'marketplace';
+  if (/\beditor|canvas|design.tool|creative\b/.test(normalized)) return 'creator-editor';
+  if (/\bdating|matching|swipe|romance\b/.test(normalized)) return 'dating-matching';
+  if (/\bcasino|gaming|gamble|betting\b/.test(normalized)) return 'gaming-casino';
+  if (/\binteractive.game|level.select|arcade\b/.test(normalized)) return 'game-interactive';
+  if (/\bbooking|appointment|reservation|schedule\b/.test(normalized)) return 'booking-service';
+  if (/\blearning|education|course|lesson|lms\b/.test(normalized)) return 'content-learning';
   return input.screenCompositionPlan?.productType ?? input.functionalFlowPlan?.productType ?? input.expectedSkeletonId;
 }
 
@@ -413,6 +485,22 @@ function defaultScreenTargets(skeletonId: KnownSkeletonId, architect: ArchitectI
       return ['pages/Storefront.tsx', 'pages/ProductDetail.tsx', 'pages/Cart.tsx', 'pages/Checkout.tsx', 'pages/Profile.tsx'];
     case 'productivity-tool':
       return ['pages/Workspace.tsx', 'pages/Projects.tsx', 'pages/Tasks.tsx', 'pages/Settings.tsx'];
+    case 'b2b-operations-workspace':
+      return ['pages/Dashboard.tsx', 'pages/Records.tsx', 'pages/RecordDetail.tsx', 'pages/Workflow.tsx', 'pages/Settings.tsx'];
+    case 'marketplace-platform':
+      return ['pages/Home.tsx', 'pages/Listing.tsx', 'pages/SellerDashboard.tsx', 'pages/Messages.tsx'];
+    case 'creator-editor-workspace':
+      return ['pages/Home.tsx', 'pages/Editor.tsx'];
+    case 'dating-matching-app':
+      return ['pages/Onboarding.tsx', 'pages/Discover.tsx', 'pages/Matches.tsx', 'pages/Conversation.tsx'];
+    case 'gaming-casino-app':
+      return ['pages/Lobby.tsx', 'pages/Games.tsx', 'pages/GameDetail.tsx', 'pages/Promotions.tsx', 'pages/Account.tsx'];
+    case 'game-interactive-app':
+      return ['pages/Home.tsx', 'pages/LevelSelect.tsx', 'pages/GameScreen.tsx', 'pages/Leaderboard.tsx'];
+    case 'booking-service-app':
+      return ['pages/Home.tsx', 'pages/ServiceDetail.tsx', 'pages/BookingFlow.tsx', 'pages/MyBookings.tsx'];
+    case 'content-learning-app':
+      return ['pages/Home.tsx', 'pages/CourseCatalog.tsx', 'pages/CourseDetail.tsx', 'pages/LessonPlayer.tsx'];
   }
 }
 
@@ -785,6 +873,369 @@ function buildCustomModules(input: {
         },
       );
       break;
+    case 'b2b-operations-workspace':
+      definitions.push(
+        {
+          id: 'records-table',
+          purpose: 'Reusable records table with sort, filter, and row-click for the operations workspace.',
+          candidatePaths: ['components/RecordsTable.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: hasPremium,
+          shouldUseMediaAssets: false,
+          dependencies: ['hooks/useOperationsState.ts', 'data/records.ts'],
+        },
+        {
+          id: 'kpi-strip',
+          purpose: 'Dense KPI card strip showing key operations metrics.',
+          candidatePaths: ['components/KpiStrip.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['hooks/useOperationsState.ts'],
+        },
+        {
+          id: 'workflow-board',
+          purpose: 'Workflow stage board for tracking business process stages.',
+          candidatePaths: ['components/WorkflowBoard.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['hooks/useOperationsState.ts', 'data/records.ts'],
+        },
+        {
+          id: 'operations-state',
+          purpose: 'Shared operations hook for records, filters, selected item state, and KPI derivations.',
+          candidatePaths: ['hooks/useOperationsState.ts'],
+          moduleType: 'hook',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['data/records.ts'],
+        },
+        {
+          id: 'records-data',
+          purpose: 'Local mock record and KPI data for the operations workspace.',
+          candidatePaths: ['data/records.ts'],
+          moduleType: 'data',
+          shouldImportFromSkeleton: false,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: [],
+        },
+      );
+      break;
+    case 'marketplace-platform':
+      definitions.push(
+        {
+          id: 'listing-grid',
+          purpose: 'Reusable listing card grid for the marketplace home and catalog views.',
+          candidatePaths: ['components/ListingGrid.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: hasPremium,
+          shouldUseMediaAssets: hasMedia,
+          dependencies: ['data/listings.ts', 'hooks/useMarketplaceState.ts'],
+        },
+        {
+          id: 'seller-metrics',
+          purpose: 'Seller dashboard KPIs: views, messages, active listings.',
+          candidatePaths: ['components/SellerMetrics.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['hooks/useMarketplaceState.ts'],
+        },
+        {
+          id: 'marketplace-state',
+          purpose: 'Shared marketplace hook for listing search, seller state, and messaging.',
+          candidatePaths: ['hooks/useMarketplaceState.ts'],
+          moduleType: 'hook',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['data/listings.ts'],
+        },
+        {
+          id: 'listings-data',
+          purpose: 'Mock listing catalog, seller profiles, and message threads.',
+          candidatePaths: ['data/listings.ts'],
+          moduleType: 'data',
+          shouldImportFromSkeleton: false,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: [],
+        },
+      );
+      break;
+    case 'creator-editor-workspace':
+      definitions.push(
+        {
+          id: 'project-grid',
+          purpose: 'Project card grid with thumbnails for the creator home screen.',
+          candidatePaths: ['components/ProjectGrid.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: hasPremium,
+          shouldUseMediaAssets: hasMedia,
+          dependencies: ['hooks/useCreatorState.ts', 'data/projects.ts'],
+        },
+        {
+          id: 'canvas-toolbar',
+          purpose: 'Editor toolbar component with tool selector and action buttons.',
+          candidatePaths: ['components/CanvasToolbar.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['hooks/useCreatorState.ts'],
+        },
+        {
+          id: 'creator-state',
+          purpose: 'Shared creator hook for project list, active project, and editor tool state.',
+          candidatePaths: ['hooks/useCreatorState.ts'],
+          moduleType: 'hook',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['data/projects.ts'],
+        },
+        {
+          id: 'projects-data',
+          purpose: 'Mock project list and asset data for the creator workspace.',
+          candidatePaths: ['data/projects.ts'],
+          moduleType: 'data',
+          shouldImportFromSkeleton: false,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: [],
+        },
+      );
+      break;
+    case 'dating-matching-app':
+      definitions.push(
+        {
+          id: 'swipe-deck',
+          purpose: 'Swipeable profile card deck for the Discover screen.',
+          candidatePaths: ['components/SwipeDeck.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: hasPremium,
+          shouldUseMediaAssets: hasMedia,
+          dependencies: ['hooks/useDatingState.ts', 'data/profiles.ts'],
+        },
+        {
+          id: 'match-list',
+          purpose: 'Match and conversation thread list for the Matches screen.',
+          candidatePaths: ['components/MatchList.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['hooks/useDatingState.ts'],
+        },
+        {
+          id: 'dating-state',
+          purpose: 'Shared dating hook for profiles, matches, swipe actions, and message threads.',
+          candidatePaths: ['hooks/useDatingState.ts'],
+          moduleType: 'hook',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['data/profiles.ts'],
+        },
+        {
+          id: 'profiles-data',
+          purpose: 'Mock profile cards, match data, and conversation threads.',
+          candidatePaths: ['data/profiles.ts'],
+          moduleType: 'data',
+          shouldImportFromSkeleton: false,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: [],
+        },
+      );
+      break;
+    case 'gaming-casino-app':
+      definitions.push(
+        {
+          id: 'game-grid',
+          purpose: 'Reusable game card grid with thumbnails and favorite toggle.',
+          candidatePaths: ['components/GameGrid.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: hasPremium,
+          shouldUseMediaAssets: hasMedia,
+          dependencies: ['hooks/useGamingState.ts', 'data/games.ts'],
+        },
+        {
+          id: 'promo-cards',
+          purpose: 'Promotion cards for the Promotions screen with claim state.',
+          candidatePaths: ['components/PromoCards.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: hasMedia,
+          dependencies: ['hooks/useGamingState.ts'],
+        },
+        {
+          id: 'gaming-state',
+          purpose: 'Shared gaming hook for game catalog, favorites, promotions, and account balance.',
+          candidatePaths: ['hooks/useGamingState.ts'],
+          moduleType: 'hook',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['data/games.ts'],
+        },
+        {
+          id: 'games-data',
+          purpose: 'Mock game catalog, promotions, and account state data.',
+          candidatePaths: ['data/games.ts'],
+          moduleType: 'data',
+          shouldImportFromSkeleton: false,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: [],
+        },
+      );
+      break;
+    case 'game-interactive-app':
+      definitions.push(
+        {
+          id: 'level-grid',
+          purpose: 'Level selection grid with unlock/lock state and star ratings.',
+          candidatePaths: ['components/LevelGrid.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: hasPremium,
+          shouldUseMediaAssets: hasMedia,
+          dependencies: ['hooks/useGameState.ts', 'data/levels.ts'],
+        },
+        {
+          id: 'game-hud',
+          purpose: 'HUD overlay with score, lives, and timer for the game canvas.',
+          candidatePaths: ['components/GameHUD.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['hooks/useGameState.ts'],
+        },
+        {
+          id: 'game-state',
+          purpose: 'Shared game hook for level unlocks, active session, score, and leaderboard.',
+          candidatePaths: ['hooks/useGameState.ts'],
+          moduleType: 'hook',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['data/levels.ts'],
+        },
+        {
+          id: 'levels-data',
+          purpose: 'Level definitions, unlock state, and leaderboard seed data.',
+          candidatePaths: ['data/levels.ts'],
+          moduleType: 'data',
+          shouldImportFromSkeleton: false,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: [],
+        },
+      );
+      break;
+    case 'booking-service-app':
+      definitions.push(
+        {
+          id: 'service-grid',
+          purpose: 'Service provider card grid for the Home screen.',
+          candidatePaths: ['components/ServiceGrid.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: hasPremium,
+          shouldUseMediaAssets: hasMedia,
+          dependencies: ['hooks/useBookingState.ts', 'data/services.ts'],
+        },
+        {
+          id: 'booking-wizard',
+          purpose: 'Multi-step booking wizard component with slot selection and confirmation.',
+          candidatePaths: ['components/BookingWizard.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['hooks/useBookingState.ts'],
+        },
+        {
+          id: 'booking-state',
+          purpose: 'Shared booking hook for service browsing, slot selection, and booking history.',
+          candidatePaths: ['hooks/useBookingState.ts'],
+          moduleType: 'hook',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['data/services.ts'],
+        },
+        {
+          id: 'services-data',
+          purpose: 'Mock service provider catalog, time slots, and booking history.',
+          candidatePaths: ['data/services.ts'],
+          moduleType: 'data',
+          shouldImportFromSkeleton: false,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: [],
+        },
+      );
+      break;
+    case 'content-learning-app':
+      definitions.push(
+        {
+          id: 'course-grid',
+          purpose: 'Course card grid for the catalog and home feed.',
+          candidatePaths: ['components/CourseGrid.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: hasPremium,
+          shouldUseMediaAssets: hasMedia,
+          dependencies: ['hooks/useLearningState.ts', 'data/courses.ts'],
+        },
+        {
+          id: 'lesson-list',
+          purpose: 'Lesson list for course detail with completion state indicators.',
+          candidatePaths: ['components/LessonList.tsx'],
+          moduleType: 'component',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['hooks/useLearningState.ts', 'data/courses.ts'],
+        },
+        {
+          id: 'learning-state',
+          purpose: 'Shared learning hook for enrollment, lesson progress, streak, and catalog filtering.',
+          candidatePaths: ['hooks/useLearningState.ts'],
+          moduleType: 'hook',
+          shouldImportFromSkeleton: true,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: ['data/courses.ts'],
+        },
+        {
+          id: 'courses-data',
+          purpose: 'Mock course catalog, lesson list, and learning progress data.',
+          candidatePaths: ['data/courses.ts'],
+          moduleType: 'data',
+          shouldImportFromSkeleton: false,
+          shouldUsePremiumComponents: false,
+          shouldUseMediaAssets: false,
+          dependencies: [],
+        },
+      );
+      break;
+
   }
 
   return definitions
@@ -911,6 +1362,118 @@ function buildReuseStrategy(input: {
           area: 'task and project surfaces',
           reuseMode: 'wrap_with_product_content',
           reason: 'Adapt task/project views with product-specific modules instead of collapsing workspace logic into one component.',
+        },
+        ...shared,
+      ];
+    case 'b2b-operations-workspace':
+      return [
+        {
+          area: 'sidebar operations shell',
+          reuseMode: 'use_as_is',
+          reason: 'Use the sidebar shell and B2B navigation conventions as the application foundation.',
+        },
+        {
+          area: 'records table and KPI surfaces',
+          reuseMode: 'wrap_with_product_content',
+          reason: 'Keep records table and KPI patterns while replacing data with domain-specific records and metrics.',
+        },
+        ...shared,
+      ];
+    case 'marketplace-platform':
+      return [
+        {
+          area: 'marketplace bottom-tabs shell',
+          reuseMode: 'use_as_is',
+          reason: 'Keep bottom-tabs navigation and listing discovery structure as the base.',
+        },
+        {
+          area: 'listing and seller surfaces',
+          reuseMode: 'wrap_with_product_content',
+          reason: 'Adapt listing grid, detail, and seller dashboard with domain-specific data and real content.',
+        },
+        ...shared,
+      ];
+    case 'creator-editor-workspace':
+      return [
+        {
+          area: 'sidebar creator shell',
+          reuseMode: 'use_as_is',
+          reason: 'Use the sidebar and project-list conventions from the skeleton as the creator workspace foundation.',
+        },
+        {
+          area: 'editor canvas and project grid',
+          reuseMode: 'wrap_with_product_content',
+          reason: 'Build the canvas editor and project grid as product-specific modules on top of the skeleton shell.',
+        },
+        ...shared,
+      ];
+    case 'dating-matching-app':
+      return [
+        {
+          area: 'mobile bottom-tabs shell',
+          reuseMode: 'use_as_is',
+          reason: 'Use the skeleton navigation shell and bottom-tabs conventions as the application base.',
+        },
+        {
+          area: 'discover and match surfaces',
+          reuseMode: 'wrap_with_product_content',
+          reason: 'Replace generic content with swipe deck, match list, and conversation components.',
+        },
+        ...shared,
+      ];
+    case 'gaming-casino-app':
+      return [
+        {
+          area: 'gaming bottom-tabs shell',
+          reuseMode: 'use_as_is',
+          reason: 'Use the mobile skeleton navigation shell and bottom-tabs as the gaming app foundation.',
+        },
+        {
+          area: 'game catalog and promotions surfaces',
+          reuseMode: 'wrap_with_product_content',
+          reason: 'Replace generic content with game cards, promo banners, and account balance.',
+        },
+        ...shared,
+      ];
+    case 'game-interactive-app':
+      return [
+        {
+          area: 'game navigation shell',
+          reuseMode: 'use_as_is',
+          reason: 'Use the skeleton navigation conventions for home, levels, and leaderboard.',
+        },
+        {
+          area: 'level select and game canvas surfaces',
+          reuseMode: 'wrap_with_product_content',
+          reason: 'Build level grid, HUD, and game canvas as product-specific modules on the skeleton base.',
+        },
+        ...shared,
+      ];
+    case 'booking-service-app':
+      return [
+        {
+          area: 'booking bottom-tabs shell',
+          reuseMode: 'use_as_is',
+          reason: 'Keep bottom-tabs and service discovery navigation as the app foundation.',
+        },
+        {
+          area: 'service detail and booking flow surfaces',
+          reuseMode: 'wrap_with_product_content',
+          reason: 'Build booking wizard, slot picker, and my-bookings on top of the skeleton conventions.',
+        },
+        ...shared,
+      ];
+    case 'content-learning-app':
+      return [
+        {
+          area: 'learning bottom-tabs shell',
+          reuseMode: 'use_as_is',
+          reason: 'Use the skeleton navigation shell and bottom-tabs as the learning app foundation.',
+        },
+        {
+          area: 'course catalog and lesson player surfaces',
+          reuseMode: 'wrap_with_product_content',
+          reason: 'Build course grid, curriculum list, and lesson player as focused product modules.',
         },
         ...shared,
       ];

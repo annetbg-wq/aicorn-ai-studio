@@ -260,16 +260,28 @@ export function selectPremiumRecipe(input: ResolvePremiumComponentSelectionInput
   if (input.skeletonId === 'landing-page') {
     return bank.recipes.find(recipe => recipe.id === 'landing-premium-saas') ?? null;
   }
-  if (input.skeletonId === 'saas-dashboard' || input.skeletonId === 'productivity-tool') {
+  if (
+    input.skeletonId === 'saas-dashboard' ||
+    input.skeletonId === 'productivity-tool' ||
+    input.skeletonId === 'b2b-operations-workspace' ||
+    input.skeletonId === 'creator-editor-workspace'
+  ) {
     return bank.recipes.find(recipe => recipe.id === 'dashboard-operator') ?? null;
   }
-  if (input.skeletonId === 'ecommerce') {
+  if (input.skeletonId === 'ecommerce' || input.skeletonId === 'marketplace-platform') {
     return bank.recipes.find(recipe => recipe.id === 'ecommerce-storefront') ?? null;
   }
   if (input.skeletonId === 'social-community') {
     return bank.recipes.find(recipe => recipe.id === 'social-community') ?? null;
   }
-  if (input.skeletonId === 'mobile-app') {
+  if (
+    input.skeletonId === 'mobile-app' ||
+    input.skeletonId === 'dating-matching-app' ||
+    input.skeletonId === 'gaming-casino-app' ||
+    input.skeletonId === 'game-interactive-app' ||
+    input.skeletonId === 'booking-service-app' ||
+    input.skeletonId === 'content-learning-app'
+  ) {
     if (['health', 'wellness', 'medicine'].includes(domainId) || /(health|wellness|clinic|patient|care|calm)/i.test(brief)) {
       return bank.recipes.find(recipe => recipe.id === 'health-wellness-mobile') ?? null;
     }
@@ -285,16 +297,28 @@ export function describePremiumRecipeSelection(input: ResolvePremiumComponentSel
   if (input.skeletonId === 'landing-page') {
     return 'selected by landing-page skeleton match';
   }
-  if (input.skeletonId === 'saas-dashboard' || input.skeletonId === 'productivity-tool') {
+  if (
+    input.skeletonId === 'saas-dashboard' ||
+    input.skeletonId === 'productivity-tool' ||
+    input.skeletonId === 'b2b-operations-workspace' ||
+    input.skeletonId === 'creator-editor-workspace'
+  ) {
     return 'selected by dashboard/productivity skeleton match';
   }
-  if (input.skeletonId === 'ecommerce') {
-    return 'selected by ecommerce skeleton match';
+  if (input.skeletonId === 'ecommerce' || input.skeletonId === 'marketplace-platform') {
+    return 'selected by ecommerce/marketplace skeleton match';
   }
   if (input.skeletonId === 'social-community') {
     return 'selected by social-community skeleton match';
   }
-  if (input.skeletonId === 'mobile-app') {
+  if (
+    input.skeletonId === 'mobile-app' ||
+    input.skeletonId === 'dating-matching-app' ||
+    input.skeletonId === 'gaming-casino-app' ||
+    input.skeletonId === 'game-interactive-app' ||
+    input.skeletonId === 'booking-service-app' ||
+    input.skeletonId === 'content-learning-app'
+  ) {
     if (['health', 'wellness', 'medicine'].includes(domainId) || /(health|wellness|clinic|patient|care|calm)/i.test(brief)) {
       return 'selected by mobile health/wellness domain match';
     }
