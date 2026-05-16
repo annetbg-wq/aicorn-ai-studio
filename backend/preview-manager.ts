@@ -171,6 +171,63 @@ export function canReadPreviewBuild(
   return options.nodeEnv !== 'production' && options.serverMode !== 'production';
 }
 
+export function appendPreviewSessionToPreviewAssetUrl(assetUrl: string, sessionToken: string): string {
+  const token = normalizePreviewSessionToken(sessionToken);
+  if (!token) return assetUrl;
+  if (/^https?:\/\//i.test(assetUrl) || assetUrl.startsWith('//')) return assetUrl;
+
+  const hashIndex = assetUrl.indexOf('#');
+  const beforeHash = hashIndex >= 0 ? assetUrl.slice(0, hashIndex) : assetUrl;
+  const hash = hashIndex >= 0 ? assetUrl.slice(hashIndex) : '';
+  const queryIndex = beforeHash.indexOf('?');
+  const assetPath = queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash;
+  const query = queryIndex >= 0 ? beforeHash.slice(queryIndex + 1) : '';
+
+  if (!/^\.\/assets\/[^?#]+\.(?:js|css)$/i.test(assetPath)) return assetUrl;
+  if (new URLSearchParams(query).has('previewSession')) return assetUrl;
+
+  const separator = query ? '&' : '?';
+  return `${beforeHash}${separator}previewSession=${encodeURIComponent(token)}${hash}`;
+}
+
+export function injectPreviewSessionIntoHtmlAssetUrls(html: string, sessionToken: string): string {
+  const token = normalizePreviewSessionToken(sessionToken);
+  if (!token) return html;
+
+  return html.replace(
+    /(<[^>]*?\s)(src|href)=("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+    (match, prefix: string, attribute: string, _rawValue: string, doubleQuoted?: string, singleQuoted?: string, bare?: string) => {
+      const value = doubleQuoted ?? singleQuoted ?? bare ?? '';
+      const nextValue = appendPreviewSessionToPreviewAssetUrl(value, token);
+      if (nextValue === value) return match;
+      if (doubleQuoted !== undefined) return `${prefix}${attribute}="${nextValue}"`;
+      if (singleQuoted !== undefined) return `${prefix}${attribute}='${nextValue}'`;
+      return `${prefix}${attribute}=${nextValue}`;
+    },
+  );
+}
+
+export function getPreviewDocumentTrailingSlashRedirectPath(originalUrl: string, buildId: string): string | null {
+  const parsed = new URL(originalUrl, 'http://preview.local');
+  const previewPath = `/preview/${buildId}`;
+  if (parsed.pathname !== previewPath) return null;
+  return `${previewPath}/${parsed.search}`;
+}
+
+function isPreviewIndexRequest(req: express.Request): boolean {
+  return req.path === '/' || req.path === '/index.html';
+}
+
+async function sendPreviewIndexHtml(
+  res: express.Response,
+  buildPath: string,
+  sessionToken: string | null,
+): Promise<void> {
+  const html = await fsPromises.readFile(path.join(buildPath, 'index.html'), 'utf-8');
+  const body = sessionToken ? injectPreviewSessionIntoHtmlAssetUrls(html, sessionToken) : html;
+  res.type('html').send(body);
+}
+
 // ── public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -192,10 +249,20 @@ export function registerPreviewBuildRoute(app: express.Express): void {
       return res.status(403).send('Preview access denied');
     }
 
-    return express.static(buildPath)(req, res, (err) => {
+    const sessionToken = queryToken ?? headerToken;
+    const redirectPath = getPreviewDocumentTrailingSlashRedirectPath(req.originalUrl, buildId);
+    if (redirectPath) {
+      return res.redirect(302, redirectPath);
+    }
+
+    if (isPreviewIndexRequest(req)) {
+      return sendPreviewIndexHtml(res, buildPath, sessionToken).catch(next);
+    }
+
+    return express.static(buildPath, { index: false })(req, res, (err) => {
       if (err) return next(err);
       // SPA fallback — serve index.html for any unmatched path inside the build
-      return res.sendFile(path.join(buildPath, 'index.html'));
+      return sendPreviewIndexHtml(res, buildPath, sessionToken).catch(next);
     });
   });
 }
