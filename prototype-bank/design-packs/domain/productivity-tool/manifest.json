@@ -34,7 +34,7 @@
     "prototype-bank/design-packs/assets/spacing/compact.json"
   ],
   "skeleton": "productivity-tool",
-  "compatibleSkeletons": ["productivity-tool"],
+  "compatibleSkeletons": ["productivity-tool", "creator-editor-workspace"],
   "skeletonPath": "skeletons/productivity-tool/",
   "domains": ["productivity-tool", "productivity", "workspace", "tasks", "notes", "ai-tools", "saas"],
   "subdomains": ["task-management", "kanban", "notes", "team-workspace", "personal-ops", "ai-workspace", "clinical", "care-team", "wellness", "mental-health"],
