@@ -9,44 +9,33 @@
  * Tab "Benchmark" — BenchmarkDashboard (Golden Suite + Compare Models).
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import JSZip from 'jszip';
 import {
   FlaskConical, Play, Loader2, CheckCircle2, XCircle, Circle,
-  Clock, BarChart2, ChevronDown, ChevronRight, Download, GitCompare, FileText, Layers3,
+  Clock, BarChart2, ChevronDown, ChevronRight, Download,
 } from 'lucide-react';
 import { BenchmarkDashboard } from '../../components/BenchmarkDashboard';
 import { ConfigService } from '../../services/ConfigService';
 import { Orchestrator } from '../../services/Orchestrator';
-import { fetchModelsWithCache, type Model } from '../../services/ModelRegistry';
-import { ProtoPipeline } from '../../services/ProtoPipeline';
-import { getDevAgentCliStatus } from '../code-studio-internal/ClaudeDevBridge';
-import { VisualBankModule } from '../visual-bank/VisualBankModule';
-import {
-  analyzeArchitectPlanTruth,
-  type OutputTruthResult,
-  type OutputStructureContractSummary,
-  type OutputSkeletonDeltaSummary,
-} from '../../shared/outputTruth';
 
 // ── Step definitions ───────────────────────────────────────────────────────────
 
 const STEP_DEFS = [
   { id: 'canary',            label: 'Canary',            desc: 'Backend доступен (GET /api/health → 200)' },
-  { id: 'idea-validate',     label: 'Idea Validate',     desc: 'Стандартный prototype brief принят и использован в реальном LLM-run' },
-  { id: 'architecture',      label: 'Architecture',      desc: 'Реальный architect output для стандартного lightweight prototype' },
-  { id: 'code-delta',        label: 'Code Delta',        desc: 'Реальная delta поверх skeleton компилируется и проходит proof contract' },
+  { id: 'idea-validate',     label: 'Idea Validate',     desc: 'Промпт не пустой, длина > 10 символов' },
+  { id: 'architecture',      label: 'Architecture',      desc: 'Fixture plan содержит skeleton, deltaFiles, pages' },
+  { id: 'code-delta',        label: 'Code Delta',        desc: 'POST /api/preview/{id}/compile → success: true' },
   { id: 'compile',           label: 'Compile',           desc: 'В builds/ есть папка с .js assets' },
   { id: 'preview-http',      label: 'Preview HTTP',      desc: 'GET /preview/{buildId} → 200 и HTML' },
   { id: 'preview-mounted',   label: 'Preview Mounted',   desc: 'main.tsx содержит postMessage({type: preview-mounted})' },
-  { id: 'save-ready',        label: 'Save Ready',        desc: 'Save-ready только для real preview с proof-validated output' },
+  { id: 'save-ready',        label: 'Save Ready',        desc: 'Compile вернул success: true (save-ready state)' },
   { id: 'no-premature-save', label: 'No Premature Save', desc: 'Проект не создан до явного save' },
-  { id: 'architect-real',    label: 'Architect Real',    desc: 'Реальный LLM вызов по стандартному prototype brief — fileTree ≥5 файлов, реальные токены' },
+  { id: 'architect-real',    label: 'Architect Real',    desc: 'Реальный LLM вызов — fileTree ≥5 файлов, реальные токены' },
 ] as const;
 
 type StepId = typeof STEP_DEFS[number]['id'];
-type TabId  = 'flow-chain' | 'benchmark' | 'showcase';
-type QualityTruthKind = 'real-runtime' | 'real-llm';
+type TabId  = 'flow-chain' | 'benchmark';
 
 // ── Per-test detail types ──────────────────────────────────────────────────────
 
@@ -54,48 +43,16 @@ interface CanaryDetails       { httpStatus: number; response: { status: string; 
 interface IdeaDetails         { prompt: string; length: number; valid: boolean }
 interface ArchDetails         { appName: string; skeleton: string; skeletonFiles?: Record<string, string>; fileTree: Record<string, string>; contextContract?: string; dataModel?: string }
 interface CodeDeltaFile       { path: string; size: number; content: string }
-interface CodeDeltaDetails    { buildId: string; files: CodeDeltaFile[]; structure?: OutputStructureContractSummary; skeletonDelta?: OutputSkeletonDeltaSummary }
+interface CodeDeltaDetails    { buildId: string; files: CodeDeltaFile[] }
 interface CompileAsset        { name: string; size: number }
 interface CompileDetails      { buildId: string; assets: CompileAsset[] }
-interface PreviewHttpDetails  { httpStatus: number; contentLength: number; contentLengthStr: string; hasRootDiv: boolean; buildId: string; htmlExcerpt?: string }
+interface PreviewHttpDetails  { httpStatus: number; contentLength: number; contentLengthStr: string; hasRootDiv: boolean; buildId: string }
 interface PreviewMtdDetails   { lineNumber: number; line: string }
-interface SaveReadyDetails    { compileSuccess: boolean; buildId: string; assetsCount: number; structure?: OutputStructureContractSummary; skeletonDelta?: OutputSkeletonDeltaSummary }
+interface SaveReadyDetails    { compileSuccess: boolean; buildId: string; assetsCount: number }
 interface NoPremSaveDetails   { projectsBeforeSave: number; totalSessions: number; correct: boolean }
-interface ArchRealDetails    { appName: string; skeleton: string; fileTree: Record<string, string>; contextContract?: string; dataModel?: string; model: string; fileCount: number; prompt?: string; rawResponse?: string; finishReason?: string | null; routeLabel?: string; repairAttempted?: boolean }
+interface ArchRealDetails    { appName: string; skeleton: string; fileTree: Record<string, string>; contextContract?: string; dataModel?: string; model: string; fileCount: number }
 interface TestLlmMetrics      { model: string; prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd?: number }
 interface TestOutputMetrics   { file_count?: number; total_bytes?: number; asset_count?: number; build_size_kb?: number; preview_url?: string; files?: string[] }
-interface QualityWorkspaceSnapshot {
-  skeletonId: string | null;
-  routeCount: number;
-  workspaceFiles: Record<string, string>;
-  deltaFiles: Record<string, string>;
-  outputTruth: OutputTruthResult;
-}
-interface QualityCompareSourceFile {
-  path: string;
-  size: number;
-  content: string;
-  origin: 'skeleton' | 'delta';
-}
-interface QualityCompareRunMetrics {
-  generation_ms: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cost_usd?: number;
-  costEstimated?: boolean;
-}
-interface QualityCompareSuiteData {
-  buildId: string;
-  previewUrl?: string;
-  prompt: string;
-  skeletonId: string | null;
-  workspace?: QualityWorkspaceSnapshot;
-  sourceFiles: QualityCompareSourceFile[];
-  codeSections: QualityRealTextSection[];
-  metrics: QualityCompareRunMetrics;
-  tests: Record<StepId, TestApiResult>;
-}
 
 // ── General types ──────────────────────────────────────────────────────────────
 
@@ -128,197 +85,13 @@ interface TestApiResult {
   details?: Record<string, unknown>;
 }
 
-export type QualityCompareRoute = 'standard-api' | 'openrouter' | 'claude-cli' | 'codex-cli';
-
-export interface QualityRealTextSection {
-  id: string;
-  label: string;
-  content: string;
-}
-
-export interface QualityCompareProfile {
-  route: QualityCompareRoute;
-  model: string;
-}
-
-interface QualityCompareProfileStatus {
-  ready: boolean;
-  label: string;
-  reason?: string;
-}
-
-export interface QualityCompareRunSide {
-  profile: QualityCompareProfile;
-  status: QualityCompareProfileStatus;
-  result?: TestApiResult;
-  realText: QualityRealTextSection[];
-  /** Per-token pricing looked up from the OpenRouter catalog at run time */
-  pricing?: { promptPerToken: number; completionPerToken: number };
-  suite?: QualityCompareSuiteData;
-}
-
-interface QualityCompareRunRecord {
-  state: 'idle' | 'running' | 'done';
-  supported: boolean;
-  reason?: string;
-  left?: QualityCompareRunSide;
-  right?: QualityCompareRunSide;
-}
-
-interface QualityCompareReportSideSummary {
-  profile?: QualityCompareProfile;
-  status?: QualityCompareProfileStatus;
-  result?: TestApiResult;
-  metrics?: QualityCompareRunMetrics;
-  buildId?: string;
-  previewUrl?: string;
-  sourceFileCount?: number;
-  skeletonFileCount?: number;
-  deltaFileCount?: number;
-}
-
-interface QualityRunScope {
-  mode: 'single' | 'all';
-  compare: boolean;
-  stepIds: StepId[];
-}
-
-type DevAgentCliStatus = Awaited<ReturnType<typeof getDevAgentCliStatus>>;
-
 // ── localStorage helpers ───────────────────────────────────────────────────────
 
-const LS_TEST_KEY     = (id: string) => `quality.real-suite.test.${id}`;
-const LS_LAST_RUN_KEY = 'quality.real-suite.lastRun';
+const LS_TEST_KEY     = (id: string) => `quality.test.${id}`;
+const LS_LAST_RUN_KEY = 'quality.lastRunAll';
 const MAX_HIST        = 5;
-const REAL_RUNTIME_TESTS = new Set<StepId>([
-  'canary',
-  'code-delta',
-  'compile',
-  'preview-http',
-  'preview-mounted',
-  'save-ready',
-  'no-premature-save',
-]);
-const REAL_LLM_TESTS = new Set<StepId>([
-  'idea-validate',
-  'architecture',
-  'architect-real',
-]);
-const BLOCKING_REAL_TESTS = new Set<StepId>([
-  'canary',
-  'idea-validate',
-  'architecture',
-  'architect-real',
-  'code-delta',
-  'compile',
-  'preview-http',
-  'preview-mounted',
-  'save-ready',
-]);
-const ALL_STEP_IDS = STEP_DEFS.map(def => def.id as StepId);
-
-function getTruthKind(id: StepId): QualityTruthKind {
-  if (REAL_LLM_TESTS.has(id)) return 'real-llm';
-  return 'real-runtime';
-}
-
-const QUALITY_COMPARE_ROUTE_LABELS: Record<QualityCompareRoute, string> = {
-  'standard-api': 'Standard API',
-  openrouter: 'OpenRouter',
-  'claude-cli': 'Claude CLI',
-  'codex-cli': 'Codex CLI',
-};
-
-function getPrimaryProviderForQuality(): string {
-  return ConfigService.getAgentConfig('agent_primary').provider || 'openrouter';
-}
-
-function describeQualityCompareProfile(profile: QualityCompareProfile, primaryProvider = getPrimaryProviderForQuality()): string {
-  if (profile.route === 'standard-api') {
-    return `${QUALITY_COMPARE_ROUTE_LABELS[profile.route]} · ${primaryProvider}`;
-  }
-  return QUALITY_COMPARE_ROUTE_LABELS[profile.route];
-}
-
-function getQualityCompareProfileStatus(
-  profile: QualityCompareProfile,
-  cliStatus: DevAgentCliStatus | null,
-  primaryProvider = getPrimaryProviderForQuality(),
-): QualityCompareProfileStatus {
-  const model = profile.model.trim();
-  const label = describeQualityCompareProfile(profile, primaryProvider);
-
-  if (!model) {
-    return { ready: false, label, reason: 'Select or enter a model first.' };
-  }
-
-  if (profile.route === 'standard-api') {
-    const key = ConfigService.getKeyForAgent('primary');
-    return key
-      ? { ready: true, label }
-      : { ready: false, label, reason: `Add a ${primaryProvider} key in Settings → Providers.` };
-  }
-
-  if (profile.route === 'openrouter') {
-    const key = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
-    return key
-      ? { ready: true, label }
-      : { ready: false, label, reason: 'Add an OpenRouter key in Settings → Providers.' };
-  }
-
-  const cliKey = profile.route === 'codex-cli' ? 'codex' : 'claude';
-  const cli = cliStatus?.[cliKey];
-  return cli?.available
-    ? { ready: true, label }
-    : { ready: false, label, reason: cli?.reason || `${label} is not available on this machine.` };
-}
-
-function buildQualityCompareRouteOverrides(
-  profile: QualityCompareProfile,
-  primaryProvider = getPrimaryProviderForQuality(),
-): Partial<Record<'spec' | 'primary' | 'build' | 'fix' | 'qa', {
-  modelId: string;
-  apiKey: string;
-  endpoint: string;
-  provider: string;
-}>> {
-  const modelId = profile.model.trim();
-  if (!modelId) {
-    throw new Error('Compare profile model is required.');
-  }
-
-  if (profile.route === 'standard-api') {
-    const apiKey = ConfigService.getKeyForAgent('primary');
-    if (!apiKey) throw new Error(`API key missing for ${primaryProvider}.`);
-    const endpoint = Orchestrator.getEndpoint(primaryProvider);
-    const route = { modelId, apiKey, endpoint, provider: primaryProvider };
-    return { spec: route, primary: route, build: route, fix: route, qa: route };
-  }
-
-  if (profile.route === 'openrouter') {
-    const apiKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
-    if (!apiKey) throw new Error('OpenRouter key missing.');
-    const route = {
-      modelId,
-      apiKey,
-      endpoint: Orchestrator.getEndpoint('openrouter'),
-      provider: 'openrouter',
-    };
-    return { spec: route, primary: route, build: route, fix: route, qa: route };
-  }
-
-  const route = {
-    modelId,
-    apiKey: '',
-    endpoint: '/api/quality/llm-run',
-    provider: profile.route,
-  };
-  return { spec: route, primary: route, build: route, fix: route, qa: route };
-}
-
-function areQualityCompareProfilesEqual(left: QualityCompareProfile, right: QualityCompareProfile): boolean {
-  return left.route === right.route && left.model.trim() === right.model.trim();
-}
+const FIXTURE_BACKED_TESTS = new Set<StepId>(['idea-validate', 'architecture', 'code-delta']);
+const FIXTURE_NOTE_TEXT = '⚠️ Fixture данные — не реальный LLM output';
 
 function loadTestHistory(id: string): TestHistoryRun[] {
   try {
@@ -356,9 +129,31 @@ async function callTestApi(testId: string, buildId?: string): Promise<TestApiRes
   return (await resp.json()) as TestApiResult;
 }
 
-// ── Architect Real — direct LLM call (standard/openrouter) + local CLI proxy ───
+// ── Architect Real — direct LLM call (frontend-only, no backend proxy) ─────────
 
-const QUALITY_ARCHITECT_SYSTEM_PROMPT = `You are an app architect. Return a JSON object — no markdown fences, no extra text.
+async function runArchitectRealTest(): Promise<TestApiResult> {
+  const t0 = Date.now();
+  const ms = () => Date.now() - t0;
+
+  let modelId: string;
+  let apiKey: string;
+  let endpoint: string;
+  let normalizedModelId: string;
+
+  try {
+    modelId = ConfigService.resolveModel('primary');
+    if (!modelId) throw new Error('Model not configured for primary slot. Open Settings → Agents.');
+    apiKey = ConfigService.getKeyForAgent('primary');
+    if (!apiKey) throw new Error('API key missing for primary slot. Open Settings → Providers.');
+    const agentCfg = ConfigService.getAgentConfig('agent_primary');
+    const provider = agentCfg.provider || 'openrouter';
+    endpoint = Orchestrator.getEndpoint(provider);
+    normalizedModelId = Orchestrator.normalizeModelId(modelId, endpoint);
+  } catch (err: unknown) {
+    return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const SYSTEM_PROMPT = `You are an app architect. Return a JSON object — no markdown fences, no extra text.
 Schema:
 {
   "appName": "<name derived from user prompt>",
@@ -375,447 +170,73 @@ Rules:
 - Minimum 5 delta files required
 - Each fileTree value: exactly one sentence describing purpose + data used`;
 
-const QUALITY_STANDARD_PROTOTYPE_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
+  const USER_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
 
-interface ArchitectCompletionMeta {
-  content: string;
-  usageRaw?: Record<string, unknown>;
-  llmModel: string;
-  finishReason: string | null;
-}
-
-export interface ArchitectRunnerProfile {
-  route: QualityCompareRoute;
-  model?: string;
-}
-
-interface ArchitectExecutionConfig {
-  provider: string;
-  apiKey: string;
-  endpoint: string;
-  model: string;
-  routeLabel: string;
-}
-
-function stripJsonMarkdownFences(raw: string): string {
-  return raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-}
-
-function tryParseJsonObject(raw: string): Record<string, unknown> | null {
-  const parseCandidate = (candidate: string): Record<string, unknown> | null => {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : null;
-    } catch {
-      const repairedWhitespaceEscapes = candidate.replace(/\\(?=[ \t])/g, '');
-      if (repairedWhitespaceEscapes === candidate) return null;
-      try {
-        const parsed = JSON.parse(repairedWhitespaceEscapes) as unknown;
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-          ? parsed as Record<string, unknown>
-          : null;
-      } catch {
-        return null;
-      }
-    }
-  };
-
-  const trimmed = stripJsonMarkdownFences(raw);
-  const direct = parseCandidate(trimmed);
-  if (direct) return direct;
-
-  const start = trimmed.indexOf('{');
-  if (start === -1) return null;
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let i = start; i < trimmed.length; i += 1) {
-    const ch = trimmed[i];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === '\\') {
-        escaped = true;
-      } else if (ch === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === '{') depth += 1;
-    else if (ch === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        return parseCandidate(trimmed.slice(start, i + 1));
-      }
-    }
-  }
-
-  return null;
-}
-
-export function extractArchitectCompletionMeta(raw: unknown, fallbackModel: string): ArchitectCompletionMeta {
-  const data = raw as Record<string, unknown> | null | undefined;
-  const choices = Array.isArray(data?.choices) ? data.choices as Array<Record<string, unknown>> : [];
-  const firstChoice = choices[0] ?? null;
-
-  if (firstChoice) {
-    const message = (firstChoice.message ?? null) as Record<string, unknown> | null;
-    const messageContent = message?.content;
-    const content = typeof messageContent === 'string'
-      ? messageContent
-      : Array.isArray(messageContent)
-        ? messageContent
-            .map(part => {
-              if (typeof part === 'string') return part;
-              const block = part as Record<string, unknown>;
-              return typeof block.text === 'string' ? block.text : '';
-            })
-            .join('\n')
-        : '';
-    return {
-      content,
-      usageRaw: typeof data?.usage === 'object' && data?.usage !== null ? data.usage as Record<string, unknown> : undefined,
-      llmModel: typeof data?.model === 'string' ? data.model : fallbackModel,
-      finishReason: typeof firstChoice.finish_reason === 'string' ? firstChoice.finish_reason : null,
-    };
-  }
-
-  const contentBlocks = Array.isArray(data?.content) ? data.content as Array<Record<string, unknown>> : [];
-  if (contentBlocks.length > 0) {
-    return {
-      content: contentBlocks
-        .map(block => typeof block.text === 'string' ? block.text : '')
-        .filter(Boolean)
-        .join('\n'),
-      usageRaw: typeof data?.usage === 'object' && data?.usage !== null ? data.usage as Record<string, unknown> : undefined,
-      llmModel: typeof data?.model === 'string' ? data.model : fallbackModel,
-      finishReason: typeof data?.stop_reason === 'string' ? data.stop_reason : null,
-    };
-  }
-
-  return {
-    content: typeof data?.output_text === 'string' ? data.output_text : '',
-    usageRaw: typeof data?.usage === 'object' && data?.usage !== null ? data.usage as Record<string, unknown> : undefined,
-    llmModel: typeof data?.model === 'string' ? data.model : fallbackModel,
-    finishReason: typeof data?.finish_reason === 'string' ? data.finish_reason : null,
-  };
-}
-
-function buildArchitectRepairPrompt(input: {
-  originalPrompt: string;
-  brokenContent: string;
-  blockers?: string[];
-}): string {
-  return [
-    `Original brief: ${input.originalPrompt}`,
-    'Your previous architect output was invalid, incomplete, or truncated.',
-    'Return one complete valid JSON object only. No markdown fences. No commentary.',
-    'If needed, restart from scratch, but obey the exact schema and minimum 5 delta files rule.',
-    input.blockers && input.blockers.length > 0
-      ? `Previous blockers: ${input.blockers.join(' | ')}`
-      : null,
-    'Previous malformed output:',
-    input.brokenContent.slice(0, 4000),
-  ].filter(Boolean).join('\n\n');
-}
-
-function shouldRetryArchitectAttempt(input: {
-  plan: Record<string, unknown> | null;
-  finishReason: string | null;
-  blockers: string[];
-}): boolean {
-  if (!input.plan) return true;
-  if (input.finishReason === 'length' || input.finishReason === 'max_tokens') return true;
-  return input.blockers.some(blocker =>
-    /too small|missing|too shallow|need multiple real screens|skeleton-aware enough/i.test(blocker),
-  );
-}
-
-function resolveArchitectExecutionConfig(profile?: ArchitectRunnerProfile): ArchitectExecutionConfig {
-  const route = profile?.route ?? 'standard-api';
-  const requestedModel = profile?.model?.trim() || ConfigService.resolveModel('primary');
-
-  if (!requestedModel) {
-    throw new Error('Model not configured for quality compare. Open Settings → Agents or enter a model in Compare.');
-  }
-
-  if (route === 'standard-api') {
-    const apiKey = ConfigService.getKeyForAgent('primary');
-    if (!apiKey) throw new Error('API key missing for primary slot. Open Settings → Providers.');
-    const provider = getPrimaryProviderForQuality();
-    const endpoint = Orchestrator.getEndpoint(provider);
-    return {
-      provider,
-      apiKey,
-      endpoint,
-      model: Orchestrator.normalizeModelId(requestedModel, endpoint),
-      routeLabel: describeQualityCompareProfile({ route, model: requestedModel }, provider),
-    };
-  }
-
-  if (route === 'openrouter') {
-    const apiKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
-    if (!apiKey) throw new Error('OpenRouter API key missing. Open Settings → Providers.');
-    const endpoint = Orchestrator.getEndpoint('openrouter');
-    return {
-      provider: 'openrouter',
-      apiKey,
-      endpoint,
-      model: Orchestrator.normalizeModelId(requestedModel, endpoint),
-      routeLabel: QUALITY_COMPARE_ROUTE_LABELS.openrouter,
-    };
-  }
-
-  return {
-    provider: route,
-    apiKey: '',
-    endpoint: '/api/quality/llm-run',
-    model: requestedModel,
-    routeLabel: QUALITY_COMPARE_ROUTE_LABELS[route],
-  };
-}
-
-async function requestArchitectCompletion(input: {
-  provider: string;
-  apiKey: string;
-  endpoint: string;
-  model: string;
-  systemPrompt: string;
-  userPrompt: string;
-  maxTokens: number;
-}): Promise<ArchitectCompletionMeta> {
   let resp: Response;
-
-  if (input.provider === 'anthropic' || input.endpoint.includes('api.anthropic.com')) {
-    resp = await fetch(input.endpoint, {
+  try {
+    resp = await fetch(endpoint, {
       method: 'POST',
       headers: {
-        'x-api-key': input.apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: input.model,
-        system: input.systemPrompt,
-        messages: [{ role: 'user', content: input.userPrompt }],
-        temperature: 0.2,
-        max_tokens: input.maxTokens,
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } else if (input.provider === 'claude-cli' || input.provider === 'codex-cli') {
-    resp = await fetch(input.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        provider: input.provider === 'codex-cli' ? 'codex' : 'claude',
-        model: input.model,
-        systemPrompt: input.systemPrompt,
-        userPrompt: input.userPrompt,
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } else if (input.provider === 'claude-bridge' || /\/chat$/i.test(input.endpoint)) {
-    resp = await fetch(input.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: `[System]\n${input.systemPrompt}\n\n[User]\n${input.userPrompt}`,
-        model: input.model || 'claude-sonnet-4-6',
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } else {
-    resp = await fetch(input.endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${input.apiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': window.location.origin,
-        'X-Title': 'AIC-RG Studio',
       },
       body: JSON.stringify({
-        model: input.model,
+        model: normalizedModelId,
         messages: [
-          { role: 'system', content: input.systemPrompt },
-          { role: 'user', content: input.userPrompt },
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user',   content: USER_PROMPT },
         ],
         stream: false,
-        temperature: 0.2,
-        max_tokens: input.maxTokens,
+        temperature: 0.3,
+        max_tokens: 1200,
       }),
       signal: AbortSignal.timeout(60_000),
     });
+  } catch (err: unknown) {
+    return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
   }
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => '');
-    throw new Error(`LLM ${resp.status}: ${errText.slice(0, 300)}`);
+    return { status: 'fail', duration_ms: ms(), error: `LLM ${resp.status}: ${errText.slice(0, 300)}` };
   }
 
-  const raw = await resp.json() as unknown;
-  return extractArchitectCompletionMeta(raw, input.model);
-}
-
-export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Promise<TestApiResult> {
-  const t0 = Date.now();
-  const ms = () => Date.now() - t0;
-
-  let config: ArchitectExecutionConfig;
+  let raw: unknown;
   try {
-    config = resolveArchitectExecutionConfig(profile);
+    raw = await resp.json();
   } catch (err: unknown) {
-    return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
+    return { status: 'fail', duration_ms: ms(), error: `Failed to parse LLM HTTP response as JSON: ${err instanceof Error ? err.message : String(err)}` };
   }
 
-  let completion: ArchitectCompletionMeta;
+  const content: string = (raw as any)?.choices?.[0]?.message?.content ?? '';
+  const usageRaw = (raw as any)?.usage;
+  const llmModel: string = typeof (raw as any)?.model === 'string' ? (raw as any).model : normalizedModelId;
+
+  let plan: Record<string, unknown>;
   try {
-    completion = await requestArchitectCompletion({
-      provider: config.provider,
-      apiKey: config.apiKey,
-      endpoint: config.endpoint,
-      model: config.model,
-      systemPrompt: QUALITY_ARCHITECT_SYSTEM_PROMPT,
-        userPrompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
-      maxTokens: 1800,
-    });
-  } catch (err: unknown) {
-    return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
+    // Strip markdown fences if present
+    const stripped = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    plan = JSON.parse(stripped) as Record<string, unknown>;
+  } catch {
+    return { status: 'fail', duration_ms: ms(), error: `LLM returned non-JSON: ${content.slice(0, 200)}` };
   }
 
-  let repairAttempted = false;
-
-  const validatePlan = (plan: Record<string, unknown>) => {
-    const fileTree = (plan.fileTree ?? {}) as Record<string, string>;
-    const planTruth = analyzeArchitectPlanTruth({
-      appName: String(plan.appName ?? ''),
-      skeleton: String(plan.skeleton ?? ''),
-      summary: typeof plan.summary === 'string' ? plan.summary : '',
-      fileTree,
-      contextContract: typeof plan.contextContract === 'string' ? plan.contextContract : undefined,
-      dataModel: typeof plan.dataModel === 'string' ? plan.dataModel : undefined,
-      pages: Array.isArray(plan.pages) ? plan.pages as Array<{ path?: string; name?: string; file?: string; purpose?: string }> : undefined,
-      minDeltaFiles: 5,
-      forbiddenPaths: [
-        'src/App.tsx',
-        'src/main.tsx',
-        'src/context/AppContext.tsx',
-        'src/hooks/useLocalStorage.ts',
-        'src/hooks/useTheme.ts',
-        'src/config/theme.ts',
-        'src/config/routes.ts',
-        'src/components/BottomTabs.tsx',
-        'src/components/ErrorBoundary.tsx',
-        'src/components/LoadingScreen.tsx',
-        'src/components/EmptyState.tsx',
-        'src/components/PaywallSheet.tsx',
-        'src/lib/cn.ts',
-      ],
-    });
-    return { fileTree, planTruth };
-  };
-
-  let plan = tryParseJsonObject(completion.content);
-  let validation = plan ? validatePlan(plan) : null;
-
-  if (shouldRetryArchitectAttempt({
-    plan,
-    finishReason: completion.finishReason,
-    blockers: validation?.planTruth.blockers ?? [],
-  })) {
-    repairAttempted = true;
-    try {
-      const repaired = await requestArchitectCompletion({
-        provider: config.provider,
-        apiKey: config.apiKey,
-        endpoint: config.endpoint,
-        model: config.model,
-        systemPrompt: QUALITY_ARCHITECT_SYSTEM_PROMPT,
-        userPrompt: buildArchitectRepairPrompt({
-          originalPrompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
-          brokenContent: completion.content,
-          blockers: validation?.planTruth.blockers ?? [],
-        }),
-        maxTokens: 2600,
-      });
-      const repairedPlan = tryParseJsonObject(repaired.content);
-      const repairedValidation = repairedPlan ? validatePlan(repairedPlan) : null;
-      if (repairedPlan && repairedValidation?.planTruth.passed) {
-        completion = repaired;
-        plan = repairedPlan;
-        validation = repairedValidation;
-      } else if (!plan || !validation?.planTruth.passed) {
-        completion = repaired;
-        plan = repairedPlan;
-        validation = repairedValidation;
-      }
-    } catch {
-      // Keep the first attempt diagnostics if retry also fails at the transport layer.
-    }
+  const fileTree = (plan.fileTree ?? {}) as Record<string, string>;
+  const fileCount = Object.keys(fileTree).length;
+  if (fileCount < 5) {
+    return { status: 'fail', duration_ms: ms(), error: `fileTree too small: ${fileCount} files (need ≥5). Got: ${Object.keys(fileTree).join(', ')}` };
   }
 
-  if (!plan) {
-    const truncatedHint = completion.finishReason === 'length' || completion.finishReason === 'max_tokens'
-      ? 'Response was truncated before the JSON object completed.'
-      : 'The model did not return a valid JSON object.';
-    return {
-      status: 'fail',
-      duration_ms: ms(),
-      error: `${truncatedHint} Raw excerpt: ${completion.content.slice(0, 200)}`,
-      details: {
-        prompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
-        rawResponse: completion.content,
-        finishReason: completion.finishReason,
-        routeLabel: config.routeLabel,
-        repairAttempted,
-      },
-    };
-  }
-
-  if (!validation?.planTruth.passed) {
-    return {
-      status: 'fail',
-      duration_ms: ms(),
-      error: validation?.planTruth.blockers.join(' ') || 'Architect plan failed validation.',
-      details: {
-        prompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
-        rawResponse: completion.content,
-        finishReason: completion.finishReason,
-        routeLabel: config.routeLabel,
-        repairAttempted,
-      },
-    };
-  }
-  const fileCount = Object.keys(validation.fileTree).length;
-  const usageRaw = completion.usageRaw;
-  const llmModel = completion.llmModel;
-
-  const promptTokens: number = typeof usageRaw?.prompt_tokens === 'number'
-    ? usageRaw.prompt_tokens as number
-    : typeof usageRaw?.input_tokens === 'number'
-      ? usageRaw.input_tokens as number
-      : 0;
-  const completionTokens: number = typeof usageRaw?.completion_tokens === 'number'
-    ? usageRaw.completion_tokens as number
-    : typeof usageRaw?.output_tokens === 'number'
-      ? usageRaw.output_tokens as number
-      : 0;
+  const promptTokens: number = typeof usageRaw?.prompt_tokens === 'number' ? usageRaw.prompt_tokens : 0;
+  const completionTokens: number = typeof usageRaw?.completion_tokens === 'number' ? usageRaw.completion_tokens : 0;
   const totalTokens: number = typeof usageRaw?.total_tokens === 'number'
-    ? usageRaw.total_tokens as number
+    ? usageRaw.total_tokens
     : promptTokens + completionTokens;
   const costUsd: number | undefined =
-    typeof usageRaw?.cost_usd === 'number' ? usageRaw.cost_usd as number :
-    typeof usageRaw?.total_cost === 'number' ? usageRaw.total_cost as number :
-    typeof usageRaw?.cost === 'number' ? usageRaw.cost as number :
+    typeof usageRaw?.cost_usd === 'number' ? usageRaw.cost_usd :
+    typeof usageRaw?.total_cost === 'number' ? usageRaw.total_cost :
+    typeof usageRaw?.cost === 'number' ? usageRaw.cost :
     undefined;
 
   return {
@@ -823,30 +244,22 @@ export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Pr
     duration_ms: ms(),
     summary: `${fileCount} файлов · реальный LLM output`,
     llm: { model: llmModel, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: totalTokens, cost_usd: costUsd },
-    output: { file_count: fileCount, files: Object.keys(validation.fileTree) },
+    output: { file_count: fileCount, files: Object.keys(fileTree) },
     details: {
       appName:         String(plan.appName ?? ''),
       skeleton:        String(plan.skeleton ?? ''),
-      fileTree:        validation.fileTree,
+      fileTree,
       contextContract: typeof plan.contextContract === 'string' ? plan.contextContract : undefined,
       dataModel:       typeof plan.dataModel === 'string' ? plan.dataModel : undefined,
       model:           llmModel,
       fileCount,
-      prompt:          QUALITY_STANDARD_PROTOTYPE_PROMPT,
-      rawResponse:     completion.content,
-      finishReason:    completion.finishReason,
-      routeLabel:      config.routeLabel,
-      repairAttempted,
     } as unknown as Record<string, unknown>,
   };
 }
 
 // ── ZIP download helper ────────────────────────────────────────────────────────
 
-export async function downloadSourceZip(
-  files: Array<{ path: string; content: string }>,
-  filename: string,
-): Promise<void> {
+async function downloadFixtureZip(files: CodeDeltaFile[]): Promise<void> {
   const zip = new JSZip();
   for (const f of files) {
     zip.file(f.path, f.content);
@@ -855,22 +268,11 @@ export async function downloadSourceZip(
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = filename;
+  a.download = 'fixture-code.zip';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-async function downloadDeltaZip(files: CodeDeltaFile[]): Promise<void> {
-  await downloadSourceZip(files, 'real-delta-code.zip');
-}
-
-export async function downloadQualityCompareSourceZip(
-  files: Array<{ path: string; content: string }>,
-  filename: string,
-): Promise<void> {
-  await downloadSourceZip(files, filename);
 }
 
 function downloadQualityReport(payload: unknown): void {
@@ -913,375 +315,9 @@ function pluralRu(count: number, [one, few, many]: [string, string, string]): st
 
 function fmtCost(cost?: number): string | null {
   if (typeof cost !== 'number' || !Number.isFinite(cost)) return null;
-  if (cost === 0) return '$0.000000';
-  if (cost < 0.001) return `~$${cost.toFixed(6)}`;
-  if (cost < 0.01)  return `~$${cost.toFixed(4)}`;
-  if (cost < 1)     return `~$${cost.toFixed(2)}`;
+  if (cost < 0.01) return `~$${cost.toFixed(3)}`;
+  if (cost < 1) return `~$${cost.toFixed(2)}`;
   return `~$${cost.toFixed(1)}`;
-}
-
-const QUALITY_COMPARE_FALLBACK_PRICING_PER_MILLION: Record<string, { input: number; output: number }> = {
-  'anthropic/claude-3.5-sonnet':         { input: 3.00, output: 15.00 },
-  'anthropic/claude-sonnet-4-5':         { input: 3.00, output: 15.00 },
-  'anthropic/claude-sonnet-4-6':         { input: 3.00, output: 15.00 },
-  'anthropic/claude-3-opus':             { input: 15.00, output: 75.00 },
-  'anthropic/claude-opus-4-6':           { input: 15.00, output: 75.00 },
-  'anthropic/claude-3.5-haiku':          { input: 0.80, output: 4.00 },
-  'anthropic/claude-haiku-4-5-20251001': { input: 0.80, output: 4.00 },
-  'openai/gpt-4o':                       { input: 2.50, output: 10.00 },
-  'openai/gpt-4o-mini':                  { input: 0.15, output: 0.60 },
-  'openai/o1-preview':                   { input: 15.00, output: 60.00 },
-  'openai/o1-mini':                      { input: 3.00, output: 12.00 },
-  'openai/o3-mini':                      { input: 1.10, output: 4.40 },
-  'google/gemini-2.0-pro-exp-02-05:free':{ input: 0.00, output: 0.00 },
-  'google/gemini-2.0-flash-001':         { input: 0.10, output: 0.40 },
-  'deepseek/deepseek-r1':                { input: 0.55, output: 2.19 },
-  'deepseek/deepseek-chat':              { input: 0.14, output: 0.28 },
-  'deepseek/deepseek-v3':                { input: 0.14, output: 0.28 },
-  'meta-llama/llama-3.3-70b-instruct':   { input: 0.59, output: 0.79 },
-  'meta-llama/llama-3.1-8b-instruct:free': { input: 0.00, output: 0.00 },
-  'mistralai/mistral-large':             { input: 2.00, output: 6.00 },
-  'qwen/qwen-2.5-coder-32b-instruct':    { input: 0.07, output: 0.16 },
-  'claude-sonnet-4-6':                   { input: 3.00, output: 15.00 },
-  'gpt-5.1-codex':                       { input: 1.50, output: 6.00 },
-};
-
-function normalizePricingLookupKey(modelId: string): string {
-  return modelId.trim().toLowerCase();
-}
-
-function resolveComparePricing(
-  modelId: string,
-  openRouterModels: Model[],
-): { promptPerToken: number; completionPerToken: number } | undefined {
-  const normalized = normalizePricingLookupKey(modelId);
-  const fromCatalog = openRouterModels.find(model => {
-    const id = normalizePricingLookupKey(model.id);
-    if (id === normalized) return true;
-    if (id.endsWith(`/${normalized}`)) return true;
-    if (normalized.endsWith(`/${id}`)) return true;
-    return false;
-  });
-  if (fromCatalog?.pricing) {
-    return {
-      promptPerToken: parseFloat(fromCatalog.pricing.prompt) || 0,
-      completionPerToken: parseFloat(fromCatalog.pricing.completion) || 0,
-    };
-  }
-  const fallback = QUALITY_COMPARE_FALLBACK_PRICING_PER_MILLION[normalized];
-  if (!fallback) return undefined;
-  return {
-    promptPerToken: fallback.input / 1_000_000,
-    completionPerToken: fallback.output / 1_000_000,
-  };
-}
-
-async function fetchQualityWorkspaceSnapshot(): Promise<QualityWorkspaceSnapshot> {
-  const resp = await fetch('/api/quality/workspace-snapshot');
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => resp.statusText);
-    throw new Error(`workspace snapshot ${resp.status}: ${text}`);
-  }
-  return await resp.json() as QualityWorkspaceSnapshot;
-}
-
-function buildCompareSourceFiles(snapshot: QualityWorkspaceSnapshot): QualityCompareSourceFile[] {
-  const deltaPathSet = new Set(Object.keys(snapshot.deltaFiles));
-  return Object.entries(snapshot.workspaceFiles)
-    .map(([path, content]) => ({
-      path,
-      content,
-      size: new Blob([content]).size,
-      origin: deltaPathSet.has(path) ? 'delta' as const : 'skeleton' as const,
-    }))
-    .sort((a, b) => a.path.localeCompare(b.path));
-}
-
-function buildCompareCodeSections(snapshot: QualityWorkspaceSnapshot): QualityRealTextSection[] {
-  return buildCompareSourceFiles(snapshot)
-    .filter(file => file.origin === 'delta')
-    .slice(0, 3)
-    .map(file => ({
-      id: `code:${file.path}`,
-      label: file.path,
-      content: file.content.slice(0, 1800),
-    }));
-}
-
-function sumCompareSuiteMetrics(
-  steps: Array<{ llm?: TestLlmMetrics }>,
-  pricing: { promptPerToken: number; completionPerToken: number } | undefined,
-  generationMs: number,
-): QualityCompareRunMetrics {
-  const total = steps.reduce((acc, step) => {
-    if (!step.llm) return acc;
-    acc.prompt_tokens += step.llm.prompt_tokens;
-    acc.completion_tokens += step.llm.completion_tokens;
-    acc.total_tokens += step.llm.total_tokens;
-    if (typeof step.llm.cost_usd === 'number') {
-      acc.cost_usd = (acc.cost_usd ?? 0) + step.llm.cost_usd;
-    }
-    return acc;
-  }, {
-    prompt_tokens: 0,
-    completion_tokens: 0,
-    total_tokens: 0,
-    cost_usd: undefined as number | undefined,
-  });
-  const estimatedCost = total.cost_usd === undefined && pricing
-    ? (total.prompt_tokens * pricing.promptPerToken) + (total.completion_tokens * pricing.completionPerToken)
-    : undefined;
-  return {
-    generation_ms: generationMs,
-    prompt_tokens: total.prompt_tokens,
-    completion_tokens: total.completion_tokens,
-    total_tokens: total.total_tokens,
-    cost_usd: total.cost_usd ?? estimatedCost,
-    costEstimated: total.cost_usd === undefined && estimatedCost !== undefined,
-  };
-}
-
-export async function runQualityCompareSuite(input: {
-  profile: QualityCompareProfile;
-  cliStatus: DevAgentCliStatus | null;
-  primaryProvider?: string;
-  openRouterModels?: Model[];
-  comparePrompt?: string;
-  pipelineRun?: typeof ProtoPipeline.run;
-  fetchWorkspaceSnapshot?: () => Promise<QualityWorkspaceSnapshot>;
-  testApiRunner?: (testId: StepId, buildId?: string) => Promise<TestApiResult>;
-}): Promise<QualityCompareRunSide> {
-  const {
-    profile,
-    cliStatus,
-    primaryProvider = getPrimaryProviderForQuality(),
-    openRouterModels = [],
-    comparePrompt = QUALITY_STANDARD_PROTOTYPE_PROMPT,
-    pipelineRun = ProtoPipeline.run,
-    fetchWorkspaceSnapshot = fetchQualityWorkspaceSnapshot,
-    testApiRunner = callTestApi,
-  } = input;
-
-  const status = getQualityCompareProfileStatus(profile, cliStatus, primaryProvider);
-  const pricing = resolveComparePricing(profile.model.trim(), openRouterModels);
-
-  const makeCompareFailureResult = (error: string, duration_ms = 0): TestApiResult => ({
-    status: 'fail',
-    duration_ms,
-    error,
-  });
-
-  const buildFailureMap = (error: string, duration_ms = 0): Record<StepId, TestApiResult> =>
-    Object.fromEntries(
-      STEP_DEFS.map(def => [def.id as StepId, makeCompareFailureResult(error, duration_ms)]),
-    ) as Record<StepId, TestApiResult>;
-
-  if (!status.ready) {
-    const result = makeCompareFailureResult(status.reason || 'Compare profile is not ready.');
-    return {
-      profile,
-      status,
-      result,
-      realText: [],
-      pricing,
-      suite: {
-        buildId: 'compare-not-ready',
-        prompt: comparePrompt,
-        skeletonId: null,
-        sourceFiles: [],
-        codeSections: [],
-        metrics: {
-          generation_ms: 0,
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_tokens: 0,
-        },
-        tests: buildFailureMap(result.error || 'Compare profile is not ready.'),
-      },
-    };
-  }
-
-  const buildId = `qcmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  const startedAt = Date.now();
-
-  const pipelineResult = await pipelineRun({
-    prompt: comparePrompt,
-    skeletonId: 'mobile-app',
-    buildId,
-    routeOverrides: buildQualityCompareRouteOverrides(profile, primaryProvider),
-    onStep: () => {},
-    onLog: () => {},
-    onCoderStream: () => {},
-  });
-
-  const llmSteps = Object.values(pipelineResult.stepResults ?? {})
-    .filter((step): step is NonNullable<typeof step> => Boolean(step))
-    .filter(step => Boolean(step.llm))
-    .map(step => ({ llm: step.llm as TestLlmMetrics }));
-  const generationMs = Date.now() - startedAt;
-  const metrics = sumCompareSuiteMetrics(llmSteps, pricing, generationMs);
-
-  if (!pipelineResult.success) {
-    const error = pipelineResult.error ?? 'Compare generation failed.';
-    return {
-      profile,
-      status,
-      result: makeCompareFailureResult(error, generationMs),
-      realText: [],
-      pricing,
-      suite: {
-        buildId,
-        prompt: comparePrompt,
-        skeletonId: 'mobile-app',
-        sourceFiles: [],
-        codeSections: [],
-        metrics,
-        tests: buildFailureMap(error, generationMs),
-      },
-    };
-  }
-
-  const runTestSafe = async (testId: StepId, buildIdParam?: string): Promise<TestApiResult> => {
-    try {
-      return await testApiRunner(testId, buildIdParam);
-    } catch (err: unknown) {
-      return makeCompareFailureResult(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const workspace = await fetchWorkspaceSnapshot();
-  const sourceFiles = buildCompareSourceFiles(workspace);
-  const codeSections = buildCompareCodeSections(workspace);
-  const totalDeltaBytes = Object.values(workspace.deltaFiles).reduce((sum, content) => sum + new Blob([content]).size, 0);
-  const blockersText = workspace.outputTruth.blockers.map(blocker => blocker.message).join(' | ');
-  const architectStepDuration = pipelineResult.runTelemetry?.steps.find(step => step.id === 'architect')?.durationMs ?? 0;
-  const buildStepDuration = pipelineResult.runTelemetry?.steps.find(step => step.id === 'build')?.durationMs ?? generationMs;
-  const skeletonFiles = Object.fromEntries(
-    (pipelineResult.runTelemetry?.skeletonFiles ?? [])
-      .map(filePath => [filePath, 'Provided by selected skeleton base.'] as const),
-  );
-
-  const ideaValidateResult: TestApiResult = {
-    status: 'pass',
-    duration_ms: 0,
-    summary: `${comparePrompt.trim().length} chars · real prototype suite started`,
-    details: {
-      prompt: comparePrompt,
-      length: comparePrompt.trim().length,
-      valid: true,
-    },
-  };
-
-  const architectureResult: TestApiResult = {
-    status: 'pass',
-    duration_ms: architectStepDuration,
-    summary: `skeleton: ${pipelineResult.plan?.skeleton ?? workspace.skeletonId ?? 'mobile-app'}, ${Object.keys(skeletonFiles).length} provided + ${Object.keys(pipelineResult.plan?.fileTree ?? {}).length} delta`,
-    llm: pipelineResult.stepResults?.architect?.llm,
-    output: {
-      file_count: Object.keys(skeletonFiles).length + Object.keys(pipelineResult.plan?.fileTree ?? {}).length,
-      files: [
-        ...Object.keys(skeletonFiles),
-        ...Object.keys(pipelineResult.plan?.fileTree ?? {}),
-      ],
-    },
-    details: {
-      appName: pipelineResult.plan?.appName ?? 'App',
-      skeleton: pipelineResult.plan?.skeleton ?? workspace.skeletonId ?? 'mobile-app',
-      skeletonFiles,
-      fileTree: pipelineResult.plan?.fileTree ?? {},
-      contextContract: pipelineResult.plan?.contextContract,
-      dataModel: pipelineResult.plan?.dataModel,
-    },
-  };
-
-  const architectRealResult: TestApiResult = {
-    status: 'pass',
-    duration_ms: architectStepDuration,
-    summary: `${Object.keys(pipelineResult.plan?.fileTree ?? {}).length} файлов · полный dual-run`,
-    llm: pipelineResult.stepResults?.architect?.llm,
-    output: {
-      file_count: Object.keys(pipelineResult.plan?.fileTree ?? {}).length,
-      files: Object.keys(pipelineResult.plan?.fileTree ?? {}),
-    },
-    details: {
-      appName: pipelineResult.plan?.appName ?? 'App',
-      skeleton: pipelineResult.plan?.skeleton ?? workspace.skeletonId ?? 'mobile-app',
-      fileTree: pipelineResult.plan?.fileTree ?? {},
-      contextContract: pipelineResult.plan?.contextContract,
-      dataModel: pipelineResult.plan?.dataModel,
-      model: pipelineResult.stepResults?.architect?.llm?.model ?? profile.model,
-      fileCount: Object.keys(pipelineResult.plan?.fileTree ?? {}).length,
-      prompt: comparePrompt,
-      rawResponse: pipelineResult.plan?.rawResponse,
-      routeLabel: status.label,
-    },
-  };
-
-  const codeDeltaFiles = Object.entries(workspace.deltaFiles).map(([filePath, content]) => ({
-    path: filePath,
-    size: new Blob([content]).size,
-    content,
-  }));
-  const codeDeltaResult: TestApiResult = workspace.outputTruth.passed
-    ? {
-        status: 'pass',
-        duration_ms: buildStepDuration,
-        summary: `${codeDeltaFiles.length} delta files · ${sourceFiles.length} total with skeleton`,
-        output: {
-          file_count: codeDeltaFiles.length,
-          total_bytes: totalDeltaBytes,
-          files: codeDeltaFiles.map(file => file.path),
-        },
-        details: {
-          buildId: pipelineResult.buildId,
-          files: codeDeltaFiles,
-          structure: workspace.outputTruth.structure,
-          skeletonDelta: workspace.outputTruth.skeletonDelta,
-        },
-      }
-    : {
-        status: 'fail',
-        duration_ms: generationMs,
-        error: blockersText || 'Output truth contract failed.',
-        details: {
-          buildId: pipelineResult.buildId,
-          files: codeDeltaFiles,
-          structure: workspace.outputTruth.structure,
-          skeletonDelta: workspace.outputTruth.skeletonDelta,
-        },
-      };
-
-  const tests: Record<StepId, TestApiResult> = {
-    canary: await runTestSafe('canary'),
-    'idea-validate': ideaValidateResult,
-    architecture: architectureResult,
-    'code-delta': codeDeltaResult,
-    compile: await runTestSafe('compile', pipelineResult.buildId),
-    'preview-http': await runTestSafe('preview-http', pipelineResult.buildId),
-    'preview-mounted': await runTestSafe('preview-mounted'),
-    'save-ready': await runTestSafe('save-ready', pipelineResult.buildId),
-    'no-premature-save': await runTestSafe('no-premature-save'),
-    'architect-real': architectRealResult,
-  };
-
-  return {
-    profile,
-    status,
-    result: tests['architect-real'],
-    realText: buildQualityRealTextSections('architect-real', architectRealResult.details ?? {}),
-    pricing,
-    suite: {
-      buildId: pipelineResult.buildId,
-      previewUrl: pipelineResult.url,
-      prompt: comparePrompt,
-      skeletonId: workspace.skeletonId,
-      workspace,
-      sourceFiles,
-      codeSections,
-      metrics,
-      tests,
-    },
-  };
 }
 
 function buildTestMetaLines(state: TestState): Array<{ key: string; text: string; color?: string }> {
@@ -1341,141 +377,6 @@ function makeInitExpanded(): Record<StepId, boolean> {
   return Object.fromEntries(STEP_DEFS.map(d => [d.id, false])) as Record<StepId, boolean>;
 }
 
-type Verdict = 'PASS' | 'PARTIAL' | 'FAIL' | null;
-
-interface QualityBucketSummary {
-  total: number;
-  passCount: number;
-  failCount: number;
-  idleCount: number;
-  verdict: Verdict;
-  failedIds: StepId[];
-}
-
-function summarizeQualityBucket(
-  states: Record<StepId, TestState>,
-  ids: StepId[],
-): QualityBucketSummary {
-  if (ids.length === 0) {
-    return {
-      total: 0,
-      passCount: 0,
-      failCount: 0,
-      idleCount: 0,
-      verdict: null,
-      failedIds: [],
-    };
-  }
-  const bucketStates = ids.map(id => ({ id, state: states[id] }));
-  const passCount = bucketStates.filter(entry => entry.state.status === 'pass').length;
-  const failCount = bucketStates.filter(entry => entry.state.status === 'fail').length;
-  const idleCount = bucketStates.filter(entry => entry.state.status === 'idle').length;
-  const verdict: Verdict =
-    failCount === 0 && passCount === ids.length ? 'PASS' :
-    failCount > 0 && passCount > 0 ? 'PARTIAL' :
-    failCount > 0 ? 'FAIL' :
-    null;
-  return {
-    total: ids.length,
-    passCount,
-    failCount,
-    idleCount,
-    verdict,
-    failedIds: bucketStates
-      .filter(entry => entry.state.status === 'fail')
-      .map(entry => entry.id),
-  };
-}
-
-function buildCompareReportSideSummary(side?: QualityCompareRunSide): QualityCompareReportSideSummary | undefined {
-  if (!side) return undefined;
-  return {
-    profile: side.profile,
-    status: side.status,
-    result: side.result,
-    metrics: side.suite?.metrics,
-    buildId: side.suite?.buildId,
-    previewUrl: side.suite?.previewUrl,
-    sourceFileCount: side.suite?.sourceFiles.length,
-    skeletonFileCount: side.suite?.sourceFiles.filter(file => file.origin === 'skeleton').length,
-    deltaFileCount: side.suite?.sourceFiles.filter(file => file.origin === 'delta').length,
-  };
-}
-
-export function buildCompareDerivedTestState(record?: QualityCompareRunRecord): TestState | null {
-  if (!record || record.state !== 'done') return null;
-  const leftResult = record.left?.result;
-  const rightResult = record.right?.result;
-  if (!leftResult && !rightResult) return null;
-
-  const statuses = [leftResult?.status, rightResult?.status].filter(Boolean) as Array<'pass' | 'fail'>;
-  const status: TestState['status'] =
-    statuses.length === 0
-      ? 'idle'
-      : statuses.every(value => value === 'pass')
-        ? 'pass'
-        : 'fail';
-  const duration_ms = Math.max(leftResult?.duration_ms ?? 0, rightResult?.duration_ms ?? 0);
-  const summary = [
-    record.left ? `A ${record.left.status.label}: ${leftResult?.status ?? 'idle'}` : null,
-    record.right ? `B ${record.right.status.label}: ${rightResult?.status ?? 'idle'}` : null,
-  ].filter(Boolean).join(' · ');
-  const warnings = statuses.includes('fail')
-    ? ['Compare run contains at least one failed model variant.']
-    : ['Derived from full dual-run compare results.'];
-  const error = [leftResult?.error, rightResult?.error].filter(Boolean).join(' | ') || undefined;
-
-  return {
-    status,
-    duration_ms,
-    summary,
-    warnings,
-    error,
-    details: {
-      compare: {
-        left: buildCompareReportSideSummary(record.left),
-        right: buildCompareReportSideSummary(record.right),
-      },
-    },
-  };
-}
-
-export function buildEffectiveQualityStates(
-  baseStates: Record<StepId, TestState>,
-  compareRecords: Partial<Record<StepId, QualityCompareRunRecord>>,
-): Record<StepId, TestState> {
-  const next = { ...baseStates };
-  for (const def of STEP_DEFS) {
-    const stepId = def.id as StepId;
-    const compareState = buildCompareDerivedTestState(compareRecords[stepId]);
-    if (compareState) {
-      next[stepId] = compareState;
-    }
-  }
-  return next;
-}
-
-function buildTestStateFromApiResult(result: TestApiResult): TestState {
-  return {
-    status: result.status,
-    duration_ms: result.duration_ms,
-    error: result.error,
-    summary: result.summary,
-    llm: result.llm,
-    output: result.output,
-    warnings: result.warnings,
-    details: result.details,
-  };
-}
-
-function buildQualityRunScope(stepIds: StepId[], compare: boolean): QualityRunScope {
-  return {
-    mode: stepIds.length === ALL_STEP_IDS.length ? 'all' : 'single',
-    compare,
-    stepIds,
-  };
-}
-
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
 const ROOT_S: React.CSSProperties = {
@@ -1526,276 +427,10 @@ function KV({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function StructureProof({
-  structure,
-  skeletonDelta,
-}: {
-  structure?: OutputStructureContractSummary;
-  skeletonDelta?: OutputSkeletonDeltaSummary;
-}) {
-  if (!structure && !skeletonDelta) return null;
-
-  const tone = structure?.richness === 'rich' ? '#4ade80' : structure?.richness === 'adequate' ? '#fbbf24' : '#f87171';
-  const buckets = (structure?.buckets ?? [])
-    .filter(bucket => bucket.totalCount > 0 || bucket.deltaCount > 0)
-    .slice(0, 6);
-
-  return (
-    <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-      {structure && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: tone, textTransform: 'uppercase' }}>
-              {structure.richness}
-            </span>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.62)' }}>{structure.summary}</span>
-          </div>
-          {(structure.missingOutputClasses.length > 0 || structure.missingDeltaClasses.length > 0) && (
-            <div style={{ fontSize: 10, color: '#fbbf24', marginBottom: 6 }}>
-              {[
-                structure.missingOutputClasses.length > 0 ? `missing output: ${structure.missingOutputClasses.join(', ')}` : null,
-                structure.missingDeltaClasses.length > 0 ? `missing delta: ${structure.missingDeltaClasses.join(', ')}` : null,
-              ].filter(Boolean).join(' · ')}
-            </div>
-          )}
-        </>
-      )}
-
-      {skeletonDelta && (
-        <div style={{ marginBottom: 8, fontSize: 10, color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace' }}>
-          skeleton {skeletonDelta.skeletonFileCount} · delta {skeletonDelta.deltaFileCount} · modified base {skeletonDelta.modifiedExistingCount} · new {skeletonDelta.newFileCount}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {buckets.map(bucket => (
-          <div key={bucket.id} style={{ paddingLeft: 12 }}>
-            <div style={{ fontSize: 11, color: '#60a5fa', fontFamily: 'monospace' }}>
-              {bucket.label} — total {bucket.totalCount} · delta {bucket.deltaCount}
-            </div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 2 }}>
-              {bucket.meaning}
-            </div>
-            {bucket.keyPaths.length > 0 && (
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.48)', fontFamily: 'monospace', marginTop: 2 }}>
-                {bucket.keyPaths.join(' · ')}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function buildStructureProofText(
-  structure?: OutputStructureContractSummary,
-  skeletonDelta?: OutputSkeletonDeltaSummary,
-): string {
-  const lines: string[] = [];
-  if (structure) {
-    lines.push(`richness: ${structure.richness}`);
-    lines.push(structure.summary);
-    if (structure.missingOutputClasses.length > 0) {
-      lines.push(`missing output classes: ${structure.missingOutputClasses.join(', ')}`);
-    }
-    if (structure.missingDeltaClasses.length > 0) {
-      lines.push(`missing delta classes: ${structure.missingDeltaClasses.join(', ')}`);
-    }
-    for (const bucket of structure.buckets.filter(bucket => bucket.totalCount > 0 || bucket.deltaCount > 0).slice(0, 8)) {
-      lines.push(`${bucket.label}: total ${bucket.totalCount}, delta ${bucket.deltaCount}`);
-      if (bucket.keyPaths.length > 0) {
-        lines.push(`  ${bucket.keyPaths.join(' | ')}`);
-      }
-    }
-  }
-  if (skeletonDelta) {
-    lines.push(
-      `skeleton ${skeletonDelta.skeletonFileCount} · delta ${skeletonDelta.deltaFileCount} · modified ${skeletonDelta.modifiedExistingCount} · new ${skeletonDelta.newFileCount}`,
-    );
-    if (skeletonDelta.keyModifiedPaths.length > 0) {
-      lines.push(`modified existing: ${skeletonDelta.keyModifiedPaths.join(' | ')}`);
-    }
-    if (skeletonDelta.keyNewPaths.length > 0) {
-      lines.push(`new files: ${skeletonDelta.keyNewPaths.join(' | ')}`);
-    }
-  }
-  return lines.join('\n').trim();
-}
-
-export function buildQualityRealTextSections(
-  testId: StepId,
-  details: Record<string, unknown>,
-): QualityRealTextSection[] {
-  if (testId === 'canary') {
-    const d = details as unknown as CanaryDetails;
-    return [
-      {
-        id: 'response',
-        label: 'Health response',
-        content: JSON.stringify(d.response ?? {}, null, 2),
-      },
-      {
-        id: 'observed',
-        label: 'Observed text',
-        content: `HTTP ${d.httpStatus}\nstatus=${d.response?.status ?? '—'}\nprovider=${d.response?.provider ?? '—'}`,
-      },
-    ];
-  }
-
-  if (testId === 'idea-validate') {
-    const d = details as unknown as IdeaDetails;
-    return [
-      {
-        id: 'prompt',
-        label: 'Validated prompt',
-        content: String(d.prompt ?? ''),
-      },
-    ];
-  }
-
-  if (testId === 'architecture') {
-    const d = details as unknown as ArchDetails;
-    return [
-      {
-        id: 'skeleton',
-        label: 'Skeleton manifest',
-        content: Object.entries(d.skeletonFiles ?? {})
-          .map(([path, desc]) => `${path}\n  ${desc}`)
-          .join('\n\n'),
-      },
-      {
-        id: 'delta',
-        label: 'Delta manifest',
-        content: Object.entries(d.fileTree ?? {})
-          .map(([path, desc]) => `${path}\n  ${desc}`)
-          .join('\n\n'),
-      },
-      {
-        id: 'contracts',
-        label: 'Contracts',
-        content: [
-          d.contextContract ? `contextContract:\n${d.contextContract}` : null,
-          d.dataModel ? `dataModel:\n${d.dataModel}` : null,
-        ].filter(Boolean).join('\n\n'),
-      },
-    ].filter(section => section.content.trim().length > 0);
-  }
-
-  if (testId === 'code-delta') {
-    const d = details as unknown as CodeDeltaDetails;
-    return [
-      ...((d.files ?? []).slice(0, 4).map(file => ({
-        id: `file:${file.path}`,
-        label: file.path,
-        content: file.content.slice(0, 1800),
-      }))),
-      {
-        id: 'structure',
-        label: 'Structure proof',
-        content: buildStructureProofText(d.structure, d.skeletonDelta),
-      },
-    ].filter(section => section.content.trim().length > 0);
-  }
-
-  if (testId === 'compile') {
-    const d = details as unknown as CompileDetails;
-    return [
-      {
-        id: 'assets',
-        label: 'Compiled assets',
-        content: (d.assets ?? []).map(asset => `${asset.name} (${fmtSize(asset.size)})`).join('\n'),
-      },
-    ].filter(section => section.content.trim().length > 0);
-  }
-
-  if (testId === 'preview-http') {
-    const d = details as unknown as PreviewHttpDetails;
-    return [
-      {
-        id: 'html',
-        label: 'Preview HTML excerpt',
-        content: d.htmlExcerpt ?? `HTTP ${d.httpStatus}\nbytes=${d.contentLength}\nhasRootDiv=${String(d.hasRootDiv)}`,
-      },
-    ];
-  }
-
-  if (testId === 'preview-mounted') {
-    const d = details as unknown as PreviewMtdDetails;
-    return [{ id: 'mounted', label: 'Matched line', content: d.line }];
-  }
-
-  if (testId === 'save-ready') {
-    const d = details as unknown as SaveReadyDetails;
-    return [
-      {
-        id: 'save-ready',
-        label: 'Save-ready proof',
-        content: [
-          `buildId=${d.buildId}`,
-          `assetsCount=${d.assetsCount}`,
-          buildStructureProofText(d.structure, d.skeletonDelta),
-        ].filter(Boolean).join('\n\n'),
-      },
-    ];
-  }
-
-  if (testId === 'no-premature-save') {
-    const d = details as unknown as NoPremSaveDetails;
-    return [
-      {
-        id: 'sessions',
-        label: 'Session audit',
-        content: JSON.stringify({
-          projectsBeforeSave: d.projectsBeforeSave,
-          totalSessions: d.totalSessions,
-          correct: d.correct,
-        }, null, 2),
-      },
-    ];
-  }
-
-  if (testId === 'architect-real') {
-    const d = details as unknown as ArchRealDetails;
-    return [
-      d.prompt ? { id: 'prompt', label: 'Prompt', content: d.prompt } : null,
-      d.rawResponse ? { id: 'raw-response', label: 'Raw model response', content: d.rawResponse } : null,
-      {
-        id: 'validated-plan',
-        label: 'Validated plan',
-        content: Object.entries(d.fileTree ?? {})
-          .map(([path, desc]) => `${path}\n  ${desc}`)
-          .join('\n\n'),
-      },
-      {
-        id: 'contracts',
-        label: 'Contracts',
-        content: [
-          d.routeLabel ? `route: ${d.routeLabel}` : null,
-          d.contextContract ? `contextContract:\n${d.contextContract}` : null,
-          d.dataModel ? `dataModel:\n${d.dataModel}` : null,
-          typeof d.finishReason === 'string' ? `finishReason: ${d.finishReason}` : null,
-          d.repairAttempted ? 'repairAttempted: true' : null,
-        ].filter(Boolean).join('\n\n'),
-      },
-    ].filter((section): section is QualityRealTextSection => Boolean(section && section.content.trim().length > 0));
-  }
-
-  return [
-    {
-      id: 'json',
-      label: 'Raw details',
-      content: JSON.stringify(details, null, 2),
-    },
-  ];
-}
-
 // ── Detail panel ───────────────────────────────────────────────────────────────
 
 function DetailPanel({ testId, details }: { testId: StepId; details: Record<string, unknown> }) {
   const [downloading, setDownloading] = useState(false);
-  const [showRealText, setShowRealText] = useState(false);
-  const realTextSections = buildQualityRealTextSections(testId, details);
 
   const panelStyle: React.CSSProperties = {
     padding: '6px 16px 10px 40px',
@@ -1804,6 +439,8 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
     maxHeight: 300,
     overflowY: 'auto',
   };
+  const isFixtureBacked = FIXTURE_BACKED_TESTS.has(testId);
+
   const sep = (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 6,
@@ -1819,41 +456,15 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
     <div style={panelStyle}>
       {sep}
       {content}
-      {realTextSections.length > 0 && (
-        <div style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-          <button
-            onClick={() => setShowRealText(prev => !prev)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '4px 10px',
-              borderRadius: 6,
-              border: '1px solid rgba(96,165,250,0.24)',
-              background: showRealText ? 'rgba(96,165,250,0.12)' : 'rgba(255,255,255,0.03)',
-              color: showRealText ? '#93c5fd' : 'rgba(255,255,255,0.65)',
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            <FileText size={11} />
-            {showRealText ? 'Hide real text' : 'Show real text'}
-          </button>
-          {showRealText && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-              {realTextSections.map(section => (
-                <div key={section.id} style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, overflow: 'hidden' }}>
-                  <div style={{ padding: '6px 10px', fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.06em', background: 'rgba(255,255,255,0.03)' }}>
-                    {section.label}
-                  </div>
-                  <pre style={{ margin: 0, padding: '10px 12px', fontSize: 10, lineHeight: 1.5, color: 'rgba(255,255,255,0.78)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace' }}>
-                    {section.content}
-                  </pre>
-                </div>
-              ))}
-            </div>
-          )}
+      {isFixtureBacked && (
+        <div style={{
+          marginTop: 10,
+          paddingTop: 8,
+          borderTop: '1px solid rgba(255,255,255,0.05)',
+          fontSize: 11,
+          color: 'rgba(255,255,255,0.4)',
+        }}>
+          {FIXTURE_NOTE_TEXT}
         </div>
       )}
     </div>
@@ -1935,7 +546,7 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
     const d = details as unknown as CodeDeltaDetails;
     const handleDownload = async () => {
       setDownloading(true);
-      try { await downloadDeltaZip(d.files); }
+      try { await downloadFixtureZip(d.files); }
       finally { setDownloading(false); }
     };
     return renderPanel(
@@ -1966,7 +577,6 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
           <Download size={11} />
           {downloading ? 'Скачивание…' : 'Скачать архив'}
         </button>
-        <StructureProof structure={d.structure} skeletonDelta={d.skeletonDelta} />
       </>
     );
   }
@@ -2026,7 +636,6 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
         <KV label="compileSuccess" value={<span style={{ color: '#4ade80' }}>true</span>} />
         <KV label="buildId"        value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
         <KV label="assetsCount"    value={String(d.assetsCount)} />
-        <StructureProof structure={d.structure} skeletonDelta={d.skeletonDelta} />
       </>
     );
   }
@@ -2092,7 +701,6 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
 
 function TestRow({
   def, state, onRun, anyRunning, expanded, onToggle,
-  compareEnabled = false, onCompare, compareDisabledReason, compareRunning = false, hasCompareResult = false, comparePanel = null,
 }: {
   def: typeof STEP_DEFS[number];
   state: TestState;
@@ -2100,12 +708,6 @@ function TestRow({
   anyRunning: boolean;
   expanded: boolean;
   onToggle: () => void;
-  compareEnabled?: boolean;
-  onCompare?: () => void;
-  compareDisabledReason?: string | null;
-  compareRunning?: boolean;
-  hasCompareResult?: boolean;
-  comparePanel?: React.ReactNode;
 }) {
   const canExpand = state.status === 'pass' && !!state.details;
 
@@ -2194,36 +796,6 @@ function TestRow({
         >
           Run
         </button>
-        {compareEnabled && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onCompare?.(); }}
-            disabled={anyRunning || compareRunning || Boolean(compareDisabledReason)}
-            title={compareDisabledReason ?? (hasCompareResult ? 'Run compare again' : 'Compare this test')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              padding: '3px 10px',
-              borderRadius: 5,
-              flexShrink: 0,
-              border: '1px solid rgba(168,85,247,0.2)',
-              background: compareRunning
-                ? 'rgba(168,85,247,0.12)'
-                : hasCompareResult
-                  ? 'rgba(168,85,247,0.1)'
-                  : 'rgba(255,255,255,0.03)',
-              color: anyRunning || compareDisabledReason
-                ? 'rgba(255,255,255,0.24)'
-                : '#c084fc',
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: anyRunning || compareRunning || compareDisabledReason ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {compareRunning ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <GitCompare size={11} />}
-            Compare
-          </button>
-        )}
       </div>
 
       {metaLines.length > 0 && (
@@ -2271,273 +843,13 @@ function TestRow({
       {expanded && canExpand && (
         <DetailPanel testId={def.id as StepId} details={state.details!} />
       )}
-      {comparePanel}
-    </div>
-  );
-}
-
-function CompareResultPanel({
-  record,
-  testId,
-}: {
-  record: QualityCompareRunRecord;
-  testId: StepId;
-}) {
-  if (record.state === 'idle') return null;
-
-  const panelStyle: React.CSSProperties = {
-    padding: '6px 16px 12px 40px',
-    background: 'rgba(124,58,237,0.05)',
-    borderLeft: '2px solid rgba(168,85,247,0.18)',
-  };
-
-  if (!record.supported) {
-    return (
-      <div style={panelStyle}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#c084fc', marginBottom: 4 }}>
-          Compare unavailable for this item
-        </div>
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>
-          {record.reason}
-        </div>
-      </div>
-    );
-  }
-
-  if (record.state === 'running') {
-    return (
-      <div style={panelStyle}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#c084fc' }}>
-          <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
-          Comparing {testId} across runner profiles…
-        </div>
-      </div>
-    );
-  }
-
-  const sides = [record.left, record.right].filter(Boolean) as QualityCompareRunSide[];
-  const [leftSide, rightSide] = sides;
-  const leftMetrics = leftSide?.suite?.metrics;
-  const rightMetrics = rightSide?.suite?.metrics;
-  const leftCost = leftMetrics?.cost_usd;
-  const rightCost = rightMetrics?.cost_usd;
-  const hasAnyLlm = sides.some(side => (side.suite?.metrics.total_tokens ?? 0) > 0 || !!side.result?.llm);
-
-  /** Returns percentage difference (B vs A). Negative means B is smaller. */
-  const pctDiff = (a: number | undefined, b: number | undefined): number | undefined => {
-    if (a === undefined || b === undefined || a === 0) return undefined;
-    return ((b - a) / a) * 100;
-  };
-
-  /** Returns per-side diff badge. lower = better (for latency, tokens, cost). */
-  const diffBadge = (pct: number | undefined, label: string): { a: string | null; b: string | null } => {
-    if (pct === undefined || Math.abs(pct) < 3) return { a: null, b: null };
-    const bBetter = pct < 0;
-    const tag = `← ${Math.abs(pct).toFixed(0)}% ${label}`;
-    return bBetter ? { a: null, b: tag } : { a: tag, b: null };
-  };
-
-  const speedBadge = diffBadge(pctDiff(leftMetrics?.generation_ms, rightMetrics?.generation_ms), 'faster');
-  const tokenBadge = diffBadge(pctDiff(leftMetrics?.total_tokens, rightMetrics?.total_tokens), 'fewer tkns');
-  const costBadge  = diffBadge(pctDiff(leftCost, rightCost), 'cheaper');
-
-  const CmpRow = ({ label, aVal, aB, bVal, bB }: { label: string; aVal: string; aB: string | null; bVal: string; bB: string | null }) => (
-    <div style={{ display: 'flex', gap: 8, fontSize: 11, marginBottom: 4, alignItems: 'baseline' }}>
-      <span style={{ color: 'rgba(255,255,255,0.32)', width: 92, flexShrink: 0, fontFamily: 'monospace' }}>{label}</span>
-      <span style={{ flex: 1, fontFamily: 'monospace', color: 'rgba(255,255,255,0.8)' }}>
-        {aVal}{aB && <span style={{ marginLeft: 5, fontSize: 10, color: '#4ade80' }}>{aB}</span>}
-      </span>
-      <span style={{ flex: 1, fontFamily: 'monospace', color: 'rgba(255,255,255,0.8)' }}>
-        {bVal}{bB && <span style={{ marginLeft: 5, fontSize: 10, color: '#4ade80' }}>{bB}</span>}
-      </span>
-    </div>
-  );
-
-  return (
-    <div style={panelStyle}>
-      {/* ── Metrics comparison table ─────────────────────────────── */}
-      <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(0,0,0,0.18)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.05)' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <div style={{ width: 92, flexShrink: 0 }} />
-          {sides.map((side, idx) => (
-            <div key={idx} style={{ flex: 1, fontSize: 10, color: '#c084fc', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {idx === 0 ? 'A' : 'B'} · {side.status.label}
-            </div>
-          ))}
-        </div>
-        {/* Latency row — always shown */}
-        <CmpRow
-          label="run total"
-          aVal={leftMetrics?.generation_ms !== undefined ? fmtDuration(leftMetrics.generation_ms) : '—'}
-          aB={speedBadge.a}
-          bVal={rightMetrics?.generation_ms !== undefined ? fmtDuration(rightMetrics.generation_ms) : '—'}
-          bB={speedBadge.b}
-        />
-        <CmpRow
-          label="step"
-          aVal={leftSide?.result?.duration_ms !== undefined ? fmtDuration(leftSide.result.duration_ms) : '—'}
-          aB={null}
-          bVal={rightSide?.result?.duration_ms !== undefined ? fmtDuration(rightSide.result.duration_ms) : '—'}
-          bB={null}
-        />
-        {/* Token + cost rows — only when at least one side has LLM data */}
-        {hasAnyLlm && (
-          <>
-            <CmpRow
-              label="prompt tkns"
-              aVal={leftMetrics ? String(leftMetrics.prompt_tokens) : '—'}
-              aB={null}
-              bVal={rightMetrics ? String(rightMetrics.prompt_tokens) : '—'}
-              bB={null}
-            />
-            <CmpRow
-              label="output tkns"
-              aVal={leftMetrics ? String(leftMetrics.completion_tokens) : '—'}
-              aB={null}
-              bVal={rightMetrics ? String(rightMetrics.completion_tokens) : '—'}
-              bB={null}
-            />
-            <CmpRow
-              label="total tkns"
-              aVal={leftMetrics ? String(leftMetrics.total_tokens) : '—'}
-              aB={tokenBadge.a}
-              bVal={rightMetrics ? String(rightMetrics.total_tokens) : '—'}
-              bB={tokenBadge.b}
-            />
-            <CmpRow
-              label="budget"
-              aVal={fmtCost(leftCost) ?? '—'}
-              aB={costBadge.a ?? (leftMetrics?.costEstimated ? 'estimated' : null)}
-              bVal={fmtCost(rightCost) ?? '—'}
-              bB={costBadge.b ?? (rightMetrics?.costEstimated ? 'estimated' : null)}
-            />
-          </>
-        )}
-        {!hasAnyLlm && (
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', marginTop: 2 }}>
-            N/A — no token usage for runtime checks
-          </div>
-        )}
-      </div>
-
-      {/* ── Side cards ────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        {sides.map((side, idx) => {
-          const result = side.result;
-          const pass = result?.status === 'pass';
-          const sourceFiles = side.suite?.sourceFiles ?? [];
-          const skeletonDelta = side.suite?.workspace?.outputTruth.skeletonDelta;
-          const sourceFilename = `quality-compare-${idx === 0 ? 'A' : 'B'}-${side.profile.model.replace(/[^\w.-]+/g, '-') || 'model'}.zip`;
-          return (
-            <div key={`${side.status.label}-${idx}`} style={{
-              flex: '1 1 280px',
-              minWidth: 0,
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderRadius: 10,
-              background: 'rgba(0,0,0,0.16)',
-              overflow: 'hidden',
-            }}>
-              <div style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  {idx === 0 ? 'Profile A' : 'Profile B'}
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#c084fc', marginTop: 2 }}>
-                  {side.status.label}
-                </div>
-              </div>
-              <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11 }}>
-                  <span style={{ color: 'rgba(255,255,255,0.45)' }}>status</span>
-                  <span style={{ color: pass ? '#4ade80' : '#f87171', fontWeight: 700 }}>
-                    {result?.status?.toUpperCase() ?? 'FAIL'}
-                  </span>
-                </div>
-                {result?.summary && (
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)' }}>{result.summary}</div>
-                )}
-                {result?.error && (
-                  <div style={{ fontSize: 11, color: '#f87171' }}>{result.error}</div>
-                )}
-                {side.suite && (
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.62)' }}>
-                      {sourceFiles.length} source files
-                      {skeletonDelta ? ` · skeleton ${skeletonDelta.skeletonFileCount} · delta ${skeletonDelta.deltaFileCount}` : ''}
-                    </div>
-                    {skeletonDelta && (
-                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.42)', lineHeight: 1.5 }}>
-                        {skeletonDelta.keyModifiedPaths.length > 0 && (
-                          <div>modified: {skeletonDelta.keyModifiedPaths.join(', ')}</div>
-                        )}
-                        {skeletonDelta.keyNewPaths.length > 0 && (
-                          <div>new: {skeletonDelta.keyNewPaths.join(', ')}</div>
-                        )}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => void downloadSourceZip(sourceFiles, sourceFilename)}
-                      disabled={sourceFiles.length === 0}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        width: 'fit-content',
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        border: '1px solid rgba(96,165,250,0.22)',
-                        background: sourceFiles.length === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(96,165,250,0.08)',
-                        color: sourceFiles.length === 0 ? 'rgba(255,255,255,0.24)' : '#93c5fd',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: sourceFiles.length === 0 ? 'not-allowed' : 'pointer',
-                      }}
-                    >
-                      <Download size={11} />
-                      Download full source
-                    </button>
-                  </div>
-                )}
-                {side.realText.length > 0 && (
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {side.realText.slice(0, 2).map(section => (
-                      <div key={section.id}>
-                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', marginBottom: 4 }}>
-                          {section.label}
-                        </div>
-                        <pre style={{ margin: 0, maxHeight: 140, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 10, lineHeight: 1.45, color: 'rgba(255,255,255,0.76)', fontFamily: 'monospace' }}>
-                          {section.content}
-                        </pre>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {side.suite && side.suite.codeSections.length > 0 && (
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {side.suite.codeSections.slice(0, 2).map(section => (
-                      <div key={section.id}>
-                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', marginBottom: 4 }}>
-                          Code · {section.label}
-                        </div>
-                        <pre style={{ margin: 0, maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 10, lineHeight: 1.45, color: 'rgba(255,255,255,0.76)', fontFamily: 'monospace' }}>
-                          {section.content}
-                        </pre>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
 
 // ── FlowChainTab ───────────────────────────────────────────────────────────────
 
-function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
+function FlowChainTab() {
   const [testStates,   setTestStates]   = useState<Record<StepId, TestState>>(makeInitStates);
   const [expanded,     setExpanded]     = useState<Record<StepId, boolean>>(makeInitExpanded);
   const [runAllActive, setRunAllActive] = useState(false);
@@ -2545,21 +857,9 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
     try { return localStorage.getItem(LS_LAST_RUN_KEY); } catch { return null; }
   });
   const [brokenAt, setBrokenAt] = useState<string | null>(null);
-  const primaryProvider = getPrimaryProviderForQuality();
-  const baseModel = selectedModel || ConfigService.resolveModel('primary') || '';
-  const [compareEnabled, setCompareEnabled] = useState(false);
-  const [compareProfiles, setCompareProfiles] = useState<{ left: QualityCompareProfile; right: QualityCompareProfile }>({
-    left: { route: 'standard-api', model: baseModel },
-    right: { route: 'standard-api', model: '' },
-  });
-  const [compareRecords, setCompareRecords] = useState<Partial<Record<StepId, QualityCompareRunRecord>>>({});
-  const [activeCompareStepId, setActiveCompareStepId] = useState<StepId | null>(null);
-  const [cliStatus, setCliStatus] = useState<DevAgentCliStatus | null>(null);
-  const [openRouterModels, setOpenRouterModels] = useState<Model[]>([]);
-  const [openRouterModelsLoading, setOpenRouterModelsLoading] = useState(false);
-  const [standardProviderModels, setStandardProviderModels] = useState<Model[]>([]);
-  const [standardProviderModelsLoading, setStandardProviderModelsLoading] = useState(false);
-  const [lastRunScope, setLastRunScope] = useState<QualityRunScope | null>(null);
+  // Shared buildId for Code Delta → Compile → Preview HTTP → Save Ready chain
+  const qualityBuildIdRef = React.useRef<string | null>(null);
+
   // Restore last run status from localStorage (no details — run again to see them)
   useEffect(() => {
     const restored = makeInitStates();
@@ -2578,75 +878,16 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
     setTestStates(restored);
   }, []);
 
-  useEffect(() => {
-    if (!compareEnabled || cliStatus) return;
-    void getDevAgentCliStatus()
-      .then(setCliStatus)
-      .catch(() => {
-        setCliStatus({
-          claude: { available: false, version: null, reason: 'bridge_unreachable' },
-          codex: { available: false, version: null, reason: 'bridge_unreachable' },
-        });
-      });
-  }, [compareEnabled, cliStatus]);
-
-  useEffect(() => {
-    if (!compareEnabled) return;
-    if (openRouterModels.length > 0 || openRouterModelsLoading) return;
-    const openRouterKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
-    if (!openRouterKey) return;
-    setOpenRouterModelsLoading(true);
-    void fetchModelsWithCache('openrouter', openRouterKey)
-      .then(setOpenRouterModels)
-      .finally(() => setOpenRouterModelsLoading(false));
-  }, [compareEnabled, openRouterModels.length, openRouterModelsLoading]);
-
-  useEffect(() => {
-    if (!compareEnabled) return;
-    if (standardProviderModels.length > 0 || standardProviderModelsLoading) return;
-    const openRouterKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
-    if (!openRouterKey) return;
-    setStandardProviderModelsLoading(true);
-    void fetchModelsWithCache(primaryProvider, openRouterKey)
-      .then(setStandardProviderModels)
-      .finally(() => setStandardProviderModelsLoading(false));
-  }, [compareEnabled, primaryProvider, standardProviderModels.length, standardProviderModelsLoading]);
-
-  const compareRunning = Object.values(compareRecords).some(record => record?.state === 'running');
-  const defaultQualityProfile = useMemo<QualityCompareProfile>(() => ({
-    route: 'standard-api',
-    model: baseModel,
-  }), [baseModel]);
-  const effectiveTestStates = useMemo(
-    () => buildEffectiveQualityStates(testStates, compareRecords),
-    [compareRecords, testStates],
-  );
-  const scopedStepIds = lastRunScope?.stepIds ?? ALL_STEP_IDS;
-  const anyRunning = runAllActive || compareRunning || Object.values(testStates).some(s => s.status === 'running');
-  const hasReportData = scopedStepIds.some(stepId => effectiveTestStates[stepId].status !== 'idle');
+  const anyRunning = runAllActive || Object.values(testStates).some(s => s.status === 'running');
+  const hasReportData = Object.values(testStates).some(s => s.status !== 'idle');
 
   const setOneState = useCallback((id: StepId, patch: Partial<TestState>) => {
     setTestStates(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }, []);
 
-  const setCompareProfile = useCallback((side: 'left' | 'right', patch: Partial<QualityCompareProfile>) => {
-    setCompareProfiles(prev => ({
-      ...prev,
-      [side]: { ...prev[side], ...patch },
-    }));
-  }, []);
-
   const handleToggle = useCallback((id: StepId) => {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
   }, []);
-
-  const leftCompareStatus = getQualityCompareProfileStatus(compareProfiles.left, cliStatus, primaryProvider);
-  const rightCompareStatus = getQualityCompareProfileStatus(compareProfiles.right, cliStatus, primaryProvider);
-  const compareBlockedReason =
-    !leftCompareStatus.ready ? `Profile A: ${leftCompareStatus.reason}` :
-    !rightCompareStatus.ready ? `Profile B: ${rightCompareStatus.reason}` :
-    areQualityCompareProfilesEqual(compareProfiles.left, compareProfiles.right) ? 'Choose two different compare profiles.' :
-    null;
 
   const runSingleTest = useCallback(async (id: StepId): Promise<TestApiResult> => {
     setOneState(id, {
@@ -2661,19 +902,38 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
     });
     setExpanded(prev => ({ ...prev, [id]: false }));
     try {
-      const suite = await runQualityCompareSuite({
-        profile: defaultQualityProfile,
-        cliStatus,
-        primaryProvider,
-        openRouterModels,
-      });
-      const result = suite.suite?.tests[id] ?? {
-        status: 'fail',
-        duration_ms: 0,
-        error: `Missing real suite result for ${id}.`,
-      } satisfies TestApiResult;
+      let result: TestApiResult;
 
-      setOneState(id, buildTestStateFromApiResult(result));
+      if (id === 'architect-real') {
+        // Frontend-only LLM call — no backend proxy
+        result = await runArchitectRealTest();
+      } else {
+        // For chain tests, pass the shared buildId from Code Delta
+        const chainBuildId = (id === 'compile' || id === 'preview-http' || id === 'save-ready')
+          ? (qualityBuildIdRef.current ?? undefined)
+          : undefined;
+        result = await callTestApi(id, chainBuildId);
+      }
+
+      // After Code Delta succeeds, capture its buildId for downstream chain tests
+      if (id === 'code-delta' && result.status === 'pass') {
+        const bid = (result.details as Record<string, unknown> | undefined)?.buildId;
+        if (typeof bid === 'string') {
+          qualityBuildIdRef.current = bid;
+        }
+      }
+
+      setOneState(id, {
+        status:     result.status,
+        duration_ms: result.duration_ms,
+        error:       result.error,
+        summary:     result.summary,
+        llm:         result.llm,
+        output:      result.output,
+        warnings:    result.warnings,
+        details:     result.details,
+      });
+      // Auto-expand on pass with details
       if (result.status === 'pass' && result.details) {
         setExpanded(prev => ({ ...prev, [id]: true }));
       }
@@ -2690,268 +950,44 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
       persistTestRun(id, { timestamp: new Date().toISOString(), status: 'fail', duration_ms: 0, error });
       return { status: 'fail', duration_ms: 0, error };
     }
-  }, [cliStatus, defaultQualityProfile, openRouterModels, primaryProvider, setOneState]);
+  }, [setOneState]);
 
-  const handleRunOne = useCallback((id: StepId) => {
-    const now = new Date().toISOString();
-    setTestStates(makeInitStates());
-    setExpanded(makeInitExpanded());
-    setCompareRecords({});
-    setActiveCompareStepId(null);
-    setBrokenAt(null);
-    setLastRunScope(buildQualityRunScope([id], false));
-    setLastRunAt(now);
-    try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
-    void runSingleTest(id);
-  }, [runSingleTest]);
-
-  const makeCompareFailureResult = useCallback((error: string, duration_ms = 0): TestApiResult => ({
-    status: 'fail',
-    duration_ms,
-    error,
-  }), []);
-
-  const runCompareSuite = useCallback(async (profile: QualityCompareProfile): Promise<QualityCompareRunSide> => (
-    runQualityCompareSuite({
-      profile,
-      cliStatus,
-      primaryProvider,
-      openRouterModels,
-    })
-  ), [cliStatus, openRouterModels, primaryProvider]);
-
-  const handleRunCompare = useCallback(async (id: StepId) => {
-    if (compareBlockedReason) return;
-    setActiveCompareStepId(id);
-    setBrokenAt(null);
-    setLastRunScope(buildQualityRunScope([id], true));
-    setTestStates(makeInitStates());
-    setExpanded(makeInitExpanded());
-    const now = new Date().toISOString();
-    setLastRunAt(now);
-    try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
-
-    const runningRecords = {
-      [id]: { state: 'running', supported: true },
-    } satisfies Partial<Record<StepId, QualityCompareRunRecord>>;
-    setCompareRecords(runningRecords);
-
-    try {
-      const left = await runCompareSuite(compareProfiles.left);
-      const right = await runCompareSuite(compareProfiles.right);
-
-      const leftResult = left.suite?.tests[id] ?? makeCompareFailureResult('Missing compare result.');
-      const rightResult = right.suite?.tests[id] ?? makeCompareFailureResult('Missing compare result.');
-      const nextRecords = {
-        [id]: {
-          state: 'done',
-          supported: true,
-          left: {
-            ...left,
-            result: leftResult,
-            realText: leftResult.details ? buildQualityRealTextSections(id, leftResult.details) : [],
-          },
-          right: {
-            ...right,
-            result: rightResult,
-            realText: rightResult.details ? buildQualityRealTextSections(id, rightResult.details) : [],
-          },
-        } satisfies QualityCompareRunRecord,
-      } satisfies Partial<Record<StepId, QualityCompareRunRecord>>;
-
-      setCompareRecords(nextRecords);
-      const compareStates = buildEffectiveQualityStates(makeInitStates(), nextRecords);
-      const firstFailedStep = compareStates[id].status === 'fail' ? id : undefined;
-      setBrokenAt(firstFailedStep ?? null);
-      const state = compareStates[id];
-      if (state.status === 'pass' || state.status === 'fail') {
-        persistTestRun(id, {
-          timestamp: now,
-          status: state.status,
-          duration_ms: state.duration_ms,
-          error: state.error,
-        });
-      }
-    } catch (err: unknown) {
-      const error = err instanceof Error ? err.message : String(err);
-      const failedRecords = {
-        [id]: {
-          state: 'done',
-          supported: true,
-          left: {
-            profile: compareProfiles.left,
-            status: leftCompareStatus,
-            result: makeCompareFailureResult(error),
-            realText: [],
-          },
-          right: {
-            profile: compareProfiles.right,
-            status: rightCompareStatus,
-            result: makeCompareFailureResult(error),
-            realText: [],
-          },
-        } satisfies QualityCompareRunRecord,
-      } satisfies Partial<Record<StepId, QualityCompareRunRecord>>;
-      setCompareRecords(failedRecords);
-      setBrokenAt(id);
-    }
-  }, [compareBlockedReason, compareProfiles.left, compareProfiles.right, leftCompareStatus, makeCompareFailureResult, rightCompareStatus, runCompareSuite]);
-
-  const handleRunCompareAll = useCallback(async () => {
-    if (compareBlockedReason) return;
-    setRunAllActive(true);
-    setBrokenAt(null);
-    setExpanded(makeInitExpanded());
-    setActiveCompareStepId(null);
-    setLastRunScope(buildQualityRunScope(ALL_STEP_IDS, true));
-    setTestStates(makeInitStates());
-    const now = new Date().toISOString();
-    setLastRunAt(now);
-    try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
-
-    const runningRecords = Object.fromEntries(
-      ALL_STEP_IDS.map(stepId => [stepId, { state: 'running', supported: true }]),
-    ) as Partial<Record<StepId, QualityCompareRunRecord>>;
-    setCompareRecords(runningRecords);
-
-    try {
-      const left = await runCompareSuite(compareProfiles.left);
-      const right = await runCompareSuite(compareProfiles.right);
-      const nextRecords = Object.fromEntries(
-        ALL_STEP_IDS.map(stepId => {
-          const leftResult = left.suite?.tests[stepId] ?? makeCompareFailureResult('Missing compare result.');
-          const rightResult = right.suite?.tests[stepId] ?? makeCompareFailureResult('Missing compare result.');
-          return [stepId, {
-            state: 'done',
-            supported: true,
-            left: {
-              ...left,
-              result: leftResult,
-              realText: leftResult.details ? buildQualityRealTextSections(stepId, leftResult.details) : [],
-            },
-            right: {
-              ...right,
-              result: rightResult,
-              realText: rightResult.details ? buildQualityRealTextSections(stepId, rightResult.details) : [],
-            },
-          } satisfies QualityCompareRunRecord];
-        }),
-      ) as Partial<Record<StepId, QualityCompareRunRecord>>;
-      setCompareRecords(nextRecords);
-      const compareStates = buildEffectiveQualityStates(makeInitStates(), nextRecords);
-      const firstFailedStep = ALL_STEP_IDS.find(stepId => compareStates[stepId].status === 'fail');
-      setBrokenAt(firstFailedStep ?? null);
-      for (const stepId of ALL_STEP_IDS) {
-        const state = compareStates[stepId];
-        if (state.status === 'pass' || state.status === 'fail') {
-          persistTestRun(stepId, {
-            timestamp: now,
-            status: state.status,
-            duration_ms: state.duration_ms,
-            error: state.error,
-          });
-        }
-      }
-    } catch (err: unknown) {
-      const error = err instanceof Error ? err.message : String(err);
-      const failedRecords = Object.fromEntries(
-        ALL_STEP_IDS.map(stepId => [stepId, {
-          state: 'done',
-          supported: true,
-          left: {
-            profile: compareProfiles.left,
-            status: leftCompareStatus,
-            result: makeCompareFailureResult(error),
-            realText: [],
-          },
-          right: {
-            profile: compareProfiles.right,
-            status: rightCompareStatus,
-            result: makeCompareFailureResult(error),
-            realText: [],
-          },
-        } satisfies QualityCompareRunRecord]),
-      ) as Partial<Record<StepId, QualityCompareRunRecord>>;
-      setCompareRecords(failedRecords);
-      setBrokenAt(ALL_STEP_IDS[0]);
-    } finally {
-      setRunAllActive(false);
-    }
-  }, [compareBlockedReason, compareProfiles.left, compareProfiles.right, leftCompareStatus, makeCompareFailureResult, rightCompareStatus, runCompareSuite]);
+  const handleRunOne = useCallback((id: StepId) => { void runSingleTest(id); }, [runSingleTest]);
 
   const handleRunAll = useCallback(async () => {
-    if (compareEnabled) {
-      void handleRunCompareAll();
-      return;
-    }
     setRunAllActive(true);
     setBrokenAt(null);
     setExpanded(makeInitExpanded());
-    setCompareRecords({});
-    setActiveCompareStepId(null);
-    setLastRunScope(buildQualityRunScope(ALL_STEP_IDS, false));
+    qualityBuildIdRef.current = null;
     const now = new Date().toISOString();
     setLastRunAt(now);
     try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
     setTestStates(makeInitStates());
 
-    try {
-      const suite = await runCompareSuite(defaultQualityProfile);
-      const nextStates = makeInitStates();
-      let firstFailedStep: StepId | null = null;
-      for (const stepId of ALL_STEP_IDS) {
-        const result = suite.suite?.tests[stepId] ?? makeCompareFailureResult(`Missing real suite result for ${stepId}.`);
-        nextStates[stepId] = buildTestStateFromApiResult(result);
-        if (!firstFailedStep && result.status === 'fail') {
-          firstFailedStep = stepId;
-        }
-        persistTestRun(stepId, {
-          timestamp: now,
-          status: result.status,
-          duration_ms: result.duration_ms,
-          error: result.error,
-        });
-      }
-      setBrokenAt(firstFailedStep);
-      setTestStates(nextStates);
-    } finally {
-      setRunAllActive(false);
+    for (const def of STEP_DEFS) {
+      const result = await runSingleTest(def.id as StepId);
+      if (result.status === 'fail') { setBrokenAt(def.id); break; }
     }
-  }, [compareEnabled, defaultQualityProfile, handleRunCompareAll, makeCompareFailureResult, runCompareSuite]);
+    setRunAllActive(false);
+  }, [runSingleTest]);
 
   const handleClear = useCallback(() => {
     clearQualityPanelHistory();
     setTestStates(makeInitStates());
     setExpanded(makeInitExpanded());
-    setCompareRecords({});
-    setActiveCompareStepId(null);
     setRunAllActive(false);
-    setLastRunScope(null);
     setLastRunAt(null);
     setBrokenAt(null);
   }, []);
 
   // Footer verdict
-  const passCount = scopedStepIds.filter(stepId => effectiveTestStates[stepId].status === 'pass').length;
-  const failCount = scopedStepIds.filter(stepId => effectiveTestStates[stepId].status === 'fail').length;
-  const realRuntimeTestIds = scopedStepIds.filter(id => REAL_RUNTIME_TESTS.has(id));
-  const realLlmTestIds = scopedStepIds.filter(id => REAL_LLM_TESTS.has(id));
-  const blockingRealGateIds = scopedStepIds.filter(id => BLOCKING_REAL_TESTS.has(id));
-  const realRuntimeSummary = summarizeQualityBucket(effectiveTestStates, realRuntimeTestIds);
-  const realLlmSummary = summarizeQualityBucket(effectiveTestStates, realLlmTestIds);
-  const blockingRealGateSummary = summarizeQualityBucket(effectiveTestStates, blockingRealGateIds);
-  const architectureTruthIds = scopedStepIds.filter(id => id === 'architecture' || id === 'architect-real');
-  const codeDeltaTruthIds = scopedStepIds.filter(id => id === 'code-delta');
-  const architectureTruth = summarizeQualityBucket(effectiveTestStates, architectureTruthIds);
-  const codeDeltaTruth = summarizeQualityBucket(effectiveTestStates, codeDeltaTruthIds);
-  const verdict: Verdict =
-    blockingRealGateSummary.failCount > 0
-      ? (blockingRealGateSummary.passCount > 0 || realLlmSummary.passCount > 0 ? 'PARTIAL' : 'FAIL')
-      : blockingRealGateSummary.passCount === blockingRealGateIds.length && blockingRealGateIds.length > 0
-        ? 'PASS'
-        : blockingRealGateSummary.passCount > 0 || realLlmSummary.passCount > 0 || failCount > 0
-          ? 'PARTIAL'
-          : null;
+  const passCount = Object.values(testStates).filter(s => s.status === 'pass').length;
+  const failCount = Object.values(testStates).filter(s => s.status === 'fail').length;
+  const verdict: 'PASS' | 'PARTIAL' | 'FAIL' | null =
+    failCount === 0 && passCount === STEP_DEFS.length ? 'PASS'    :
+    failCount > 0  && passCount > 0                   ? 'PARTIAL' :
+    failCount > 0  && passCount === 0                 ? 'FAIL'    :
+    null;
 
   const lastRunStr = lastRunAt
     ? new Date(lastRunAt).toLocaleString('ru-RU', {
@@ -2961,137 +997,24 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
     : null;
 
   const handleDownloadReport = useCallback(() => {
-    const reportTestIds = scopedStepIds;
     const report = {
       generatedAt: new Date().toISOString(),
       lastRunAt,
       verdict,
-      scope: lastRunScope ? {
-        mode: lastRunScope.mode,
-        compare: lastRunScope.compare,
-        stepIds: lastRunScope.stepIds,
-      } : null,
-      verdictBreakdown: {
-        overall: verdict,
-        realRuntime: realRuntimeSummary,
-        realLlm: realLlmSummary,
-        blockingRealGates: blockingRealGateSummary,
-        architectureTruth,
-        codeDeltaTruth,
-      },
       passCount,
       failCount,
       brokenAt,
-      tests: reportTestIds.map(stepId => {
-        const def = STEP_DEFS.find(entry => entry.id === stepId)!;
-        return {
-          id: def.id,
-          label: def.label,
-          description: def.desc,
-          truthClass: getTruthKind(stepId),
-          current: effectiveTestStates[stepId],
-          compare: compareRecords[stepId]?.state === 'done'
-           ? {
-               left: buildCompareReportSideSummary(compareRecords[stepId]?.left),
-               right: buildCompareReportSideSummary(compareRecords[stepId]?.right),
-             }
-           : undefined,
-          history: loadTestHistory(def.id),
-        };
-      }),
-      };
+      tests: STEP_DEFS.map(def => ({
+        id: def.id,
+        label: def.label,
+        description: def.desc,
+        fixtureBacked: FIXTURE_BACKED_TESTS.has(def.id as StepId),
+        current: testStates[def.id as StepId],
+        history: loadTestHistory(def.id),
+      })),
+    };
     downloadQualityReport(report);
-  }, [architectureTruth, blockingRealGateSummary, brokenAt, codeDeltaTruth, compareRecords, effectiveTestStates, failCount, lastRunAt, lastRunScope, passCount, realLlmSummary, realRuntimeSummary, scopedStepIds, verdict]);
-
-  const renderCompareProfileEditor = (
-    side: 'left' | 'right',
-    title: string,
-    profile: QualityCompareProfile,
-    status: QualityCompareProfileStatus,
-  ) => (
-    <div style={{
-      flex: '1 1 280px',
-      minWidth: 0,
-      borderRadius: 10,
-      border: '1px solid rgba(168,85,247,0.18)',
-      background: 'rgba(124,58,237,0.06)',
-      padding: 12,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 8,
-    }}>
-      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-        {title}
-      </div>
-      <select
-        value={profile.route}
-        onChange={e => setCompareProfile(side, { route: e.target.value as QualityCompareRoute })}
-        style={{
-          width: '100%',
-          padding: '8px 10px',
-          borderRadius: 8,
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          color: 'rgba(255,255,255,0.82)',
-          fontSize: 12,
-          outline: 'none',
-        }}
-      >
-        <option value="standard-api">{`Standard API (${primaryProvider})`}</option>
-        <option value="openrouter">OpenRouter</option>
-        <option value="claude-cli">Claude CLI</option>
-        <option value="codex-cli">Codex CLI</option>
-      </select>
-      <input
-        list={
-          profile.route === 'openrouter'
-            ? 'quality-openrouter-models'
-            : profile.route === 'standard-api'
-              ? 'quality-standard-models'
-              : undefined
-        }
-        value={profile.model}
-        onChange={e => setCompareProfile(side, { model: e.target.value })}
-        placeholder={
-          profile.route === 'claude-cli' ? 'claude-sonnet-4-6' :
-          profile.route === 'codex-cli' ? 'gpt-5.1-codex' :
-          profile.route === 'openrouter' ? 'openrouter model id…' :
-          `${primaryProvider} model id…`
-        }
-        style={{
-          width: '100%',
-          padding: '8px 10px',
-          borderRadius: 8,
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          color: 'rgba(255,255,255,0.82)',
-          fontSize: 12,
-          outline: 'none',
-        }}
-      />
-      <div style={{ fontSize: 11, color: status.ready ? '#86efac' : '#fbbf24' }}>
-        {status.ready ? status.label : `${status.label} · ${status.reason}`}
-      </div>
-      {profile.route === 'openrouter' && (
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)' }}>
-          {openRouterModelsLoading
-            ? 'Loading OpenRouter catalog…'
-            : openRouterModels.length > 0
-              ? `${openRouterModels.length} OpenRouter models available as suggestions.`
-              : 'OpenRouter suggestions appear when an OpenRouter key is configured.'}
-        </div>
-      )}
-      {profile.route === 'standard-api' && (
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)' }}>
-          {standardProviderModelsLoading
-            ? `Loading ${primaryProvider} catalog…`
-            : standardProviderModels.length > 0
-              ? `${standardProviderModels.length} ${primaryProvider} models available as suggestions.`
-              : `${primaryProvider} models can be entered manually or suggested from the catalog when OpenRouter is configured.`}
-        </div>
-      )}
-    </div>
-  );
+  }, [brokenAt, failCount, lastRunAt, passCount, testStates, verdict]);
 
   return (
     <div style={{
@@ -3115,23 +1038,6 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
         </span>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <button
-            onClick={() => setCompareEnabled(prev => !prev)}
-            disabled={anyRunning}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '5px 12px', borderRadius: 7,
-              border: '1px solid rgba(168,85,247,0.28)',
-              background: compareEnabled ? 'rgba(168,85,247,0.14)' : 'rgba(255,255,255,0.04)',
-              color: compareEnabled ? '#c084fc' : 'rgba(255,255,255,0.62)',
-              fontSize: 12, fontWeight: 600,
-              cursor: anyRunning ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s',
-            }}
-          >
-            <GitCompare size={12} />
-            Compare models
-          </button>
-          <button
             onClick={() => void handleRunAll()}
             disabled={anyRunning}
             style={{
@@ -3146,7 +1052,7 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
           >
             {anyRunning
               ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Running…</>
-              : <><Play size={12} /> {compareEnabled ? 'Compare All' : 'Run All'}</>
+              : <><Play size={12} /> Run All</>
             }
           </button>
           <button
@@ -3184,53 +1090,6 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
         </div>
       </div>
 
-      {compareEnabled && (
-        <div style={{
-          padding: '12px 16px',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          background: 'rgba(124,58,237,0.04)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                LLM compare
-              </div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 4 }}>
-                Hidden by default. Enable it only when you want per-item runner comparisons without cluttering the main quality list.
-              </div>
-            </div>
-            {compareBlockedReason && (
-              <div style={{ fontSize: 11, color: '#fbbf24' }}>{compareBlockedReason}</div>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {renderCompareProfileEditor('left', 'Profile A', compareProfiles.left, leftCompareStatus)}
-            {renderCompareProfileEditor('right', 'Profile B', compareProfiles.right, rightCompareStatus)}
-          </div>
-          {openRouterModels.length > 0 && (
-            <datalist id="quality-openrouter-models">
-              {openRouterModels.slice(0, 250).map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </datalist>
-          )}
-          {standardProviderModels.length > 0 && (
-            <datalist id="quality-standard-models">
-              {standardProviderModels.slice(0, 250).map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </datalist>
-          )}
-        </div>
-      )}
-
       {/* Test rows */}
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {STEP_DEFS.map((def, idx) => (
@@ -3240,22 +1099,11 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
           >
             <TestRow
               def={def}
-              state={effectiveTestStates[def.id as StepId]}
+              state={testStates[def.id as StepId]}
               onRun={() => handleRunOne(def.id as StepId)}
               anyRunning={anyRunning}
               expanded={expanded[def.id as StepId]}
               onToggle={() => handleToggle(def.id as StepId)}
-              compareEnabled={compareEnabled}
-              onCompare={() => void handleRunCompare(def.id as StepId)}
-              compareDisabledReason={compareBlockedReason}
-              compareRunning={compareRecords[def.id as StepId]?.state === 'running'}
-              hasCompareResult={compareRecords[def.id as StepId]?.state === 'done'}
-              comparePanel={compareEnabled && activeCompareStepId === def.id && compareRecords[def.id as StepId] ? (
-                <CompareResultPanel
-                  testId={def.id as StepId}
-                  record={compareRecords[def.id as StepId]!}
-                />
-              ) : null}
             />
           </div>
         ))}
@@ -3274,16 +1122,7 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
           <>
             <span>Last run: {lastRunStr}</span>
             {verdict && <span style={verdictBadgeStyle(verdict)}>{verdict}</span>}
-            <span>{passCount}/{scopedStepIds.length}</span>
-            <span>real-runtime {realRuntimeSummary.passCount}/{realRuntimeSummary.total}{realRuntimeSummary.verdict ? ` ${realRuntimeSummary.verdict}` : ''}</span>
-            <span>real-llm {realLlmSummary.passCount}/{realLlmSummary.total}{realLlmSummary.verdict ? ` ${realLlmSummary.verdict}` : ''}</span>
-            <span>arch truth {architectureTruth.verdict ?? 'PENDING'}</span>
-            <span>delta truth {codeDeltaTruth.verdict ?? 'PENDING'}</span>
-            {blockingRealGateSummary.failCount > 0 && (
-              <span style={{ color: '#f87171' }}>
-                real gates failed: {blockingRealGateSummary.failedIds.join(', ')}
-              </span>
-            )}
+            <span>{passCount}/{STEP_DEFS.length}</span>
             {brokenAt && <span style={{ color: '#f87171' }}>stopped at {brokenAt}</span>}
           </>
         ) : (
@@ -3309,7 +1148,6 @@ export function QualityPanel({ apiKey = '', selectedModel = '' }: QualityPanelPr
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'flow-chain', label: 'Flow Chain', icon: <FlaskConical size={13} /> },
     { id: 'benchmark',  label: 'Benchmark',  icon: <BarChart2 size={13} /> },
-    { id: 'showcase',   label: 'Showcase',   icon: <Layers3 size={13} /> },
   ];
 
   return (
@@ -3340,9 +1178,8 @@ export function QualityPanel({ apiKey = '', selectedModel = '' }: QualityPanelPr
       </div>
 
       <div style={BODY_S}>
-        {tab === 'flow-chain' && <FlowChainTab selectedModel={selectedModel} />}
+        {tab === 'flow-chain' && <FlowChainTab />}
         {tab === 'benchmark'  && <BenchmarkDashboard apiKey={apiKey} selectedModel={selectedModel} />}
-        {tab === 'showcase'   && <VisualBankModule />}
       </div>
     </div>
   );

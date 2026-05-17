@@ -37,6 +37,7 @@ const BACKEND_URL = 'http://localhost:3000';
 
 // Unique buildId for this test run so it doesn't collide with user builds
 const buildId = 'flow-chain-' + crypto.randomBytes(4).toString('hex');
+const previewSession = 'flow-chain-session-' + crypto.randomBytes(12).toString('hex');
 
 /** Accumulated step results */
 const steps = [];
@@ -98,8 +99,15 @@ async function step_architecture() {
 async function step_code_delta() {
   const resp = await fetch(`${BACKEND_URL}/api/preview/${buildId}/compile`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ files: FIXTURES.codeOutput }),
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Preview-Session': previewSession,
+    },
+    body: JSON.stringify({
+      files: FIXTURES.codeOutput,
+      skeletonId: FIXTURES.architectPlan.skeleton,
+      sessionId: previewSession,
+    }),
   });
 
   if (!resp.ok && resp.status !== 200) {
@@ -133,7 +141,7 @@ async function step_compile() {
 }
 
 async function step_preview() {
-  const previewUrl = `${BACKEND_URL}/preview/${buildId}`;
+  const previewUrl = `${BACKEND_URL}/preview/${buildId}?previewSession=${encodeURIComponent(previewSession)}`;
   const resp = await fetch(previewUrl);
 
   if (resp.status !== 200) {
