@@ -159,10 +159,31 @@ const recipeModules = import.meta.glob(
   { eager: true, import: 'default' },
 ) as Record<string, PremiumRecipeSchema>;
 
-const previewModules = import.meta.glob(
+// Lazy factories — not transformed at module-load time.
+// Prevents Vite from eagerly processing prototype-bank TSX files during tests
+// (those files import 'react' in a context where the alias resolver fails).
+const _previewFactories = import.meta.glob(
   '../../../prototype-bank/design-packs/premium-components/preview-adapters/*.preview.tsx',
-  { eager: true },
-) as Record<string, PremiumPreviewModule>;
+) as Record<string, () => Promise<PremiumPreviewModule>>;
+
+let _loadedPreviews: Record<string, PremiumPreviewModule> = {};
+let _previewWarmup: Promise<void> | null = null;
+
+export async function warmupPremiumPreviews(): Promise<void> {
+  if (_previewWarmup) return _previewWarmup;
+  _previewWarmup = (async () => {
+    const entries = await Promise.allSettled(
+      Object.entries(_previewFactories).map(async ([p, factory]) => {
+        const mod = await factory();
+        return [p, mod] as const;
+      }),
+    );
+    _loadedPreviews = Object.fromEntries(
+      entries.flatMap(r => (r.status === 'fulfilled' ? [r.value] : [])),
+    );
+  })();
+  return _previewWarmup;
+}
 
 let cachedBank: PremiumComponentBank | null = null;
 
@@ -185,7 +206,7 @@ export function loadPremiumComponentBank(): PremiumComponentBank {
   const previewByComponentId = new Map<string, { Preview: ComponentType; previewMeta: PremiumPreviewMeta }>();
   const errors: string[] = [];
 
-  Object.entries(previewModules).forEach(([modulePath, mod]) => {
+  Object.entries(_loadedPreviews).forEach(([modulePath, mod]) => {
     if (!mod?.previewMeta?.componentId || !mod?.Preview) {
       errors.push(`Invalid preview adapter module: ${repoPath(modulePath)}`);
       return;
@@ -460,4 +481,9 @@ export function resolvePremiumComponentSelection(input: ResolvePremiumComponentS
 
 export function resetPremiumComponentBankCache(): void {
   cachedBank = null;
+}
+
+// Auto-warmup previews in browser — skipped in Vitest (import.meta.env.TEST === true)
+if (!import.meta.env.TEST) {
+  warmupPremiumPreviews().catch(() => {});
 }

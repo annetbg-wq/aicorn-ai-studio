@@ -362,7 +362,10 @@ const STEP_BUDGET = {
 const MAX_REPAIR_PASSES = 2;
 
 const DESIGN_PACK_RAW_MODULES = import.meta.glob(
-  '../../../prototype-bank/design-packs/**/*',
+  [
+    '../../../prototype-bank/design-packs/**/*',
+    '!../../../prototype-bank/design-packs/**/preview-adapters/**',
+  ],
   { eager: true, query: '?raw', import: 'default' },
 ) as Record<string, string>;
 
