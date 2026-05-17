@@ -35,7 +35,7 @@
     "prototype-bank/design-packs/assets/spacing/comfortable.json"
   ],
   "skeleton": "mobile-app",
-  "compatibleSkeletons": ["mobile-app"],
+  "compatibleSkeletons": ["mobile-app", "dating-matching-app", "gaming-casino-app", "game-interactive-app", "booking-service-app", "content-learning-app"],
   "skeletonPath": "skeletons/mobile-app/",
   "domains": ["mobile-app", "consumer", "wellness", "health", "habit", "lifestyle"],
   "subdomains": ["consumer-mobile", "habit-tracking", "wellness", "personal-productivity", "clinical", "habit-fitness", "women-health", "supplements-nutrition", "nutrition", "mental-health"],

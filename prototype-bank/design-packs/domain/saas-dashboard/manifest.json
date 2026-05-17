@@ -35,7 +35,7 @@
     "prototype-bank/design-packs/assets/spacing/compact.json"
   ],
   "skeleton": "saas-dashboard",
-  "compatibleSkeletons": ["saas-dashboard"],
+  "compatibleSkeletons": ["saas-dashboard", "b2b-operations-workspace"],
   "skeletonPath": "skeletons/saas-dashboard/",
   "domains": ["saas-dashboard", "saas", "b2b", "admin", "analytics", "fintech", "medicine", "ai-tools"],
   "subdomains": ["crm", "analytics", "operations", "finance-ops", "health-admin", "team-workspace", "clinical", "patient-care", "care-team", "compliance"],
