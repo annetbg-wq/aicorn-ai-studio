@@ -1,0 +1,2 @@
+import type { Service } from '@/data/types';
+export function ServiceCard({ service, onOpen }: { service: Service; onOpen: (id: string) => void }) { return <article className="card pad stack"><div className="row"><span className="badge">{service.category}</span><span>${service.price}</span></div><h3>{service.title}</h3><p className="subtitle">{service.provider} · ★ {service.rating} · {service.duration}</p><button className="btn" onClick={() => onOpen(service.id)}>Choose time</button></article>; }

@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "skeletonId": "booking-service-app",
+  "routes": [
+    {
+      "id": "Home",
+      "path": "/home",
+      "filePath": "src/pages/Home.tsx",
+      "title": "Home"
+    },
+    {
+      "id": "Search",
+      "path": "/search",
+      "filePath": "src/pages/Search.tsx",
+      "title": "Search"
+    },
+    {
+      "id": "ServiceDetail",
+      "path": "/servicedetail",
+      "filePath": "src/pages/ServiceDetail.tsx",
+      "title": "ServiceDetail"
+    },
+    {
+      "id": "BookingFlow",
+      "path": "/bookingflow",
+      "filePath": "src/pages/BookingFlow.tsx",
+      "title": "BookingFlow"
+    },
+    {
+      "id": "MyBookings",
+      "path": "/mybookings",
+      "filePath": "src/pages/MyBookings.tsx",
+      "title": "MyBookings"
+    },
+    {
+      "id": "Profile",
+      "path": "/profile",
+      "filePath": "src/pages/Profile.tsx",
+      "title": "Profile"
+    }
+  ]
+}

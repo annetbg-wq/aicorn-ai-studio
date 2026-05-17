@@ -1,0 +1,3 @@
+import { GameCard } from '@/components/GameCard';
+import { useApp } from '@/context/AppContext';
+export default function Lobby(){ const app = useApp(); return <main className="page"><section className="card hero stack"><span className="badge">{app.vipTier} VIP · {app.balance.toLocaleString()} chips</span><h1 className="title">Premium demo lobby with local-only play.</h1><p className="subtitle">Prototype casino UI: no real money, no real wagering backend, no external providers.</p></section><div className="grid two">{app.featuredGames.map((game)=><GameCard key={game.id} game={game} onPlay={app.playDemo}/>)}</div></main> }

@@ -1,0 +1,3 @@
+import type { Course } from '@/data/types';
+import { Progress } from '@/components/ui/Progress';
+export function CourseCard({ course, onOpen, onEnroll }: { course: Course; onOpen: (id: string) => void; onEnroll: (id: string) => void }) { return <article className="card pad stack"><div className="row"><span className="badge">{course.category}</span><span>{course.lessons} lessons</span></div><h3>{course.title}</h3><p className="subtitle">By {course.instructor}</p><Progress value={course.progress}/><div className="row"><button className="btn secondary" onClick={() => onOpen(course.id)}>Open</button><button className="btn" onClick={() => onEnroll(course.id)}>{course.enrolled ? 'Enrolled' : 'Enroll'}</button></div></article>; }

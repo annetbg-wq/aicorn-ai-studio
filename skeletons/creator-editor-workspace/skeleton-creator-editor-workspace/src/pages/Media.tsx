@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function Media(){ const app = useApp(); return <main className="page"><h1 className="title">Media library</h1><div className="grid three">{app.mediaAssets.map((asset)=><section className="card pad stack" key={asset.id}><span className="badge">{asset.type}</span><h3>{asset.title}</h3><button className="btn secondary" onClick={()=>app.insertMedia(asset.id)}>{asset.used?'Used':'Insert'}</button></section>)}</div></main> }

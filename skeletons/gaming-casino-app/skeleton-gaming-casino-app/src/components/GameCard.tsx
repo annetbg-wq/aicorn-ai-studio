@@ -1,0 +1,2 @@
+import type { Game } from '@/data/types';
+export function GameCard({ game, onPlay }: { game: Game; onPlay: (id: string) => void }) { return <article className="card pad stack"><div className="row"><span className="badge">{game.category}</span><span>RTP {game.rtp}%</span></div><h3>{game.title}</h3><p className="subtitle">{game.volatility} volatility · demo-only local play</p><button className="btn" onClick={() => onPlay(game.id)}>Play demo</button></article>; }

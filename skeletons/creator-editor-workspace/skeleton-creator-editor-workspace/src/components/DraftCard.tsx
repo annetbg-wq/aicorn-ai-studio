@@ -1,0 +1,2 @@
+import type { Draft } from '@/data/types';
+export function DraftCard({ draft, onOpen }: { draft: Draft; onOpen: (id: string) => void }) { return <article className="card pad stack"><div className="row"><span className="badge">{draft.status}</span><span>{draft.words} words</span></div><h3>{draft.title}</h3><p className="subtitle">Updated {draft.updated}</p><button className="btn secondary" onClick={() => onOpen(draft.id)}>Open editor</button></article>; }

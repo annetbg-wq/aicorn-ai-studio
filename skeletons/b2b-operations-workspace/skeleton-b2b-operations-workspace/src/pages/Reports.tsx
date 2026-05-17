@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function Reports(){ const app = useApp(); return <main className="page"><h1 className="title">Reports</h1><section className="card pad stack"><span className="badge">Export mock</span><h2>${app.pipelineValue.toLocaleString()} forecast</h2><p className="subtitle">This report is derived from local records and can be wired to a real export later.</p><button className="btn">Prepare report</button></section></main> }

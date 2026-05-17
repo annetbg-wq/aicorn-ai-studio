@@ -1,0 +1,2 @@
+import type { Level } from '@/data/types';
+export function LevelCard({ level, onStart }: { level: Level; onStart: (id: string) => void }) { return <article className="card pad stack"><div className="row"><span className="badge">{level.difficulty}</span><span>{'★'.repeat(level.bestStars || 1)}</span></div><h3>{level.title}</h3><button className="btn" disabled={level.locked} onClick={() => onStart(level.id)}>{level.locked ? 'Locked' : 'Start'}</button></article>; }

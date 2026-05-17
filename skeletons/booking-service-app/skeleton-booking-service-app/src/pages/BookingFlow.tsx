@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function BookingFlow(){ const app = useApp(); return <main className="page"><h1 className="title">Confirm booking</h1><section className="card pad stack"><p className="subtitle">Selected slot: {app.selectedSlot}</p><button className="btn" onClick={()=>{app.book(); app.setActiveRoute('MyBookings')}}>Confirm locally</button></section></main> }
