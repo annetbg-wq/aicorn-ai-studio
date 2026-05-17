@@ -76,7 +76,7 @@ function startServer(name) {
   const child = spawn(srv.cmd, srv.args, {
     cwd:   __dirname,
     stdio: 'inherit',
-    shell: false,
+    shell: isWin,
   });
 
   child.on('spawn', () => {
