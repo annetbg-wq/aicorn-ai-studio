@@ -7,8 +7,8 @@ on:
     branches: [main, master]
 
 env:
-  # BenchmarkGate suite: 'smoke' (5 intents, fast) or 'full' (15 intents)
-  BENCHMARK_SUITE: ${{ vars.BENCHMARK_SUITE || 'smoke' }}
+  BENCHMARK_SUITE:    smoke
+  BENCHMARK_MODEL_ID: openai/gpt-4o-mini
 
 jobs:
   # ── Type check + unit tests ────────────────────────────────────────────────
@@ -70,8 +70,8 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_URL:      https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-anon-key
 
   # ── Live preview release canary ───────────────────────────────────────────
   preview-live-canary:
@@ -107,13 +107,13 @@ jobs:
           VITE_OPENROUTER_API_KEY: e2e-live-preview-key
 
   # ── BenchmarkGate quality gate ─────────────────────────────────────────────
-  # Runs only when OPENROUTER_API_KEY is available (set as a repository secret).
-  # Skipped automatically on forks and branches without the secret.
+  # Skips gracefully when OPENROUTER_API_KEY is absent (forks, branches without the secret).
   benchmark:
-    name: BenchmarkGate (${{ vars.BENCHMARK_SUITE || 'smoke' }})
+    name: BenchmarkGate
     runs-on: ubuntu-latest
     needs: build
-    if: ${{ secrets.OPENROUTER_API_KEY != '' }}
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -129,12 +129,18 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Skip BenchmarkGate when key is missing
+        if: env.OPENROUTER_API_KEY == ''
+        run: |
+          echo "BenchmarkGate skipped: OPENROUTER_API_KEY is not configured."
+
       - name: Run BenchmarkGate
+        if: env.OPENROUTER_API_KEY != ''
         working-directory: frontend
         run: node --experimental-vm-modules scripts/benchmark-gate.mjs
         env:
-          OPENROUTER_API_KEY:     ${{ secrets.OPENROUTER_API_KEY }}
-          BENCHMARK_MODEL_ID:     ${{ vars.BENCHMARK_MODEL_ID || 'openai/gpt-4o-mini' }}
-          BENCHMARK_SUITE:        ${{ vars.BENCHMARK_SUITE || 'smoke' }}
-          VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          OPENROUTER_API_KEY:     ${{ env.OPENROUTER_API_KEY }}
+          BENCHMARK_MODEL_ID:     ${{ env.BENCHMARK_MODEL_ID }}
+          BENCHMARK_SUITE:        ${{ env.BENCHMARK_SUITE }}
+          VITE_SUPABASE_URL:      https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-anon-key
