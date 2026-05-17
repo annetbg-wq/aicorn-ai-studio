@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function Matches(){ const app = useApp(); return <main className="page"><h1 className="title">Matches</h1><div className="grid two">{app.matches.map((match)=><button className="card pad stack" key={match.id} onClick={()=>app.setActiveRoute('Conversation')}><strong>{match.name}</strong><p className="subtitle">{match.lastMessage}</p><span className="badge">{match.unread} unread</span></button>)}</div></main> }

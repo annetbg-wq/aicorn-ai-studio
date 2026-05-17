@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function Account(){ const app = useApp(); return <main className="page"><h1 className="title">Account</h1><section className="card pad stack"><span className="badge">{app.vipTier}</span><h2>{app.balance.toLocaleString()} chips</h2><button className="btn secondary" onClick={()=>app.setActiveRoute('ResponsibleGaming')}>Limits & safety</button></section></main> }

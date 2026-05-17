@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function ResponsibleGaming(){ const app = useApp(); return <main className="page"><h1 className="title">Responsible gaming</h1><section className="card pad stack"><p className="subtitle">Session limit: {app.sessionLimit} minutes</p><div className="row"><button className="btn secondary" onClick={()=>app.setSessionLimit(30)}>30 min</button><button className="btn secondary" onClick={()=>app.setSessionLimit(60)}>60 min</button></div></section></main> }

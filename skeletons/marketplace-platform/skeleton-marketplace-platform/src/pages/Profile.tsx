@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function Profile(){ const app = useApp(); return <main className="page"><h1 className="title">Profile</h1><section className="card pad stack"><span className="badge">Buyer + seller mode</span><p className="subtitle">Cart: {app.cart.length} items · Orders: {app.orders.length}</p><button className="btn secondary" onClick={()=>app.setActiveRoute('SellerDashboard')}>Open seller dashboard</button></section></main> }

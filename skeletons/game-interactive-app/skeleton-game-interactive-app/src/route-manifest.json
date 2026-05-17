@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "skeletonId": "game-interactive-app",
+  "routes": [
+    {
+      "id": "Home",
+      "path": "/home",
+      "filePath": "src/pages/Home.tsx",
+      "title": "Home"
+    },
+    {
+      "id": "LevelSelect",
+      "path": "/levelselect",
+      "filePath": "src/pages/LevelSelect.tsx",
+      "title": "LevelSelect"
+    },
+    {
+      "id": "GameScreen",
+      "path": "/gamescreen",
+      "filePath": "src/pages/GameScreen.tsx",
+      "title": "GameScreen"
+    },
+    {
+      "id": "Leaderboard",
+      "path": "/leaderboard",
+      "filePath": "src/pages/Leaderboard.tsx",
+      "title": "Leaderboard"
+    },
+    {
+      "id": "Achievements",
+      "path": "/achievements",
+      "filePath": "src/pages/Achievements.tsx",
+      "title": "Achievements"
+    },
+    {
+      "id": "Profile",
+      "path": "/profile",
+      "filePath": "src/pages/Profile.tsx",
+      "title": "Profile"
+    }
+  ]
+}

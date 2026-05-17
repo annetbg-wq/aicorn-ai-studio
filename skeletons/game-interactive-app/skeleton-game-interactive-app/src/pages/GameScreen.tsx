@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function GameScreen(){ const app = useApp(); return <main className="page"><section className="card hero stack"><span className="badge">Score {app.score}</span><h1 className="title">Active game surface</h1><p className="subtitle">Replace this play panel with generated puzzle/trivia/canvas logic.</p><div className="row"><button className="btn" onClick={()=>app.completeLevel(3)}>Complete ★★★</button><button className="btn secondary" onClick={()=>app.completeLevel(1)}>Complete ★</button></div></section></main> }

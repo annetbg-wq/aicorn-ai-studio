@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function GameDetail(){ const app = useApp(); const game = app.games.find(g=>g.id===app.selectedGameId) ?? app.games[0]; return <main className="page"><section className="card hero stack"><span className="badge">{game.category} · RTP {game.rtp}%</span><h1 className="title">{game.title}</h1><p className="subtitle">Demo play frame with local chip feedback. This is prototype-only.</p><button className="btn" onClick={()=>app.playDemo(game.id)}>Spin demo +150 chips</button></section></main> }

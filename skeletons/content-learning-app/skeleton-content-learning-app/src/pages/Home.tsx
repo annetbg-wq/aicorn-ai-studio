@@ -1,0 +1,4 @@
+import { CourseCard } from '@/components/CourseCard';
+import { Progress } from '@/components/ui/Progress';
+import { useApp } from '@/context/AppContext';
+export default function Home(){ const app = useApp(); return <main className="page"><section className="card hero stack"><span className="badge">{app.streak}-day streak · {app.certificates} certificate</span><h1 className="title">Continue learning with visible progress.</h1><Progress value={app.learningProgress}/><button className="btn" onClick={()=>app.setActiveRoute('CourseCatalog')}>Open catalog</button></section><div className="grid two">{app.courses.slice(0,2).map(course=><CourseCard key={course.id} course={course} onOpen={(id)=>{app.setSelectedCourseId(id); app.setActiveRoute('CourseDetail')}} onEnroll={app.enroll}/>)}</div></main> }
