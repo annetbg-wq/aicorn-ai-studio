@@ -13,7 +13,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import JSZip from 'jszip';
 import {
   FlaskConical, Play, Loader2, CheckCircle2, XCircle, Circle,
-  Clock, BarChart2, ChevronDown, ChevronRight, Download,
+  Clock, BarChart2, ChevronDown, ChevronRight, Download, X,
 } from 'lucide-react';
 import { BenchmarkDashboard } from '../../components/BenchmarkDashboard';
 import { ConfigService } from '../../services/ConfigService';
@@ -36,6 +36,9 @@ const STEP_DEFS = [
 
 type StepId = typeof STEP_DEFS[number]['id'];
 type TabId  = 'flow-chain' | 'benchmark';
+type TestStatus = 'idle' | 'running' | 'pass' | 'fail' | 'cancelled';
+type CompletedTestStatus = 'pass' | 'fail';
+type EvidenceKind = 'fixture' | 'real-runtime' | 'real-llm';
 
 // ── Per-test detail types ──────────────────────────────────────────────────────
 
@@ -57,7 +60,7 @@ interface TestOutputMetrics   { file_count?: number; total_bytes?: number; asset
 // ── General types ──────────────────────────────────────────────────────────────
 
 interface TestState {
-  status: 'idle' | 'running' | 'pass' | 'fail';
+  status: TestStatus;
   duration_ms: number;
   error?: string;
   summary?: string;
@@ -69,13 +72,13 @@ interface TestState {
 
 interface TestHistoryRun {
   timestamp: string;
-  status: 'pass' | 'fail';
+  status: CompletedTestStatus;
   duration_ms: number;
   error?: string;
 }
 
 interface TestApiResult {
-  status: 'pass' | 'fail';
+  status: CompletedTestStatus | 'cancelled';
   duration_ms: number;
   summary?: string;
   llm?: TestLlmMetrics;
@@ -91,7 +94,71 @@ const LS_TEST_KEY     = (id: string) => `quality.test.${id}`;
 const LS_LAST_RUN_KEY = 'quality.lastRunAll';
 const MAX_HIST        = 5;
 const FIXTURE_BACKED_TESTS = new Set<StepId>(['idea-validate', 'architecture', 'code-delta']);
-const FIXTURE_NOTE_TEXT = '⚠️ Fixture данные — не реальный LLM output';
+const FIXTURE_NOTE_TEXT = 'Not real LLM output';
+const CANCELLED_BY_USER = 'Cancelled by user';
+const QUALITY_STORAGE_PREFIXES = [
+  'quality.test.',
+  'quality.lastRun',
+  'quality.real-suite.',
+  'quality.compare.',
+  'quality.benchmark.',
+] as const;
+
+interface StepEvidence {
+  kind: EvidenceKind;
+  label: string;
+  note?: string;
+  fixtureBacked: boolean;
+  realRuntime: boolean;
+  realLlm: boolean;
+}
+
+interface ActiveRun {
+  token: number;
+  controller: AbortController;
+  cancelled: boolean;
+  mode: 'single' | 'all';
+}
+
+const CANCELLED_TEST_RESULT: TestApiResult = {
+  status: 'cancelled',
+  duration_ms: 0,
+  error: CANCELLED_BY_USER,
+  summary: CANCELLED_BY_USER,
+};
+
+function getStepEvidence(id: StepId): StepEvidence {
+  if (FIXTURE_BACKED_TESTS.has(id)) {
+    return {
+      kind: 'fixture',
+      label: 'Baseline fixture',
+      note: FIXTURE_NOTE_TEXT,
+      fixtureBacked: true,
+      realRuntime: false,
+      realLlm: false,
+    };
+  }
+  if (id === 'architect-real') {
+    return {
+      kind: 'real-llm',
+      label: 'Real LLM',
+      fixtureBacked: false,
+      realRuntime: false,
+      realLlm: true,
+    };
+  }
+  return {
+    kind: 'real-runtime',
+    label: 'Real runtime',
+    fixtureBacked: false,
+    realRuntime: true,
+    realLlm: false,
+  };
+}
+
+function isQualityPanelStorageKey(key: string): boolean {
+  return QUALITY_STORAGE_PREFIXES.some(prefix => key.startsWith(prefix));
+}
 
 function loadTestHistory(id: string): TestHistoryRun[] {
   try {
@@ -110,18 +177,47 @@ function persistTestRun(id: string, run: TestHistoryRun): void {
 
 function clearQualityPanelHistory(): void {
   try {
-    STEP_DEFS.forEach(def => localStorage.removeItem(LS_TEST_KEY(def.id)));
-    localStorage.removeItem(LS_LAST_RUN_KEY);
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && isQualityPanelStorageKey(key)) keys.push(key);
+    }
+    keys.forEach(key => localStorage.removeItem(key));
   } catch { /* ignore */ }
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────────
 
-async function callTestApi(testId: string, buildId?: string): Promise<TestApiResult> {
+function isAbortError(err: unknown): boolean {
+  return typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError'
+    || err instanceof Error && err.name === 'AbortError';
+}
+
+function createLinkedTimeoutSignal(timeoutMs: number, parentSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timeoutId = setTimeout(abort, timeoutMs);
+
+  if (parentSignal?.aborted) {
+    abort();
+  } else {
+    parentSignal?.addEventListener('abort', abort, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      parentSignal?.removeEventListener('abort', abort);
+    },
+  };
+}
+
+async function callTestApi(testId: string, buildId?: string, signal?: AbortSignal): Promise<TestApiResult> {
   const url = buildId
     ? `/api/quality/test/${testId}?buildId=${encodeURIComponent(buildId)}`
     : `/api/quality/test/${testId}`;
-  const resp = await fetch(url);
+  const resp = await fetch(url, { signal });
   if (!resp.ok) {
     const text = await resp.text().catch(() => resp.statusText);
     return { status: 'fail', duration_ms: 0, error: `HTTP ${resp.status}: ${text}` };
@@ -131,9 +227,11 @@ async function callTestApi(testId: string, buildId?: string): Promise<TestApiRes
 
 // ── Architect Real — direct LLM call (frontend-only, no backend proxy) ─────────
 
-async function runArchitectRealTest(): Promise<TestApiResult> {
+async function runArchitectRealTest(signal?: AbortSignal): Promise<TestApiResult> {
   const t0 = Date.now();
   const ms = () => Date.now() - t0;
+
+  if (signal?.aborted) return { ...CANCELLED_TEST_RESULT, duration_ms: ms() };
 
   let modelId: string;
   let apiKey: string;
@@ -173,6 +271,7 @@ Rules:
   const USER_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
 
   let resp: Response;
+  const timeoutSignal = createLinkedTimeoutSignal(60_000, signal);
   try {
     resp = await fetch(endpoint, {
       method: 'POST',
@@ -191,10 +290,18 @@ Rules:
         temperature: 0.3,
         max_tokens: 1200,
       }),
-      signal: AbortSignal.timeout(60_000),
+      signal: timeoutSignal.signal,
     });
   } catch (err: unknown) {
+    if (isAbortError(err) && signal?.aborted) {
+      return { ...CANCELLED_TEST_RESULT, duration_ms: ms() };
+    }
+    if (isAbortError(err)) {
+      return { status: 'fail', duration_ms: ms(), error: 'LLM request timed out after 60s' };
+    }
     return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    timeoutSignal.cleanup();
   }
 
   if (!resp.ok) {
@@ -320,8 +427,16 @@ function fmtCost(cost?: number): string | null {
   return `~$${cost.toFixed(1)}`;
 }
 
-function buildTestMetaLines(state: TestState): Array<{ key: string; text: string; color?: string }> {
+function buildTestMetaLines(id: StepId, state: TestState): Array<{ key: string; text: string; color?: string }> {
   const lines: Array<{ key: string; text: string; color?: string }> = [];
+  const evidence = getStepEvidence(id);
+  if (evidence.fixtureBacked) {
+    lines.push({
+      key: 'fixture-note',
+      text: evidence.note ?? FIXTURE_NOTE_TEXT,
+      color: '#fbbf24',
+    });
+  }
   if (state.llm) {
     const cost = fmtCost(state.llm.cost_usd);
     lines.push({
@@ -363,6 +478,27 @@ function buildTestMetaLines(state: TestState): Array<{ key: string; text: string
     });
   }
   return lines;
+}
+
+function evidenceBadgeStyle(kind: EvidenceKind): React.CSSProperties {
+  const map: Record<EvidenceKind, { bg: string; color: string; border: string }> = {
+    fixture:      { bg: 'rgba(251,191,36,0.10)', color: '#fbbf24', border: 'rgba(251,191,36,0.35)' },
+    'real-runtime': { bg: 'rgba(96,165,250,0.10)', color: '#93c5fd', border: 'rgba(96,165,250,0.32)' },
+    'real-llm':   { bg: 'rgba(167,139,250,0.12)', color: '#c4b5fd', border: 'rgba(167,139,250,0.36)' },
+  };
+  const c = map[kind];
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '2px 7px',
+    borderRadius: 5,
+    border: `1px solid ${c.border}`,
+    background: c.bg,
+    color: c.color,
+    fontSize: 10,
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  };
 }
 
 // ── Initial state factories ────────────────────────────────────────────────────
@@ -710,28 +846,33 @@ function TestRow({
   onToggle: () => void;
 }) {
   const canExpand = state.status === 'pass' && !!state.details;
+  const evidence = getStepEvidence(def.id as StepId);
 
   const icon =
     state.status === 'pass'    ? <CheckCircle2 size={14} color="#4ade80" /> :
     state.status === 'fail'    ? <XCircle size={14} color="#f87171" /> :
+    state.status === 'cancelled' ? <XCircle size={14} color="#fbbf24" /> :
     state.status === 'running' ? <Loader2 size={14} color="#60a5fa" style={{ animation: 'spin 1s linear infinite' }} /> :
     <Circle size={14} color="rgba(255,255,255,0.18)" />;
 
   const labelColor =
     state.status === 'pass'    ? '#4ade80' :
     state.status === 'fail'    ? '#f87171' :
+    state.status === 'cancelled' ? '#fbbf24' :
     state.status === 'running' ? '#60a5fa' :
     'rgba(255,255,255,0.6)';
 
   const rowBg =
     state.status === 'pass'    ? 'rgba(74,222,128,0.03)'  :
     state.status === 'fail'    ? 'rgba(248,113,113,0.03)' :
+    state.status === 'cancelled' ? 'rgba(251,191,36,0.04)' :
     state.status === 'running' ? 'rgba(59,130,246,0.04)'  :
     'transparent';
 
   const leftBorder =
     state.status === 'pass'    ? '2px solid rgba(74,222,128,0.2)'  :
     state.status === 'fail'    ? '2px solid rgba(248,113,113,0.2)' :
+    state.status === 'cancelled' ? '2px solid rgba(251,191,36,0.22)' :
     state.status === 'running' ? '2px solid rgba(96,165,250,0.25)' :
     '2px solid transparent';
 
@@ -739,7 +880,7 @@ function TestRow({
     state.status === 'idle'    ? '' :
     state.status === 'running' ? '…' :
     fmtDuration(state.duration_ms);
-  const metaLines = state.status === 'running' ? [] : buildTestMetaLines(state);
+  const metaLines = state.status === 'running' ? [] : buildTestMetaLines(def.id as StepId, state);
 
   return (
     <div>
@@ -770,11 +911,22 @@ function TestRow({
         )}
 
         <div style={{
-          flex: 1, fontSize: 12, fontWeight: 600, fontFamily: 'monospace',
-          color: labelColor, minWidth: 0, overflow: 'hidden',
-          textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          minWidth: 0,
         }}>
-          {def.label}
+          <span style={{
+            fontSize: 12, fontWeight: 600, fontFamily: 'monospace',
+            color: labelColor, minWidth: 0, overflow: 'hidden',
+            textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {def.label}
+          </span>
+          <span style={evidenceBadgeStyle(evidence.kind)} title={evidence.note}>
+            {evidence.label}
+          </span>
         </div>
         <div style={{
           width: 52, fontSize: 11, fontFamily: 'monospace',
@@ -839,6 +991,18 @@ function TestRow({
         </div>
       )}
 
+      {state.status === 'cancelled' && (state.error || state.summary) && (
+        <div style={{
+          padding: '4px 16px 6px 40px',
+          fontSize: 11, color: '#fbbf24',
+          background: 'rgba(251,191,36,0.04)',
+          borderLeft: '2px solid rgba(251,191,36,0.18)',
+          wordBreak: 'break-all',
+        }}>
+          {state.error ?? state.summary}
+        </div>
+      )}
+
       {/* Detail panel — expanded on pass */}
       {expanded && canExpand && (
         <DetailPanel testId={def.id as StepId} details={state.details!} />
@@ -859,6 +1023,9 @@ function FlowChainTab() {
   const [brokenAt, setBrokenAt] = useState<string | null>(null);
   // Shared buildId for Code Delta → Compile → Preview HTTP → Save Ready chain
   const qualityBuildIdRef = React.useRef<string | null>(null);
+  const activeRunRef = React.useRef<ActiveRun | null>(null);
+  const runTokenRef = React.useRef(0);
+  const runningStepRef = React.useRef<StepId | null>(null);
 
   // Restore last run status from localStorage (no details — run again to see them)
   useEffect(() => {
@@ -878,6 +1045,11 @@ function FlowChainTab() {
     setTestStates(restored);
   }, []);
 
+  useEffect(() => () => {
+    activeRunRef.current?.controller.abort();
+    activeRunRef.current = null;
+  }, []);
+
   const anyRunning = runAllActive || Object.values(testStates).some(s => s.status === 'running');
   const hasReportData = Object.values(testStates).some(s => s.status !== 'idle');
 
@@ -889,7 +1061,63 @@ function FlowChainTab() {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
   }, []);
 
-  const runSingleTest = useCallback(async (id: StepId): Promise<TestApiResult> => {
+  const isRunCurrent = useCallback((run: ActiveRun): boolean => (
+    activeRunRef.current?.token === run.token
+      && !run.cancelled
+      && !run.controller.signal.aborted
+  ), []);
+
+  const beginRun = useCallback((mode: ActiveRun['mode']): ActiveRun => {
+    activeRunRef.current?.controller.abort();
+    const run: ActiveRun = {
+      token: runTokenRef.current + 1,
+      controller: new AbortController(),
+      cancelled: false,
+      mode,
+    };
+    runTokenRef.current = run.token;
+    activeRunRef.current = run;
+    return run;
+  }, []);
+
+  const finishRun = useCallback((run: ActiveRun): boolean => {
+    if (activeRunRef.current?.token === run.token) {
+      activeRunRef.current = null;
+      runningStepRef.current = null;
+      return true;
+    }
+    return false;
+  }, []);
+
+  const stopActiveRun = useCallback((markCurrentStep: boolean) => {
+    const run = activeRunRef.current;
+    if (!run) return;
+
+    run.cancelled = true;
+    run.controller.abort();
+    activeRunRef.current = null;
+    setRunAllActive(false);
+
+    const currentStep = runningStepRef.current;
+    runningStepRef.current = null;
+    if (markCurrentStep && currentStep) {
+      setOneState(currentStep, {
+        status: 'cancelled',
+        duration_ms: 0,
+        error: CANCELLED_BY_USER,
+        summary: CANCELLED_BY_USER,
+        llm: undefined,
+        output: undefined,
+        warnings: undefined,
+        details: undefined,
+      });
+      setExpanded(prev => ({ ...prev, [currentStep]: false }));
+    }
+  }, [setOneState]);
+
+  const runSingleTest = useCallback(async (id: StepId, run: ActiveRun): Promise<TestApiResult> => {
+    if (!isRunCurrent(run)) return { ...CANCELLED_TEST_RESULT };
+    runningStepRef.current = id;
     setOneState(id, {
       status: 'running',
       duration_ms: 0,
@@ -906,13 +1134,17 @@ function FlowChainTab() {
 
       if (id === 'architect-real') {
         // Frontend-only LLM call — no backend proxy
-        result = await runArchitectRealTest();
+        result = await runArchitectRealTest(run.controller.signal);
       } else {
         // For chain tests, pass the shared buildId from Code Delta
         const chainBuildId = (id === 'compile' || id === 'preview-http' || id === 'save-ready')
           ? (qualityBuildIdRef.current ?? undefined)
           : undefined;
-        result = await callTestApi(id, chainBuildId);
+        result = await callTestApi(id, chainBuildId, run.controller.signal);
+      }
+
+      if (!isRunCurrent(run) || result.status === 'cancelled') {
+        return { ...CANCELLED_TEST_RESULT, duration_ms: result.duration_ms };
       }
 
       // After Code Delta succeeds, capture its buildId for downstream chain tests
@@ -945,16 +1177,29 @@ function FlowChainTab() {
       });
       return result;
     } catch (err: unknown) {
+      if (isAbortError(err) || !isRunCurrent(run)) {
+        return { ...CANCELLED_TEST_RESULT };
+      }
       const error = err instanceof Error ? err.message : String(err);
       setOneState(id, { status: 'fail', duration_ms: 0, error, summary: undefined, llm: undefined, output: undefined, warnings: undefined });
       persistTestRun(id, { timestamp: new Date().toISOString(), status: 'fail', duration_ms: 0, error });
       return { status: 'fail', duration_ms: 0, error };
+    } finally {
+      if (runningStepRef.current === id) runningStepRef.current = null;
     }
-  }, [setOneState]);
+  }, [isRunCurrent, setOneState]);
 
-  const handleRunOne = useCallback((id: StepId) => { void runSingleTest(id); }, [runSingleTest]);
+  const handleRunOne = useCallback((id: StepId) => {
+    if (activeRunRef.current) return;
+    const run = beginRun('single');
+    void runSingleTest(id, run).finally(() => {
+      if (finishRun(run)) setRunAllActive(false);
+    });
+  }, [beginRun, finishRun, runSingleTest]);
 
   const handleRunAll = useCallback(async () => {
+    if (activeRunRef.current) return;
+    const run = beginRun('all');
     setRunAllActive(true);
     setBrokenAt(null);
     setExpanded(makeInitExpanded());
@@ -964,25 +1209,46 @@ function FlowChainTab() {
     try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
     setTestStates(makeInitStates());
 
-    for (const def of STEP_DEFS) {
-      const result = await runSingleTest(def.id as StepId);
-      if (result.status === 'fail') { setBrokenAt(def.id); break; }
+    try {
+      for (const def of STEP_DEFS) {
+        if (!isRunCurrent(run)) break;
+        const result = await runSingleTest(def.id as StepId, run);
+        if (!isRunCurrent(run) || result.status === 'cancelled') break;
+        if (result.status === 'fail') { setBrokenAt(def.id); break; }
+      }
+    } finally {
+      if (finishRun(run)) setRunAllActive(false);
     }
-    setRunAllActive(false);
-  }, [runSingleTest]);
+  }, [beginRun, finishRun, isRunCurrent, runSingleTest]);
 
   const handleClear = useCallback(() => {
+    stopActiveRun(false);
+    runTokenRef.current += 1;
+    qualityBuildIdRef.current = null;
     clearQualityPanelHistory();
     setTestStates(makeInitStates());
     setExpanded(makeInitExpanded());
     setRunAllActive(false);
     setLastRunAt(null);
     setBrokenAt(null);
-  }, []);
+  }, [stopActiveRun]);
+
+  const handleStop = useCallback(() => {
+    stopActiveRun(true);
+  }, [stopActiveRun]);
 
   // Footer verdict
   const passCount = Object.values(testStates).filter(s => s.status === 'pass').length;
   const failCount = Object.values(testStates).filter(s => s.status === 'fail').length;
+  const fixturePassCount = STEP_DEFS.filter(def =>
+    getStepEvidence(def.id as StepId).fixtureBacked && testStates[def.id as StepId].status === 'pass'
+  ).length;
+  const realRuntimePassCount = STEP_DEFS.filter(def =>
+    getStepEvidence(def.id as StepId).realRuntime && testStates[def.id as StepId].status === 'pass'
+  ).length;
+  const realLlmPassCount = STEP_DEFS.filter(def =>
+    getStepEvidence(def.id as StepId).realLlm && testStates[def.id as StepId].status === 'pass'
+  ).length;
   const verdict: 'PASS' | 'PARTIAL' | 'FAIL' | null =
     failCount === 0 && passCount === STEP_DEFS.length ? 'PASS'    :
     failCount > 0  && passCount > 0                   ? 'PARTIAL' :
@@ -1003,18 +1269,28 @@ function FlowChainTab() {
       verdict,
       passCount,
       failCount,
+      fixturePassCount,
+      realRuntimePassCount,
+      realLlmPassCount,
       brokenAt,
-      tests: STEP_DEFS.map(def => ({
-        id: def.id,
-        label: def.label,
-        description: def.desc,
-        fixtureBacked: FIXTURE_BACKED_TESTS.has(def.id as StepId),
-        current: testStates[def.id as StepId],
-        history: loadTestHistory(def.id),
-      })),
+      tests: STEP_DEFS.map(def => {
+        const evidence = getStepEvidence(def.id as StepId);
+        return {
+          id: def.id,
+          label: def.label,
+          description: def.desc,
+          truthLevel: evidence.kind,
+          truthLabel: evidence.label,
+          fixtureBacked: evidence.fixtureBacked,
+          realRuntime: evidence.realRuntime,
+          realLlm: evidence.realLlm,
+          current: testStates[def.id as StepId],
+          history: loadTestHistory(def.id),
+        };
+      }),
     };
     downloadQualityReport(report);
-  }, [brokenAt, failCount, lastRunAt, passCount, testStates, verdict]);
+  }, [brokenAt, failCount, fixturePassCount, lastRunAt, passCount, realLlmPassCount, realRuntimePassCount, testStates, verdict]);
 
   return (
     <div style={{
@@ -1055,16 +1331,33 @@ function FlowChainTab() {
               : <><Play size={12} /> Run All</>
             }
           </button>
+          {anyRunning && (
+            <button
+              onClick={handleStop}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '5px 12px', borderRadius: 7,
+                border: '1px solid rgba(251,191,36,0.35)',
+                background: 'rgba(251,191,36,0.10)',
+                color: '#fbbf24',
+                fontSize: 12, fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              <X size={12} />
+              Stop
+            </button>
+          )}
           <button
             onClick={handleClear}
-            disabled={anyRunning}
             style={{
               padding: '5px 12px', borderRadius: 7,
               border: '1px solid rgba(255,255,255,0.12)',
-              background: anyRunning ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)',
-              color: anyRunning ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.65)',
+              background: 'rgba(255,255,255,0.06)',
+              color: 'rgba(255,255,255,0.65)',
               fontSize: 12, fontWeight: 600,
-              cursor: anyRunning ? 'not-allowed' : 'pointer',
+              cursor: 'pointer',
               transition: 'all 0.15s',
             }}
           >
@@ -1123,6 +1416,9 @@ function FlowChainTab() {
             <span>Last run: {lastRunStr}</span>
             {verdict && <span style={verdictBadgeStyle(verdict)}>{verdict}</span>}
             <span>{passCount}/{STEP_DEFS.length}</span>
+            <span>Fixture PASS: {fixturePassCount}</span>
+            <span>Real runtime PASS: {realRuntimePassCount}</span>
+            <span>Real LLM PASS: {realLlmPassCount}</span>
             {brokenAt && <span style={{ color: '#f87171' }}>stopped at {brokenAt}</span>}
           </>
         ) : (
