@@ -83,6 +83,16 @@ import {
   type SkeletonIntegrationPlan,
   type SkeletonIntegrationPlanTelemetry,
 } from './SkeletonIntegrationPlanner';
+import {
+  buildProductSpecificityDiagnostics,
+  buildProductSpecificityPlan,
+  buildProductSpecificityPromptBlock,
+  serializeProductSpecificityDiagnostics,
+  serializeProductSpecificityPlan,
+  type ProductSpecificityDiagnosticsTelemetry,
+  type ProductSpecificityPlan,
+  type ProductSpecificityPlanTelemetry,
+} from './ProductSpecificityPlanner';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -137,6 +147,11 @@ export interface DesignSelectionDiagnostics {
   skeletonFit?: 'strong' | 'partial' | 'weak';
   skeletonBypassAllowed?: boolean;
   customModuleCount?: number;
+  productSpecificityPlanCreated?: boolean;
+  inferredDomain?: string;
+  domainEntityCount?: number;
+  productMetricCount?: number;
+  forbiddenGenericPatternCount?: number;
   architectureDiagnosticsChecked?: boolean;
 }
 
@@ -192,6 +207,11 @@ export interface DesignSelectionDiagnosticsTelemetry {
   skeleton_fit?: 'strong' | 'partial' | 'weak';
   skeleton_bypass_allowed?: boolean;
   custom_module_count?: number;
+  product_specificity_plan_created?: boolean;
+  inferred_domain?: string;
+  domain_entity_count?: number;
+  product_metric_count?: number;
+  forbidden_generic_pattern_count?: number;
   architecture_diagnostics_checked?: boolean;
 }
 
@@ -247,8 +267,10 @@ export interface StepOutputMetrics {
   screen_composition_plan?: ScreenCompositionPlanTelemetry;
   functional_flow_plan?: FunctionalFlowPlanTelemetry;
   skeleton_integration_plan?: SkeletonIntegrationPlanTelemetry;
+  product_specificity_plan?: ProductSpecificityPlanTelemetry;
   functional_implementation_diagnostics?: FunctionalImplementationDiagnosticsTelemetry;
   architecture_implementation_diagnostics?: ArchitectureImplementationDiagnosticsTelemetry;
+  product_specificity_diagnostics?: ProductSpecificityDiagnosticsTelemetry;
 }
 
 export interface StepExecutionMetrics {
@@ -1045,6 +1067,11 @@ export function serializeDesignSelectionDiagnostics(
     skeleton_fit: diagnostics.skeletonFit,
     skeleton_bypass_allowed: diagnostics.skeletonBypassAllowed,
     custom_module_count: diagnostics.customModuleCount,
+    product_specificity_plan_created: diagnostics.productSpecificityPlanCreated,
+    inferred_domain: diagnostics.inferredDomain,
+    domain_entity_count: diagnostics.domainEntityCount,
+    product_metric_count: diagnostics.productMetricCount,
+    forbidden_generic_pattern_count: diagnostics.forbiddenGenericPatternCount,
     architecture_diagnostics_checked: diagnostics.architectureDiagnosticsChecked,
   };
 }
@@ -1378,6 +1405,19 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     log(
       `[skeleton-integration] fit=${skeletonIntegrationPlan.skeletonFit} bypassAllowed=${String(skeletonIntegrationPlan.skeletonBypassAllowed)} customModules=${skeletonIntegrationPlan.customModules.length}`,
     );
+    const productSpecificityPlan = buildProductSpecificityPlan({
+      brief: clarifiedPrompt,
+      skeletonId: config.skeletonId,
+      screenCompositionPlan: compositionPlan,
+      functionalFlowPlan,
+      skeletonIntegrationPlan,
+      premiumComponentIds: designCtx.premiumComponentSelection.selectedComponents.map(c => c.id),
+      mediaHints: mediaMaterialization.mediaHints,
+      architectPlan: plan,
+    });
+    log(
+      `[product-specificity] domain="${productSpecificityPlan.inferredDomain}" entities=${productSpecificityPlan.domainEntities.length} metrics=${productSpecificityPlan.productMetrics.length}`,
+    );
 
     // ── Step 5 — Coder (one shot + at most one targeted retry) ────────────
     emit('coder', 'active');
@@ -1396,10 +1436,11 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           onUsage:    (usage) => { coderUsage = usage; },
         designCtx,
         mediaHints: mediaMaterialization.mediaHints,
-        compositionPlan,
-        functionalFlowPlan,
-        skeletonIntegrationPlan,
-      });
+         compositionPlan,
+         functionalFlowPlan,
+         skeletonIntegrationPlan,
+         productSpecificityPlan,
+       });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
       return fail('coder', (err as Error).message);
@@ -1504,6 +1545,10 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       functionalFlowPlan,
       skeletonIntegrationPlan,
     });
+    const productSpecificityDiagnostics = buildProductSpecificityDiagnostics({
+      files: filteredFiles,
+      plan: productSpecificityPlan,
+    });
     if (skeletonIntegrationPlan.skeletonFit === 'weak' && config.skeletonId !== 'landing-page') {
       designSelectionDiagnostics.possibleMismatchWarnings.push(
         `Skeleton integration fit is weak for ${config.skeletonId}; keep the selected skeleton as the foundation and extend it cleanly.`,
@@ -1513,6 +1558,11 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     designSelectionDiagnostics.skeletonFit = skeletonIntegrationPlan.skeletonFit;
     designSelectionDiagnostics.skeletonBypassAllowed = skeletonIntegrationPlan.skeletonBypassAllowed;
     designSelectionDiagnostics.customModuleCount = skeletonIntegrationPlan.customModules.length;
+    designSelectionDiagnostics.productSpecificityPlanCreated = true;
+    designSelectionDiagnostics.inferredDomain = productSpecificityPlan.inferredDomain;
+    designSelectionDiagnostics.domainEntityCount = productSpecificityPlan.domainEntities.length;
+    designSelectionDiagnostics.productMetricCount = productSpecificityPlan.productMetrics.length;
+    designSelectionDiagnostics.forbiddenGenericPatternCount = productSpecificityPlan.forbiddenGenericPatterns.length;
     designSelectionDiagnostics.architectureDiagnosticsChecked = architectureImplementationDiagnostics.architectureDiagnosticsChecked;
     stepResults.apply = {
       output: {
@@ -1531,8 +1581,10 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         screen_composition_plan: serializeScreenCompositionPlan(compositionPlan),
         functional_flow_plan: serializeFunctionalFlowPlan(functionalFlowPlan),
         skeleton_integration_plan: serializeSkeletonIntegrationPlan(skeletonIntegrationPlan),
+        product_specificity_plan: serializeProductSpecificityPlan(productSpecificityPlan),
         functional_implementation_diagnostics: serializeFunctionalImplementationDiagnostics(functionalImplementationDiagnostics),
         architecture_implementation_diagnostics: serializeArchitectureImplementationDiagnostics(architectureImplementationDiagnostics),
+        product_specificity_diagnostics: serializeProductSpecificityDiagnostics(productSpecificityDiagnostics),
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
@@ -1999,12 +2051,14 @@ export function buildCoderPlanningBlocks(input: {
   compositionPlan?: ScreenCompositionPlan;
   functionalFlowPlan?: FunctionalFlowPlan;
   skeletonIntegrationPlan?: SkeletonIntegrationPlan;
+  productSpecificityPlan?: ProductSpecificityPlan;
 }): string {
   return [
     input.designCtx ? designContractForCoder(input.designCtx, input.mediaHints) : '',
     input.compositionPlan ? buildCompositionPlanPromptBlock(input.compositionPlan) : '',
     input.functionalFlowPlan ? buildFunctionalFlowPromptBlock(input.functionalFlowPlan) : '',
     input.skeletonIntegrationPlan ? buildSkeletonIntegrationPromptBlock(input.skeletonIntegrationPlan) : '',
+    input.productSpecificityPlan ? buildProductSpecificityPromptBlock(input.productSpecificityPlan) : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -2022,6 +2076,7 @@ async function runCoder(input: {
   compositionPlan?: ScreenCompositionPlan;
   functionalFlowPlan?: FunctionalFlowPlan;
   skeletonIntegrationPlan?: SkeletonIntegrationPlan;
+  productSpecificityPlan?: ProductSpecificityPlan;
 }): Promise<Record<string, string>>{
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
@@ -2061,11 +2116,12 @@ async function runCoder(input: {
   ].filter(Boolean).join('\n\n');
   const planningBlocks = buildCoderPlanningBlocks({
     designCtx: input.designCtx,
-    mediaHints: input.mediaHints,
-    compositionPlan: input.compositionPlan,
-    functionalFlowPlan: input.functionalFlowPlan,
-    skeletonIntegrationPlan: input.skeletonIntegrationPlan,
-  });
+      mediaHints: input.mediaHints,
+      compositionPlan: input.compositionPlan,
+      functionalFlowPlan: input.functionalFlowPlan,
+      skeletonIntegrationPlan: input.skeletonIntegrationPlan,
+      productSpecificityPlan: input.productSpecificityPlan,
+    });
 
   const system = `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.
 
