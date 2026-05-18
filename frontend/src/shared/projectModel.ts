@@ -575,6 +575,11 @@ export interface GenerationRunStepTelemetry {
         functional_flow_plan_created?: boolean;
         functional_flow_count?: number;
         functional_entity_count?: number;
+        product_specificity_plan_created?: boolean;
+        inferred_domain?: string;
+        domain_entity_count?: number;
+        product_metric_count?: number;
+        forbidden_generic_pattern_count?: number;
       };
       visual_usage_diagnostics?: {
         premium_usage_checked: boolean;
@@ -666,6 +671,62 @@ export interface GenerationRunStepTelemetry {
         non_decorative_rules: string[];
         functional_notes: string[];
       };
+      product_specificity_plan?: {
+        product_type?: string;
+        skeleton_id: string;
+        inferred_domain: string;
+        target_user_role: string;
+        primary_job_to_be_done: string;
+        domain_entities: Array<{
+          id: string;
+          label: string;
+          description: string;
+          fields: Array<{
+            name: string;
+            type: 'string' | 'number' | 'boolean' | 'date' | 'enum' | 'array';
+            example: string;
+          }>;
+          sample_names: string[];
+        }>;
+        product_metrics: Array<{
+          id: string;
+          label: string;
+          meaning: string;
+          example_value: string;
+          should_appear_on_screens: string[];
+        }>;
+        product_statuses: Array<{
+          id: string;
+          label: string;
+          meaning: string;
+          example_usage: string;
+        }>;
+        product_actions: Array<{
+          id: string;
+          label: string;
+          user_intent: string;
+          expected_visible_result: string;
+          should_appear_on_screens: string[];
+        }>;
+        vocabulary: {
+          preferred_terms: string[];
+          avoid_terms: string[];
+          tone_notes: string[];
+        };
+        screen_specific_content: Array<{
+          screen_id: string;
+          concrete_title_suggestions: string[];
+          required_entities: string[];
+          required_metrics: string[];
+          required_actions: string[];
+          copy_hints: string[];
+          avoid_on_this_screen: string[];
+        }>;
+        sample_data_rules: string[];
+        copywriting_rules: string[];
+        forbidden_generic_patterns: string[];
+        specificity_notes: string[];
+      };
       functional_implementation_diagnostics?: {
         functional_diagnostics_checked: boolean;
         planned_flow_count: number;
@@ -686,6 +747,21 @@ export interface GenerationRunStepTelemetry {
         decorative_interaction_warnings: string[];
         implementation_coverage_ratio: number;
         suggested_next_action: 'none' | 'improve_prompt' | 'add_repair_later';
+      };
+      product_specificity_diagnostics?: {
+        specificity_diagnostics_checked: boolean;
+        generic_placeholder_findings: string[];
+        vague_copy_findings: string[];
+        empty_metric_findings: string[];
+        domain_entity_signals: string[];
+        product_action_signals: string[];
+        product_metric_signals: string[];
+        screen_specificity_warnings: string[];
+        domain_entity_signal_count: number;
+        product_action_signal_count: number;
+        product_metric_signal_count: number;
+        specificity_score: number;
+        suggested_next_action: 'none' | 'improve_prompt' | 'improve_specificity_plan' | 'add_repair_later';
       };
     };
   warnings?: string[];
