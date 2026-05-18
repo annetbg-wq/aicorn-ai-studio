@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
+import {
+  extractJsonObjectFromModelText,
+  validateArchitectJsonShape,
+} from '../architectJson';
 import { resolveDesignContext } from '../DesignContract';
 import { materializePremiumComponents, materializeMediaAssets } from '../ProtoPipeline';
 
@@ -71,5 +75,90 @@ describe('ProtoPipeline media materialization', () => {
     for (const path of result.materializedFiles) {
       expect(result.files).toHaveProperty(path);
     }
+  });
+});
+
+describe('architect model JSON extraction', () => {
+  const architectJson = JSON.stringify({
+    appName: 'Habit Tracker',
+    skeleton: 'mobile-app',
+    fileTree: {
+      'src/pages/Home.tsx': 'Shows the daily checklist and uses habit state.',
+      'src/pages/Stats.tsx': 'Shows streak charts and uses computed habit metrics.',
+    },
+  });
+
+  it('parses pure architect JSON', () => {
+    const result = extractJsonObjectFromModelText(architectJson, {
+      validate: value => validateArchitectJsonShape(value),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect((result.value as Record<string, unknown>).appName).toBe('Habit Tracker');
+  });
+
+  it('parses architect JSON wrapped in prose before and after the object', () => {
+    const result = extractJsonObjectFromModelText(
+      `Here is the architecture plan.\n\n${architectJson}\n\nUse this as the implementation guide.`,
+      { validate: value => validateArchitectJsonShape(value) },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect((result.value as Record<string, unknown>).skeleton).toBe('mobile-app');
+  });
+
+  it('parses architect JSON inside an unlabeled code fence', () => {
+    const result = extractJsonObjectFromModelText(
+      `\`\`\`\n${architectJson}\n\`\`\``,
+      { validate: value => validateArchitectJsonShape(value) },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect((result.value as Record<string, unknown>).appName).toBe('Habit Tracker');
+  });
+
+  it('fails invalid JSON with a useful parse error and safe snippets', () => {
+    const result = extractJsonObjectFromModelText(
+      'Architect draft:\n```json\n{"appName":"Habit Tracker","skeleton":"mobile-app","fileTree":{"src/pages/Home.tsx":"x",}}\n```',
+      { validate: value => validateArchitectJsonShape(value) },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('Expected parser failure');
+    expect(result.error).toMatch(/could not be parsed/i);
+    expect(result.parseError).toBeTruthy();
+    expect(result.rawSnippet).toContain('Architect draft:');
+    expect(result.candidateSnippet).toContain('"appName":"Habit Tracker"');
+  });
+
+  it('fails schema validation when required architect fields are missing', () => {
+    const result = extractJsonObjectFromModelText(
+      JSON.stringify({
+        skeleton: 'mobile-app',
+        fileTree: {
+          'src/pages/Home.tsx': 'Shows the daily checklist and uses habit state.',
+        },
+      }),
+      { validate: value => validateArchitectJsonShape(value) },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('Expected schema failure');
+    expect(result.error).toMatch(/schema validation failed/i);
+    expect(result.schemaError).toMatch(/appName/i);
+  });
+
+  it('rejects arbitrary non-JSON text', () => {
+    const result = extractJsonObjectFromModelText(
+      'I would build a mobile app with habits, streaks, and a nice dashboard.',
+      { validate: value => validateArchitectJsonShape(value) },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('Expected non-JSON failure');
+    expect(result.error).toMatch(/no json object found/i);
   });
 });

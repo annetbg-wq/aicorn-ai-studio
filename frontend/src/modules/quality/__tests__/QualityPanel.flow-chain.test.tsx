@@ -300,19 +300,25 @@ describe('QualityPanel flow-chain baseline', () => {
       model: 'openai/gpt-4.1',
       choices: [{
         message: {
-          content: JSON.stringify({
-            appName: 'Habit Tracker',
-            skeleton: 'mobile-app',
-            fileTree: {
-              'src/pages/Home.tsx': 'Shows today habit checklist.',
-              'src/pages/Stats.tsx': 'Shows streak statistics.',
-              'src/pages/Profile.tsx': 'Shows user settings.',
-              'src/data/types.ts': 'Defines habit records.',
-              'src/data/seed.ts': 'Seeds starter habits.',
-            },
-            contextContract: 'Shared habit state.',
-            dataModel: 'Habit: { id: string; title: string }',
-          }),
+          content: [
+            'Architect plan below:',
+            '```json',
+            JSON.stringify({
+              appName: 'Habit Tracker',
+              skeleton: 'mobile-app',
+              fileTree: {
+                'src/pages/Home.tsx': 'Shows today habit checklist.',
+                'src/pages/Stats.tsx': 'Shows streak statistics.',
+                'src/pages/Profile.tsx': 'Shows user settings.',
+                'src/data/types.ts': 'Defines habit records.',
+                'src/data/seed.ts': 'Seeds starter habits.',
+              },
+              contextContract: 'Shared habit state.',
+              dataModel: 'Habit: { id: string; title: string }',
+            }),
+            '```',
+            'Use the object exactly as returned.',
+          ].join('\n'),
         },
       }],
       usage: {

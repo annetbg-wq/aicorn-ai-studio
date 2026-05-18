@@ -93,6 +93,11 @@ import {
   type ProductSpecificityPlan,
   type ProductSpecificityPlanTelemetry,
 } from './ProductSpecificityPlanner';
+import {
+  extractJsonObjectFromModelText,
+  safeModelTextSnippet,
+  validateArchitectJsonShape,
+} from './architectJson';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -1827,6 +1832,11 @@ async function runArchitect(input: {
   designCtx?: DesignContext;
 }): Promise<ArchitectPlan> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
+  const architectRoute = resolveRouteOrSkip('primary', input.routeOverrides);
+  const architectProvider = architectRoute?.provider ?? 'unknown';
+  const architectModel = architectRoute
+    ? Orchestrator.normalizeModelId(architectRoute.modelId, architectRoute.endpoint)
+    : 'unknown';
   const installedFiles = getSkeletonInstalledFiles(input.skeletonId);
   const editableFiles = getEditableSkeletonFiles(input.skeletonId);
   const editableFileSet = new Set(editableFiles);
@@ -1903,6 +1913,14 @@ Typical delta for a mobile app: multiple routed pages, product navigation config
 ${shapeRequirement}
 Each fileTree value must be one sentence saying what the file does and which data / state it uses.
 
+ARCHITECT_OUTPUT_CONTRACT:
+- Return exactly one valid JSON object.
+- Do not wrap it in markdown.
+- Do not use code fences.
+- Do not add commentary before or after JSON.
+- Do not include explanations outside JSON.
+- The JSON must match the required architect schema.
+
 Return ONLY valid JSON matching this schema:
 {
   "appName":  "<short name>",
@@ -1945,11 +1963,29 @@ RULES
     onUsage:   input.onUsage,
   });
 
-  const parsed = safeParseJson(raw);
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Architect returned non-JSON output');
+  const extracted = extractJsonObjectFromModelText(raw, {
+    validate: value => validateArchitectJsonShape(value),
+  });
+  if (!extracted.ok) {
+    input.onLog(
+      `[architect] parse diagnostics provider=${architectProvider} model=${architectModel} raw_length=${raw.length} raw_snippet=${extracted.rawSnippet}`,
+      'error',
+    );
+    if (extracted.candidateSnippet) {
+      input.onLog(`[architect] candidate_json_snippet=${extracted.candidateSnippet}`, 'warn');
+    }
+    if (extracted.parseError) {
+      input.onLog(`[architect] parse_error=${extracted.parseError}`, 'warn');
+    }
+    if (extracted.schemaError) {
+      input.onLog(`[architect] schema_error=${extracted.schemaError}`, 'warn');
+    }
+    const message = extracted.schemaError
+      ? `Architect JSON parsed but schema validation failed: ${extracted.schemaError}`
+      : `Architect returned non-JSON output: ${extracted.error}`;
+    throw new Error(`${message}. Raw snippet: ${extracted.rawSnippet}`);
   }
-  const obj = parsed as Record<string, unknown>;
+  const obj = extracted.value as Record<string, unknown>;
   const fileTreeRaw = obj.fileTree && typeof obj.fileTree === 'object' && !Array.isArray(obj.fileTree)
     ? obj.fileTree as Record<string, unknown>
     : {};
@@ -2009,7 +2045,14 @@ RULES
     });
 
   if (deltaFiles.length === 0) {
-    throw new Error('Architect plan contains no usable delta fileTree entries');
+    const schemaError = 'plan contains no usable delta fileTree entries after path normalization and skeleton filtering';
+    input.onLog(
+      `[architect] schema diagnostics provider=${architectProvider} model=${architectModel} raw_length=${raw.length} raw_snippet=${extracted.rawSnippet}`,
+      'error',
+    );
+    input.onLog(`[architect] candidate_json_snippet=${safeModelTextSnippet(extracted.jsonText)}`, 'warn');
+    input.onLog(`[architect] schema_error=${schemaError}`, 'warn');
+    throw new Error(`Architect JSON parsed but schema validation failed: ${schemaError}. Raw snippet: ${extracted.rawSnippet}`);
   }
   const duplicateSkeletonFiles = Object.keys(planner.fileTree)
     .filter(path => {
