@@ -18,6 +18,10 @@ import {
 import { BenchmarkDashboard } from '../../components/BenchmarkDashboard';
 import { ConfigService } from '../../services/ConfigService';
 import { Orchestrator } from '../../services/Orchestrator';
+import {
+  extractJsonObjectFromModelText,
+  validateArchitectJsonShape,
+} from '../../services/architectJson';
 
 // ── Step definitions ───────────────────────────────────────────────────────────
 
@@ -266,7 +270,15 @@ Rules:
 - fileTree must contain ONLY delta files (files the coder will create from scratch)
 - Do NOT include skeleton files already provided: src/App.tsx, src/main.tsx, src/context/AppContext.tsx, src/hooks/useLocalStorage.ts, src/components/ui/*, src/components/BottomTabs.tsx, src/lib/cn.ts
 - Minimum 5 delta files required
-- Each fileTree value: exactly one sentence describing purpose + data used`;
+- Each fileTree value: exactly one sentence describing purpose + data used
+
+ARCHITECT_OUTPUT_CONTRACT:
+Return exactly one valid JSON object.
+Do not wrap it in markdown.
+Do not use code fences.
+Do not add commentary before or after JSON.
+Do not include explanations outside JSON.
+The JSON must match the required architect schema.`;
 
   const USER_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
 
@@ -320,14 +332,20 @@ Rules:
   const usageRaw = (raw as any)?.usage;
   const llmModel: string = typeof (raw as any)?.model === 'string' ? (raw as any).model : normalizedModelId;
 
-  let plan: Record<string, unknown>;
-  try {
-    // Strip markdown fences if present
-    const stripped = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-    plan = JSON.parse(stripped) as Record<string, unknown>;
-  } catch {
-    return { status: 'fail', duration_ms: ms(), error: `LLM returned non-JSON: ${content.slice(0, 200)}` };
+  const extracted = extractJsonObjectFromModelText(content, {
+    validate: value => validateArchitectJsonShape(value, { minFileEntries: 5 }),
+  });
+  if (!extracted.ok) {
+    const reason = extracted.schemaError
+      ? `Architect JSON parsed but schema validation failed: ${extracted.schemaError}`
+      : `LLM returned non-JSON: ${extracted.error}`;
+    return {
+      status: 'fail',
+      duration_ms: ms(),
+      error: `${reason}. Raw snippet: ${extracted.rawSnippet}`,
+    };
   }
+  const plan = extracted.value as Record<string, unknown>;
 
   const fileTree = (plan.fileTree ?? {}) as Record<string, string>;
   const fileCount = Object.keys(fileTree).length;
