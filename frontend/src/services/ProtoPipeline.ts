@@ -2105,6 +2105,34 @@ export function buildCoderPlanningBlocks(input: {
   ].filter(Boolean).join('\n');
 }
 
+const UI_PRIMITIVE_IMPORTS: Record<string, string> = {
+  AlertDialog:
+    "AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger from '@/components/ui/alert-dialog'",
+  Avatar: "Avatar, AvatarFallback, AvatarImage from '@/components/ui/Avatar'",
+  Badge: "Badge from '@/components/ui/Badge'",
+  Button: "Button from '@/components/ui/Button'",
+  Card: "Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle from '@/components/ui/Card'",
+  Dialog: "Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger from '@/components/ui/Dialog'",
+  Input: "Input from '@/components/ui/Input'",
+  Label: "Label from '@/components/ui/label'",
+  Progress: "Progress from '@/components/ui/Progress'",
+  ScrollArea: "ScrollArea, ScrollBar from '@/components/ui/scroll-area'",
+  Select: "Select, SelectContent, SelectItem, SelectTrigger, SelectValue from '@/components/ui/Select'",
+  Sheet: "Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger from '@/components/ui/Sheet'",
+  Skeleton: "Skeleton from '@/components/ui/Skeleton'",
+  Tabs: "Tabs, TabsContent, TabsList, TabsTrigger from '@/components/ui/Tabs'",
+};
+
+export function buildUiPrimitiveImportCatalog(uiPrimitives: readonly string[]): string {
+  const lines = uiPrimitives
+    .map(name => UI_PRIMITIVE_IMPORTS[name] ? `  - ${UI_PRIMITIVE_IMPORTS[name]}` : null)
+    .filter((line): line is string => Boolean(line));
+
+  return lines.length > 0
+    ? lines.join('\n')
+    : '  - (none; implement local components under components/ when needed)';
+}
+
 async function runCoder(input: {
   prompt:     string;
   plan:       ArchitectPlan;
@@ -2165,6 +2193,7 @@ async function runCoder(input: {
       skeletonIntegrationPlan: input.skeletonIntegrationPlan,
       productSpecificityPlan: input.productSpecificityPlan,
     });
+  const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(skeleton.uiPrimitives);
 
   const system = `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.
 
@@ -2195,17 +2224,8 @@ Emit each file enclosed in plain-text markers, nothing else around them:
 <<<END>>>
 
 IMPORT RULES — follow exactly, never mix paths
-From '@/components/ui' (shadcn primitives):
-  Button, Card, CardContent, CardHeader, CardTitle, CardDescription,
-  Input, Label, Badge, Avatar, AvatarImage, AvatarFallback,
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
-  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-  Tabs, TabsContent, TabsList, TabsTrigger,
-  Progress, Skeleton, Separator, Switch, Checkbox, Textarea,
-  Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
-  ScrollArea, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
+Available UI primitive import catalog (use only these exact paths):
+${uiPrimitiveImportCatalog}
 
 From '@/components/EmptyState' (NOT from ui): EmptyState
 From '@/components/BottomTabs'  (NOT from ui): BottomTabs
@@ -2222,7 +2242,9 @@ CRITICAL: config/navigation.ts MUST export BOTTOM_TABS (readonly TabDefinition[]
 RULES
 - Paths relative to preview-workspace/src/. No leading "src/" or "/".
 - Each file must be a complete, compilable .tsx/.ts file. No diffs, no patches.
-- Only import from skeleton-provided modules listed above, "@/components/ui/*", "lucide-react", "react", and files you yourself emit.
+- Do not import UI primitives that are not listed in the UI primitive import catalog or not physically present in src/components/ui.
+- If a component is needed but not available in the UI catalog, implement it as a local component under components/ instead of importing a nonexistent shadcn primitive.
+- Only import from skeleton-provided modules listed above, exact UI primitive paths listed above, "lucide-react", "react", and files you yourself emit.
 - For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, import "useLocalStorage" from "@/hooks/useLocalStorage".
 - You are extending the installed skeleton by delta. NEVER rebuild the app shell, router, providers, or placeholder app from scratch when the selected skeleton already provides them.
 - Do not modify any skeleton-locked path.

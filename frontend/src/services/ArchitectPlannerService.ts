@@ -12,7 +12,7 @@
  *   - recommends first-pass and deferred scope
  *   - builds a capability stack
  *   - proposes ordered implementation steps
- *   - surfaces 0–3 high-leverage open questions
+ *   - separates blocking clarifications from default assumptions
  *   - provides 2–4 scope options for the user
  *
  * Writes a pre_build_draft snapshot into the branch-scoped architecture memory
@@ -67,19 +67,45 @@ export interface KickoffPlanStep {
   scope: 'first_pass' | 'deferred';
 }
 
-export interface KickoffOpenQuestion {
+export interface Choice {
   id: string;
-  title: string;
-  capabilityIds: ArchitectureCapabilityKey[];
-  impact: 'high' | 'medium';
+  label: string;
+  description: string;
 }
+
+export type ArchitectQuestion =
+  | {
+      kind: 'blocking';
+      question: string;
+      options: Choice[];
+      defaultChoiceId: string;
+      impact: string;
+    }
+  | {
+      kind: 'assumption';
+      assumption: string;
+      reason: string;
+    }
+  | {
+      kind: 'note';
+      text: string;
+    };
+
+type KickoffArchitectQuestion = ArchitectQuestion & {
+  id: string;
+  capabilityIds: ArchitectureCapabilityKey[];
+};
+
+export type ArchitectBlockingQuestion = Extract<KickoffArchitectQuestion, { kind: 'blocking' }>;
+export type ArchitectAssumption = Extract<KickoffArchitectQuestion, { kind: 'assumption' }>;
+export type ArchitectNote = Extract<KickoffArchitectQuestion, { kind: 'note' }>;
 
 export interface ArchitectKickoffPlan {
   productType: ProductMode;
   branchBriefSummary: string;
   capabilities: InferredCapability[];
   implementationSteps: KickoffPlanStep[];
-  openQuestions: KickoffOpenQuestion[];
+  questions: KickoffArchitectQuestion[];
   scopeOptions: KickoffScopeOption[];
   /** ID of the automatically-selected default scope option */
   defaultOptionId: KickoffBuildScopeId;
@@ -112,7 +138,9 @@ const CHAT_SUMMARY_COPY: Record<PlannerSummaryLanguage, {
   firstPass: string;
   deferred: string;
   buildOptions: string;
-  openQuestions: string;
+  assumptions: string;
+  decisionRequired: string;
+  notes: string;
   footer: string;
 }> = {
   en: {
@@ -120,7 +148,9 @@ const CHAT_SUMMARY_COPY: Record<PlannerSummaryLanguage, {
     firstPass: 'First-pass scope',
     deferred: 'Deferred (post-build)',
     buildOptions: 'Build options',
-    openQuestions: 'Open questions',
+    assumptions: 'Assumptions',
+    decisionRequired: 'Decision required',
+    notes: 'Notes',
     footer: 'You will choose one of these scopes before the first build starts.',
   },
   ru: {
@@ -128,7 +158,9 @@ const CHAT_SUMMARY_COPY: Record<PlannerSummaryLanguage, {
     firstPass: 'Объём первого прохода',
     deferred: 'Отложено после сборки',
     buildOptions: 'Варианты сборки',
-    openQuestions: 'Открытые вопросы',
+    assumptions: 'Допущения',
+    decisionRequired: 'Нужно решение',
+    notes: 'Заметки',
     footer: 'Перед первым запуском сборки вы выберете один из этих объёмов.',
   },
   es: {
@@ -136,7 +168,9 @@ const CHAT_SUMMARY_COPY: Record<PlannerSummaryLanguage, {
     firstPass: 'Alcance del primer paso',
     deferred: 'Diferido para después del build',
     buildOptions: 'Opciones de compilación',
-    openQuestions: 'Preguntas abiertas',
+    assumptions: 'Suposiciones',
+    decisionRequired: 'Decisión requerida',
+    notes: 'Notas',
     footer: 'Elegirás uno de estos alcances antes de que empiece la primera compilación.',
   },
   de: {
@@ -144,7 +178,9 @@ const CHAT_SUMMARY_COPY: Record<PlannerSummaryLanguage, {
     firstPass: 'Umfang des ersten Durchlaufs',
     deferred: 'Für nach dem Build zurückgestellt',
     buildOptions: 'Build-Optionen',
-    openQuestions: 'Offene Fragen',
+    assumptions: 'Annahmen',
+    decisionRequired: 'Entscheidung erforderlich',
+    notes: 'Hinweise',
     footer: 'Vor dem ersten Build wählst du einen dieser Umfänge aus.',
   },
   fr: {
@@ -152,7 +188,9 @@ const CHAT_SUMMARY_COPY: Record<PlannerSummaryLanguage, {
     firstPass: 'Périmètre du premier passage',
     deferred: 'Différé après le build',
     buildOptions: 'Options de build',
-    openQuestions: 'Questions ouvertes',
+    assumptions: 'Hypothèses',
+    decisionRequired: 'Décision requise',
+    notes: 'Notes',
     footer: 'Vous choisirez l’un de ces périmètres avant le premier build.',
   },
   zh: {
@@ -160,7 +198,9 @@ const CHAT_SUMMARY_COPY: Record<PlannerSummaryLanguage, {
     firstPass: '首轮范围',
     deferred: '延期到首轮构建之后',
     buildOptions: '构建选项',
-    openQuestions: '待确认问题',
+    assumptions: '默认假设',
+    decisionRequired: '需要决定',
+    notes: '说明',
     footer: '首次构建开始前，你将从这些范围中选择一个。',
   },
 };
@@ -538,55 +578,58 @@ function buildImplementationStepTitle(
   return copy[key][language];
 }
 
-function buildOpenQuestionTitle(
-  key: 'saas-auth' | 'payments-model' | 'shared-or-private',
+function fallbackLocalized(
+  copy: Partial<Record<PlannerSummaryLanguage, string>>,
   language: PlannerSummaryLanguage,
 ): string {
-  const copy: Record<typeof key, Record<PlannerSummaryLanguage, string>> = {
-    'saas-auth': {
-      en: 'Is this multi-tenant (org-scoped data) or single-user?',
-      ru: 'Это multi-tenant продукт (данные на организацию) или single-user?',
-      es: '¿Esto es multi-tenant (datos por organización) o para un solo usuario?',
-      de: 'Ist das ein Multi-Tenant-Produkt (org-skopierte Daten) oder Single-User?',
-      fr: 'Est-ce un produit multi-tenant (données par organisation) ou mono-utilisateur ?',
-      zh: '这是多租户产品（按组织隔离数据）还是单用户模式？',
-    },
-    'payments-model': {
-      en: 'What is the billing model — one-time purchase or recurring subscription?',
-      ru: 'Какая модель оплаты нужна — разовая покупка или подписка?',
-      es: '¿Cuál es el modelo de cobro: pago único o suscripción recurrente?',
-      de: 'Welches Abrechnungsmodell wird benötigt — Einmalkauf oder wiederkehrendes Abo?',
-      fr: 'Quel est le modèle de facturation : achat unique ou abonnement récurrent ?',
-      zh: '计费模式是什么——一次性购买还是周期订阅？',
-    },
-    'shared-or-private': {
-      en: 'Is user data shared (public board) or private per-user?',
-      ru: 'Данные пользователей общие (публичная доска) или приватные для каждого?',
-      es: '¿Los datos de usuario son compartidos (tablero público) o privados por usuario?',
-      de: 'Sind Benutzerdaten gemeinsam genutzt (öffentliches Board) oder pro Benutzer privat?',
-      fr: 'Les données utilisateur sont-elles partagées (tableau public) ou privées par utilisateur ?',
-      zh: '用户数据是共享的（公开看板）还是按用户私有？',
-    },
-  };
-
-  return copy[key][language];
+  return copy[language] ?? copy.en ?? '';
 }
 
-function buildOpenQuestionSummary(impact: 'high' | 'medium', language: PlannerSummaryLanguage): string {
+function buildBlockingQuestionSummary(impact: string, language: PlannerSummaryLanguage): string {
   switch (language) {
     case 'ru':
-      return `Открытый архитектурный вопрос с высоким влиянием (impact: ${impact})`;
+      return `Требует решения до продолжения сборки (${impact})`;
     case 'es':
-      return `Pregunta abierta de arquitectura con alto impacto (impact: ${impact})`;
+      return `Requiere una decisión antes de continuar el build (${impact})`;
     case 'de':
-      return `Offene Architekturfrage mit hoher Wirkung (impact: ${impact})`;
+      return `Benötigt vor dem Weiterbauen eine Entscheidung (${impact})`;
     case 'fr':
-      return `Question d’architecture ouverte à fort impact (impact: ${impact})`;
+      return `Demande une décision avant de poursuivre le build (${impact})`;
     case 'zh':
-      return `高影响的开放式架构问题（impact: ${impact}）`;
+      return `继续构建前需要先做决定（${impact}）`;
     case 'en':
     default:
-      return `High-leverage open question (impact: ${impact})`;
+      return `Requires a decision before build continues (${impact})`;
+  }
+}
+
+function buildBlockingQuestionFooter(count: number, language: PlannerSummaryLanguage): string {
+  switch (language) {
+    case 'ru':
+      return count > 1
+        ? `Ниже ждут ${count} структурированных уточнения, и сборка будет ждать выбор.`
+        : 'Ниже ждёт одно структурированное уточнение, и сборка будет ждать выбор.';
+    case 'es':
+      return count > 1
+        ? `Hay ${count} aclaraciones estructuradas abajo y el build esperará la elección.`
+        : 'Hay una aclaración estructurada abajo y el build esperará la elección.';
+    case 'de':
+      return count > 1
+        ? `Unten warten ${count} strukturierte Klärungen; der Build pausiert bis zur Auswahl.`
+        : 'Unten wartet eine strukturierte Klärung; der Build pausiert bis zur Auswahl.';
+    case 'fr':
+      return count > 1
+        ? `${count} clarifications structurées attendent ci-dessous et le build patientera jusqu’au choix.`
+        : 'Une clarification structurée attend ci-dessous et le build patientera jusqu’au choix.';
+    case 'zh':
+      return count > 1
+        ? `下方有 ${count} 个结构化澄清，构建会等待你的选择。`
+        : '下方有 1 个结构化澄清，构建会等待你的选择。';
+    case 'en':
+    default:
+      return count > 1
+        ? `${count} structured clarifications are waiting below, and the build will pause for your choice.`
+        : 'A structured clarification is waiting below, and the build will pause for your choice.';
   }
 }
 
@@ -943,49 +986,279 @@ function buildImplementationSteps(
   return steps;
 }
 
-// ─── Open question builder ────────────────────────────────────────────────────
+// ─── Architect question builder ───────────────────────────────────────────────
 
-function buildOpenQuestions(
+function buildModeAssumptions(
+  defaultScopeId: KickoffBuildScopeId,
+  language: PlannerSummaryLanguage,
+): ArchitectAssumption[] {
+  const assumptions: ArchitectAssumption[] = [];
+
+  if (defaultScopeId === 'core') {
+    assumptions.push({
+      id: 'assumption-core-mock',
+      kind: 'assumption',
+      capabilityIds: [],
+      assumption: fallbackLocalized({
+        en: 'Using local/mock data only for the first pass.',
+        ru: 'В первом проходе используем только локальные/mock-данные.',
+      }, language),
+      reason: fallbackLocalized({
+        en: 'Backend mode is not selected, so the prototype stays client-side.',
+        ru: 'Режим с backend не выбран, поэтому первый прототип остаётся на клиенте.',
+      }, language),
+    });
+  }
+
+  if (defaultScopeId === 'core_backend' || defaultScopeId === 'core_backend_ai') {
+    assumptions.push({
+      id: 'assumption-private-per-user',
+      kind: 'assumption',
+      capabilityIds: ['backend'],
+      assumption: fallbackLocalized({
+        en: 'User data will be private per user for this first prototype.',
+        ru: 'Для первого прототипа данные пользователей считаются приватными для каждого пользователя.',
+      }, language),
+      reason: fallbackLocalized({
+        en: 'Backend mode is selected and the brief does not clearly require shared/public data.',
+        ru: 'Выбран режим с backend, а в брифе нет явного сигнала о публичных или общих данных.',
+      }, language),
+    });
+  }
+
+  if (defaultScopeId === 'core_backend_ai') {
+    assumptions.push({
+      id: 'assumption-ai-main-flow',
+      kind: 'assumption',
+      capabilityIds: ['ai_chat', 'ai_generation'],
+      assumption: fallbackLocalized({
+        en: 'AI integration is included only where it is part of the main user flow.',
+        ru: 'AI-интеграция включается только там, где она входит в основной пользовательский сценарий.',
+      }, language),
+      reason: fallbackLocalized({
+        en: 'The first pass keeps AI focused on the core workflow instead of adding side features.',
+        ru: 'Первый проход держит AI в рамках ключевого сценария, а не добавляет побочные функции.',
+      }, language),
+    });
+  }
+
+  return assumptions;
+}
+
+function buildHeuristicBlockingQuestionCandidates(
   capabilities: InferredCapability[],
   productType: ProductMode,
-  language = 'en',
-): KickoffOpenQuestion[] {
-  const normalizedLanguage = normalizePlannerLanguage(language);
-  const questions: KickoffOpenQuestion[] = [];
-  let idx = 1;
-
+  language: PlannerSummaryLanguage,
+): string[] {
+  const candidates: string[] = [];
   const hasAuth = capabilities.some(c => c.id === 'auth');
-  const hasBackend = capabilities.some(c => c.id === 'backend');
   const hasPayments = capabilities.some(c => c.id === 'payments');
 
   if (hasAuth && productType === 'saas') {
-    questions.push({
-      id: `oq-${idx++}`,
-      title: buildOpenQuestionTitle('saas-auth', normalizedLanguage),
-      capabilityIds: ['auth', 'backend'],
-      impact: 'high',
-    });
+    candidates.push(fallbackLocalized({
+      en: 'Is this multi-tenant (org-scoped data) or single-user?',
+      ru: 'Это multi-tenant продукт (данные на организацию) или single-user?',
+    }, language));
   }
 
   if (hasPayments) {
-    questions.push({
-      id: `oq-${idx++}`,
-      title: buildOpenQuestionTitle('payments-model', normalizedLanguage),
-      capabilityIds: ['payments'],
-      impact: 'high',
-    });
+    candidates.push(fallbackLocalized({
+      en: 'What is the billing model — one-time purchase or recurring subscription?',
+      ru: 'Какая модель оплаты нужна — разовая покупка или подписка?',
+    }, language));
   }
 
-  if (hasBackend && !hasAuth) {
-    questions.push({
-      id: `oq-${idx++}`,
-      title: buildOpenQuestionTitle('shared-or-private', normalizedLanguage),
-      capabilityIds: ['backend'],
-      impact: 'medium',
-    });
+  return candidates;
+}
+
+function buildTenantScopeBlockingQuestion(
+  language: PlannerSummaryLanguage,
+): ArchitectBlockingQuestion {
+  return {
+    id: 'blocking-tenant-scope',
+    kind: 'blocking',
+    capabilityIds: ['auth', 'backend'],
+    question: fallbackLocalized({
+      en: 'How should account data be scoped in the first pass?',
+      ru: 'Как в первом проходе нужно разделять данные аккаунтов?',
+    }, language),
+    options: [
+      {
+        id: 'single_user',
+        label: fallbackLocalized({
+          en: 'Single user account',
+          ru: 'Один пользовательский аккаунт',
+        }, language),
+        description: fallbackLocalized({
+          en: 'Fastest path: each account owns only its own data.',
+          ru: 'Самый быстрый путь: каждый аккаунт видит только свои данные.',
+        }, language),
+      },
+      {
+        id: 'team_workspace',
+        label: fallbackLocalized({
+          en: 'Shared team workspace',
+          ru: 'Общее рабочее пространство команды',
+        }, language),
+        description: fallbackLocalized({
+          en: 'Several members work inside one shared workspace.',
+          ru: 'Несколько участников работают внутри одного общего workspace.',
+        }, language),
+      },
+      {
+        id: 'multi_tenant_org',
+        label: fallbackLocalized({
+          en: 'Full multi-tenant organizations',
+          ru: 'Полноценные multi-tenant организации',
+        }, language),
+        description: fallbackLocalized({
+          en: 'Separate organizations, invite flows, and tenant-aware permissions.',
+          ru: 'Отдельные организации, инвайты и tenant-aware права доступа.',
+        }, language),
+      },
+    ],
+    defaultChoiceId: 'single_user',
+    impact: fallbackLocalized({
+      en: 'This changes the auth model, data schema, and access boundaries.',
+      ru: 'Это меняет auth-модель, схему данных и границы доступа.',
+    }, language),
+  };
+}
+
+function buildPaymentsBlockingQuestion(
+  productType: ProductMode,
+  language: PlannerSummaryLanguage,
+): ArchitectBlockingQuestion {
+  const defaultChoiceId = productType === 'saas' ? 'recurring_subscription' : 'one_time_purchase';
+  return {
+    id: 'blocking-payments-model',
+    kind: 'blocking',
+    capabilityIds: ['payments'],
+    question: fallbackLocalized({
+      en: 'Which billing model should the first pass implement?',
+      ru: 'Какую модель монетизации должен реализовать первый проход?',
+    }, language),
+    options: [
+      {
+        id: 'one_time_purchase',
+        label: fallbackLocalized({
+          en: 'One-time purchase',
+          ru: 'Разовая покупка',
+        }, language),
+        description: fallbackLocalized({
+          en: 'Single checkout with no recurring billing logic.',
+          ru: 'Один checkout без логики регулярных списаний.',
+        }, language),
+      },
+      {
+        id: 'recurring_subscription',
+        label: fallbackLocalized({
+          en: 'Recurring subscription',
+          ru: 'Регулярная подписка',
+        }, language),
+        description: fallbackLocalized({
+          en: 'Plans, billing cycles, and subscription status handling.',
+          ru: 'Планы, циклы оплаты и учёт статуса подписки.',
+        }, language),
+      },
+      {
+        id: 'manual_upgrade',
+        label: fallbackLocalized({
+          en: 'Manual upgrade / invoice later',
+          ru: 'Ручной апгрейд / счёт позже',
+        }, language),
+        description: fallbackLocalized({
+          en: 'Show paid tiers in UI, but defer automated billing integration.',
+          ru: 'Показать платные тарифы в UI, но отложить автоматическую биллинговую интеграцию.',
+        }, language),
+      },
+    ],
+    defaultChoiceId,
+    impact: fallbackLocalized({
+      en: 'This changes pricing UI, checkout flow, and entitlement handling.',
+      ru: 'Это меняет pricing UI, checkout-флоу и логику доступа по тарифу.',
+    }, language),
+  };
+}
+
+function normalizeComparableQuestion(question: string): string {
+  return question.trim().toLowerCase();
+}
+
+function isTenantScopeQuestion(question: string): boolean {
+  return /multi[\s-]?tenant|org[-\s]?scoped|organization|tenant isolation|single[-\s]?user|организац|мультиаренд/i.test(question);
+}
+
+function isPaymentsQuestion(question: string): boolean {
+  return /billing model|payment model|one[-\s]?time|recurring subscription|subscription|модель оплат|подписк|разовая покупка/i.test(question);
+}
+
+function isGenericDataVisibilityQuestion(question: string): boolean {
+  return /shared|public board|private per[-\s]?user|public or private|общие|публичн|приватн/i.test(question);
+}
+
+function isGenericBuildModeQuestion(question: string): boolean {
+  return /need backend|have backend|should it have auth|do you need backend|нужен бэкенд|нужна авторизац|нужен auth/i.test(question);
+}
+
+export function buildArchitectQuestions(input: {
+  capabilities: InferredCapability[];
+  productType: ProductMode;
+  defaultScopeId: KickoffBuildScopeId;
+  language?: string;
+  candidateQuestions?: string[];
+  onDiagnostic?: (message: string) => void;
+}): KickoffArchitectQuestion[] {
+  const normalizedLanguage = normalizePlannerLanguage(input.language);
+  const questions: KickoffArchitectQuestion[] = [
+    ...buildModeAssumptions(input.defaultScopeId, normalizedLanguage),
+  ];
+  const seenAssumptions = new Set(
+    questions
+      .filter((question): question is ArchitectAssumption => question.kind === 'assumption')
+      .map(question => normalizeComparableQuestion(question.assumption)),
+  );
+  const seenBlocking = new Set<string>();
+
+  for (const rawQuestion of input.candidateQuestions ?? []) {
+    const trimmedQuestion = rawQuestion.trim();
+    if (!trimmedQuestion) continue;
+
+    if (isTenantScopeQuestion(trimmedQuestion)) {
+      const blocking = buildTenantScopeBlockingQuestion(normalizedLanguage);
+      if (!seenBlocking.has(blocking.id)) {
+        questions.push(blocking);
+        seenBlocking.add(blocking.id);
+      }
+      continue;
+    }
+
+    if (isPaymentsQuestion(trimmedQuestion)) {
+      const blocking = buildPaymentsBlockingQuestion(input.productType, normalizedLanguage);
+      if (!seenBlocking.has(blocking.id)) {
+        questions.push(blocking);
+        seenBlocking.add(blocking.id);
+      }
+      continue;
+    }
+
+    if (isGenericDataVisibilityQuestion(trimmedQuestion) || isGenericBuildModeQuestion(trimmedQuestion)) {
+      const fallbackAssumptions = buildModeAssumptions(input.defaultScopeId, normalizedLanguage);
+      for (const assumption of fallbackAssumptions) {
+        const key = normalizeComparableQuestion(assumption.assumption);
+        if (!seenAssumptions.has(key)) {
+          questions.push(assumption);
+          seenAssumptions.add(key);
+        }
+      }
+      input.onDiagnostic?.(`[Architect] Default assumption used instead of passive clarification: ${trimmedQuestion}`);
+      continue;
+    }
+
+    input.onDiagnostic?.(`[Architect] TODO interactive clarification skipped for first pass: ${trimmedQuestion}`);
   }
 
-  return questions.slice(0, 3);
+  return questions;
 }
 
 // ─── Template catalog types ───────────────────────────────────────────────────
@@ -1036,7 +1309,7 @@ Return ONLY valid JSON matching this schema (no prose, no markdown fences):
   "firstPassCapabilities": ["backend","auth","ai_chat","analytics","map","storage","scanner"],
   "deferredCapabilities": ["payments","notifications","admin"],
   "implementationOrder": ["step one title","step two title","step three title"],
-  "openQuestions": ["question only if truly blocking and high-leverage — max 2"],
+  "openQuestions": ["blocking clarification only if the build truly must wait — max 1"],
   "designIntent": { "mood": "calm|corporate|luxury|playful|brutal", "contrast": "low|medium|high", "radius": "sharp|soft|pill" },
   "sections": [
     { "template": "HeroLamp", "props": { "title": "...", "subtitle": "...", "ctaText": "...", "ctaHref": "#pricing" } },
@@ -1048,8 +1321,9 @@ Rules:
 - firstPassCapabilities: only what is genuinely needed for a first working prototype
 - deferredCapabilities: real features the user asked for, but not needed in the first pass
 - implementationOrder: 3–5 steps, in order, each a short imperative phrase
-- openQuestions: 0–2 questions maximum; only if the answer materially changes architecture
-- NEVER ask about tech stack, colors, or obvious choices. Never include clarifying questions about things you can infer.
+- openQuestions: 0–1 questions maximum; only if the build truly must wait for the answer
+- If the first pass can safely proceed with a reasonable default, do not ask a question
+- NEVER ask generic public/private, backend, auth, tech stack, colors, or obvious-choice questions
 
 ${TEMPLATE_CATALOG}`;
 
@@ -1395,18 +1669,20 @@ function buildSnapshotFromPlan(
       updatedAt: now,
     }));
 
-  const openQuestions: OpenArchitectureQuestion[] = plan.openQuestions.map(q => ({
-    id: `oq:${branchId}:${q.id}`,
-    projectId,
+  const openQuestions: OpenArchitectureQuestion[] = plan.questions
+    .filter((question): question is ArchitectBlockingQuestion => question.kind === 'blocking')
+    .map(question => ({
+      id: `oq:${branchId}:${question.id}`,
+      projectId,
       branchId,
       phase: 'pre_build_draft' as const,
-      title: q.title,
-      summary: buildOpenQuestionSummary(q.impact, normalizedLanguage),
+      title: question.question,
+      summary: buildBlockingQuestionSummary(question.impact, normalizedLanguage),
       status: 'open' as const,
-    affectedCapabilityIds: q.capabilityIds,
-    createdAt: now,
-    updatedAt: now,
-  }));
+      affectedCapabilityIds: question.capabilityIds,
+      createdAt: now,
+      updatedAt: now,
+    }));
 
   const architecture = createProjectBranchArchitecture(projectId, branchId, branchId, now);
   architecture.branch.summary = plan.branchBriefSummary;
@@ -1533,7 +1809,13 @@ export function applyKickoffSelectionToBuildPlan(
       selectedOptionLabel: selectedOption.label,
       selectedCapabilityIds: [...selectedCapabilityIds],
       deferredCapabilityIds,
-      openQuestions: kickoffPlan.openQuestions.map(question => question.title),
+      questions: kickoffPlan.questions,
+      blockingQuestions: kickoffPlan.questions
+        .filter((question): question is ArchitectBlockingQuestion => question.kind === 'blocking')
+        .map(question => question.question),
+      assumptions: kickoffPlan.questions
+        .filter((question): question is ArchitectAssumption => question.kind === 'assumption')
+        .map(question => question.assumption),
       implementationSteps: kickoffPlan.implementationSteps.map(step => step.title),
     },
   };
@@ -1677,17 +1959,18 @@ export const ArchitectPlannerService = {
         }))
       : heuristicSteps;
 
-    // Open questions (LLM override if available)
-    const openQuestions: KickoffOpenQuestion[] = llmOpenQuestions.length > 0
-      ? llmOpenQuestions.map((title, idx) => ({
-          id: `oq-${idx + 1}`,
-          title,
-          capabilityIds: [],
-          impact: 'high' as const,
-        }))
-      : buildOpenQuestions(capabilities, productType, normalizedLanguage);
-
     const { options: scopeOptions, defaultId: defaultOptionId } = buildScopeOptions(capabilities, normalizedLanguage);
+    const questionCandidates = llmOpenQuestions.length > 0
+      ? llmOpenQuestions
+      : buildHeuristicBlockingQuestionCandidates(capabilities, productType, normalizedLanguage);
+    const questions = buildArchitectQuestions({
+      capabilities,
+      productType,
+      defaultScopeId: defaultOptionId,
+      language: normalizedLanguage,
+      candidateQuestions: questionCandidates,
+      onDiagnostic: onLog,
+    });
 
     onLog?.(`[Architect] Plan ready — ${productType}, ${capabilities.filter(c => c.scope === 'first_pass').length} capabilities in first pass, ${capabilities.filter(c => c.scope === 'deferred').length} deferred`);
 
@@ -1696,7 +1979,7 @@ export const ArchitectPlannerService = {
       branchBriefSummary,
       capabilities,
       implementationSteps,
-      openQuestions,
+      questions,
       scopeOptions,
       defaultOptionId,
       rawAnalysis,
@@ -1804,23 +2087,74 @@ export const ArchitectPlannerService = {
       lines.push('');
     }
 
-    lines.push(`**${copy.buildOptions}:**`);
-    for (const opt of plan.scopeOptions.filter(o => o.id !== 'revise')) {
-      const isDefault = opt.id === plan.defaultOptionId;
-      const localized = localizeScopeOptionSummary(opt, normalizedLanguage);
-      lines.push(`${isDefault ? '→' : ' '} **${localized.label}** — ${localized.description}`);
-    }
-    lines.push('');
-
-    if (plan.openQuestions.length > 0) {
-      lines.push(`**${copy.openQuestions}:**`);
-      for (const q of plan.openQuestions) {
-        lines.push(`• ${q.title}`);
+    const anyPlan = plan as any;
+    if (anyPlan.selectedOptionId) {
+      const selectedOpt = plan.scopeOptions.find(o => o.id === anyPlan.selectedOptionId);
+      if (selectedOpt) {
+        const localized = localizeScopeOptionSummary(selectedOpt, normalizedLanguage);
+        lines.push(`**${normalizedLanguage === 'ru' ? 'Выбранный объём сборки' : 'Selected build mode'}:**`);
+        lines.push(`• **${localized.label}** — ${localized.description}`);
+        lines.push('');
+      }
+    } else {
+      lines.push(`**${copy.buildOptions}:**`);
+      for (const opt of plan.scopeOptions.filter(o => o.id !== 'revise')) {
+        const isDefault = opt.id === plan.defaultOptionId;
+        const localized = localizeScopeOptionSummary(opt, normalizedLanguage);
+        lines.push(`${isDefault ? '→' : ' '} **${localized.label}** — ${localized.description}`);
       }
       lines.push('');
     }
 
-    lines.push(`_${copy.footer}_`);
+    const assumptions = plan.questions.filter(
+      (question): question is ArchitectAssumption => question.kind === 'assumption',
+    );
+    let blockingQuestions = plan.questions.filter(
+      (question): question is ArchitectBlockingQuestion => question.kind === 'blocking',
+    );
+    const notes = plan.questions.filter(
+      (question): question is ArchitectNote => question.kind === 'note',
+    );
+
+    if (anyPlan.selectedOptionId) {
+      for (const bq of blockingQuestions) {
+        const defaultChoice = bq.options.find(o => o.id === bq.defaultChoiceId) || bq.options[0];
+        assumptions.push({
+          kind: 'assumption',
+          id: bq.id,
+          capabilityIds: bq.capabilityIds,
+          assumption: defaultChoice ? defaultChoice.label : bq.question,
+          reason: bq.question
+        } as unknown as ArchitectAssumption);
+      }
+      blockingQuestions = [];
+    }
+
+    if (assumptions.length > 0) {
+      lines.push(`**${copy.assumptions}:**`);
+      for (const assumption of assumptions) {
+        lines.push(`• ${assumption.assumption} — ${assumption.reason}`);
+      }
+      lines.push('');
+    }
+
+    if (blockingQuestions.length > 0) {
+      lines.push(`**${copy.decisionRequired}:**`);
+      lines.push(`• ${buildBlockingQuestionFooter(blockingQuestions.length, normalizedLanguage)}`);
+      lines.push('');
+    }
+
+    if (notes.length > 0) {
+      lines.push(`**${copy.notes}:**`);
+      for (const note of notes) {
+        lines.push(`• ${note.text}`);
+      }
+      lines.push('');
+    }
+
+    if (!(plan as any).selectedOptionId) {
+      lines.push(`_${copy.footer}_`);
+    }
 
     return lines.join('\n');
   },

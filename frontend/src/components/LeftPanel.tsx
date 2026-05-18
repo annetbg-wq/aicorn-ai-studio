@@ -3,7 +3,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import type { KickoffBuildScopeId } from '../services/ArchitectPlannerService';
+import type {
+  ArchitectBlockingQuestion,
+  KickoffBuildScopeId,
+} from '../services/ArchitectPlannerService';
 import type { BranchRealityUiSummary } from '../services/BranchArchitectureOrchestrationService';
 import { normalizeAppLanguage } from '../shared/appLanguage';
 import type {
@@ -47,6 +50,7 @@ interface ChatMessage {
   generationTrust?: GenerationTrustState;
   branchReality?: BranchRealityUiSummary | null;
   questions?: string[];
+  blockingQuestions?: ArchitectBlockingQuestion[];
   lineageId?: string;
   lineageRootMessageId?: string;
   startsLineage?: boolean;
@@ -1141,78 +1145,190 @@ const SurfaceChoiceCard: React.FC<{
 };
 
 const ClarificationCard: React.FC<{
-  questions: string[];
+  questions?: string[];
+  blockingQuestions?: ArchitectBlockingQuestion[];
   isDark: boolean;
   textColor: string;
   subText: string;
   onAnswerAndBuild?: (answers: string) => void;
   onSkip?: () => void;
-}> = ({ questions, isDark, textColor, subText, onAnswerAndBuild, onSkip }) => {
+}> = ({ questions = [], blockingQuestions = [], isDark, textColor, subText, onAnswerAndBuild, onSkip }) => {
   const [answers, setAnswers] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
   const accent = isDark ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.07)';
   const border = isDark ? 'rgba(139,92,246,0.22)' : 'rgba(139,92,246,0.18)';
+  const isStructured = blockingQuestions.length > 0;
+
+  useEffect(() => {
+    if (!isStructured) return;
+    setSelectedChoices(
+      Object.fromEntries(
+        blockingQuestions.map(question => [question.id, question.defaultChoiceId]),
+      ),
+    );
+  }, [blockingQuestions, isStructured]);
+
   if (submitted) return (
     <div style={{ fontSize: 12, color: subText, padding: '8px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ color: '#22c55e' }}>&#x2713;</span> {String.fromCodePoint(0x041E,0x0442,0x0432,0x0435,0x0442,0x044B,0x0020,0x0443,0x0447,0x0442,0x0435,0x043D,0x044B,0x0020,0x0432,0x0020,0x0433,0x0435,0x043D,0x0435,0x0440,0x0430,0x0446,0x0438,0x0438)}
+      <span style={{ color: '#22c55e' }}>&#x2713;</span>
+      {isStructured ? 'Choice applied — build continues.' : String.fromCodePoint(0x041E,0x0442,0x0432,0x0435,0x0442,0x044B,0x0020,0x0443,0x0447,0x0442,0x0435,0x043D,0x044B,0x0020,0x0432,0x0020,0x0433,0x0435,0x043D,0x0435,0x0440,0x0430,0x0446,0x0438,0x0438)}
     </div>
   );
+
   return (
     <div className="max-w-[92%]" style={{ background: accent, border: `1px solid ${border}`, borderRadius: 12, padding: '11px 14px', userSelect: 'text' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
         <span style={{ fontSize: 14 }}>&#x1F914;</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{String.fromCodePoint(0x0423,0x0442,0x043E,0x0447,0x043D,0x044E,0x0020,0x043F,0x0435,0x0440,0x0435,0x0434,0x0020,0x0441,0x0442,0x0430,0x0440,0x0442,0x043E,0x043C,0x003A)}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>
+          {isStructured ? 'Decision required before build continues:' : String.fromCodePoint(0x0423,0x0442,0x043E,0x0447,0x043D,0x044E,0x0020,0x043F,0x0435,0x0440,0x0435,0x0434,0x0020,0x0441,0x0442,0x0430,0x0440,0x0442,0x043E,0x043C,0x003A)}
+        </span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {questions.map((q, i) => (
-          <div key={i} style={{ display: 'flex', gap: 7, fontSize: 12, color: textColor, lineHeight: 1.5 }}>
-            <span style={{ color: subText, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
-            <span>{q}</span>
-          </div>
-        ))}
-      </div>
+
+      {isStructured ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {blockingQuestions.map((question, index) => {
+            const selectedChoiceId = selectedChoices[question.id] ?? question.defaultChoiceId;
+            return (
+              <div key={question.id} style={{ display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 7, fontSize: 12, color: textColor, lineHeight: 1.5 }}>
+                  <span style={{ color: subText, fontWeight: 700, flexShrink: 0 }}>{index + 1}.</span>
+                  <span>{question.question}</span>
+                </div>
+                <div style={{ fontSize: 11, color: subText, lineHeight: 1.5 }}>
+                  {question.impact}
+                </div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {question.options.map(option => {
+                    const isSelected = option.id === selectedChoiceId;
+                    const isRecommended = option.id === question.defaultChoiceId;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => setSelectedChoices(prev => ({ ...prev, [question.id]: option.id }))}
+                        aria-pressed={isSelected}
+                        style={{
+                          textAlign: 'left',
+                          padding: '10px 12px',
+                          borderRadius: 10,
+                          border: `1px solid ${isSelected ? '#8b5cf6' : border}`,
+                          background: isSelected ? 'rgba(139,92,246,0.16)' : 'transparent',
+                          color: textColor,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700 }}>{option.label}</div>
+                          {isRecommended ? (
+                            <span style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              color: '#8b5cf6',
+                              background: 'rgba(139,92,246,0.12)',
+                              borderRadius: 999,
+                              padding: '2px 8px',
+                            }}>
+                              Recommended
+                            </span>
+                          ) : null}
+                        </div>
+                        <div style={{ fontSize: 11, color: subText, marginTop: 4, lineHeight: 1.5 }}>
+                          {option.description}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {questions.map((q, i) => (
+            <div key={i} style={{ display: 'flex', gap: 7, fontSize: 12, color: textColor, lineHeight: 1.5 }}>
+              <span style={{ color: subText, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+              <span>{q}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {onAnswerAndBuild && (
-        <>
-          <textarea
-            value={answers}
-            onChange={e => setAnswers(e.target.value)}
-            placeholder={String.fromCodePoint(0x0412,0x0430,0x0448,0x0438,0x0020,0x043E,0x0442,0x0432,0x0435,0x0442,0x044B,0x002E,0x002E,0x002E)}
-            rows={2}
-            style={{
-              marginTop: 10, width: '100%', resize: 'vertical',
-              padding: '7px 10px', borderRadius: 8, fontSize: 12, lineHeight: 1.5,
-              background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-              border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
-              color: textColor, outline: 'none', boxSizing: 'border-box' as const,
-            }}
-          />
-          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+        isStructured ? (
+          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
             <button
-              onClick={() => { if (answers.trim()) { setSubmitted(true); onAnswerAndBuild(answers); } }}
-              disabled={!answers.trim()}
-              style={{
-                padding: '6px 14px', borderRadius: 8, border: 'none',
-                cursor: answers.trim() ? 'pointer' : 'not-allowed',
-                background: answers.trim() ? '#8b5cf6' : 'rgba(139,92,246,0.3)',
-                color: '#fff', fontSize: 12, fontWeight: 600,
+              type="button"
+              onClick={() => {
+                const answer = blockingQuestions
+                  .map(question => {
+                    const selectedChoice = question.options.find(
+                      option => option.id === (selectedChoices[question.id] ?? question.defaultChoiceId),
+                    ) ?? question.options[0];
+                    return `${question.question}: ${selectedChoice.label}. ${selectedChoice.description}`;
+                  })
+                  .join('\n');
+                setSubmitted(true);
+                onAnswerAndBuild(answer);
               }}
-            >{String.fromCodePoint(0x041E,0x0442,0x0432,0x0435,0x0442,0x0438,0x0442,0x044C,0x0020,0x0438,0x0020,0x0441,0x0442,0x0440,0x043E,0x0438,0x0442,0x044C,0x0020,0x2192)}</button>
-            {onSkip && (
-              <button
-                onClick={onSkip}
-                style={{
-                  padding: '6px 14px', borderRadius: 8,
-                  border: `1px solid ${border}`,
-                  background: 'transparent', color: subText, fontSize: 12, cursor: 'pointer',
-                }}
-              >{String.fromCodePoint(0x041F,0x0440,0x043E,0x043F,0x0443,0x0441,0x0442,0x0438,0x0442,0x044C)}</button>
-            )}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 8,
+                border: 'none',
+                cursor: 'pointer',
+                background: '#8b5cf6',
+                color: '#fff',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              Apply choice and continue
+            </button>
           </div>
-        </>
+        ) : (
+          <>
+            <textarea
+              value={answers}
+              onChange={e => setAnswers(e.target.value)}
+              placeholder={String.fromCodePoint(0x0412,0x0430,0x0448,0x0438,0x0020,0x043E,0x0442,0x0432,0x0435,0x0442,0x044B,0x002E,0x002E,0x002E)}
+              rows={2}
+              style={{
+                marginTop: 10, width: '100%', resize: 'vertical',
+                padding: '7px 10px', borderRadius: 8, fontSize: 12, lineHeight: 1.5,
+                background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
+                color: textColor, outline: 'none', boxSizing: 'border-box' as const,
+              }}
+            />
+            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => { if (answers.trim()) { setSubmitted(true); onAnswerAndBuild(answers); } }}
+                disabled={!answers.trim()}
+                style={{
+                  padding: '6px 14px', borderRadius: 8, border: 'none',
+                  cursor: answers.trim() ? 'pointer' : 'not-allowed',
+                  background: answers.trim() ? '#8b5cf6' : 'rgba(139,92,246,0.3)',
+                  color: '#fff', fontSize: 12, fontWeight: 600,
+                }}
+              >{String.fromCodePoint(0x041E,0x0442,0x0432,0x0435,0x0442,0x0438,0x0442,0x044C,0x0020,0x0438,0x0020,0x0441,0x0442,0x0440,0x043E,0x0438,0x0442,0x044C,0x0020,0x2192)}</button>
+              {onSkip && (
+                <button
+                  onClick={onSkip}
+                  style={{
+                    padding: '6px 14px', borderRadius: 8,
+                    border: `1px solid ${border}`,
+                    background: 'transparent', color: subText, fontSize: 12, cursor: 'pointer',
+                  }}
+                >{String.fromCodePoint(0x041F,0x0440,0x043E,0x043F,0x0443,0x0441,0x0442,0x0438,0x0442,0x044C)}</button>
+              )}
+            </div>
+          </>
+        )
       )}
     </div>
   );
-};;
+};
 
 const THEME_COLORS: Record<string, string> = {
   'dark-slate': '#475569',
@@ -2161,7 +2277,12 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
               const isUser          = m.role === 'user';
               const isTyping        = !isUser && m.content === '...' && isGenerating;
               const isReport        = m.type === 'generation-report' && !!m.report;
-              const isClarification = m.type === 'clarification' && Array.isArray(m.questions) && (m.questions as string[]).length > 0;
+              const blockingQuestions = Array.isArray((m as any).blockingQuestions)
+                ? (m as any).blockingQuestions as ArchitectBlockingQuestion[]
+                : [];
+              const legacyQuestions = Array.isArray(m.questions) ? (m.questions as string[]) : [];
+              const isClarification = m.type === 'clarification'
+                && (blockingQuestions.length > 0 || legacyQuestions.length > 0);
               const isBlueprint     = m.type === 'blueprint';
               // content may be a vision array: [{type:'image_url',...},{type:'text',...}]
               const imgUrls: string[] = Array.isArray(m.content)
@@ -2234,12 +2355,13 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                   style={{ animation: 'fadeSlideIn 0.2s ease both' }}>
                   {isClarification ? (
                     <ClarificationCard
-                      questions={m.questions as string[]}
+                      questions={legacyQuestions}
+                      blockingQuestions={blockingQuestions}
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}
                       onAnswerAndBuild={onAnswerClarification ?? onSubmitClarification}
-                      onSkip={() => { onAnswerClarification?.(''); }}
+                      onSkip={blockingQuestions.length > 0 ? undefined : () => { onAnswerClarification?.(''); }}
                     />
                   ) : isReport && m.report ? (
                     <GenerationReportCard

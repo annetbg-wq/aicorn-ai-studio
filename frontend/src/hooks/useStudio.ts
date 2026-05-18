@@ -91,6 +91,7 @@ import {
   ArchitectPlannerService,
   applyKickoffSelectionToBuildPlan,
   assertKickoffScopeApplied,
+  type ArchitectBlockingQuestion,
   type ArchitectKickoffPlan,
   type KickoffBuildScopeId,
 } from '../services/ArchitectPlannerService';
@@ -4131,12 +4132,14 @@ export const useStudio = () => {
               timestamp: Date.now(),
             });
           }
-          const highImpactQs = architectPlan.openQuestions.filter(q => q.impact === 'high');
-          if (highImpactQs.length > 0 && !controller.signal.aborted) {
+          const blockingQuestions = architectPlan.questions.filter(
+            (question): question is ArchitectBlockingQuestion => question.kind === 'blocking',
+          );
+          if (blockingQuestions.length > 0 && !controller.signal.aborted) {
             chatAppend({
               role:      'assistant' as const,
               type:      'clarification' as const,
-              questions: highImpactQs.map(q => q.title),
+              blockingQuestions,
               content:   '',
               timestamp: Date.now() + 2,
             });

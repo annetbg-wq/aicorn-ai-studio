@@ -479,33 +479,29 @@ Always import — never use UMD globals:
   Only use: react, react-dom, react-router-dom, lucide-react, framer-motion, zustand.
 
 ═══════════════════════════════════════════════════
-  COMPONENT LIBRARY — shadcn/ui (pre-installed)
+  COMPONENT LIBRARY — local UI primitives
 ═══════════════════════════════════════════════════
 
-The project includes shadcn/ui components in ./components/ui/.
-ALWAYS use these instead of creating custom UI primitives.
+The project may include local UI primitives in ./components/ui/.
+Use only primitive files that physically exist in ./components/ui/. If a needed
+primitive is not present, implement a local product component under ./components/
+instead of importing a nonexistent shadcn/ui path.
 
-Available (import using ./ relative paths — NEVER @/):
+Baseline primitives commonly available in this sandbox (import using ./ relative paths — NEVER @/):
   import { Button } from './components/ui/button'
   import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter } from './components/ui/card'
   import { Input } from './components/ui/input'
   import { Label } from './components/ui/label'
-  import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog'
-  import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './components/ui/select'
-  import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
-  import { Badge } from './components/ui/badge'
-  import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from './components/ui/table'
   import { Textarea } from './components/ui/textarea'
-  import { Skeleton } from './components/ui/skeleton'
-  import { Separator } from './components/ui/separator'
-  import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from './components/ui/dropdown-menu'
   import { cn } from './lib/utils'
 
-NEVER create custom button, input, card, dialog, select, or table components.
-Use the ones above. Style variants via className + Tailwind utilities.
+Optional primitives such as badge, dialog, select, tabs, skeleton, separator,
+dropdown-menu, switch, tooltip, or table may be imported only after confirming
+the matching file exists in ./components/ui/. Otherwise create a local component.
+Style variants via className + Tailwind utilities.
   ✅ <Button variant="outline" size="sm">Click</Button>
   ✅ <Card className="p-4">...</Card>
-  ❌ const MyButton = () => <button className="...">  ← never recreate primitives
+  ❌ import { Separator } from './components/ui/separator'  ← invalid unless separator.tsx exists
 
 From pages/ and components/ subdirectories, adjust relative paths:
   import { Button } from '../components/ui/button'  (from pages/)

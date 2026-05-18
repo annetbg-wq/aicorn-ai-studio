@@ -56,6 +56,31 @@ function sortPaths(paths: string[]): string[] {
   return [...paths].sort((a, b) => a.localeCompare(b));
 }
 
+const primitiveFileAliases: Record<string, string[]> = {
+  AlertDialog: ['alert-dialog'],
+  Label: ['label'],
+  ScrollArea: ['scroll-area'],
+};
+
+function getUiRoot(id: SkeletonId): string {
+  return path.join(getSkeletonSrcRoot(id), 'components', 'ui');
+}
+
+function uiModuleExists(uiRoot: string, moduleName: string): boolean {
+  return [
+    path.join(uiRoot, `${moduleName}.ts`),
+    path.join(uiRoot, `${moduleName}.tsx`),
+    path.join(uiRoot, moduleName, 'index.ts'),
+    path.join(uiRoot, moduleName, 'index.tsx'),
+  ].some(candidate => fs.existsSync(candidate));
+}
+
+function uiPrimitiveExists(id: SkeletonId, primitive: string): boolean {
+  const uiRoot = getUiRoot(id);
+  const candidates = primitiveFileAliases[primitive] ?? [primitive];
+  return candidates.some(moduleName => uiModuleExists(uiRoot, moduleName));
+}
+
 describe('SkeletonRegistry manifests for new skeleton families', () => {
   it('uses object workingGroups whose paths all exist physically', () => {
     for (const { id, manifest } of newSkeletons) {
@@ -118,6 +143,39 @@ describe('SkeletonRegistry manifests for new skeleton families', () => {
       }
       for (const deltaFile of manifest.deltaFiles) {
         expect(promptBlock, `${id} prompt missing delta file ${deltaFile}`).toContain(deltaFile);
+      }
+    }
+  });
+});
+
+describe('SkeletonRegistry UI primitive catalogues', () => {
+  const skeletonIds = Object.keys(SKELETON_REGISTRY) as SkeletonId[];
+
+  it('keeps every skeleton UI barrel export backed by a physical module', () => {
+    for (const id of skeletonIds) {
+      const indexPath = path.join(getUiRoot(id), 'index.ts');
+      if (!fs.existsSync(indexPath)) continue;
+
+      const indexSource = fs.readFileSync(indexPath, 'utf-8');
+      const exports = Array.from(indexSource.matchAll(/export\s+\*\s+from\s+['"]\.\/([^'"]+)['"]/g))
+        .map(match => match[1]);
+
+      for (const exportedModule of exports) {
+        expect(
+          uiModuleExists(getUiRoot(id), exportedModule),
+          `${id} UI barrel exports missing module ${exportedModule}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('advertises only UI primitives that exist in the skeleton source tree', () => {
+    for (const id of skeletonIds) {
+      for (const primitive of SKELETON_REGISTRY[id].uiPrimitives) {
+        expect(
+          uiPrimitiveExists(id, primitive),
+          `${id} advertises missing UI primitive ${primitive}`,
+        ).toBe(true);
       }
     }
   });

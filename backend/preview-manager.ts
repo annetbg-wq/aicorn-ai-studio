@@ -407,6 +407,166 @@ async function ensureShadcnComponents(workspaceRoot: string): Promise<void> {
   });
 }
 
+export interface UiPrimitiveImport {
+  primitive: string;
+  importedBy: string;
+  specifier: string;
+}
+
+export interface UiPrimitiveGuardResult {
+  imports: UiPrimitiveImport[];
+  materialized: string[];
+}
+
+const UI_PRIMITIVE_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
+const KNOWN_MATERIALIZABLE_UI_PRIMITIVES = new Set(['scroll-area']);
+
+function stripModuleExtension(value: string): string {
+  return value.replace(/\.(?:tsx?|jsx?)$/i, '');
+}
+
+export function extractUiPrimitiveImportName(specifier: string): string | null {
+  const normalized = stripModuleExtension(specifier.replace(/\\/g, '/'));
+  const match = normalized.match(/(?:^|\/)components\/ui\/([^/]+)$/);
+  if (!match) return null;
+  const primitive = match[1].trim();
+  return /^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(primitive) ? primitive : null;
+}
+
+export function findUiPrimitiveImportsInSource(source: string, importedBy: string): UiPrimitiveImport[] {
+  const imports: UiPrimitiveImport[] = [];
+  const seen = new Set<string>();
+  const addSpecifier = (specifier: string) => {
+    const primitive = extractUiPrimitiveImportName(specifier);
+    if (!primitive) return;
+    const key = `${primitive}\0${specifier}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    imports.push({ primitive, importedBy, specifier });
+  };
+
+  for (const match of source.matchAll(/\bfrom\s*['"]([^'"]+)['"]/g)) {
+    addSpecifier(match[1]);
+  }
+  for (const match of source.matchAll(/\bimport\s*['"]([^'"]+)['"]/g)) {
+    addSpecifier(match[1]);
+  }
+
+  return imports;
+}
+
+function hasUiPrimitiveFile(uiRoot: string, primitive: string): boolean {
+  const candidates = [
+    `${primitive}.ts`,
+    `${primitive}.tsx`,
+    path.join(primitive, 'index.ts'),
+    path.join(primitive, 'index.tsx'),
+  ];
+  return candidates.some(candidate => fs.existsSync(path.join(uiRoot, candidate)));
+}
+
+function canonicalUiPrimitiveCandidates(primitive: string, skeletonId?: string): string[] {
+  const skeletonIds = [
+    skeletonId && /^[a-zA-Z0-9-]+$/.test(skeletonId) ? skeletonId : null,
+    'mobile-app',
+  ].filter((value, index, arr): value is string => Boolean(value) && arr.indexOf(value) === index);
+
+  return skeletonIds.flatMap(id => {
+    const uiRoot = path.join(SKELETONS_ROOT, id, `skeleton-${id}`, 'src', 'components', 'ui');
+    return [
+      path.join(uiRoot, `${primitive}.tsx`),
+      path.join(uiRoot, `${primitive}.ts`),
+      path.join(uiRoot, primitive, 'index.tsx'),
+      path.join(uiRoot, primitive, 'index.ts'),
+    ];
+  });
+}
+
+async function materializeKnownUiPrimitive(
+  uiRoot: string,
+  primitive: string,
+  skeletonId?: string,
+): Promise<string> {
+  if (!KNOWN_MATERIALIZABLE_UI_PRIMITIVES.has(primitive)) {
+    throw new Error(`Missing UI primitive import: components/ui/${primitive}`);
+  }
+
+  const canonicalSource = canonicalUiPrimitiveCandidates(primitive, skeletonId)
+    .find(candidate => fs.existsSync(candidate));
+
+  if (!canonicalSource) {
+    throw new Error(`Missing UI primitive import: components/ui/${primitive} (canonical source not found)`);
+  }
+
+  const targetPath = path.join(uiRoot, `${primitive}${path.extname(canonicalSource) || '.tsx'}`);
+  await fsPromises.mkdir(path.dirname(targetPath), { recursive: true });
+  await fsPromises.copyFile(canonicalSource, targetPath);
+  return targetPath;
+}
+
+async function collectSourceFiles(root: string): Promise<string[]> {
+  const out: string[] = [];
+  const visit = async (dir: string) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fsPromises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'build') continue;
+        await visit(entryPath);
+      } else if (UI_PRIMITIVE_SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
+        out.push(entryPath);
+      }
+    }
+  };
+
+  await visit(root);
+  return out;
+}
+
+export async function ensureImportedUiPrimitives(
+  srcDir: string,
+  skeletonId?: string,
+): Promise<UiPrimitiveGuardResult> {
+  const uiRoot = path.join(srcDir, 'components', 'ui');
+  const sourceFiles = await collectSourceFiles(srcDir);
+  const imports: UiPrimitiveImport[] = [];
+  const importByPrimitive = new Map<string, UiPrimitiveImport>();
+
+  for (const sourceFile of sourceFiles) {
+    const content = await fsPromises.readFile(sourceFile, 'utf-8');
+    const importedBy = `src/${path.relative(srcDir, sourceFile).replace(/\\/g, '/')}`;
+    for (const uiImport of findUiPrimitiveImportsInSource(content, importedBy)) {
+      imports.push(uiImport);
+      if (!importByPrimitive.has(uiImport.primitive)) {
+        importByPrimitive.set(uiImport.primitive, uiImport);
+      }
+    }
+  }
+
+  const materialized: string[] = [];
+  for (const [primitive, uiImport] of importByPrimitive) {
+    if (hasUiPrimitiveFile(uiRoot, primitive)) continue;
+
+    if (KNOWN_MATERIALIZABLE_UI_PRIMITIVES.has(primitive)) {
+      const targetPath = await materializeKnownUiPrimitive(uiRoot, primitive, skeletonId);
+      materialized.push(path.relative(srcDir, targetPath).replace(/\\/g, '/'));
+      continue;
+    }
+
+    throw new Error(
+      `Missing UI primitive import: components/ui/${primitive} (imported by ${uiImport.importedBy})`,
+    );
+  }
+
+  return { imports, materialized };
+}
+
 /**
  * Write user files into preview-workspace/src/, stamp __build_id.ts,
  * then run `vite build --outDir builds/<buildId>`.
@@ -495,6 +655,11 @@ async function compileBuild(
     const { fullPath } = resolvePreviewSrcPath(srcDir, filePath);
     await fsPromises.mkdir(path.dirname(fullPath), { recursive: true });
     await fsPromises.writeFile(fullPath, content, 'utf-8');
+  }
+
+  const uiPrimitiveGuard = await ensureImportedUiPrimitives(srcDir, skeletonId);
+  for (const materializedPath of uiPrimitiveGuard.materialized) {
+    console.log(`[preview-manager] Materialized UI primitive: ${materializedPath}`);
   }
 
   // 1.5a. In skeleton mode: force-restore skeleton's index.css after user file writes
