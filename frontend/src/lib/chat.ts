@@ -18,6 +18,8 @@
  *   FILTER            — arbitrary predicate filter (escape hatch)
  */
 
+import type { ArchitectBlockingQuestion } from '../services/ArchitectPlannerService';
+
 export type ChatMessageRole = 'user' | 'assistant' | 'system';
 export type ChatMessageType =
   | 'user'
@@ -66,6 +68,7 @@ export interface ChatMessage {
 
   // clarification fields
   questions?: string[];
+  blockingQuestions?: ArchitectBlockingQuestion[];
 
   // error-handling fields
   retryable?: boolean;

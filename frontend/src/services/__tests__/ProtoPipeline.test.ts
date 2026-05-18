@@ -5,7 +5,11 @@ import {
   validateArchitectJsonShape,
 } from '../architectJson';
 import { resolveDesignContext } from '../DesignContract';
-import { materializePremiumComponents, materializeMediaAssets } from '../ProtoPipeline';
+import {
+  buildUiPrimitiveImportCatalog,
+  materializePremiumComponents,
+  materializeMediaAssets,
+} from '../ProtoPipeline';
 
 describe('ProtoPipeline premium materialization', () => {
   it('copies selected premium component files and the shared registry into preview design-pack paths', async () => {
@@ -75,6 +79,17 @@ describe('ProtoPipeline media materialization', () => {
     for (const path of result.materializedFiles) {
       expect(result.files).toHaveProperty(path);
     }
+  });
+});
+
+describe('ProtoPipeline coder UI primitive catalog', () => {
+  it('lists exact physical import paths and does not advertise unlisted primitives', () => {
+    const catalog = buildUiPrimitiveImportCatalog(['Button', 'ScrollArea']);
+
+    expect(catalog).toContain("Button from '@/components/ui/Button'");
+    expect(catalog).toContain("ScrollArea, ScrollBar from '@/components/ui/scroll-area'");
+    expect(catalog).not.toContain('DropdownMenu');
+    expect(catalog).not.toContain('Separator');
   });
 });
 

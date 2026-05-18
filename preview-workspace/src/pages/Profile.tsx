@@ -1,181 +1,161 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ChevronRight, Crown, LogOut, Shield, Sparkles } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { useProfile } from '@/hooks/useProfile';
-import { useHabits } from '@/hooks/useHabits';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { ROUTES } from '@/config/routes';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+import { Avatar, AvatarFallback } from '@/components/ui/Avatar';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import { User, Calendar, Target, Flame, LogOut, Edit3, Camera } from 'lucide-react';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/Select';
+import { PaywallSheet } from '@/components/PaywallSheet';
+import type { ThemeChoice } from '@/data/types';
 
-const AVATARS = [
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Salem',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Mia',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Leo',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Zoe',
-];
+const PLAN_LABEL: Record<string, string> = {
+  free: 'Free',
+  pro: 'Pro',
+  premium: 'Premium',
+};
 
-export default function Profile() {
+export default function Profile(): JSX.Element {
   const navigate = useNavigate();
-  const { resetProfile } = useApp();
-  const { profile, updateProfile, updateAvatar } = useProfile();
-  const { habits } = useHabits();
-  const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState(profile.name);
-  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const { profile, isPremium, themeChoice, setTheme, setPlan, resetProfile } = useApp();
+  const [paywallOpen, setPaywallOpen] = useState(false);
 
-  const totalHabits = habits.length;
-  const longestStreak = Math.max(...habits.map(h => h.streak), 0);
-  const joinDate = new Date(profile.joinDate).toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-
-  const handleSaveName = () => {
-    if (editName.trim()) {
-      updateProfile({ name: editName.trim() });
-      setIsEditing(false);
-    }
-  };
-
-  const handleResetOnboarding = () => {
+  function handleSignOut(): void {
     resetProfile();
-    navigate('/onboarding', { replace: true });
-  };
-
-  const initials = profile.name
-    ? profile.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-    : '?';
+    navigate(ROUTES.onboarding, { replace: true });
+  }
 
   return (
-    <div className="pb-20">
-      <div className="p-4 space-y-6">
-        <h1 className="text-2xl font-bold text-foreground">Профиль</h1>
+    <div className="flex min-h-full flex-col safe-top">
+      <header className="px-5 pb-4 pt-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
+      </header>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex flex-col items-center">
-              <div className="relative">
-                <Avatar className="w-20 h-20 ring-2 ring-primary/20 ring-offset-2">
-                  {profile.avatar ? (
-                    <AvatarImage src={profile.avatar} alt={profile.name} />
-                  ) : (
-                    <AvatarFallback className="bg-primary/10 text-primary text-xl">
-                      {initials}
-                    </AvatarFallback>
-                  )}
-                </Avatar>
-                <button
-                  className="absolute -bottom-1 -right-1 w-7 h-7 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-md"
-                  onClick={() => setShowAvatarPicker(true)}
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                </button>
-              </div>
+      <main className="flex-1 space-y-6 px-5 pb-32">
+        <section className="flex items-center gap-4 rounded-lg border border-border bg-card p-4">
+          <Avatar className="h-14 w-14">
+            <AvatarFallback className="text-lg">
+              {(profile.name[0] ?? '·').toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-semibold">{profile.name || 'Guest'}</p>
+            <p className="truncate text-sm text-muted-foreground">
+              {profile.goal || 'No goal set'}
+            </p>
+          </div>
+          <Badge variant={isPremium ? 'default' : 'secondary'}>{PLAN_LABEL[profile.plan]}</Badge>
+        </section>
 
-              <div className="mt-4 text-center">
-                {isEditing ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="text-center"
-                      autoFocus
-                    />
-                    <Button size="sm" onClick={handleSaveName}>
-                      Сохранить
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 justify-center">
-                    <h2 className="text-xl font-bold text-foreground">{profile.name || 'Пользователь'}</h2>
-                    <button onClick={() => { setEditName(profile.name); setIsEditing(true); }}>
-                      <Edit3 className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                    </button>
-                  </div>
-                )}
-                <div className="flex items-center justify-center gap-1 mt-1 text-sm text-muted-foreground">
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>С {joinDate}</span>
+        <section className="space-y-2">
+          <h2 className="px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Subscription
+          </h2>
+          {isPremium ? (
+            <button
+              type="button"
+              onClick={() => setPlan('free')}
+              className="group flex w-full items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-muted"
+            >
+              <div className="flex items-center gap-3">
+                <Crown className="h-5 w-5 text-primary" />
+                <div>
+                  <p className="text-sm font-medium">Manage subscription</p>
+                  <p className="text-xs text-muted-foreground">
+                    Currently on {PLAN_LABEL[profile.plan]}
+                  </p>
                 </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Card>
-            <CardContent className="p-4 text-center">
-              <Target className="w-5 h-5 mx-auto mb-1 text-primary" />
-              <div className="text-xl font-bold">{totalHabits}</div>
-              <div className="text-xs text-muted-foreground">всего привычек</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <Flame className="w-5 h-5 mx-auto mb-1 text-warning" />
-              <div className="text-xl font-bold">{longestStreak}</div>
-              <div className="text-xs text-muted-foreground">лучшая серия</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Настройки</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={handleResetOnboarding}
+              <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setPaywallOpen(true)}
+              className="group flex w-full items-center justify-between rounded-lg border border-primary bg-primary/5 px-4 py-3 text-left transition-colors hover:bg-primary/10"
             >
-              <LogOut className="w-4 h-4 mr-2" />
-              Пройти обучение заново
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+              <div className="flex items-center gap-3">
+                <Sparkles className="h-5 w-5 text-primary" />
+                <div>
+                  <p className="text-sm font-medium">Upgrade to Pro</p>
+                  <p className="text-xs text-muted-foreground">Unlock everything</p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-primary transition-transform group-hover:translate-x-0.5" />
+            </button>
+          )}
+        </section>
 
-      <Dialog open={showAvatarPicker} onOpenChange={setShowAvatarPicker}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Выберите аватар</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-3 gap-4 py-4">
-            {AVATARS.map((avatar, index) => (
-              <button
-                key={index}
-                className={`p-2 rounded-xl transition-all ${
-                  profile.avatar === avatar
-                    ? 'ring-2 ring-primary ring-offset-2 bg-primary/5'
-                    : 'hover:bg-muted'
-                }`}
-                onClick={() => {
-                  updateAvatar(avatar);
-                  setShowAvatarPicker(false);
-                }}
-              >
-                <Avatar className="w-16 h-16 mx-auto">
-                  <AvatarImage src={avatar} />
-                  <AvatarFallback>A</AvatarFallback>
-                </Avatar>
-              </button>
-            ))}
+        <section className="space-y-2">
+          <h2 className="px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Preferences
+          </h2>
+          <div className="rounded-lg border border-border bg-card px-4 py-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-medium">Theme</span>
+            </div>
+            <Select value={themeChoice} onValueChange={(value) => setTheme(value as ThemeChoice)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select theme" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="system">Match system</SelectItem>
+                <SelectItem value="light">Light</SelectItem>
+                <SelectItem value="dark">Dark</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        </DialogContent>
-      </Dialog>
+          <SettingRow icon={Shield} label="Privacy" hint="Data and permissions" />
+          {/* PRODUCT: add domain-specific rows (notifications, units, integrations…). */}
+        </section>
+
+        <section className="pt-2">
+          <Button variant="outline" className="w-full" onClick={handleSignOut}>
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </Button>
+        </section>
+      </main>
+
+      <PaywallSheet
+        open={paywallOpen}
+        onOpenChange={setPaywallOpen}
+        onSelect={(plan) => {
+          setPlan(plan);
+          setPaywallOpen(false);
+        }}
+      />
     </div>
+  );
+}
+
+interface SettingRowProps {
+  icon: typeof Shield;
+  label: string;
+  hint: string;
+}
+
+function SettingRow({ icon: Icon, label, hint }: SettingRowProps): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="group flex w-full items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-muted"
+    >
+      <div className="flex items-center gap-3">
+        <Icon className="h-5 w-5 text-muted-foreground" />
+        <div>
+          <p className="text-sm font-medium">{label}</p>
+          <p className="text-xs text-muted-foreground">{hint}</p>
+        </div>
+      </div>
+      <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+    </button>
   );
 }

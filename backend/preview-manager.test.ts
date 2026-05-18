@@ -1,6 +1,11 @@
 import path from 'path';
+import fs from 'fs';
+import fsPromises from 'fs/promises';
+import os from 'os';
 import { describe, expect, it } from 'vitest';
 import {
+  ensureImportedUiPrimitives,
+  findUiPrimitiveImportsInSource,
   getPreviewDocumentTrailingSlashRedirectPath,
   injectPreviewSessionIntoHtmlAssetUrls,
   bindPreviewBuildSession,
@@ -54,6 +59,84 @@ describe('preview-manager path hardening', () => {
     expect(getPreservedPreviewDirs()).toEqual(
       expect.arrayContaining(['components', 'config', 'context', 'hooks', 'lib', 'themes']),
     );
+  });
+});
+
+async function withTempSrc<T>(run: (srcDir: string) => Promise<T>): Promise<T> {
+  const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'preview-ui-guard-'));
+  const srcDir = path.join(root, 'src');
+  try {
+    await fsPromises.mkdir(srcDir, { recursive: true });
+    return await run(srcDir);
+  } finally {
+    await fsPromises.rm(root, { recursive: true, force: true });
+  }
+}
+
+describe('preview-manager UI primitive guard', () => {
+  it('detects aliased and relative UI primitive import specifiers', () => {
+    const imports = findUiPrimitiveImportsInSource(
+      [
+        "import { ScrollArea } from '@/components/ui/scroll-area';",
+        "export { ScrollBar } from '../components/ui/scroll-area';",
+      ].join('\n'),
+      'src/pages/Home.tsx',
+    );
+
+    expect(imports.map(item => item.primitive)).toEqual(['scroll-area', 'scroll-area']);
+    expect(imports[0].importedBy).toBe('src/pages/Home.tsx');
+  });
+
+  it('materializes missing scroll-area from the canonical skeleton before Vite runs', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.mkdir(path.join(srcDir, 'pages'), { recursive: true });
+      await fsPromises.writeFile(
+        path.join(srcDir, 'pages', 'Home.tsx'),
+        "import { ScrollArea } from '@/components/ui/scroll-area';\nexport function Home() { return <ScrollArea />; }\n",
+        'utf-8',
+      );
+
+      const result = await ensureImportedUiPrimitives(srcDir, 'mobile-app');
+
+      expect(result.materialized).toContain('components/ui/scroll-area.tsx');
+      expect(fs.existsSync(path.join(srcDir, 'components', 'ui', 'scroll-area.tsx'))).toBe(true);
+    });
+  });
+
+  it('accepts scroll-area when the primitive file already exists', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.mkdir(path.join(srcDir, 'components', 'ui'), { recursive: true });
+      await fsPromises.mkdir(path.join(srcDir, 'pages'), { recursive: true });
+      await fsPromises.writeFile(
+        path.join(srcDir, 'components', 'ui', 'scroll-area.tsx'),
+        'export const ScrollArea = () => null;\nexport const ScrollBar = () => null;\n',
+        'utf-8',
+      );
+      await fsPromises.writeFile(
+        path.join(srcDir, 'pages', 'Home.tsx'),
+        "import { ScrollArea } from '@/components/ui/scroll-area';\nexport function Home() { return <ScrollArea />; }\n",
+        'utf-8',
+      );
+
+      const result = await ensureImportedUiPrimitives(srcDir, 'mobile-app');
+
+      expect(result.materialized).toEqual([]);
+    });
+  });
+
+  it('fails unknown UI primitive imports with a clear pre-compile diagnostic', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.mkdir(path.join(srcDir, 'pages'), { recursive: true });
+      await fsPromises.writeFile(
+        path.join(srcDir, 'pages', 'Home.tsx'),
+        "import { MysteryBox } from '@/components/ui/mystery-box';\nexport function Home() { return <MysteryBox />; }\n",
+        'utf-8',
+      );
+
+      await expect(ensureImportedUiPrimitives(srcDir, 'mobile-app')).rejects.toThrow(
+        /Missing UI primitive import: components\/ui\/mystery-box \(imported by src\/pages\/Home\.tsx\)/,
+      );
+    });
   });
 });
 

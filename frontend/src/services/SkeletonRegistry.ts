@@ -154,8 +154,8 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
     ],
     providedHooks: ['useLocalStorage', 'useTheme'],
     uiPrimitives: [
-      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
+      'AlertDialog', 'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
+      'Input', 'Label', 'Progress', 'ScrollArea', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['mobile', 'bottom-tabs', 'feed', 'detail', 'profile', 'onboarding', 'progress', 'create'],
@@ -225,7 +225,7 @@ CRITICAL RULES:
     providedHooks: ['useLocalStorage', 'useTheme', 'useTable'],
     uiPrimitives: [
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
+      'Input', 'Progress', 'ScrollArea', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['dashboard', 'sidebar', 'metrics', 'data-table', 'settings', 'workspace'],
@@ -286,7 +286,7 @@ CRITICAL RULES:
     providedHooks: [],
     uiPrimitives: [
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
+      'Input', 'Progress', 'ScrollArea', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['marketing', 'hero', 'pricing', 'faq', 'cta', 'top-nav', 'social-proof'],
@@ -344,7 +344,7 @@ Do NOT import from '@/context/AppContext'.
     providedHooks: ['useFeed', 'useLocalStorage', 'useTheme'],
     uiPrimitives: [
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
+      'Input', 'Progress', 'ScrollArea', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['mobile', 'bottom-tabs', 'feed', 'explore', 'notifications', 'profile', 'post-detail'],
@@ -412,7 +412,7 @@ CRITICAL RULES:
     ],
     uiPrimitives: [
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
+      'Input', 'Progress', 'ScrollArea', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['workspace', 'sidebar', 'kanban', 'list', 'detail-sheet', 'command-palette'],
@@ -492,7 +492,7 @@ CRITICAL RULES:
     ],
     uiPrimitives: [
       'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Select', 'Sheet', 'Skeleton', 'Tabs',
+      'Input', 'Progress', 'ScrollArea', 'Select', 'Sheet', 'Skeleton', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['storefront', 'product-grid', 'product-detail', 'cart', 'checkout', 'account', 'bottom-tabs'],
@@ -567,8 +567,7 @@ CRITICAL RULES:
     ],
     providedHooks: ['useLocalStorage', 'useTheme'],
     uiPrimitives: [
-      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Select', 'Tabs',
+      'Badge', 'Button', 'Card', 'Input', 'Progress', 'ScrollArea', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['sidebar', 'dashboard', 'record-table', 'record-detail', 'workflow', 'team', 'settings'],
@@ -626,8 +625,7 @@ CRITICAL RULES:
     ],
     providedHooks: ['useLocalStorage', 'useTheme'],
     uiPrimitives: [
-      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Select', 'Sheet', 'Tabs',
+      'Badge', 'Button', 'Card', 'Input', 'Progress', 'ScrollArea', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['home-feed', 'listing-detail', 'seller-dashboard', 'messages', 'bottom-tabs'],
@@ -684,8 +682,7 @@ CRITICAL RULES:
     ],
     providedHooks: ['useLocalStorage', 'useTheme'],
     uiPrimitives: [
-      'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Select', 'Tabs', 'Slider',
+      'Badge', 'Button', 'Card', 'Input', 'Progress', 'ScrollArea', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['sidebar', 'editor-canvas', 'home-project-list', 'asset-panel'],
@@ -742,8 +739,7 @@ CRITICAL RULES:
     ],
     providedHooks: ['useLocalStorage', 'useTheme'],
     uiPrimitives: [
-      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Tabs',
+      'Badge', 'Button', 'Card', 'Input', 'Progress', 'ScrollArea', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['discover-deck', 'match-list', 'conversation', 'profile', 'onboarding', 'bottom-tabs'],
@@ -802,8 +798,7 @@ CRITICAL RULES:
     ],
     providedHooks: ['useLocalStorage', 'useTheme'],
     uiPrimitives: [
-      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Tabs',
+      'Badge', 'Button', 'Card', 'Input', 'Progress', 'ScrollArea', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['lobby', 'game-grid', 'game-detail', 'promotions', 'account', 'bottom-tabs'],
@@ -860,8 +855,7 @@ CRITICAL RULES:
     ],
     providedHooks: ['useLocalStorage', 'useTheme'],
     uiPrimitives: [
-      'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Tabs',
+      'Badge', 'Button', 'Card', 'Input', 'Progress', 'ScrollArea', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['home', 'level-select', 'game-screen', 'leaderboard', 'bottom-tabs'],
@@ -919,8 +913,7 @@ CRITICAL RULES:
     ],
     providedHooks: ['useLocalStorage', 'useTheme'],
     uiPrimitives: [
-      'Avatar', 'Badge', 'Button', 'Card', 'Calendar', 'Dialog',
-      'Input', 'Progress', 'Select', 'Tabs',
+      'Badge', 'Button', 'Card', 'Input', 'Progress', 'ScrollArea', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['home', 'service-detail', 'booking-flow', 'my-bookings', 'bottom-tabs'],
@@ -979,8 +972,7 @@ CRITICAL RULES:
     ],
     providedHooks: ['useLocalStorage', 'useTheme'],
     uiPrimitives: [
-      'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
-      'Input', 'Progress', 'Select', 'Tabs',
+      'Badge', 'Button', 'Card', 'Input', 'Progress', 'ScrollArea', 'Tabs',
     ],
     visualCompatibility: {
       allowedSurfaces: ['home-feed', 'course-catalog', 'course-detail', 'lesson-player', 'bottom-tabs'],
@@ -1258,7 +1250,7 @@ Components: ${s.providedComponents.join(', ')}
 Hooks: ${s.providedHooks.length ? s.providedHooks.join(', ') : 'none'}
 UI primitives: ${s.uiPrimitives.join(', ')}
 Import paths:
-- UI primitives: import from '@/components/ui/'
+- UI primitives: use the exact paths from the coder UI primitive import catalog; do not guess shadcn paths.
 - Layout: import from existing App.tsx, BottomTabs, Sidebar, TopBar where provided
 - Hooks: useLocalStorage and useTheme already exist
 - Config: app.ts, routes.ts, navigation.ts already exist. MODIFY them when needed; do not create duplicates.

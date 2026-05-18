@@ -364,6 +364,14 @@ function StudioApp() {
         `Why now: ${copy.whyInteresting}`,
         `Files planned: ${blueprint.fileArchitecture?.length ?? 0}`,
       ].join('\n'));
+      
+      // Pass the intent so generation can start, and call onSend
+      studio.setInput(intent);
+      // Wait for React state to update the input, or maybe we can just onSend right away
+      // Actually onSend uses a ref for input, but let's be safe.
+      setTimeout(() => {
+        studio.onSend();
+      }, 0);
     } catch (error: unknown) {
       studio.addSystemMessage(`⚠️ Failed to launch packaged trend idea: ${(error as Error)?.message ?? String(error)}`);
     }

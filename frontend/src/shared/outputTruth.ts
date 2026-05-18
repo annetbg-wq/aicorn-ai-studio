@@ -382,8 +382,12 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
     .map(normalizeProjectPath)
     .filter((path) => typeof files[path] === 'string');
   const uniqueChangedPaths = Array.from(new Set(changedPaths));
-  const allPaths = Object.keys(files);
   const skeletonPatterns = getSkeletonPathPatterns(input, skeletonId);
+  // include skeleton patterns (files provided by skeleton) in allPaths so that root-shell validation passes if skeleton has it
+  const allPaths = Array.from(new Set([
+    ...Object.keys(files),
+    ...skeletonPatterns
+  ]));
   const skeletonBackedPaths = allPaths.filter((path) => hasSkeletonBackedPath(path, skeletonPatterns));
   const modifiedExistingFiles = uniqueChangedPaths.filter((path) => hasSkeletonBackedPath(path, skeletonPatterns));
   const newFiles = uniqueChangedPaths.filter((path) => !hasSkeletonBackedPath(path, skeletonPatterns));
