@@ -86,10 +86,18 @@ describe('ProtoPipeline coder UI primitive catalog', () => {
   it('lists exact physical import paths and does not advertise unlisted primitives', () => {
     const catalog = buildUiPrimitiveImportCatalog(['Button', 'ScrollArea']);
 
-    expect(catalog).toContain("Button from '@/components/ui/Button'");
+    expect(catalog).toContain("Button from '@/components/ui/button'");
     expect(catalog).toContain("ScrollArea, ScrollBar from '@/components/ui/scroll-area'");
     expect(catalog).not.toContain('DropdownMenu');
     expect(catalog).not.toContain('Separator');
+  });
+
+  it('filters unsupported primitive names out of the coder import catalog', () => {
+    const catalog = buildUiPrimitiveImportCatalog(['Button', 'ImaginaryPrimitive', 'AlertDialog']);
+
+    expect(catalog).toContain("Button from '@/components/ui/button'");
+    expect(catalog).toContain("AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger from '@/components/ui/alert-dialog'");
+    expect(catalog).not.toContain('ImaginaryPrimitive');
   });
 });
 

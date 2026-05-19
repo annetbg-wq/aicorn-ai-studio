@@ -98,6 +98,10 @@ import {
   safeModelTextSnippet,
   validateArchitectJsonShape,
 } from './architectJson';
+import {
+  buildLiveGenerationUiPrimitiveImportCatalog,
+  filterAdvertisedUiPrimitiveNames,
+} from './LiveGenerationContractValidator';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -2105,32 +2109,8 @@ export function buildCoderPlanningBlocks(input: {
   ].filter(Boolean).join('\n');
 }
 
-const UI_PRIMITIVE_IMPORTS: Record<string, string> = {
-  AlertDialog:
-    "AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger from '@/components/ui/alert-dialog'",
-  Avatar: "Avatar, AvatarFallback, AvatarImage from '@/components/ui/Avatar'",
-  Badge: "Badge from '@/components/ui/Badge'",
-  Button: "Button from '@/components/ui/Button'",
-  Card: "Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle from '@/components/ui/Card'",
-  Dialog: "Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger from '@/components/ui/Dialog'",
-  Input: "Input from '@/components/ui/Input'",
-  Label: "Label from '@/components/ui/label'",
-  Progress: "Progress from '@/components/ui/Progress'",
-  ScrollArea: "ScrollArea, ScrollBar from '@/components/ui/scroll-area'",
-  Select: "Select, SelectContent, SelectItem, SelectTrigger, SelectValue from '@/components/ui/Select'",
-  Sheet: "Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger from '@/components/ui/Sheet'",
-  Skeleton: "Skeleton from '@/components/ui/Skeleton'",
-  Tabs: "Tabs, TabsContent, TabsList, TabsTrigger from '@/components/ui/Tabs'",
-};
-
 export function buildUiPrimitiveImportCatalog(uiPrimitives: readonly string[]): string {
-  const lines = uiPrimitives
-    .map(name => UI_PRIMITIVE_IMPORTS[name] ? `  - ${UI_PRIMITIVE_IMPORTS[name]}` : null)
-    .filter((line): line is string => Boolean(line));
-
-  return lines.length > 0
-    ? lines.join('\n')
-    : '  - (none; implement local components under components/ when needed)';
+  return buildLiveGenerationUiPrimitiveImportCatalog(filterAdvertisedUiPrimitiveNames(uiPrimitives));
 }
 
 async function runCoder(input: {
@@ -2193,14 +2173,15 @@ async function runCoder(input: {
       skeletonIntegrationPlan: input.skeletonIntegrationPlan,
       productSpecificityPlan: input.productSpecificityPlan,
     });
-  const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(skeleton.uiPrimitives);
+  const advertisedUiPrimitives = filterAdvertisedUiPrimitiveNames(skeleton.uiPrimitives);
+  const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(advertisedUiPrimitives);
 
   const system = `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.
 
 SKELETON: ${skeleton.label} (${skeleton.id})
 PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}
 PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
-UI PRIMITIVES: ${skeleton.uiPrimitives.join(', ') || '(see registry)'}
+UI PRIMITIVES: ${advertisedUiPrimitives.join(', ') || '(see registry)'}
 ${contractBlock ? `\n${contractBlock}\n` : ''}${planningBlocks ? '\n' + planningBlocks + '\n' : ''}
 ${skeletonPromptBlock}
 DELTA FILE TREE FROM ARCHITECT (source of truth):
@@ -2245,7 +2226,7 @@ RULES
 - Do not import UI primitives that are not listed in the UI primitive import catalog or not physically present in src/components/ui.
 - If a component is needed but not available in the UI catalog, implement it as a local component under components/ instead of importing a nonexistent shadcn primitive.
 - Only import from skeleton-provided modules listed above, exact UI primitive paths listed above, "lucide-react", "react", and files you yourself emit.
-- For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, import "useLocalStorage" from "@/hooks/useLocalStorage".
+- For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, use the named import: import { useLocalStorage } from "@/hooks/useLocalStorage".
 - You are extending the installed skeleton by delta. NEVER rebuild the app shell, router, providers, or placeholder app from scratch when the selected skeleton already provides them.
 - Do not modify any skeleton-locked path.
 - No commentary outside the markers. No markdown. No code fences.

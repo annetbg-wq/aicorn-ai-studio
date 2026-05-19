@@ -3,9 +3,11 @@ import fs from 'fs';
 import fsPromises from 'fs/promises';
 import os from 'os';
 import { describe, expect, it } from 'vitest';
+import { LIVE_GENERATION_ALLOWED_UI_PRIMITIVES } from '../frontend/src/services/LiveGenerationUiPrimitives';
 import {
   ensureImportedUiPrimitives,
   findUiPrimitiveImportsInSource,
+  getKnownMaterializableUiPrimitives,
   getPreviewDocumentTrailingSlashRedirectPath,
   injectPreviewSessionIntoHtmlAssetUrls,
   bindPreviewBuildSession,
@@ -74,6 +76,10 @@ async function withTempSrc<T>(run: (srcDir: string) => Promise<T>): Promise<T> {
 }
 
 describe('preview-manager UI primitive guard', () => {
+  it('uses the shared live-generation primitive set for backend materialization', () => {
+    expect(getKnownMaterializableUiPrimitives()).toEqual([...LIVE_GENERATION_ALLOWED_UI_PRIMITIVES].sort());
+  });
+
   it('detects aliased and relative UI primitive import specifiers', () => {
     const imports = findUiPrimitiveImportsInSource(
       [
@@ -100,6 +106,28 @@ describe('preview-manager UI primitive guard', () => {
 
       expect(result.materialized).toContain('components/ui/scroll-area.tsx');
       expect(fs.existsSync(path.join(srcDir, 'components', 'ui', 'scroll-area.tsx'))).toBe(true);
+    });
+  });
+
+  it('materializes missing accordion from the canonical skeleton before flow-chain FAQ builds run', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.mkdir(path.join(srcDir, 'components', 'sections'), { recursive: true });
+      await fsPromises.writeFile(
+        path.join(srcDir, 'components', 'sections', 'FAQ.tsx'),
+        [
+          "import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';",
+          'export function FAQ() {',
+          '  return <Accordion type="single"><AccordionItem value="faq"><AccordionTrigger>Q</AccordionTrigger><AccordionContent>A</AccordionContent></AccordionItem></Accordion>;',
+          '}',
+          '',
+        ].join('\n'),
+        'utf-8',
+      );
+
+      const result = await ensureImportedUiPrimitives(srcDir, 'mobile-app');
+
+      expect(result.materialized).toContain('components/ui/accordion.tsx');
+      expect(fs.existsSync(path.join(srcDir, 'components', 'ui', 'accordion.tsx'))).toBe(true);
     });
   });
 
@@ -137,6 +165,35 @@ describe('preview-manager UI primitive guard', () => {
         /Missing UI primitive import: components\/ui\/mystery-box \(imported by src\/pages\/Home\.tsx\)/,
       );
     });
+  });
+
+  it('keeps every exported skeleton UI barrel backed by a physical file', async () => {
+    const barrelPaths = [
+      path.resolve('preview-workspace/src/components/ui/index.ts'),
+      path.resolve('skeletons/mobile-app/skeleton-mobile-app/src/components/ui/index.ts'),
+      path.resolve('skeletons/ecommerce/skeleton-ecommerce/src/components/ui/index.ts'),
+      path.resolve('skeletons/landing-page/skeleton-landing-page/src/components/ui/index.ts'),
+      path.resolve('skeletons/productivity-tool/skeleton-productivity-tool/src/components/ui/index.ts'),
+      path.resolve('skeletons/saas-dashboard/skeleton-saas-dashboard/src/components/ui/index.ts'),
+      path.resolve('skeletons/social-community/skeleton-social-community/src/components/ui/index.ts'),
+    ];
+
+    for (const barrelPath of barrelPaths) {
+      const content = await fsPromises.readFile(barrelPath, 'utf-8');
+      const uiRoot = path.dirname(barrelPath);
+      const exportedModules = Array.from(content.matchAll(/export\s+\*\s+from\s+['"]\.\/([^'"]+)['"]/g)).map(match => match[1]);
+
+      for (const exportedModule of exportedModules) {
+        const hasBackingFile = [
+          path.join(uiRoot, `${exportedModule}.ts`),
+          path.join(uiRoot, `${exportedModule}.tsx`),
+          path.join(uiRoot, exportedModule, 'index.ts'),
+          path.join(uiRoot, exportedModule, 'index.tsx'),
+        ].some(candidate => fs.existsSync(candidate));
+
+        expect(hasBackingFile, `${path.relative(process.cwd(), barrelPath)} -> ${exportedModule}`).toBe(true);
+      }
+    }
   });
 });
 
