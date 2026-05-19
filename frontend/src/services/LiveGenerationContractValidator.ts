@@ -1,5 +1,6 @@
 import {
   getSkeletonInstalledFiles,
+  getRequiredSkeletonDataFiles,
   isProtectedSkeletonFile,
   type SkeletonId,
 } from './SkeletonRegistry';
@@ -23,6 +24,7 @@ export {
 export type LiveGenerationRootCauseType =
   | 'missing_ui_primitive'
   | 'missing_local_import'
+  | 'missing_required_manifest_file'
   | 'invalid_default_import'
   | 'missing_named_export'
   | 'protected_shell_import'
@@ -71,6 +73,7 @@ export interface LiveGenerationContractValidationInput {
   skeletonId?: SkeletonId;
   generatedDeltaFiles?: Record<string, string>;
   materializedFiles?: Record<string, string>;
+  requiredLocalFiles?: readonly string[];
   rawErrorExcerpt?: string;
 }
 
@@ -223,6 +226,14 @@ function buildCandidateGraphSummary(input: LiveGenerationContractValidationInput
     hasRouteManifest: Boolean(finalFiles['src/route-manifest.json']),
     shellOwnerFiles,
   };
+}
+
+function resolveRequiredLocalFiles(input: LiveGenerationContractValidationInput): string[] {
+  const skeletonRequiredFiles = input.skeletonId ? getRequiredSkeletonDataFiles(input.skeletonId) : [];
+  return uniqueSorted([
+    ...skeletonRequiredFiles,
+    ...(input.requiredLocalFiles ?? []),
+  ].map(filePath => normalizeCandidatePath(filePath)));
 }
 
 function createDiagnostic(
@@ -576,6 +587,7 @@ export function validateCandidateGraphContract(
   const finalFiles = normalizeGraph(input.finalFiles);
   const diagnostics: LiveGenerationContractDiagnostic[] = [];
   const summary = buildCandidateGraphSummary(input);
+  const requiredLocalFiles = resolveRequiredLocalFiles(input);
 
   if (!summary.hasMain) {
     diagnostics.push(createDiagnostic(summary, 'missing_entry_file', {
@@ -613,6 +625,20 @@ export function validateCandidateGraphContract(
       expected: 'candidate graph must contain an App.tsx or a protected shell owner file',
       actual: 'no root shell owner detected',
       suggested_fix: 'Preserve the skeleton root shell or add a root App.tsx that owns shell layout components.',
+      raw_error_excerpt: input.rawErrorExcerpt,
+    }));
+  }
+
+  for (const requiredFile of requiredLocalFiles) {
+    if (finalFiles[requiredFile]) continue;
+    diagnostics.push(createDiagnostic(summary, 'missing_required_manifest_file', {
+      file: requiredFile,
+      import_path: requiredFile.startsWith('src/')
+        ? `@/${requiredFile.slice(4).replace(/\.(?:tsx?|jsx?)$/i, '')}`
+        : null,
+      expected: 'required manifest-driven local file to exist in the final candidate graph before compile',
+      actual: `${requiredFile} is required by the skeleton data-layer contract but missing from the final candidate graph`,
+      suggested_fix: `Preserve or generate ${requiredFile} whenever the selected skeleton manifest requires it.`,
       raw_error_excerpt: input.rawErrorExcerpt,
     }));
   }

@@ -39,4 +39,18 @@ describe('LiveReadinessPreflight UI primitive contract', () => {
     expect(blockedImports).not.toContain('@/components/ui/avatar');
     expect(blockedImports).not.toContain('@/components/ui/sheet');
   });
+
+  it('passes shared hook contracts when canonical hooks and manifest-required data files are present', async () => {
+    const result = await runLiveReadinessPreflight({
+      qualityControls: QUALITY_CONTROLS,
+      checkIds: ['shared-hook-contracts'],
+    });
+
+    expect(result.status).toBe('pass');
+    expect(result.checks).toHaveLength(1);
+    expect(result.checks[0]).toMatchObject({
+      id: 'shared-hook-contracts',
+      status: 'pass',
+    });
+  });
 });

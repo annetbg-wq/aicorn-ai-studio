@@ -1095,6 +1095,21 @@ export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
   return uniqueSorted(manifest.editableFiles);
 }
 
+export function getRequiredSkeletonDataFiles(skeletonId: SkeletonId): string[] {
+  const manifest = SKELETON_MANIFESTS[skeletonId];
+  const meta = SKELETON_REGISTRY[skeletonId];
+  const candidates = [
+    ...(manifest?.workingGroups.flatMap(group => group.paths) ?? []),
+    ...(manifest?.editableFiles ?? []),
+    ...(manifest?.deltaFiles ?? []),
+    ...(meta?.deltaFiles ?? []),
+  ];
+
+  return uniqueSorted(candidates.filter(file => (
+    file === 'src/data/seed.ts' || file === 'src/data/types.ts'
+  )));
+}
+
 function globPatternToRegExp(pattern: string): RegExp {
   const normalized = normalizeSkeletonPath(pattern);
   let source = '';

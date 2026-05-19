@@ -85,6 +85,7 @@ const SKELETON_SHARED_CONTRACT_SOURCES = import.meta.glob(
   [
     '../../../../skeletons/*/skeleton-*/src/hooks/*.{ts,tsx}',
     '../../../../skeletons/*/skeleton-*/src/config/*.{ts,tsx}',
+    '../../../../skeletons/*/skeleton-*/src/data/*.{ts,tsx}',
   ],
   { eager: true, query: '?raw', import: 'default' },
 ) as Record<string, string>;
@@ -149,31 +150,22 @@ function buildCanonicalWorkspaceFiles(): string[] {
   return Array.from(new Set([...frontendFiles, ...skeletonUiFiles, ...skeletonFiles])).sort((left, right) => left.localeCompare(right));
 }
 
-function skeletonRawPathToSrcPath(rawPath: string): string | null {
-  const workspacePath = rawGlobPathToWorkspace(rawPath);
-  const marker = '/src/';
-  const markerIndex = workspacePath.indexOf(marker);
-  if (markerIndex < 0) return null;
-  return workspacePath.slice(markerIndex + 1);
-}
-
-function buildCanonicalSharedHookGraph(): Record<string, string> {
-  const files: Record<string, string> = {};
-  const entries = Object.entries(SKELETON_SHARED_CONTRACT_SOURCES).sort(([left], [right]) => {
-    const leftMobile = left.includes('/skeleton-mobile-app/');
-    const rightMobile = right.includes('/skeleton-mobile-app/');
-    if (leftMobile !== rightMobile) return leftMobile ? -1 : 1;
-    return left.localeCompare(right);
-  });
+function buildSharedHookGraphsBySkeleton(): Record<string, Record<string, string>> {
+  const graphs: Record<string, Record<string, string>> = {};
+  const entries = Object.entries(SKELETON_SHARED_CONTRACT_SOURCES).sort(([left], [right]) => left.localeCompare(right));
 
   for (const [rawPath, source] of entries) {
-    const srcPath = skeletonRawPathToSrcPath(rawPath);
-    if (!srcPath) continue;
-    if (files[srcPath]) continue;
-    files[srcPath] = source;
+    const workspacePath = rawGlobPathToWorkspace(rawPath);
+    const markerIndex = workspacePath.indexOf('/src/');
+    if (markerIndex < 0) continue;
+
+    const skeletonKey = workspacePath.slice(0, markerIndex);
+    const srcPath = workspacePath.slice(markerIndex + 1);
+    graphs[skeletonKey] ??= {};
+    graphs[skeletonKey][srcPath] = source;
   }
 
-  return files;
+  return graphs;
 }
 
 function normalizeRelativePath(path: string): string {
@@ -489,31 +481,50 @@ function runImportExportContractCheck(): LiveReadinessPreflightCheck {
 }
 
 function runSharedHookContractCheck(): LiveReadinessPreflightCheck {
-  const hookFiles = buildCanonicalSharedHookGraph();
+  const hookGraphs = buildSharedHookGraphsBySkeleton();
   const diagnostics: LiveGenerationContractDiagnostic[] = [];
   const inspected: Record<string, { present: boolean; importStyle?: 'named' | 'default' }> = {};
+  const presentHooks = new Set<string>();
+
+  for (const hookFiles of Object.values(hookGraphs)) {
+    const baseResult = validateImportExportContract({ finalFiles: hookFiles });
+    if (!baseResult.ok) {
+      diagnostics.push(...baseResult.diagnostics);
+      continue;
+    }
+
+    for (const hookName of COMMON_SHARED_HOOKS) {
+      const hookPath = `src/hooks/${hookName}.ts`;
+      const hookPathTsx = `src/hooks/${hookName}.tsx`;
+      const sourcePath = hookFiles[hookPath] ? hookPath : hookFiles[hookPathTsx] ? hookPathTsx : null;
+      const importStyle = SHARED_HOOK_IMPORT_CONTRACT[hookName];
+      if (!sourcePath || !importStyle) continue;
+
+      presentHooks.add(hookName);
+
+      const probeFile = `src/__preflight__/${hookName}.tsx`;
+      const importLine = importStyle === 'named'
+        ? `import { ${hookName} } from '@/hooks/${hookName}';`
+        : `import ${hookName} from '@/hooks/${hookName}';`;
+      const result = validateImportExportContract({
+        finalFiles: {
+          ...hookFiles,
+          [probeFile]: `${importLine}\nexport const contractProbe = ${hookName};`,
+        },
+      });
+      if (!result.ok) {
+        diagnostics.push(...result.diagnostics.filter(diagnostic => (
+          diagnostic.file === probeFile ||
+          diagnostic.file === sourcePath ||
+          diagnostic.import_path === `@/hooks/${hookName}`
+        )));
+      }
+    }
+  }
 
   for (const hookName of COMMON_SHARED_HOOKS) {
-    const hookPath = `src/hooks/${hookName}.ts`;
-    const hookPathTsx = `src/hooks/${hookName}.tsx`;
-    const sourcePath = hookFiles[hookPath] ? hookPath : hookFiles[hookPathTsx] ? hookPathTsx : null;
     const importStyle = SHARED_HOOK_IMPORT_CONTRACT[hookName];
-    inspected[hookName] = { present: Boolean(sourcePath), importStyle };
-    if (!sourcePath || !importStyle) continue;
-
-    const probeFile = `src/__preflight__/${hookName}.tsx`;
-    const importLine = importStyle === 'named'
-      ? `import { ${hookName} } from '@/hooks/${hookName}';`
-      : `import ${hookName} from '@/hooks/${hookName}';`;
-    const result = validateImportExportContract({
-      finalFiles: {
-        ...hookFiles,
-        [probeFile]: `${importLine}\nexport const contractProbe = ${hookName};`,
-      },
-    });
-    if (!result.ok) {
-      diagnostics.push(...result.diagnostics);
-    }
+    inspected[hookName] = { present: presentHooks.has(hookName), importStyle };
   }
 
   if (diagnostics.length > 0) {
