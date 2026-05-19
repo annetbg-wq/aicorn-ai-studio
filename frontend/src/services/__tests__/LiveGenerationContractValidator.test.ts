@@ -71,6 +71,8 @@ describe('LiveGenerationContractValidator candidate graph', () => {
         'src/route-manifest.json': '{"shell":"AppShell + BottomTabs"}',
         'src/pages/Home.tsx': 'export default function Home() { return <section>Home</section>; }',
         'src/components/BottomTabs.tsx': 'export function BottomTabs() { return null; }',
+        'src/data/seed.ts': 'export const HABIT_SEED = [];',
+        'src/data/types.ts': 'export interface Habit { id: string; }',
         'src/index.css': ':root {}',
       },
       generatedDeltaFiles: {
@@ -103,6 +105,8 @@ describe('LiveGenerationContractValidator candidate graph', () => {
         'src/pages/Home.tsx': 'export default function Home() { return <section>Thin but valid</section>; }',
         'src/components/BottomTabs.tsx': 'export function BottomTabs() { return null; }',
         'src/context/AppContext.tsx': 'export function AppProvider({ children }: { children: React.ReactNode }) { return children; }',
+        'src/data/seed.ts': 'export const HABIT_SEED = [];',
+        'src/data/types.ts': 'export interface Habit { id: string; streak: number; }',
         'src/index.css': ':root {}',
       },
       generatedDeltaFiles: {
@@ -124,6 +128,61 @@ describe('LiveGenerationContractValidator candidate graph', () => {
 
     expect(result.ok).toBe(false);
     expect(result.diagnostics.some(d => d.root_cause_type === 'missing_root_shell')).toBe(true);
+  });
+
+  it('fails when a skeleton-required src/data/seed.ts is missing from the final candidate graph', () => {
+    const result = validateLiveGenerationContract({
+      skeletonId: 'mobile-app',
+      finalFiles: {
+        'src/main.tsx': 'import App from "./App";',
+        'src/App.tsx': 'export default function App() { return <main />; }',
+        'src/route-manifest.json': '{"shell":"AppShell + BottomTabs"}',
+        'src/pages/Home.tsx': 'export default function Home() { return <section>Home</section>; }',
+        'src/data/types.ts': 'export interface Habit { id: string; }',
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      root_cause_type: 'missing_required_manifest_file',
+      file: 'src/data/seed.ts',
+    }));
+  });
+
+  it('fails when a skeleton-required src/data/types.ts is missing from the final candidate graph', () => {
+    const result = validateLiveGenerationContract({
+      skeletonId: 'mobile-app',
+      finalFiles: {
+        'src/main.tsx': 'import App from "./App";',
+        'src/App.tsx': 'export default function App() { return <main />; }',
+        'src/route-manifest.json': '{"shell":"AppShell + BottomTabs"}',
+        'src/pages/Home.tsx': 'export default function Home() { return <section>Home</section>; }',
+        'src/data/seed.ts': 'export const HABIT_SEED = [];',
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      root_cause_type: 'missing_required_manifest_file',
+      file: 'src/data/types.ts',
+    }));
+  });
+
+  it('passes when skeleton-required data-layer files survive in the final candidate graph', () => {
+    const result = validateLiveGenerationContract({
+      skeletonId: 'mobile-app',
+      finalFiles: {
+        'src/main.tsx': 'import App from "./App";',
+        'src/App.tsx': 'export default function App() { return <main />; }',
+        'src/route-manifest.json': '{"shell":"AppShell + BottomTabs"}',
+        'src/pages/Home.tsx': 'export default function Home() { return <section>Home</section>; }',
+        'src/data/seed.ts': 'export const HABIT_SEED = [];',
+        'src/data/types.ts': 'export interface Habit { id: string; }',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics.some(d => d.root_cause_type === 'missing_required_manifest_file')).toBe(false);
   });
 });
 
@@ -208,6 +267,42 @@ describe('LiveGenerationContractValidator import/export contract', () => {
       file: 'src/hooks/useSymptoms.ts',
       import_path: '@/data/symptomSeed',
     });
+  });
+
+  it('fails hook imports from @/data/seed before Vite when the canonical seed file is missing', () => {
+    const result = validateImportExportContract({
+      finalFiles: {
+        'src/hooks/useCart.ts': [
+          "import { SEED_PRODUCTS } from '@/data/seed';",
+          'export function useCart() { return SEED_PRODUCTS; }',
+        ].join('\n'),
+      },
+      requiredLocalFiles: ['src/data/seed.ts', 'src/data/types.ts'],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      root_cause_type: 'missing_local_import',
+      file: 'src/hooks/useCart.ts',
+      import_path: '@/data/seed',
+      actual: 'missing target module src/data/seed',
+    }));
+  });
+
+  it('passes hook imports from @/data/seed when the canonical data layer exists', () => {
+    const result = validateImportExportContract({
+      finalFiles: {
+        'src/hooks/useCart.ts': [
+          "import { SEED_PRODUCTS } from '@/data/seed';",
+          'export function useCart() { return SEED_PRODUCTS; }',
+        ].join('\n'),
+        'src/data/seed.ts': 'export const SEED_PRODUCTS = [];',
+        'src/data/types.ts': 'export interface Product { id: string; }',
+      },
+      requiredLocalFiles: ['src/data/seed.ts', 'src/data/types.ts'],
+    });
+
+    expect(result.ok).toBe(true);
   });
 
   it('detects missing named exports from local hook data and config modules', () => {
