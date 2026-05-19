@@ -40,6 +40,20 @@ describe('LiveReadinessPreflight UI primitive contract', () => {
     expect(blockedImports).not.toContain('@/components/ui/sheet');
   });
 
+  it('passes prompt catalog truthfulness when landing-page provided components match physical section surfaces', async () => {
+    const result = await runLiveReadinessPreflight({
+      qualityControls: QUALITY_CONTROLS,
+      checkIds: ['prompt-catalog-truthfulness'],
+    });
+
+    expect(result.status).toBe('pass');
+    expect(result.checks).toHaveLength(1);
+    expect(result.checks[0]).toMatchObject({
+      id: 'prompt-catalog-truthfulness',
+      status: 'pass',
+    });
+  });
+
   it('passes shared hook contracts when canonical hooks and manifest-required data files are present', async () => {
     const result = await runLiveReadinessPreflight({
       qualityControls: QUALITY_CONTROLS,
