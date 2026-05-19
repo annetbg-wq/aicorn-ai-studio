@@ -192,6 +192,7 @@ type PackagedLaunchContext = {
 type DraftSessionSource =
   | 'new-project'
   | 'startup'
+  | 'external-chat'
   | 'trend-niche-chat'
   | 'trend-niche-build';
 
@@ -2963,6 +2964,13 @@ export const useStudio = () => {
     });
   }, [createNewProject]);
 
+  const startExternalChatDraftSession = useCallback(async () => {
+    await createNewProject({
+      autoSaveCurrentProject: false,
+      sessionSource: 'external-chat',
+    });
+  }, [createNewProject]);
+
   const loadProject = useCallback(async (project: { id: string }) => {
     persistProjectOverrideIfNeeded(currentProjectId);
     const loadRequestId = ++projectLoadRequestRef.current;
@@ -5059,7 +5067,7 @@ export const useStudio = () => {
   };
   const _sendRef = useRef(_sendImpl);
   _sendRef.current = _sendImpl;
-  const handleSend = useCallback(() => _sendRef.current(), []);
+  const handleSend = useCallback((overridePrompt?: string) => _sendRef.current(overridePrompt), []);
   const handleRetry = useCallback(() => {
     const retryPrompt = lastGenerationPromptRef.current.trim();
     consecutiveErrors.current = 0;
@@ -5101,7 +5109,7 @@ export const useStudio = () => {
 
     addComposerContextFromPlan(plan, intent, mappedSource);
     addSystemMessage(
-      `🧩 Context added: **${plan.appName || 'Imported idea'}**. Review and press Send to generate with this context pack.`,
+      `🧩 Context ready: **${plan.appName || 'Imported idea'}**. The idea is loaded into the composer as your next chat message. Edit it if needed, then press Send to start from chat.`,
     );
   }, [addComposerContextFromPlan, addSystemMessage, createNewProject]);
 
@@ -5467,20 +5475,6 @@ export const useStudio = () => {
     };
   }, []);
 
-  // ── Fast-start: auto-confirm genesis kickoff with default scope ─────────────
-  // When pendingPlan is set for a genesis build (architectKickoff !== null),
-  // wait a short grace window, then call confirmPlan() so the first build starts
-  // without requiring an extra "Start build" click. The grace window keeps the
-  // manual scope controls genuinely usable before the default starts.
-  //
-  // For non-genesis builds (architectKickoff === null, re-runs, edits) the user
-  // must still click "Start build" explicitly — this default is genesis-only.
-  useKickoffFastStart({
-    pendingPlan,
-    confirmPlan,
-    addLog,
-  });
-
   // Resolve the waitForConfirmation promise AFTER React has committed the
   // pendingPlan cleanup.  pendingPlan === null is the commit signal.
   useEffect(() => {
@@ -5534,7 +5528,6 @@ export const useStudio = () => {
       }),
       commandBus.subscribe('REJECT_BLUEPRINT', () => {
         planDecisionRef.current = { confirmed: false };
-        setPendingPlan(null);
         // Hide instead of remove — preserves fiber identity, avoids DOM conflicts.
         if (blueprintIdRef.current) {
           dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: blueprintIdRef.current, visible: false });
@@ -5603,6 +5596,7 @@ export const useStudio = () => {
     attachments, addAttachment, removeAttachment, clearAttachments,
     composerContextItems, activeProjectContext, addComposerContextFromPlan, setChatContext, removeComposerContextItem, clearComposerContextItems,
     startTrendIdeaDraftSession,
+    startExternalChatDraftSession,
     handleSend,
     onRetry: handleRetry,
     onSend: handleSend,

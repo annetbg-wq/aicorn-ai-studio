@@ -108,6 +108,43 @@ describe('ArchitectPlannerService architect clarification shaping', () => {
     expect(summary).not.toContain('Is user data shared (public board) or private per-user?');
   });
 
+  it('formats kickoff summary as next-step guidance before a scope is chosen', () => {
+    const capabilities: InferredCapability[] = [
+      { id: 'backend', title: 'Backend', reason: 'Persist user data', scope: 'first_pass', priority: 'must' },
+      { id: 'ai_chat', title: 'AI chat', reason: 'Generate answers', scope: 'deferred', priority: 'should' },
+    ];
+
+    const summary = ArchitectPlannerService.formatPlanForChat(
+      makePlan('core_backend', capabilities, []),
+      'en',
+    );
+
+    expect(summary).toContain('**How I would start — App**');
+    expect(summary).toContain('**What I would build first:**');
+    expect(summary).toContain('**Keep for later:**');
+    expect(summary).toContain('**Choose the first build scope:**');
+    expect(summary).toContain('Pick one scope in chat and I will start the first pass.');
+    expect(summary).not.toContain('**Architect analysis');
+    expect(summary).not.toContain('**Build options:**');
+  });
+
+  it('uses selected-scope copy after a scope is already chosen', () => {
+    const capabilities: InferredCapability[] = [
+      { id: 'backend', title: 'Backend', reason: 'Persist user data', scope: 'first_pass', priority: 'must' },
+    ];
+    const plan = {
+      ...makePlan('core_backend', capabilities, []),
+      selectedOptionId: 'core_backend',
+    } as ArchitectKickoffPlan & { selectedOptionId: 'core_backend' };
+
+    const summary = ArchitectPlannerService.formatPlanForChat(plan, 'en');
+
+    expect(summary).toContain('**Chosen for this pass:**');
+    expect(summary).not.toContain('**Choose the first build scope:**');
+    expect(summary).not.toContain('Pick one scope in chat and I will start the first pass.');
+    expect(summary).not.toContain('**Selected build mode:**');
+  });
+
   it('returns structured blocking clarifications with concrete options', () => {
     const capabilities: InferredCapability[] = [
       { id: 'auth', title: 'Auth', reason: 'Accounts are required', scope: 'first_pass', priority: 'must' },
@@ -127,10 +164,10 @@ describe('ArchitectPlannerService architect clarification shaping', () => {
     expect(blocking).toMatchObject({
       kind: 'blocking',
       defaultChoiceId: 'single_user',
-      question: 'How should account data be scoped in the first pass?',
+      question: 'For the first pass, how should accounts and data be scoped?',
     });
     if (!blocking || blocking.kind !== 'blocking') throw new Error('Expected blocking question');
     expect(blocking.options).toHaveLength(3);
-    expect(blocking.options.map(option => option.label)).toContain('Single user account');
+    expect(blocking.options.map(option => option.label)).toContain('Single-user account');
   });
 });

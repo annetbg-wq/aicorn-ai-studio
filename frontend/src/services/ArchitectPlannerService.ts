@@ -138,70 +138,77 @@ const CHAT_SUMMARY_COPY: Record<PlannerSummaryLanguage, {
   firstPass: string;
   deferred: string;
   buildOptions: string;
+  selectedBuildMode: string;
   assumptions: string;
   decisionRequired: string;
   notes: string;
   footer: string;
 }> = {
   en: {
-    analysis: 'Architect analysis',
-    firstPass: 'First-pass scope',
-    deferred: 'Deferred (post-build)',
-    buildOptions: 'Build options',
+    analysis: 'How I would start',
+    firstPass: 'What I would build first',
+    deferred: 'Keep for later',
+    buildOptions: 'Choose the first build scope',
+    selectedBuildMode: 'Chosen for this pass',
     assumptions: 'Assumptions',
-    decisionRequired: 'Decision required',
-    notes: 'Notes',
-    footer: 'You will choose one of these scopes before the first build starts.',
+    decisionRequired: 'Need your decision',
+    notes: 'Notes for this pass',
+    footer: 'Pick one scope in chat and I will start the first pass.',
   },
   ru: {
-    analysis: 'Анализ Architect',
-    firstPass: 'Объём первого прохода',
-    deferred: 'Отложено после сборки',
-    buildOptions: 'Варианты сборки',
+    analysis: 'Как я предлагаю начать',
+    firstPass: 'Что войдет в первый проход',
+    deferred: 'Оставить на потом',
+    buildOptions: 'Выберите scope первого прохода',
+    selectedBuildMode: 'Выбрано для этого прохода',
     assumptions: 'Допущения',
-    decisionRequired: 'Нужно решение',
-    notes: 'Заметки',
-    footer: 'Перед первым запуском сборки вы выберете один из этих объёмов.',
+    decisionRequired: 'Нужно ваше решение',
+    notes: 'Заметки к этому проходу',
+    footer: 'Выберите один scope в чате, и я запущу первый проход.',
   },
   es: {
-    analysis: 'Análisis de Architect',
-    firstPass: 'Alcance del primer paso',
-    deferred: 'Diferido para después del build',
-    buildOptions: 'Opciones de compilación',
+    analysis: 'Como empezaria',
+    firstPass: 'Lo que construiria primero',
+    deferred: 'Dejar para despues',
+    buildOptions: 'Elige el alcance del primer paso',
+    selectedBuildMode: 'Elegido para este paso',
     assumptions: 'Suposiciones',
-    decisionRequired: 'Decisión requerida',
-    notes: 'Notas',
-    footer: 'Elegirás uno de estos alcances antes de que empiece la primera compilación.',
+    decisionRequired: 'Necesita tu decision',
+    notes: 'Notas para este paso',
+    footer: 'Elige un alcance en el chat y empezare el primer paso.',
   },
   de: {
-    analysis: 'Architect-Analyse',
-    firstPass: 'Umfang des ersten Durchlaufs',
-    deferred: 'Für nach dem Build zurückgestellt',
-    buildOptions: 'Build-Optionen',
+    analysis: 'So wuerde ich starten',
+    firstPass: 'Was ich zuerst bauen wuerde',
+    deferred: 'Fuer spaeter aufheben',
+    buildOptions: 'Waehle den Umfang des ersten Durchlaufs',
+    selectedBuildMode: 'Fuer diesen Durchlauf gewaehlt',
     assumptions: 'Annahmen',
-    decisionRequired: 'Entscheidung erforderlich',
-    notes: 'Hinweise',
-    footer: 'Vor dem ersten Build wählst du einen dieser Umfänge aus.',
+    decisionRequired: 'Braucht deine Entscheidung',
+    notes: 'Hinweise fuer diesen Durchlauf',
+    footer: 'Waehle einen Umfang im Chat, dann starte ich den ersten Durchlauf.',
   },
   fr: {
-    analysis: 'Analyse Architect',
-    firstPass: 'Périmètre du premier passage',
-    deferred: 'Différé après le build',
-    buildOptions: 'Options de build',
+    analysis: 'Comment je demarrerais',
+    firstPass: 'Ce que je construirais d abord',
+    deferred: 'Garder pour plus tard',
+    buildOptions: 'Choisissez le perimetre du premier passage',
+    selectedBuildMode: 'Choisi pour ce passage',
     assumptions: 'Hypothèses',
-    decisionRequired: 'Décision requise',
-    notes: 'Notes',
-    footer: 'Vous choisirez l’un de ces périmètres avant le premier build.',
+    decisionRequired: 'J ai besoin de votre decision',
+    notes: 'Notes pour ce passage',
+    footer: 'Choisissez un perimetre dans le chat et je lancerai le premier passage.',
   },
   zh: {
-    analysis: 'Architect 分析',
-    firstPass: '首轮范围',
-    deferred: '延期到首轮构建之后',
-    buildOptions: '构建选项',
+    analysis: '我会这样开始',
+    firstPass: '我会先做的部分',
+    deferred: '后续再做',
+    buildOptions: '选择首轮范围',
+    selectedBuildMode: '本轮已选范围',
     assumptions: '默认假设',
-    decisionRequired: '需要决定',
-    notes: '说明',
-    footer: '首次构建开始前，你将从这些范围中选择一个。',
+    decisionRequired: '需要你的决定',
+    notes: '本轮说明',
+    footer: '在聊天里选一个范围，我就开始首轮构建。',
   },
 };
 
@@ -1079,48 +1086,48 @@ function buildTenantScopeBlockingQuestion(
     kind: 'blocking',
     capabilityIds: ['auth', 'backend'],
     question: fallbackLocalized({
-      en: 'How should account data be scoped in the first pass?',
-      ru: 'Как в первом проходе нужно разделять данные аккаунтов?',
+      en: 'For the first pass, how should accounts and data be scoped?',
+      ru: 'Для первого прохода как лучше разделить аккаунты и данные?',
     }, language),
     options: [
       {
         id: 'single_user',
         label: fallbackLocalized({
-          en: 'Single user account',
-          ru: 'Один пользовательский аккаунт',
+          en: 'Single-user account',
+          ru: 'Один аккаунт на пользователя',
         }, language),
         description: fallbackLocalized({
-          en: 'Fastest path: each account owns only its own data.',
-          ru: 'Самый быстрый путь: каждый аккаунт видит только свои данные.',
+          en: 'Fastest first pass: each account only sees its own data.',
+          ru: 'Самый быстрый первый проход: каждый аккаунт видит только свои данные.',
         }, language),
       },
       {
         id: 'team_workspace',
         label: fallbackLocalized({
           en: 'Shared team workspace',
-          ru: 'Общее рабочее пространство команды',
+          ru: 'Общий workspace команды',
         }, language),
         description: fallbackLocalized({
-          en: 'Several members work inside one shared workspace.',
-          ru: 'Несколько участников работают внутри одного общего workspace.',
+          en: 'A small team shares one workspace and works together inside it.',
+          ru: 'Небольшая команда работает вместе внутри одного общего workspace.',
         }, language),
       },
       {
         id: 'multi_tenant_org',
         label: fallbackLocalized({
-          en: 'Full multi-tenant organizations',
-          ru: 'Полноценные multi-tenant организации',
+          en: 'Multi-tenant organizations',
+          ru: 'Multi-tenant организации',
         }, language),
         description: fallbackLocalized({
-          en: 'Separate organizations, invite flows, and tenant-aware permissions.',
-          ru: 'Отдельные организации, инвайты и tenant-aware права доступа.',
+          en: 'Separate organizations with invites and tenant-aware permissions from the start.',
+          ru: 'Сразу отдельные организации, инвайты и tenant-aware права доступа.',
         }, language),
       },
     ],
     defaultChoiceId: 'single_user',
     impact: fallbackLocalized({
-      en: 'This changes the auth model, data schema, and access boundaries.',
-      ru: 'Это меняет auth-модель, схему данных и границы доступа.',
+      en: 'This choice changes the auth model, data schema, and access boundaries for the first pass.',
+      ru: 'Этот выбор меняет auth-модель, схему данных и границы доступа для первого прохода.',
     }, language),
   };
 }
@@ -1135,8 +1142,8 @@ function buildPaymentsBlockingQuestion(
     kind: 'blocking',
     capabilityIds: ['payments'],
     question: fallbackLocalized({
-      en: 'Which billing model should the first pass implement?',
-      ru: 'Какую модель монетизации должен реализовать первый проход?',
+      en: 'For the first pass, which billing model should I set up?',
+      ru: 'Для первого прохода какую модель монетизации лучше заложить?',
     }, language),
     options: [
       {
@@ -1146,8 +1153,8 @@ function buildPaymentsBlockingQuestion(
           ru: 'Разовая покупка',
         }, language),
         description: fallbackLocalized({
-          en: 'Single checkout with no recurring billing logic.',
-          ru: 'Один checkout без логики регулярных списаний.',
+          en: 'One checkout flow only, with no recurring billing logic yet.',
+          ru: 'Только один checkout-флоу, без логики регулярных списаний.',
         }, language),
       },
       {
@@ -1157,8 +1164,8 @@ function buildPaymentsBlockingQuestion(
           ru: 'Регулярная подписка',
         }, language),
         description: fallbackLocalized({
-          en: 'Plans, billing cycles, and subscription status handling.',
-          ru: 'Планы, циклы оплаты и учёт статуса подписки.',
+          en: 'Plans, billing cycles, and subscription state need to work in the first pass.',
+          ru: 'В первом проходе должны работать планы, циклы оплаты и статус подписки.',
         }, language),
       },
       {
@@ -1168,15 +1175,15 @@ function buildPaymentsBlockingQuestion(
           ru: 'Ручной апгрейд / счёт позже',
         }, language),
         description: fallbackLocalized({
-          en: 'Show paid tiers in UI, but defer automated billing integration.',
-          ru: 'Показать платные тарифы в UI, но отложить автоматическую биллинговую интеграцию.',
+          en: 'Show paid tiers now, but leave automated billing integration for a later pass.',
+          ru: 'Показать платные тарифы сейчас, а автоматическую биллинговую интеграцию оставить на потом.',
         }, language),
       },
     ],
     defaultChoiceId,
     impact: fallbackLocalized({
-      en: 'This changes pricing UI, checkout flow, and entitlement handling.',
-      ru: 'Это меняет pricing UI, checkout-флоу и логику доступа по тарифу.',
+      en: 'This choice changes the pricing UI, checkout flow, and entitlement handling for the first pass.',
+      ru: 'Этот выбор меняет pricing UI, checkout-флоу и логику доступа по тарифу для первого прохода.',
     }, language),
   };
 }
@@ -2092,7 +2099,7 @@ export const ArchitectPlannerService = {
       const selectedOpt = plan.scopeOptions.find(o => o.id === anyPlan.selectedOptionId);
       if (selectedOpt) {
         const localized = localizeScopeOptionSummary(selectedOpt, normalizedLanguage);
-        lines.push(`**${normalizedLanguage === 'ru' ? 'Выбранный объём сборки' : 'Selected build mode'}:**`);
+        lines.push(`**${copy.selectedBuildMode}:**`);
         lines.push(`• **${localized.label}** — ${localized.description}`);
         lines.push('');
       }

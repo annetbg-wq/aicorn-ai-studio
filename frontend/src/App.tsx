@@ -45,6 +45,7 @@ import {
   type ProductBlueprint,
   type TrendNicheIdea,
 } from './services/ideaFeedService';
+import { launchTrendIdeaBuild } from './services/TrendIdeaLaunchService';
 import type { ModuleId, ViewId } from './shared/types';
 
 const CODE_STUDIO_INTENT_PREFIX = '__OPEN_CODE_STUDIO__';
@@ -320,10 +321,15 @@ function StudioApp() {
     setView('engine');
   };
 
-  const handleStartBlueprint = (text: string) => {
-    studio.addComposerContextFromPlan(null, text, 'manual');
+  const handleStartBlueprint = React.useCallback(async (text: string) => {
     setView('engine');
-  };
+    try {
+      await studio.startExternalChatDraftSession();
+      studio.addComposerContextFromPlan(null, text, 'manual');
+    } catch (error: unknown) {
+      studio.addSystemMessage(`⚠️ Failed to open a clean chat draft: ${(error as Error)?.message ?? String(error)}`);
+    }
+  }, [studio]);
 
   const handleLaunchWithPlan = React.useCallback((plan: any, intent: string, source?: 'chat' | 'weekly-feed' | 'niche' | 'trend-niche' | 'weekly-feed-code-studio') => {
     const fromWeeklyCodeStudio = source === 'weekly-feed-code-studio' || intent.startsWith(CODE_STUDIO_INTENT_PREFIX);
@@ -346,32 +352,27 @@ function StudioApp() {
     try {
       await studio.startTrendIdeaDraftSession('chat');
       studio.setChatContext(founderBrief, 'trend-niche', idea.appName);
-      studio.onSend();
+      studio.onSend(founderBrief);
     } catch (error: unknown) {
       studio.addSystemMessage(`⚠️ Failed to open isolated trend draft: ${(error as Error)?.message ?? String(error)}`);
     }
   }, [studio]);
 
   const handleBuildTrendIdea = React.useCallback(async (idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => {
-    const copy = getTrendIdeaText(idea, studio.appLanguage);
     setView('engine');
     try {
-      await studio.launchWithPlan(blueprint, intent, 'trend-niche');
-      studio.addSystemMessage([
-        `🧠 Blueprint packaged: **${blueprint.appName || copy.title}**`,
-        '',
-        `Market angle: ${copy.marketAngle}`,
-        `Why now: ${copy.whyInteresting}`,
-        `Files planned: ${blueprint.fileArchitecture?.length ?? 0}`,
-      ].join('\n'));
-      
-      // Pass the intent so generation can start, and call onSend
-      studio.setInput(intent);
-      // Wait for React state to update the input, or maybe we can just onSend right away
-      // Actually onSend uses a ref for input, but let's be safe.
-      setTimeout(() => {
-        studio.onSend();
-      }, 0);
+      await launchTrendIdeaBuild({
+        idea,
+        blueprint,
+        intent,
+        language: studio.appLanguage,
+        deps: {
+          launchWithPlan: studio.launchWithPlan,
+          addSystemMessage: studio.addSystemMessage,
+          setInput: studio.setInput,
+          onSend: studio.onSend,
+        },
+      });
     } catch (error: unknown) {
       studio.addSystemMessage(`⚠️ Failed to launch packaged trend idea: ${(error as Error)?.message ?? String(error)}`);
     }
