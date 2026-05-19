@@ -77,6 +77,10 @@ const SKELETON_UI_MODULES = import.meta.glob(
   '../../../../skeletons/*/skeleton-*/src/components/ui/**/*.{ts,tsx}',
   { eager: true, query: '?raw', import: 'default' },
 );
+const SKELETON_COMPONENT_SOURCES = import.meta.glob(
+  '../../../../skeletons/*/skeleton-*/src/components/**/*.{ts,tsx}',
+  { eager: true, query: '?raw', import: 'default' },
+) as Record<string, string>;
 const SKELETON_UI_INDEX_SOURCES = import.meta.glob(
   '../../../../skeletons/*/skeleton-*/src/components/ui/index.ts',
   { eager: true, query: '?raw', import: 'default' },
@@ -232,17 +236,55 @@ function uniqueSkeletonUiPrimitiveNames(): UiPrimitiveDisplayName[] {
   )).sort((left, right) => left.localeCompare(right));
 }
 
+function componentSurfaceCandidates(componentName: string): string[] {
+  const normalized = toWorkspacePath(componentName);
+  const basePath = `src/components/${normalized}`;
+  return [
+    `${basePath}.ts`,
+    `${basePath}.tsx`,
+    `${basePath}/index.ts`,
+    `${basePath}/index.tsx`,
+  ];
+}
+
+function buildComponentFilesBySkeleton(): Record<string, Set<string>> {
+  const filesBySkeleton: Record<string, Set<string>> = {};
+
+  for (const rawPath of Object.keys(SKELETON_COMPONENT_SOURCES)) {
+    const workspacePath = rawGlobPathToWorkspace(rawPath);
+    const markerIndex = workspacePath.indexOf('/src/');
+    if (markerIndex < 0) continue;
+
+    const skeletonKey = workspacePath.slice(0, markerIndex);
+    const srcPath = workspacePath.slice(markerIndex + 1);
+    filesBySkeleton[skeletonKey] ??= new Set<string>();
+    filesBySkeleton[skeletonKey].add(srcPath);
+  }
+
+  return filesBySkeleton;
+}
+
 function findProvidedComponentGaps(): Array<{ skeletonId: SkeletonId; componentName: string }> {
   const virtualComponents = new Set(['AppShell', 'DashboardShell', 'NavigationShell']);
+  const componentFilesBySkeleton = buildComponentFilesBySkeleton();
+
   return (Object.keys(SKELETON_REGISTRY) as SkeletonId[]).flatMap(skeletonId => {
-    const installedBaseNames = new Set(
-      getSkeletonInstalledFiles(skeletonId)
-        .map(file => file.split('/').pop()?.replace(/\.(?:tsx?|jsx?|json)$/i, ''))
+    const skeletonKey = `skeletons/${skeletonId}/skeleton-${skeletonId}`;
+    const componentFiles = componentFilesBySkeleton[skeletonKey] ?? new Set<string>();
+    const componentBaseNames = new Set(
+      Array.from(componentFiles)
+        .map(file => file.split('/').pop()?.replace(/\.(?:tsx?|jsx?)$/i, ''))
         .filter((value): value is string => Boolean(value)),
     );
+
     return SKELETON_REGISTRY[skeletonId].providedComponents
       .filter(componentName => !virtualComponents.has(componentName))
-      .filter(componentName => !installedBaseNames.has(componentName))
+      .filter(componentName => {
+        const normalized = toWorkspacePath(componentName);
+        const componentBaseName = normalized.split('/').pop() ?? normalized;
+        return !componentSurfaceCandidates(componentName).some(candidate => componentFiles.has(candidate))
+          && !componentBaseNames.has(componentBaseName);
+      })
       .map(componentName => ({ skeletonId, componentName }));
   });
 }
