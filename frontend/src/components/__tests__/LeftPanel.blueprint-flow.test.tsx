@@ -61,6 +61,9 @@ vi.mock('lucide-react', () => {
     Redo2: Icon,
     Square: Icon,
     Copy: Icon,
+    RefreshCw: Icon,
+    ThumbsUp: Icon,
+    ThumbsDown: Icon,
   };
 });
 
@@ -307,7 +310,7 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
     expect(screen.getByTestId('kickoff-option-core')).toBeInTheDocument();
     expect(screen.getByTestId('kickoff-option-core_backend')).toBeInTheDocument();
     expect(screen.getByTestId('kickoff-option-core_backend_ai')).toBeInTheDocument();
-    expect(screen.getByText('Revise plan')).toBeInTheDocument();
+    expect(screen.queryByText('Revise plan')).not.toBeInTheDocument();
   });
 
   it('S4c: Selected kickoff scope is preserved when build starts', async () => {
@@ -328,7 +331,7 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
     await user.click(screen.getByTestId('trigger-blueprint'));
 
     expect(screen.getByTestId('kickoff-awaiting-banner')).toHaveTextContent('Awaiting confirmation');
-    expect(screen.getByTestId('kickoff-awaiting-banner')).toHaveTextContent('Pick a scope');
+    expect(screen.getByTestId('kickoff-awaiting-banner')).toHaveTextContent('Review the scope');
     expect(screen.getByTestId('confirm-plan-btn')).toBeInTheDocument();
     expect(screen.queryByTestId('kickoff-build-in-progress')).not.toBeInTheDocument();
     expect(screen.queryByText('Build in progress')).not.toBeInTheDocument();
@@ -339,7 +342,7 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
 
     await user.click(screen.getByTestId('trigger-blueprint'));
 
-    expect(screen.getByTestId('kickoff-build-starting')).toHaveTextContent('Build starting');
+    expect(screen.getByTestId('kickoff-build-starting')).toHaveTextContent('Starting first pass');
     expect(screen.queryByTestId('kickoff-awaiting-banner')).not.toBeInTheDocument();
     expect(screen.queryByText('Awaiting confirmation')).not.toBeInTheDocument();
     expect(screen.queryByTestId('confirm-plan-btn')).not.toBeInTheDocument();
@@ -348,7 +351,7 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
   it('S4f: build_in_progress has a distinct visible state with no awaiting banner', () => {
     render(<Harness kickoffPhase="building" isGenerating progress={40} currentPhase="code" />);
 
-    expect(screen.getByTestId('kickoff-build-in-progress')).toHaveTextContent('Build in progress');
+    expect(screen.getByTestId('kickoff-build-in-progress')).toHaveTextContent('Building first pass');
     expect(screen.queryByTestId('kickoff-awaiting-banner')).not.toBeInTheDocument();
     expect(screen.queryByText('Awaiting confirmation')).not.toBeInTheDocument();
   });
@@ -356,7 +359,7 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
   it('S4g: prompt_received is explicitly visible while kickoff starts', () => {
     render(<Harness kickoffPhase="prompt_received" isGenerating progress={5} />);
 
-    expect(screen.getByTestId('kickoff-prompt-received')).toHaveTextContent('Prompt received');
+    expect(screen.getByTestId('kickoff-prompt-received')).toHaveTextContent('Brief received');
   });
 
   it('S4h: the same kickoff never shows waiting and build-starting UI together after confirmation', async () => {
@@ -369,7 +372,7 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
     await user.click(screen.getByTestId('confirm-plan-btn'));
 
     expect(screen.queryByTestId('kickoff-awaiting-banner')).not.toBeInTheDocument();
-    expect(screen.getByTestId('kickoff-build-starting')).toHaveTextContent('Build starting');
+    expect(screen.getByTestId('kickoff-build-starting')).toHaveTextContent('Starting first pass');
     expect(screen.queryByText('Awaiting confirmation')).not.toBeInTheDocument();
   });
 
@@ -413,7 +416,7 @@ describe('LeftPanel blueprint flow — generation-plan → blueprint → Build i
       expect.objectContaining({ selectedOptionId: 'core_backend_ai' }),
     );
     expect(screen.queryByTestId('kickoff-awaiting-banner')).not.toBeInTheDocument();
-    expect(screen.getByTestId('kickoff-build-starting')).toHaveTextContent('Build starting');
+    expect(screen.getByTestId('kickoff-build-starting')).toHaveTextContent('Starting first pass');
   });
 
   it('S5: Fast double-click on Build it dispatches REMOVE_BY_TYPE exactly once', () => {

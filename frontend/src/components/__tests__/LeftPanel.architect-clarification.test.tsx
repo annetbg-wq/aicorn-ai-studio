@@ -93,27 +93,27 @@ describe('LeftPanel architect clarification card', () => {
         id: 'blocking-tenant-scope',
         kind: 'blocking',
         capabilityIds: ['auth', 'backend'],
-        question: 'How should account data be scoped in the first pass?',
+        question: 'For the first pass, how should accounts and data be scoped?',
         defaultChoiceId: 'single_user',
-        impact: 'This changes the auth model, data schema, and access boundaries.',
+        impact: 'This choice changes the auth model, data schema, and access boundaries for the first pass.',
         options: [
-          { id: 'single_user', label: 'Single user account', description: 'Fastest path: each account owns only its own data.' },
-          { id: 'team_workspace', label: 'Shared team workspace', description: 'Several members work inside one shared workspace.' },
-          { id: 'multi_tenant_org', label: 'Full multi-tenant organizations', description: 'Separate organizations, invite flows, and tenant-aware permissions.' },
+          { id: 'single_user', label: 'Single-user account', description: 'Fastest first pass: each account only sees its own data.' },
+          { id: 'team_workspace', label: 'Shared team workspace', description: 'A small team shares one workspace and works together inside it.' },
+          { id: 'multi_tenant_org', label: 'Multi-tenant organizations', description: 'Separate organizations with invites and tenant-aware permissions from the start.' },
         ],
       }],
     }], {
       onAnswerClarification,
     });
 
-    expect(screen.getByText('Decision required before build continues:')).toBeInTheDocument();
-    expect(screen.getByText('How should account data be scoped in the first pass?')).toBeInTheDocument();
-    expect(screen.getByText('Recommended')).toBeInTheDocument();
+    expect(screen.getByText('Pick the direction for the first pass:')).toBeInTheDocument();
+    expect(screen.getByText('For the first pass, how should accounts and data be scoped?')).toBeInTheDocument();
+    expect(screen.getByText('Fastest first pass')).toBeInTheDocument();
     expect(screen.queryByText('Пропустить')).not.toBeInTheDocument();
     expect(onAnswerClarification).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByText('Shared team workspace'));
-    fireEvent.click(screen.getByRole('button', { name: 'Apply choice and continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use this choice and continue' }));
 
     expect(onAnswerClarification).toHaveBeenCalledTimes(1);
     expect(onAnswerClarification.mock.calls[0][0]).toContain('Shared team workspace');

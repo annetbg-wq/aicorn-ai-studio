@@ -199,6 +199,25 @@ const LABELS: Record<string, Record<string, string>> = {
     lineageCurrent: 'Current',
     lineageBehind: 'Behind preview',
     lineageHistorical: 'Historical',
+    kickoffAwaitingTitle: 'Awaiting confirmation',
+    kickoffAwaitingHint: 'Review the scope, then start the first build from chat.',
+    kickoffScopeTitle: 'First build scope',
+    kickoffScopeHint: 'Choose what the first pass should include. Nothing starts until you confirm from chat.',
+    kickoffReadyTitle: 'Ready to start the first pass?',
+    kickoffSelectedScope: 'Selected scope',
+    kickoffReadyHint: 'You can still adjust the plan before the build begins.',
+    kickoffStartBuild: 'Start first build',
+    kickoffEditPlan: 'Adjust plan',
+    kickoffPromptReceived: 'Brief received',
+    kickoffPlanning: 'Shaping first pass',
+    kickoffAwaitingStatus: 'Ready for your go-ahead',
+    kickoffBuildStartingStatus: 'Starting first pass',
+    kickoffBuildInProgress: 'Building first pass',
+    kickoffArchitectPhase: 'Architect is shaping the first pass',
+    clarificationStructuredTitle: 'Pick the direction for the first pass:',
+    clarificationStructuredRecommended: 'Fastest first pass',
+    clarificationStructuredApply: 'Use this choice and continue',
+    clarificationStructuredApplied: 'Choice saved — continuing the first pass.',
   },
   ru: {
     file: 'Файл', voice: 'Голос', history: 'История',
@@ -248,6 +267,25 @@ const LABELS: Record<string, Record<string, string>> = {
     lineageCurrent: 'Текущая',
     lineageBehind: 'Превью отстает',
     lineageHistorical: 'Историческая',
+    kickoffAwaitingTitle: 'Ждет подтверждения',
+    kickoffAwaitingHint: 'Проверьте scope и затем явно запустите первую сборку из чата.',
+    kickoffScopeTitle: 'Scope первой сборки',
+    kickoffScopeHint: 'Выберите, что войдет в первый проход. Ничего не стартует, пока вы явно не подтвердите сборку в чате.',
+    kickoffReadyTitle: 'Готово к первому проходу?',
+    kickoffSelectedScope: 'Выбранный scope',
+    kickoffReadyHint: 'План еще можно скорректировать до старта сборки.',
+    kickoffStartBuild: 'Стартовать первую сборку',
+    kickoffEditPlan: 'Скорректировать план',
+    kickoffPromptReceived: 'Brief получен',
+    kickoffPlanning: 'Собираю первый проход',
+    kickoffAwaitingStatus: 'Ждет вашего подтверждения',
+    kickoffBuildStartingStatus: 'Запускаю первый проход',
+    kickoffBuildInProgress: 'Идет первый проход',
+    kickoffArchitectPhase: 'Architect собирает первый проход',
+    clarificationStructuredTitle: 'Выберите направление для первого прохода:',
+    clarificationStructuredRecommended: 'Самый быстрый первый проход',
+    clarificationStructuredApply: 'Принять выбор и продолжить',
+    clarificationStructuredApplied: 'Выбор сохранен — продолжаю первый проход.',
   },
   es: {
     file: 'Archivo', voice: 'Voz', history: 'Historial',
@@ -1150,9 +1188,10 @@ const ClarificationCard: React.FC<{
   isDark: boolean;
   textColor: string;
   subText: string;
+  t: (key: string) => string;
   onAnswerAndBuild?: (answers: string) => void;
   onSkip?: () => void;
-}> = ({ questions = [], blockingQuestions = [], isDark, textColor, subText, onAnswerAndBuild, onSkip }) => {
+}> = ({ questions = [], blockingQuestions = [], isDark, textColor, subText, t, onAnswerAndBuild, onSkip }) => {
   const [answers, setAnswers] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
@@ -1172,7 +1211,7 @@ const ClarificationCard: React.FC<{
   if (submitted) return (
     <div style={{ fontSize: 12, color: subText, padding: '8px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
       <span style={{ color: '#22c55e' }}>&#x2713;</span>
-      {isStructured ? 'Choice applied — build continues.' : String.fromCodePoint(0x041E,0x0442,0x0432,0x0435,0x0442,0x044B,0x0020,0x0443,0x0447,0x0442,0x0435,0x043D,0x044B,0x0020,0x0432,0x0020,0x0433,0x0435,0x043D,0x0435,0x0440,0x0430,0x0446,0x0438,0x0438)}
+      {isStructured ? t('clarificationStructuredApplied') : String.fromCodePoint(0x041E,0x0442,0x0432,0x0435,0x0442,0x044B,0x0020,0x0443,0x0447,0x0442,0x0435,0x043D,0x044B,0x0020,0x0432,0x0020,0x0433,0x0435,0x043D,0x0435,0x0440,0x0430,0x0446,0x0438,0x0438)}
     </div>
   );
 
@@ -1181,7 +1220,7 @@ const ClarificationCard: React.FC<{
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
         <span style={{ fontSize: 14 }}>&#x1F914;</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>
-          {isStructured ? 'Decision required before build continues:' : String.fromCodePoint(0x0423,0x0442,0x043E,0x0447,0x043D,0x044E,0x0020,0x043F,0x0435,0x0440,0x0435,0x0434,0x0020,0x0441,0x0442,0x0430,0x0440,0x0442,0x043E,0x043C,0x003A)}
+          {isStructured ? t('clarificationStructuredTitle') : String.fromCodePoint(0x0423,0x0442,0x043E,0x0447,0x043D,0x044E,0x0020,0x043F,0x0435,0x0440,0x0435,0x0434,0x0020,0x0441,0x0442,0x0430,0x0440,0x0442,0x043E,0x043C,0x003A)}
         </span>
       </div>
 
@@ -1229,7 +1268,7 @@ const ClarificationCard: React.FC<{
                               borderRadius: 999,
                               padding: '2px 8px',
                             }}>
-                              Recommended
+                              {t('clarificationStructuredRecommended')}
                             </span>
                           ) : null}
                         </div>
@@ -1283,7 +1322,7 @@ const ClarificationCard: React.FC<{
                 fontWeight: 600,
               }}
             >
-              Apply choice and continue
+              {t('clarificationStructuredApply')}
             </button>
           </div>
         ) : (
@@ -1388,6 +1427,7 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
     ?.filter((option): option is { id: KickoffBuildScopeId; label: string; description: string } => option.id !== 'revise')
     ?? [];
   const selectedKickoffScope = pendingPlan?.architectKickoff?.selectedOptionId ?? 'core';
+  const selectedKickoffOption = kickoffOptions.find(option => option.id === selectedKickoffScope) ?? kickoffOptions[0] ?? null;
   const isAwaitingKickoffConfirmation = isPending && kickoffPhase === 'awaiting_confirmation';
   const isKickoffBuildStarting = isPending && kickoffPhase === 'build_starting';
   const lineageStatusLabel = m.lineageStatus === 'behind'
@@ -1437,9 +1477,9 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
             fontWeight: 600,
           }}>
             {isAwaitingKickoffConfirmation
-              ? 'Awaiting confirmation'
+              ? t('kickoffAwaitingStatus')
               : isKickoffBuildStarting
-                ? 'Build starting'
+                ? t('kickoffBuildStartingStatus')
                 : lineageStatusLabel}
           </div>
         )}
@@ -1546,10 +1586,10 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
           gap: 8,
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: subText, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            First build scope
+            {t('kickoffScopeTitle')}
           </div>
           <div style={{ fontSize: 11, color: subText, lineHeight: 1.5 }}>
-            Default scope will start automatically in a moment. Choose another scope or start now.
+            {t('kickoffScopeHint')}
           </div>
           <div style={{ display: 'grid', gap: 8 }}>
             {kickoffOptions.map(option => {
@@ -1583,6 +1623,16 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
       {isAwaitingKickoffConfirmation && (
         <div data-testid="generation-plan-card"
           style={{ padding: '12px 16px', borderTop: `1px solid ${borderColor}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'grid', gap: 4 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: textColor }}>
+              {t('kickoffReadyTitle')}
+            </div>
+            <div style={{ fontSize: 11, color: subText, lineHeight: 1.5 }}>
+              {selectedKickoffOption
+                ? `${t('kickoffSelectedScope')}: ${selectedKickoffOption.label}. ${t('kickoffReadyHint')}`
+                : t('kickoffReadyHint')}
+            </div>
+          </div>
           {editOpen ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <textarea
@@ -1625,7 +1675,7 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
                   background: '#6366f1', border: 'none', color: '#fff',
                   fontSize: 13, fontWeight: 600,
                 }}
-              >Start build</button>
+              >{t('kickoffStartBuild')}</button>
               <button
                 data-testid="clarify-plan-btn"
                 onClick={() => setEditOpen(true)}
@@ -1634,7 +1684,7 @@ const BlueprintCard: React.FC<BlueprintCardProps> = ({
                   background: 'transparent', border: `1px solid ${borderColor}`,
                   color: subText, fontSize: 13,
                 }}
-              >&#x270F;&#xFE0F; Edit plan</button>
+              >&#x270F;&#xFE0F; {t('kickoffEditPlan')}</button>
               <button onClick={cancelPlan} style={{
                 padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
                 background: 'transparent', border: `1px solid ${borderColor}`,
@@ -1675,18 +1725,21 @@ const renderDescription = (desc: unknown): string => {
   return String(desc ?? '');
 };
 
-const getKickoffStatus = (phase: KickoffPhase): { label: string; testId: string } | null => {
+const getKickoffStatus = (
+  phase: KickoffPhase,
+  t: (key: string) => string,
+): { label: string; testId: string } | null => {
   switch (phase) {
     case 'prompt_received':
-      return { label: 'Prompt received', testId: 'kickoff-prompt-received' };
+      return { label: t('kickoffPromptReceived'), testId: 'kickoff-prompt-received' };
     case 'analyzing':
-      return { label: 'Planning first build', testId: 'kickoff-planning' };
+      return { label: t('kickoffPlanning'), testId: 'kickoff-planning' };
     case 'awaiting_confirmation':
-      return { label: 'Awaiting confirmation', testId: 'kickoff-awaiting-confirmation' };
+      return { label: t('kickoffAwaitingStatus'), testId: 'kickoff-awaiting-confirmation' };
     case 'build_starting':
-      return { label: 'Build starting', testId: 'kickoff-build-starting' };
+      return { label: t('kickoffBuildStartingStatus'), testId: 'kickoff-build-starting' };
     case 'building':
-      return { label: 'Build in progress', testId: 'kickoff-build-in-progress' };
+      return { label: t('kickoffBuildInProgress'), testId: 'kickoff-build-in-progress' };
     default:
       return null;
   }
@@ -2163,12 +2216,12 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   // Derived label — shows kickoff-specific states when the pipeline is not yet
   // in a code phase (kickoff phases take priority over the raw currentPhase).
   const effectivePhaseLabel =
-    kickoffPhase === 'prompt_received' ? 'Prompt received' :
-    kickoffPhase === 'analyzing'    ? 'Architect...' :
-    kickoffPhase === 'build_starting' ? 'Starting...' :
-    kickoffPhase === 'building' ? 'Build in progress' :
+    kickoffPhase === 'prompt_received' ? t('kickoffPromptReceived') :
+    kickoffPhase === 'analyzing'    ? t('kickoffArchitectPhase') :
+    kickoffPhase === 'build_starting' ? t('kickoffBuildStartingStatus') :
+    kickoffPhase === 'building' ? t('kickoffBuildInProgress') :
     phaseLabel;
-  const kickoffStatus = getKickoffStatus(kickoffPhase);
+  const kickoffStatus = getKickoffStatus(kickoffPhase, t);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -2360,6 +2413,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                       isDark={isDark}
                       textColor={textColor}
                       subText={subText}
+                      t={t}
                       onAnswerAndBuild={onAnswerClarification ?? onSubmitClarification}
                       onSkip={blockingQuestions.length > 0 ? undefined : () => { onAnswerClarification?.(''); }}
                     />
@@ -2620,9 +2674,9 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
                   color: '#f59e0b', letterSpacing: '0.04em',
                   textTransform: 'uppercase',
                 }}>
-                Awaiting confirmation
+                {t('kickoffAwaitingTitle')}
                 <div style={{ marginTop: 3, fontSize: 10, fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
-                  Pick a scope or let the default start shortly.
+                  {t('kickoffAwaitingHint')}
                 </div>
               </div>
             ) : (
