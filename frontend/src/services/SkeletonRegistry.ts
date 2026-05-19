@@ -26,6 +26,7 @@ import mobileAppManifest from './skeleton-manifests/mobile-app/skeleton.manifest
 import productivityToolManifest from './skeleton-manifests/productivity-tool/skeleton.manifest.json';
 import saasDashboardManifest from './skeleton-manifests/saas-dashboard/skeleton.manifest.json';
 import socialCommunityManifest from './skeleton-manifests/social-community/skeleton.manifest.json';
+import { filterAdvertisedUiPrimitiveNames } from './LiveGenerationUiPrimitives';
 
 export type SkeletonId =
   | 'mobile-app'
@@ -1248,11 +1249,11 @@ DO NOT rewrite protected skeleton infrastructure files. They are production-qual
 PROVIDED — IMPORT, DO NOT RECREATE:
 Components: ${s.providedComponents.join(', ')}
 Hooks: ${s.providedHooks.length ? s.providedHooks.join(', ') : 'none'}
-UI primitives: ${s.uiPrimitives.join(', ')}
+UI primitives: ${filterAdvertisedUiPrimitiveNames(s.uiPrimitives).join(', ') || 'none'}
 Import paths:
 - UI primitives: use the exact paths from the coder UI primitive import catalog; do not guess shadcn paths.
 - Layout: import from existing App.tsx, BottomTabs, Sidebar, TopBar where provided
-- Hooks: useLocalStorage and useTheme already exist
+- Hooks: useLocalStorage and useTheme already exist; import them as named exports, e.g. import { useLocalStorage } from '@/hooks/useLocalStorage'
 - Config: app.ts, routes.ts, navigation.ts already exist. MODIFY them when needed; do not create duplicates.
 
 PROTECTED FILES — DO NOT OUTPUT THESE FILES:

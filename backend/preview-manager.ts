@@ -23,6 +23,19 @@ import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
 import { canonicalizeProjectPath } from '../frontend/src/shared/safePaths';
+import type { SkeletonId } from '../frontend/src/services/SkeletonRegistry';
+import {
+  LIVE_GENERATION_ALLOWED_UI_PRIMITIVES,
+  canonicalUiPrimitiveId,
+  preferredUiPrimitiveWorkspaceRoots,
+  uiPrimitiveWorkspaceCandidates,
+} from '../frontend/src/services/LiveGenerationUiPrimitives';
+import {
+  LiveGenerationContractError,
+  createViteBuildDiagnostic,
+  isLiveGenerationContractError,
+  validateLiveGenerationContract,
+} from '../frontend/src/services/LiveGenerationContractValidator';
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -38,6 +51,7 @@ const BUILDS_WORKSPACE = path.resolve(__dirname, '..', 'builds');
 /** Maximum compiled builds to keep on disk (LRU). */
 const MAX_BUILDS = 20;
 const PRESERVED_PREVIEW_DIRS = ['components', 'config', 'context', 'data', 'hooks', 'lib', 'pages', 'themes'];
+const REPO_ROOT = path.resolve(__dirname, '..');
 
 /** Root directory where skeleton source trees live: skeletons/<id>/skeleton-<id>/src */
 const SKELETONS_ROOT = path.resolve(__dirname, '..', 'skeletons');
@@ -285,7 +299,7 @@ export function registerPreviewCompileRoute(app: express.Express): void {
       }
 
       const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
-        ? req.body as { files?: Record<string, string>; skeletonId?: string; sessionId?: unknown }
+        ? req.body as { files?: Record<string, string>; skeletonId?: SkeletonId; sessionId?: unknown }
         : {};
       const rawSessionToken = req.get('X-Preview-Session') ?? body.sessionId;
       if (rawSessionToken === undefined || rawSessionToken === null) {
@@ -336,6 +350,17 @@ export function registerPreviewCompileRoute(app: express.Express): void {
         await cleanupLRU();
         res.json({ success: true, buildId, url: `/preview/${buildId}` });
       } catch (e: any) {
+        if (isLiveGenerationContractError(e)) {
+          const rootCause = e.diagnostics?.[0]?.root_cause_type;
+          const statusCode = rootCause === 'vite_build_error' ? 500 : 422;
+          console.error(`[preview-manager] compile contract failed for ${buildId}:`, e.message);
+          return res.status(statusCode).json({
+            success: false,
+            error: e.message ?? String(e),
+            diagnostics: e.diagnostics,
+            candidateGraphSummary: e.candidateGraphSummary,
+          });
+        }
         console.error(`[preview-manager] compile failed for ${buildId}:`, e.message);
         res.status(500).json({ success: false, error: e.message ?? String(e) });
       }
@@ -419,17 +444,32 @@ export interface UiPrimitiveGuardResult {
 }
 
 const UI_PRIMITIVE_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
-const KNOWN_MATERIALIZABLE_UI_PRIMITIVES = new Set(['scroll-area']);
+const CANDIDATE_GRAPH_TEXT_EXTENSIONS = new Set(['.css', '.js', '.json', '.jsx', '.ts', '.tsx']);
+const KNOWN_MATERIALIZABLE_UI_PRIMITIVES = new Set(LIVE_GENERATION_ALLOWED_UI_PRIMITIVES);
+
+export function getKnownMaterializableUiPrimitives(): string[] {
+  return Array.from(KNOWN_MATERIALIZABLE_UI_PRIMITIVES).sort((left, right) => left.localeCompare(right));
+}
 
 function stripModuleExtension(value: string): string {
   return value.replace(/\.(?:tsx?|jsx?)$/i, '');
+}
+
+function normalizeUiPrimitiveName(value: string): string {
+  const trimmed = stripModuleExtension(value.trim());
+  if (!trimmed) return '';
+  if (trimmed.includes('-')) return trimmed.toLowerCase();
+  return trimmed
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[_\s]+/g, '-')
+    .toLowerCase();
 }
 
 export function extractUiPrimitiveImportName(specifier: string): string | null {
   const normalized = stripModuleExtension(specifier.replace(/\\/g, '/'));
   const match = normalized.match(/(?:^|\/)components\/ui\/([^/]+)$/);
   if (!match) return null;
-  const primitive = match[1].trim();
+  const primitive = normalizeUiPrimitiveName(match[1]);
   return /^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(primitive) ? primitive : null;
 }
 
@@ -455,31 +495,37 @@ export function findUiPrimitiveImportsInSource(source: string, importedBy: strin
   return imports;
 }
 
+function toUiPrimitivePascalName(primitive: string): string {
+  return primitive
+    .split('-')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+}
+
 function hasUiPrimitiveFile(uiRoot: string, primitive: string): boolean {
+  const pascalName = toUiPrimitivePascalName(primitive);
   const candidates = [
     `${primitive}.ts`,
     `${primitive}.tsx`,
+    `${pascalName}.ts`,
+    `${pascalName}.tsx`,
     path.join(primitive, 'index.ts'),
     path.join(primitive, 'index.tsx'),
+    path.join(pascalName, 'index.ts'),
+    path.join(pascalName, 'index.tsx'),
   ];
   return candidates.some(candidate => fs.existsSync(path.join(uiRoot, candidate)));
 }
 
 function canonicalUiPrimitiveCandidates(primitive: string, skeletonId?: string): string[] {
-  const skeletonIds = [
-    skeletonId && /^[a-zA-Z0-9-]+$/.test(skeletonId) ? skeletonId : null,
-    'mobile-app',
-  ].filter((value, index, arr): value is string => Boolean(value) && arr.indexOf(value) === index);
+  const canonicalPrimitive = canonicalUiPrimitiveId(primitive);
+  if (!canonicalPrimitive) return [];
 
-  return skeletonIds.flatMap(id => {
-    const uiRoot = path.join(SKELETONS_ROOT, id, `skeleton-${id}`, 'src', 'components', 'ui');
-    return [
-      path.join(uiRoot, `${primitive}.tsx`),
-      path.join(uiRoot, `${primitive}.ts`),
-      path.join(uiRoot, primitive, 'index.tsx'),
-      path.join(uiRoot, primitive, 'index.ts'),
-    ];
-  });
+  return uiPrimitiveWorkspaceCandidates(
+    canonicalPrimitive,
+    preferredUiPrimitiveWorkspaceRoots(skeletonId),
+  ).map(candidate => path.join(REPO_ROOT, candidate));
 }
 
 async function materializeKnownUiPrimitive(
@@ -522,6 +568,34 @@ async function collectSourceFiles(root: string): Promise<string[]> {
       } else if (UI_PRIMITIVE_SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
         out.push(entryPath);
       }
+    }
+  };
+
+  await visit(root);
+  return out;
+}
+
+async function collectCandidateGraphFiles(root: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const visit = async (dir: string) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fsPromises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'build') continue;
+        await visit(entryPath);
+        continue;
+      }
+
+      if (!CANDIDATE_GRAPH_TEXT_EXTENSIONS.has(path.extname(entry.name))) continue;
+      const relativePath = path.relative(root, entryPath).replace(/\\/g, '/');
+      out[relativePath] = await fsPromises.readFile(entryPath, 'utf-8');
     }
   };
 
@@ -584,7 +658,7 @@ export async function ensureImportedUiPrimitives(
 async function compileBuild(
   buildId: string,
   files: Record<string, string>,
-  skeletonId?: string,
+  skeletonId?: SkeletonId,
 ): Promise<void> {
   const outDir = path.join(BUILDS_WORKSPACE, buildId);
   const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
@@ -765,34 +839,59 @@ window.addEventListener('unhandledrejection', (e) => {
 `;
   await fsPromises.writeFile(path.join(srcDir, 'main.tsx'), canonicalMainTsx, 'utf-8');
 
+  const finalCandidateFiles = await collectCandidateGraphFiles(srcDir);
+  const materializedFiles: Record<string, string> = {};
+  for (const materializedPath of uiPrimitiveGuard.materialized) {
+    const fullPath = path.join(srcDir, materializedPath);
+    if (!fs.existsSync(fullPath)) continue;
+    materializedFiles[materializedPath] = await fsPromises.readFile(fullPath, 'utf-8');
+  }
+  const contract = validateLiveGenerationContract({
+    finalFiles: finalCandidateFiles,
+    skeletonId,
+    generatedDeltaFiles: files,
+    materializedFiles,
+  });
+  if (!contract.ok) {
+    throw new LiveGenerationContractError(contract.diagnostics, contract.candidateGraphSummary);
+  }
+
   // 3. Ensure builds/ exists and run vite build
   //    outDir is outside preview-workspace/ so Vite's root-check passes.
   await fsPromises.mkdir(BUILDS_WORKSPACE, { recursive: true });
 
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      'npx',
-      ['vite', 'build', '--outDir', outDir, '--emptyOutDir'],
-      {
-        cwd: PREVIEW_WORKSPACE,
-        stdio: 'pipe',
-        shell: process.platform === 'win32',
-      },
-    );
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        'npx',
+        ['vite', 'build', '--outDir', outDir, '--emptyOutDir'],
+        {
+          cwd: PREVIEW_WORKSPACE,
+          stdio: 'pipe',
+          shell: process.platform === 'win32',
+        },
+      );
 
-    let stderr = '';
-    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.stdout?.on('data', () => {}); // drain to avoid backpressure
+      let stderr = '';
+      child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+      child.stdout?.on('data', () => {}); // drain to avoid backpressure
 
-    child.on('close', (code) => {
-      if (code === 0) {
-        console.log(`[preview-manager] build complete: ${buildId}`);
-        resolve();
-      } else {
-        reject(new Error(`vite build exited ${code}:\n${stderr.slice(0, 1000)}`));
-      }
+      child.on('close', (code) => {
+        if (code === 0) {
+          console.log(`[preview-manager] build complete: ${buildId}`);
+          resolve();
+        } else {
+          reject(new Error(`vite build exited ${code}:\n${stderr.slice(0, 1000)}`));
+        }
+      });
     });
-  });
+  } catch (err) {
+    const excerpt = err instanceof Error ? err.message : String(err);
+    throw new LiveGenerationContractError(
+      [createViteBuildDiagnostic(contract.candidateGraphSummary, excerpt)],
+      contract.candidateGraphSummary,
+    );
+  }
 }
 
 /**
@@ -802,7 +901,7 @@ window.addEventListener('unhandledrejection', (e) => {
 export async function runCompileJob(
   buildId: string,
   files: Record<string, string>,
-  skeletonId?: string,
+  skeletonId?: SkeletonId,
 ): Promise<void> {
   const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
   const sanitized = sanitizeCompileFiles(files, srcDir);
