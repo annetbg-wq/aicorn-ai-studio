@@ -53,15 +53,31 @@ export function getSkeletonSaveFiles(skeletonId?: SkeletonId | null): SaveFileMa
   return skeletonFiles;
 }
 
+const VISUAL_PACK_IMPORT = "import './styles/visual-pack.css';";
+
 export function resolveReloadCompleteSaveFiles(
   input: ResolveReloadCompleteSaveFilesInput,
 ): ResolveReloadCompleteSaveFilesResult {
-  const files: SaveFileMap = {
+  const merged: SaveFileMap = {
     ...(input.skeletonFiles ?? {}),
     ...(input.existingFiles ?? {}),
     ...input.pendingFinalFiles,
   };
 
+  // Inject visual-pack.css import into App.tsx so CSS vars are available after reload.
+  // The pipeline injects it at compile time but not into persisted storage.
+  const appKey = Object.keys(merged).find(k => k === 'App.tsx' || k === 'src/App.tsx');
+  const hasVisualPack = Object.keys(merged).some(
+    k => k === 'styles/visual-pack.css' || k === 'src/styles/visual-pack.css',
+  );
+  if (appKey && hasVisualPack) {
+    const src = merged[appKey];
+    if (typeof src === 'string' && !src.includes(VISUAL_PACK_IMPORT)) {
+      merged[appKey] = `${VISUAL_PACK_IMPORT}\n${src}`;
+    }
+  }
+
+  const files = merged;
   const findings = scanFileMap(files).findings;
   const missingEntry = findings.some(finding => finding.kind === 'missing-entry');
 
