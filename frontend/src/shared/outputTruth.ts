@@ -187,6 +187,7 @@ const EMPTY_STUB_PATTERN = /\breturn\s*(?:null|undefined|<>\s*<\/>|<div\s*\/>|<m
 const BARREL_ONLY_PATTERN = /^\s*(?:export\s+\*\s+from\s+['"][^'"]+['"];?\s*|export\s+\{[^}]+\}\s+from\s+['"][^'"]+['"];?\s*)+$/;
 const DEMO_TEST_PATH_PATTERN = /\/(?:__tests__|tests?|demo|demos|fixtures|examples?|playground|storybook)\//i;
 const DEMO_TEST_FILE_PATTERN = /(?:Demo|Test|Example|Fixture|Placeholder)\.(?:tsx?|jsx?|json)$/i;
+const DESIGN_PACK_METADATA_PATH_PATTERN = /^src\/design-pack\/(?:selected-pack\.manifest\.json|domain\/[^/]+\/manifest\.json)$/i;
 
 const STRUCTURE_BUCKET_DEFS: Array<{
   id: OutputStructureClassId;
@@ -352,6 +353,10 @@ function isMeaningfulFile(path: string, content: string): boolean {
   );
 }
 
+function isDesignPackMetadataPath(path: string): boolean {
+  return DESIGN_PACK_METADATA_PATH_PATTERN.test(path);
+}
+
 function isBareHeadingHome(content: string): boolean {
   const compact = content.replace(/\s+/g, ' ').trim();
   const hasSingleHeading = /<h1\b[^>]*>[^<]{1,80}<\/h1>/i.test(compact);
@@ -397,7 +402,8 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
   const meaningfulPageFiles = meaningfulChangedFiles.filter((path) => isPageLikePath(path));
   const interactiveFiles = uniqueChangedPaths.filter((path) => INTERACTION_SIGNAL_PATTERN.test(files[path] ?? ''));
   const featureFiles = uniqueChangedPaths.filter((path) => FEATURE_SIGNAL_PATTERN.test(files[path] ?? ''));
-  const placeholderHits = matchRuleHits(files, uniqueChangedPaths, PLACEHOLDER_RULES, 'placeholder-text');
+  const placeholderHits = matchRuleHits(files, uniqueChangedPaths, PLACEHOLDER_RULES, 'placeholder-text')
+    .filter((hit) => !isDesignPackMetadataPath(hit.path));
   const genericFallbackHits = matchRuleHits(files, uniqueChangedPaths, GENERIC_FALLBACK_RULES, 'generic-fallback');
   const blockers: OutputTruthBlocker[] = [];
   const skeletonDeltaClasses = skeletonId
@@ -451,8 +457,16 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
   const deltaCategoryCoverage = requiredDeltaClasses.filter((id) =>
     (buckets.find((bucket) => bucket.id === id)?.meaningfulDeltaCount ?? 0) > 0,
   ).length;
+  // Allow 1 missing class when the skeleton has ≥ 4 required classes and the
+  // missing class is the optional "config-navigation" wiring layer — commonly
+  // omitted when the AI inlines navigation directly in App.tsx.
+  const allowedMissingDeltaClasses = (
+    requiredDeltaClasses.length >= 4 &&
+    missingDeltaClasses.length === 1 &&
+    missingDeltaClasses[0] === 'config-navigation'
+  ) ? 1 : 0;
   const minDeltaCategoryCoverage = requiredDeltaClasses.length > 0
-    ? requiredDeltaClasses.length
+    ? requiredDeltaClasses.length - allowedMissingDeltaClasses
     : ((input.routeCount ?? 0) >= 2 ? 3 : 2);
   const totalMeaningfulPageFiles = meaningfulOutputFiles.filter((path) => isPageLikePath(path));
   const meaningfulSupportClassCoverage = buckets.filter((bucket) =>
@@ -460,7 +474,10 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
     && bucket.meaningfulDeltaCount > 0
   ).length;
   const outputStructurePassed = missingOutputClasses.length === 0;
-  const deltaStructurePassed = deltaCategoryCoverage >= minDeltaCategoryCoverage && missingDeltaClasses.length === 0;
+  const effectiveMissingDeltaClasses = missingDeltaClasses.filter((id) =>
+    !(allowedMissingDeltaClasses > 0 && id === 'config-navigation'),
+  );
+  const deltaStructurePassed = deltaCategoryCoverage >= minDeltaCategoryCoverage && effectiveMissingDeltaClasses.length === 0;
   const placeholderStructureClean = meaningfulChangedFiles.length > 2
     && !uniqueChangedPaths.every((path) => DEMO_TEST_PATH_PATTERN.test(path) || DEMO_TEST_FILE_PATTERN.test(path));
   const architecturalRichnessPassed = (
@@ -568,9 +585,9 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
     pushBlocker(
       blockers,
       'missing-delta-structure',
-      `Meaningful delta is missing skeleton-expected structure: ${missingDeltaClasses.join(', ')}.`,
+      `Meaningful delta is missing skeleton-expected structure: ${effectiveMissingDeltaClasses.join(', ')}.`,
       buckets
-        .filter((bucket) => missingDeltaClasses.includes(bucket.id))
+        .filter((bucket) => effectiveMissingDeltaClasses.includes(bucket.id))
         .flatMap((bucket) => bucket.keyPaths.length > 0 ? bucket.keyPaths : skeletonDelta.keyDeltaPaths),
     );
   }
