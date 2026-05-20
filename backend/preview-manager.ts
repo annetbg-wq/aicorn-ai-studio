@@ -232,6 +232,46 @@ function isPreviewIndexRequest(req: express.Request): boolean {
   return req.path === '/' || req.path === '/index.html';
 }
 
+function isPreviewAssetRequest(req: express.Request): boolean {
+  return req.path.startsWith('/assets/');
+}
+
+async function sendPreviewStaticAsset(
+  res: express.Response,
+  buildPath: string,
+  assetRequestPath: string,
+): Promise<void> {
+  const relativeAssetPath = assetRequestPath.replace(/^\/+/, '');
+  const assetPath = path.resolve(buildPath, relativeAssetPath);
+  assertWithinRoot(buildPath, assetPath, `preview asset path "${assetRequestPath}"`);
+
+  let assetStats: fs.Stats;
+  try {
+    assetStats = await fsPromises.stat(assetPath);
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      res.status(404).send('Asset not found');
+      return;
+    }
+    throw error;
+  }
+
+  if (!assetStats.isFile()) {
+    res.status(404).send('Asset not found');
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    res.sendFile(assetPath, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 async function sendPreviewIndexHtml(
   res: express.Response,
   buildPath: string,
@@ -256,13 +296,6 @@ export function registerPreviewBuildRoute(app: express.Express): void {
 
     const queryToken = normalizePreviewSessionToken(req.query.previewSession);
     const headerToken = normalizePreviewSessionToken(req.get('X-Preview-Session'));
-    if (!canReadPreviewBuild(buildId, queryToken ?? headerToken, previewSessionBindings, {
-      nodeEnv: process.env.NODE_ENV,
-      serverMode: process.env.AIC_SERVER_MODE,
-    })) {
-      return res.status(403).send('Preview access denied');
-    }
-
     const sessionToken = queryToken ?? headerToken;
     const redirectPath = getPreviewDocumentTrailingSlashRedirectPath(req.originalUrl, buildId);
     if (redirectPath) {
@@ -270,12 +303,28 @@ export function registerPreviewBuildRoute(app: express.Express): void {
     }
 
     if (isPreviewIndexRequest(req)) {
+      if (!canReadPreviewBuild(buildId, sessionToken, previewSessionBindings, {
+        nodeEnv: process.env.NODE_ENV,
+        serverMode: process.env.AIC_SERVER_MODE,
+      })) {
+        return res.status(403).send('Preview access denied');
+      }
       return sendPreviewIndexHtml(res, buildPath, sessionToken).catch(next);
+    }
+
+    if (isPreviewAssetRequest(req)) {
+      return sendPreviewStaticAsset(res, buildPath, req.path).catch(next);
     }
 
     return express.static(buildPath, { index: false })(req, res, (err) => {
       if (err) return next(err);
       // SPA fallback — serve index.html for any unmatched path inside the build
+      if (!canReadPreviewBuild(buildId, sessionToken, previewSessionBindings, {
+        nodeEnv: process.env.NODE_ENV,
+        serverMode: process.env.AIC_SERVER_MODE,
+      })) {
+        return res.status(403).send('Preview access denied');
+      }
       return sendPreviewIndexHtml(res, buildPath, sessionToken).catch(next);
     });
   });
@@ -430,6 +479,23 @@ async function ensureShadcnComponents(workspaceRoot: string): Promise<void> {
       resolve();
     });
   });
+}
+
+export async function ensurePreviewLibShims(workspaceRoot: string): Promise<void> {
+  const libDir = path.join(workspaceRoot, 'src', 'lib');
+  const utilsPath = path.join(libDir, 'utils.ts');
+  if (fs.existsSync(utilsPath)) return;
+
+  await fsPromises.mkdir(libDir, { recursive: true });
+  await fsPromises.writeFile(
+    utilsPath,
+    [
+      "export { cn } from './cn';",
+      "export * from './cn';",
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
 }
 
 export interface UiPrimitiveImport {
@@ -687,6 +753,7 @@ async function compileBuild(
     }
     // 0a-ii. Copy skeleton src/* into preview-workspace/src/
     await fsPromises.cp(skeletonSrc, srcDir, { recursive: true });
+    await ensurePreviewLibShims(PREVIEW_WORKSPACE);
     console.log(`[preview-manager] Skeleton ${skeletonId} installed into src/`);
   } else {
     // 0b. Legacy cleanup — preserve skeleton infra dirs, remove unknown files.
@@ -719,6 +786,7 @@ async function compileBuild(
   }
 
   // 0.5. Mirror section templates into the preview workspace so generated
+  await ensurePreviewLibShims(PREVIEW_WORKSPACE);
   // App.tsx imports always resolve to concrete files.
   const { templatesSrc, sectionsDest } = resolveSectionTemplatePaths(PREVIEW_WORKSPACE);
   await fsPromises.rm(sectionsDest, { recursive: true, force: true });
