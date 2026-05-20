@@ -87,6 +87,7 @@ import {
 import { analyzeOutputTruth } from '../shared/outputTruth';
 import { useFigmaState } from './useFigmaState';
 import { useSettingsState } from './useSettingsState';
+import { getSkeletonSaveFiles, resolveReloadCompleteSaveFiles } from './useStudioSaveFiles';
 import {
   ArchitectPlannerService,
   applyKickoffSelectionToBuildPlan,
@@ -99,6 +100,7 @@ import { ChatArchitectureService } from '../services/ChatArchitectureService';
 import { refreshArchitectureAfterBuild } from '../services/BranchArchitectureOrchestrationService';
 import { resolveStandardRoute } from '../services/buildAgentRouting';
 import type { AgentExecutionRoute } from '../services/buildAgentRouting';
+import { showToast } from '../services/toastBus';
 
 export type DeviceType = 'desktop' | 'iphone' | 'pixel' | 'ipad';
 export type FileMap     = Record<string, string>;
@@ -1248,6 +1250,7 @@ interface PendingProjectSave {
   projectId: string;
   projectTitle: string;
   finalFiles: FileMap;
+  skeletonId?: string | null;
   chatHistoryToSave: any[];
   userPrompt: string;
   source: GenerationSource;
@@ -1284,6 +1287,7 @@ type ProjectPersistenceState = 'none' | 'unknown' | 'exists' | 'missing' | 'draf
 
 const LEGACY_CHAT_HISTORY_KEY = 'CHAT_HISTORY';
 const DRAFT_CHAT_KEY_PREFIX = 'AIC_DRAFT_CHAT_';
+const DRAFT_SESSION_ID_KEY = 'AIC_DRAFT_SESSION_ID';
 const ACTIVE_PROJECT_PERSISTENCE_STATES: ReadonlySet<ProjectPersistenceState> = new Set(['exists', 'draft', 'preview-ready']);
 
 type ComparableScopedSettings = {
@@ -1349,6 +1353,24 @@ function getDraftChatStorageKey(draftId: string): string {
   return `${DRAFT_CHAT_KEY_PREFIX}${draftId}`;
 }
 
+function readDraftSessionId(): string | null {
+  try {
+    return sessionStorage.getItem(DRAFT_SESSION_ID_KEY) ?? localStorage.getItem(DRAFT_SESSION_ID_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeDraftSessionId(draftId: string): void {
+  try { sessionStorage.setItem(DRAFT_SESSION_ID_KEY, draftId); } catch { /* ignore */ }
+  try { localStorage.setItem(DRAFT_SESSION_ID_KEY, draftId); } catch { /* ignore */ }
+}
+
+function clearDraftSessionId(): void {
+  try { sessionStorage.removeItem(DRAFT_SESSION_ID_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(DRAFT_SESSION_ID_KEY); } catch { /* ignore */ }
+}
+
 function readDraftChatHistory(draftId: string | null): ChatMessage[] {
   if (!draftId) return [];
   const key = getDraftChatStorageKey(draftId);
@@ -1393,7 +1415,7 @@ function readInitialChatHistory(): ChatMessage[] {
       const activeProject = ProjectStorage.getProject(activeProjectId);
       return buildPersistedProjectChatHistory((activeProject?.chatHistory as any[]) ?? []);
     }
-    const activeDraftId = localStorage.getItem('AIC_DRAFT_SESSION_ID');
+    const activeDraftId = readDraftSessionId();
     return readDraftChatHistory(activeDraftId);
   } catch {
     return [];
@@ -2247,7 +2269,7 @@ export const useStudio = () => {
   const [chatThreadKey, setChatThreadKey] = useState(() => {
     const persistedProjectId = localStorage.getItem('CURRENT_PROJECT_ID');
     if (persistedProjectId) return `project:${persistedProjectId}:0`;
-    const draftId = localStorage.getItem('AIC_DRAFT_SESSION_ID');
+    const draftId = readDraftSessionId();
     return draftId ? `draft:${draftId}:0` : 'draft:none:0';
   });
 
@@ -2306,6 +2328,18 @@ export const useStudio = () => {
       _latestMsgsRef.current.length > 0 ? _latestMsgsRef.current : pending.chatHistoryToSave,
     );
 
+    const reloadCompleteSave = resolveReloadCompleteSaveFiles({
+      existingFiles: ProjectStorage.getProject(pending.projectId)?.files,
+      skeletonFiles: getSkeletonSaveFiles((pending.skeletonId ?? null) as any),
+      pendingFinalFiles: pending.finalFiles,
+    });
+    if (reloadCompleteSave.errorMessage) {
+      addLog(`[Project] ${reloadCompleteSave.errorMessage}`, 'warn');
+      showToast(reloadCompleteSave.errorMessage, 'error');
+      return false;
+    }
+    const reloadCompleteFiles = reloadCompleteSave.files;
+
     pendingProjectSaveRef.current = null;
     pendingSavePromptShownRef.current = false;
     setPendingProjectSaveMeta(null);
@@ -2332,7 +2366,7 @@ export const useStudio = () => {
     const revisionPatch = {
       prompt:     pending.userPrompt,
       source:     pending.source,
-      files:      pending.finalFiles,
+      files:      reloadCompleteFiles,
       modelId:    pending.effectiveModel,
       durationMs: Date.now() - pending.generationStartMs,
       pagesCount: pending.plan?.pages?.length ?? 0,
@@ -2370,8 +2404,7 @@ export const useStudio = () => {
     const saveNow = new Date().toISOString();
     const activeBranchId = existingActiveBranchId;
     const mergedBranchFiles = {
-      ...(existingBranch?.files ?? existing?.files ?? {}),
-      ...pending.finalFiles,
+      ...reloadCompleteFiles,
     };
     const fallbackBranch = existingBranch ?? {
       id: activeBranchId,
@@ -2526,7 +2559,7 @@ export const useStudio = () => {
       description: pending.userPrompt.slice(0, 120),
       theme:       pending.planTheme,
       files:       existingForCloud?.files
-                     ? { ...existingForCloud.files, ...pending.finalFiles }
+                     ? { ...existingForCloud.files, ...reloadCompleteFiles }
                      : mergedBranchFiles,
       chatHistory: existingForCloud?.chatHistory ?? persistedChatHistoryForSession,
       createdAt:   existingForCloud?.createdAt ?? new Date().toISOString(),
@@ -2562,7 +2595,7 @@ export const useStudio = () => {
       });
       clearDraftChatStorage(draftIdAtSave);
       _draftSessionIdRef.current = null;
-      localStorage.removeItem('AIC_DRAFT_SESSION_ID');
+      clearDraftSessionId();
     }
 
     return true;
@@ -2636,6 +2669,9 @@ export const useStudio = () => {
     // Hard isolation: never persist chat into a global key shared by projects/drafts.
     localStorage.removeItem(LEGACY_CHAT_HISTORY_KEY);
     if ((projectPersistenceState === 'draft' || projectPersistenceState === 'preview-ready') && currentProjectId) {
+      const draftSessionId = _draftSessionIdRef.current ?? currentProjectId;
+      _draftSessionIdRef.current = draftSessionId;
+      writeDraftSessionId(draftSessionId);
       const draftChatKey = getDraftChatStorageKey(currentProjectId);
       const payload = JSON.stringify(messages);
       try {
@@ -2644,6 +2680,8 @@ export const useStudio = () => {
         // Fallback still stays isolated per draft session ID.
         safeSetItem(draftChatKey, payload);
       }
+    } else {
+      clearDraftSessionId();
     }
     // Persist the derived `files` value — includes graph-derived files when graph is set.
     safeSetItem('LAST_FILES',    JSON.stringify(files));
@@ -2878,7 +2916,7 @@ export const useStudio = () => {
     pendingSavePromptShownRef.current = false;
     setPendingProjectSaveMeta(null);
     currentPlanMsgIdRef.current = null;
-    const previousDraftId = _draftSessionIdRef.current ?? localStorage.getItem('AIC_DRAFT_SESSION_ID');
+    const previousDraftId = _draftSessionIdRef.current ?? readDraftSessionId();
     clearDraftChatStorage(previousDraftId);
     // Auto-save the current project before clearing so history is not lost
     if (
@@ -2942,7 +2980,7 @@ export const useStudio = () => {
     // explicit Save following a successful preview (commitPendingProjectSave).
     const draftId = draftArtifactJournal.createSession({ source: sessionSource });
     _draftSessionIdRef.current = draftId;
-    localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
+    writeDraftSessionId(draftId);
     setCurrentProjectId(draftId);
     setProjectPersistenceState('draft');
     applyEffectiveSettingsForProject(draftId);
@@ -2995,7 +3033,7 @@ export const useStudio = () => {
     chatLoadHistory([]);
     // Clear any active draft session — we are transitioning to a real persisted project.
     _draftSessionIdRef.current = null;
-    localStorage.removeItem('AIC_DRAFT_SESSION_ID');
+    clearDraftSessionId();
     try {
       // Supabase first, localStorage fallback
       const full = await ProjectRepository.getProject(project.id);
@@ -3382,11 +3420,11 @@ export const useStudio = () => {
 
       // No explicitly-selected saved project — start with a fresh draft session.
       // No persisted project is created until the user explicitly saves after a successful preview.
-      const existingDraftId = localStorage.getItem('AIC_DRAFT_SESSION_ID');
+      const existingDraftId = readDraftSessionId();
       const draftId = existingDraftId || draftArtifactJournal.createSession({ source: 'startup' });
       _draftSessionIdRef.current = draftId;
       localStorage.removeItem('aic-current-project');
-      localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
+      writeDraftSessionId(draftId);
       setCurrentProjectId(draftId);
       setProjectPersistenceState('draft');
       applyEffectiveSettingsForProject(draftId);
@@ -3571,7 +3609,7 @@ export const useStudio = () => {
       ?? currentProject?.id
       ?? (projectPersistenceState === 'exists' ? ProjectManager.getCurrentId() : null);
     const stableProjectId =
-      localStorage.getItem('AIC_DRAFT_SESSION_ID')
+      readDraftSessionId()
       ?? persistedProjectId
       ?? ProjectManager.getCurrentId();
     const runWorkspaceContext = resolveStudioKickoffContext(stableProjectId, currentProject);
@@ -4860,6 +4898,7 @@ export const useStudio = () => {
           projectId,
           projectTitle,
           finalFiles,
+          skeletonId: result.runTelemetry?.skeletonId ?? null,
           chatHistoryToSave: [
             ...history,
             { role: 'assistant' as const, content: result.message || '✅ Готово' },
@@ -5458,7 +5497,7 @@ export const useStudio = () => {
       })),
       getCurrentProjectId: () => localStorage.getItem('CURRENT_PROJECT_ID'),
       getProjectPersistenceState: () => projectPersistenceStateRef.current,
-      getDraftSessionId: () => _draftSessionIdRef.current ?? localStorage.getItem('AIC_DRAFT_SESSION_ID'),
+      getDraftSessionId: () => _draftSessionIdRef.current ?? readDraftSessionId(),
       loadProjectById: async (id: string) => {
         if (!id) throw new Error('loadProjectById requires a project id');
         await loadProjectRef.current({ id });
