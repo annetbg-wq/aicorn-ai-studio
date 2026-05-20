@@ -2,10 +2,13 @@ import path from 'path';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import os from 'os';
+import express from 'express';
 import { describe, expect, it } from 'vitest';
 import { LIVE_GENERATION_ALLOWED_UI_PRIMITIVES } from '../frontend/src/services/LiveGenerationUiPrimitives';
 import {
+  registerPreviewBuildRoute,
   ensureImportedUiPrimitives,
+  ensurePreviewLibShims,
   findUiPrimitiveImportsInSource,
   getKnownMaterializableUiPrimitives,
   getPreviewDocumentTrailingSlashRedirectPath,
@@ -61,6 +64,28 @@ describe('preview-manager path hardening', () => {
     expect(getPreservedPreviewDirs()).toEqual(
       expect.arrayContaining(['components', 'config', 'context', 'hooks', 'lib', 'themes']),
     );
+  });
+
+  it('materializes a legacy utils shim for section imports that still target @/lib/utils', async () => {
+    const workspaceRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'preview-lib-shim-'));
+
+    try {
+      const libDir = path.join(workspaceRoot, 'src', 'lib');
+      await fsPromises.mkdir(libDir, { recursive: true });
+      await fsPromises.writeFile(
+        path.join(libDir, 'cn.ts'),
+        'export function cn(...values: string[]) { return values.join(" "); }\n',
+        'utf-8',
+      );
+
+      await ensurePreviewLibShims(workspaceRoot);
+
+      expect(await fsPromises.readFile(path.join(libDir, 'utils.ts'), 'utf-8')).toBe(
+        "export { cn } from './cn';\nexport * from './cn';\n",
+      );
+    } finally {
+      await fsPromises.rm(workspaceRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -362,5 +387,113 @@ describe('preview-manager read access binding', () => {
       nodeEnv: 'production',
       serverMode: 'production',
     })).toBe(false);
+  });
+});
+
+describe('preview-manager build route access', () => {
+  const validToken = 'preview-session-token-123';
+
+  async function withPreviewBuildRoute<T>(
+    run: (baseUrl: string, buildId: string) => Promise<T>,
+  ): Promise<T> {
+    const buildId = `preview-build-${Date.now()}`;
+    const buildPath = path.resolve('c:/ai_studio/builds', buildId);
+    let server: ReturnType<typeof express.prototype.listen> | null = null;
+
+    try {
+      await fsPromises.mkdir(path.join(buildPath, 'assets'), { recursive: true });
+      await fsPromises.writeFile(
+        path.join(buildPath, 'index.html'),
+        [
+          '<!doctype html>',
+          '<html>',
+          '<head>',
+          '  <script type="module" src="./assets/index.js"></script>',
+          '</head>',
+          '<body><div id="root">Preview</div></body>',
+          '</html>',
+          '',
+        ].join('\n'),
+        'utf-8',
+      );
+      await fsPromises.writeFile(path.join(buildPath, 'assets', 'index.js'), 'console.log("ok");\n', 'utf-8');
+      await fsPromises.writeFile(
+        path.join(buildPath, 'assets', 'Dashboard-Chunk.js'),
+        'export const dashboardChunk = "ok";\n',
+        'utf-8',
+      );
+
+      bindPreviewBuildSession(buildId, validToken);
+
+      const app = express();
+      registerPreviewBuildRoute(app);
+      server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+        const nextServer = app.listen(0, '127.0.0.1', () => resolve(nextServer));
+      });
+
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Failed to resolve preview route test server address');
+      }
+
+      return await run(`http://127.0.0.1:${address.port}`, buildId);
+    } finally {
+      if (server) {
+        await new Promise<void>((resolve, reject) => server!.close((error) => (error ? reject(error) : resolve())));
+      }
+      await fsPromises.rm(buildPath, { recursive: true, force: true });
+      prunePreviewSessionBindings(new Set());
+    }
+  }
+
+  it('keeps preview documents session-gated', async () => {
+    await withPreviewBuildRoute(async (baseUrl, buildId) => {
+      const response = await fetch(`${baseUrl}/preview/${buildId}/`);
+      expect(response.status).toBe(403);
+      expect(await response.text()).toContain('Preview access denied');
+    });
+  });
+
+  it('serves preview documents with a valid session token', async () => {
+    await withPreviewBuildRoute(async (baseUrl, buildId) => {
+      const response = await fetch(`${baseUrl}/preview/${buildId}/?previewSession=${validToken}`);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('previewSession=preview-session-token-123');
+    });
+  });
+
+  it('serves explicit static asset requests without requiring previewSession', async () => {
+    await withPreviewBuildRoute(async (baseUrl, buildId) => {
+      const response = await fetch(`${baseUrl}/preview/${buildId}/assets/index.js`);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('console.log("ok")');
+    });
+  });
+
+  it('serves lazy chunk assets after a valid preview entry without requiring previewSession on the chunk request', async () => {
+    await withPreviewBuildRoute(async (baseUrl, buildId) => {
+      const entryResponse = await fetch(`${baseUrl}/preview/${buildId}/?previewSession=${validToken}`, {
+        headers: { Origin: 'http://localhost:5183' },
+      });
+      expect(entryResponse.status).toBe(200);
+
+      const chunkResponse = await fetch(`${baseUrl}/preview/${buildId}/assets/Dashboard-Chunk.js`, {
+        headers: { Origin: 'http://localhost:5183' },
+      });
+
+      expect(chunkResponse.status).toBe(200);
+      expect(await chunkResponse.text()).toContain('dashboardChunk');
+    });
+  });
+
+  it('returns 404 for missing assets instead of a false preview-session 403', async () => {
+    await withPreviewBuildRoute(async (baseUrl, buildId) => {
+      const response = await fetch(`${baseUrl}/preview/${buildId}/assets/Missing-Chunk.js`, {
+        headers: { Origin: 'http://localhost:5183' },
+      });
+
+      expect(response.status).toBe(404);
+      expect(await response.text()).toContain('Asset not found');
+    });
   });
 });
