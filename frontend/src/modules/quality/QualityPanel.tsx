@@ -18,10 +18,16 @@ import {
 import { BenchmarkDashboard } from '../../components/BenchmarkDashboard';
 import { ConfigService } from '../../services/ConfigService';
 import { Orchestrator } from '../../services/Orchestrator';
+import { generationTracer } from '../../services/GenerationTracer';
 import {
   extractJsonObjectFromModelText,
   validateArchitectJsonShape,
 } from '../../services/architectJson';
+import {
+  runLiveReadinessPreflight,
+  type LiveReadinessPreflightCheck,
+  type LiveReadinessPreflightResult,
+} from './LiveReadinessPreflight';
 
 // ── Step definitions ───────────────────────────────────────────────────────────
 
@@ -43,6 +49,8 @@ type TabId  = 'flow-chain' | 'benchmark';
 type TestStatus = 'idle' | 'running' | 'pass' | 'fail' | 'cancelled';
 type CompletedTestStatus = 'pass' | 'fail';
 type EvidenceKind = 'fixture' | 'real-runtime' | 'real-llm';
+type AggregateStatus = 'idle' | 'pass' | 'warning' | 'fail';
+type ReportVerdict = 'PASS' | 'WARNING' | 'FAIL';
 
 // ── Per-test detail types ──────────────────────────────────────────────────────
 
@@ -66,6 +74,7 @@ interface TestOutputMetrics   { file_count?: number; total_bytes?: number; asset
 interface TestState {
   status: TestStatus;
   duration_ms: number;
+  updatedAt?: string;
   error?: string;
   summary?: string;
   llm?: TestLlmMetrics;
@@ -96,17 +105,48 @@ interface TestApiResult {
 
 const LS_TEST_KEY     = (id: string) => `quality.test.${id}`;
 const LS_LAST_RUN_KEY = 'quality.lastRunAll';
+const LS_PREFLIGHT_KEY = 'quality.preflight.last';
 const MAX_HIST        = 5;
 const FIXTURE_BACKED_TESTS = new Set<StepId>(['idea-validate', 'architecture', 'code-delta']);
+const PREFLIGHT_CHECK_DEFS = [
+  { id: 'ui-primitive-catalog', label: 'UI primitive catalog' },
+  { id: 'import-export-contract', label: 'Import/export contract' },
+  { id: 'shared-hook-contracts', label: 'Shared hook contracts' },
+  { id: 'protected-shell-boundary', label: 'Protected shell boundary' },
+  { id: 'candidate-graph-foundation', label: 'Candidate graph foundation' },
+  { id: 'prompt-catalog-truthfulness', label: 'Prompt catalog truthfulness' },
+  { id: 'premium-component-hints', label: 'Premium component hints' },
+  { id: 'launch-flow-wiring', label: 'Launch flow wiring' },
+  { id: 'quality-controls-contract', label: 'Quality controls contract' },
+] as const;
 const FIXTURE_NOTE_TEXT = 'Not real LLM output';
 const CANCELLED_BY_USER = 'Cancelled by user';
 const QUALITY_STORAGE_PREFIXES = [
   'quality.test.',
+  'quality.preflight.',
   'quality.lastRun',
   'quality.real-suite.',
   'quality.compare.',
   'quality.benchmark.',
 ] as const;
+const QUALITY_REPORT_CACHE_PREFIXES = [
+  'quality.real-suite.',
+  'quality.compare.',
+  'quality.benchmark.',
+] as const;
+
+interface AggregateSummary {
+  status: AggregateStatus;
+  reason: string;
+  blockingFailures: string[];
+  warnings: string[];
+}
+
+interface ClearSummary {
+  action: string;
+  cleared: string[];
+  preserved: string[];
+}
 
 interface StepEvidence {
   kind: EvidenceKind;
@@ -188,6 +228,54 @@ function clearQualityPanelHistory(): void {
     }
     keys.forEach(key => localStorage.removeItem(key));
   } catch { /* ignore */ }
+}
+
+function listQualityStorageKeys(): string[] {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && isQualityPanelStorageKey(key)) keys.push(key);
+    }
+    return keys;
+  } catch {
+    return [];
+  }
+}
+
+function removeQualityKeys(predicate: (key: string) => boolean): number {
+  const keys = listQualityStorageKeys().filter(predicate);
+  keys.forEach(key => {
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+  });
+  return keys.length;
+}
+
+function loadPersistedPreflight(): LiveReadinessPreflightResult | null {
+  try {
+    const raw = localStorage.getItem(LS_PREFLIGHT_KEY);
+    return raw ? (JSON.parse(raw) as LiveReadinessPreflightResult) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistPreflight(result: LiveReadinessPreflightResult): void {
+  try {
+    localStorage.setItem(LS_PREFLIGHT_KEY, JSON.stringify(result));
+  } catch {
+    /* quota */
+  }
+}
+
+function hasPersistedQualityPanelState(): boolean {
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && isQualityPanelStorageKey(key)) return true;
+    }
+  } catch { /* ignore */ }
+  return false;
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────────
@@ -445,10 +533,111 @@ function fmtCost(cost?: number): string | null {
   return `~$${cost.toFixed(1)}`;
 }
 
+function fmtDateTime(value?: string | null): string {
+  if (!value) return 'Not run yet';
+  return new Date(value).toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
+function statusLabel(status: AggregateStatus | TestStatus | LiveReadinessPreflightCheck['status']): string {
+  return String(status).toUpperCase();
+}
+
+function statusBadgeStyle(status: AggregateStatus | 'running'): React.CSSProperties {
+  const map = {
+    pass: { bg: 'rgba(74,222,128,0.12)', color: '#4ade80', border: 'rgba(74,222,128,0.30)' },
+    fail: { bg: 'rgba(248,113,113,0.12)', color: '#f87171', border: 'rgba(248,113,113,0.30)' },
+    warning: { bg: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: 'rgba(251,191,36,0.30)' },
+    idle: { bg: 'rgba(148,163,184,0.10)', color: 'rgba(226,232,240,0.76)', border: 'rgba(148,163,184,0.28)' },
+    running: { bg: 'rgba(96,165,250,0.12)', color: '#93c5fd', border: 'rgba(96,165,250,0.30)' },
+  }[status];
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '4px 10px',
+    borderRadius: 999,
+    border: `1px solid ${map.border}`,
+    background: map.bg,
+    color: map.color,
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    whiteSpace: 'nowrap',
+  };
+}
+
+function summarizePrimaryBlockers(diagnostics?: LiveReadinessPreflightCheck['diagnostics']): string[] {
+  const ranked = new Map<string, number>();
+  for (const diagnostic of diagnostics ?? []) {
+    const label = diagnostic.import_path
+      ?? diagnostic.file
+      ?? diagnostic.actual
+      ?? diagnostic.root_cause_type;
+    if (!label) continue;
+    ranked.set(label, (ranked.get(label) ?? 0) + 1);
+  }
+  return Array.from(ranked.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 3)
+    .map(([label]) => label);
+}
+
+function buildStepDetailsPayload(def: typeof STEP_DEFS[number], state: TestState): string {
+  return JSON.stringify({
+    id: def.id,
+    label: def.label,
+    status: state.status,
+    updatedAt: state.updatedAt,
+    duration_ms: state.duration_ms,
+    summary: state.summary,
+    error: state.error,
+    llm: state.llm,
+    output: state.output,
+    warnings: state.warnings,
+    details: state.details,
+  }, null, 2);
+}
+
+function mapTraceOutcomeToAggregate(outcome?: string | null): AggregateStatus {
+  if (outcome === 'ship_ok') return 'pass';
+  if (outcome === 'ship_partial') return 'warning';
+  if (outcome === 'ship_fail') return 'fail';
+  if (outcome === 'cancelled') return 'warning';
+  return 'idle';
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+}
+
 function buildTestMetaLines(id: StepId, state: TestState): Array<{ key: string; text: string; color?: string }> {
   const lines: Array<{ key: string; text: string; color?: string }> = [];
   const evidence = getStepEvidence(id);
-  if (evidence.fixtureBacked) {
+  if (state.summary) {
+    lines.push({
+      key: 'summary',
+      text: state.summary,
+      color: 'rgba(255,255,255,0.72)',
+    });
+  }
+  if (evidence.fixtureBacked && state.status !== 'idle') {
     lines.push({
       key: 'fixture-note',
       text: evidence.note ?? FIXTURE_NOTE_TEXT,
@@ -495,6 +684,13 @@ function buildTestMetaLines(id: StepId, state: TestState): Array<{ key: string; 
       color: '#fbbf24',
     });
   }
+  if (state.updatedAt) {
+    lines.push({
+      key: 'updated',
+      text: `Updated: ${fmtDateTime(state.updatedAt)}`,
+      color: 'rgba(255,255,255,0.4)',
+    });
+  }
   return lines;
 }
 
@@ -517,6 +713,255 @@ function evidenceBadgeStyle(kind: EvidenceKind): React.CSSProperties {
     fontWeight: 700,
     whiteSpace: 'nowrap',
   };
+}
+
+function preflightStatusStyle(status: 'pass' | 'fail' | 'warning'): React.CSSProperties {
+  const map = {
+    pass: { bg: 'rgba(74,222,128,0.12)', color: '#4ade80', border: 'rgba(74,222,128,0.30)' },
+    fail: { bg: 'rgba(248,113,113,0.12)', color: '#f87171', border: 'rgba(248,113,113,0.30)' },
+    warning: { bg: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: 'rgba(251,191,36,0.30)' },
+  }[status];
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '2px 8px',
+    borderRadius: 999,
+    border: `1px solid ${map.border}`,
+    background: map.bg,
+    color: map.color,
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+  };
+}
+
+function preflightCheckAccent(status: 'pass' | 'fail' | 'warning' | 'idle' | 'running'): string {
+  if (status === 'pass') return '#4ade80';
+  if (status === 'warning') return '#fbbf24';
+  if (status === 'running') return '#93c5fd';
+  if (status === 'idle') return 'rgba(226,232,240,0.58)';
+  return '#f87171';
+}
+
+function CopyButton({
+  value,
+  label = 'Copy',
+  disabled = false,
+  ariaLabel,
+}: {
+  value: string;
+  label?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    if (disabled) return;
+    await copyTextToClipboard(value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }, [disabled, value]);
+
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel ?? label}
+      onClick={() => void handleCopy()}
+      disabled={disabled}
+      style={{
+        padding: '5px 10px',
+        borderRadius: 7,
+        border: '1px solid rgba(255,255,255,0.12)',
+        background: disabled ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.08)',
+        color: disabled ? 'rgba(255,255,255,0.24)' : 'rgba(255,255,255,0.82)',
+        fontSize: 11,
+        fontWeight: 700,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {copied ? 'Copied' : label}
+    </button>
+  );
+}
+
+function SelectionBlock({
+  title,
+  value,
+  copyLabel,
+  maxHeight = 220,
+}: {
+  title: string;
+  value: string;
+  copyLabel: string;
+  maxHeight?: number;
+}) {
+  return (
+    <div
+      style={{
+        border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: 10,
+        background: 'rgba(2,6,23,0.55)',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+          padding: '10px 12px',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          background: 'rgba(255,255,255,0.03)',
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
+          {title}
+        </span>
+        <CopyButton value={value} label={copyLabel} ariaLabel={`${copyLabel} ${title}`} />
+      </div>
+      <pre
+        style={{
+          margin: 0,
+          padding: '12px',
+          maxHeight,
+          overflow: 'auto',
+          fontSize: 12,
+          lineHeight: 1.5,
+          color: 'rgba(255,255,255,0.88)',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          userSelect: 'text',
+          fontFamily: 'Consolas, "SFMono-Regular", monospace',
+        }}
+      >
+        {value}
+      </pre>
+    </div>
+  );
+}
+
+function PreflightCheckCard({
+  check,
+  displayStatus,
+  expanded,
+  running,
+  onToggle,
+  onRun,
+}: {
+  check: LiveReadinessPreflightCheck;
+  displayStatus: AggregateStatus | 'running';
+  expanded: boolean;
+  running: boolean;
+  onToggle: () => void;
+  onRun: () => void;
+}) {
+  const firstDiagnostic = check.diagnostics?.[0];
+  const primaryBlockers = summarizePrimaryBlockers(check.diagnostics);
+  const detailsPayload = JSON.stringify(check, null, 2);
+  const diagnosticsPayload = JSON.stringify(check.diagnostics ?? [], null, 2);
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${displayStatus === 'fail' ? 'rgba(248,113,113,0.18)' : 'rgba(255,255,255,0.08)'}`,
+        borderRadius: 16,
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(15,23,42,0.65))',
+        overflow: 'hidden',
+      }}
+    >
+      <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ width: 9, height: 9, borderRadius: '50%', background: preflightCheckAccent(displayStatus), flexShrink: 0 }} />
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>{check.label}</span>
+              <span style={statusBadgeStyle(displayStatus)}>{statusLabel(displayStatus)}</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 1.55 }}>{check.summary}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={onRun}
+              disabled={running}
+              aria-label={`Run preflight check ${check.label}`}
+              title="Run this check"
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(110,231,183,0.28)',
+                background: running ? 'rgba(110,231,183,0.04)' : 'rgba(16,185,129,0.10)',
+                color: running ? 'rgba(110,231,183,0.42)' : '#6ee7b7',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: running ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {running ? 'Running…' : 'Run this check'}
+            </button>
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label={expanded ? `Hide details for ${check.label}` : `Show details for ${check.label}`}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.06)',
+                color: 'rgba(255,255,255,0.82)',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {expanded ? 'Hide details' : 'Details'}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+          <KV label="root_cause_type" value={check.rootCauseType ?? '—'} />
+          <KV label="file" value={firstDiagnostic?.file ?? '—'} />
+          <KV label="import_path" value={firstDiagnostic?.import_path ?? '—'} />
+          <KV label="updated" value={fmtDateTime(check.checkedAt)} />
+          <KV label="duration" value={fmtDuration(check.durationMs ?? 0) || '0ms'} />
+          <KV label="suggested_fix" value={check.suggestedFix ?? '—'} />
+        </div>
+
+        {primaryBlockers.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
+              Primary blockers
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {primaryBlockers.map((item, index) => (
+                <div key={item} style={{ fontSize: 12, color: 'rgba(255,255,255,0.82)' }}>
+                  {index + 1}. {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {expanded && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <SelectionBlock title="Diagnostics" value={diagnosticsPayload} copyLabel="Copy diagnostics" maxHeight={220} />
+            <SelectionBlock title="Full check result" value={detailsPayload} copyLabel="Copy full result" maxHeight={260} />
+            {check.rootCauseType && (
+              <SelectionBlock title="Root cause" value={check.rootCauseType} copyLabel="Copy root cause" maxHeight={100} />
+            )}
+            {check.suggestedFix && (
+              <SelectionBlock title="Suggested fix" value={check.suggestedFix} copyLabel="Copy suggested fix" maxHeight={120} />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ── Initial state factories ────────────────────────────────────────────────────
@@ -583,271 +1028,98 @@ function KV({ label, value }: { label: string; value: React.ReactNode }) {
 
 // ── Detail panel ───────────────────────────────────────────────────────────────
 
-function DetailPanel({ testId, details }: { testId: StepId; details: Record<string, unknown> }) {
+function DetailPanel({ def, state }: { def: typeof STEP_DEFS[number]; state: TestState }) {
   const [downloading, setDownloading] = useState(false);
+  const rawPayload = buildStepDetailsPayload(def, state);
+  const detailsPayload = JSON.stringify(state.details ?? {}, null, 2);
+  const codeDeltaDetails = def.id === 'code-delta' ? state.details as CodeDeltaDetails | undefined : undefined;
+  const hasDetails = Boolean(state.details && Object.keys(state.details).length > 0);
 
-  const panelStyle: React.CSSProperties = {
-    padding: '6px 16px 10px 40px',
-    background: 'rgba(0,0,0,0.18)',
-    borderLeft: '2px solid rgba(74,222,128,0.12)',
-    maxHeight: 300,
-    overflowY: 'auto',
-  };
-  const isFixtureBacked = FIXTURE_BACKED_TESTS.has(testId);
+  const handleDownload = useCallback(async () => {
+    if (!codeDeltaDetails?.files?.length) return;
+    setDownloading(true);
+    try {
+      await downloadFixtureZip(codeDeltaDetails.files);
+    } finally {
+      setDownloading(false);
+    }
+  }, [codeDeltaDetails]);
 
-  const sep = (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 6,
-      marginBottom: 8, paddingBottom: 6,
-      borderBottom: '1px solid rgba(255,255,255,0.05)',
-    }}>
-      <ChevronDown size={10} color="rgba(255,255,255,0.18)" />
-      <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.05)' }} />
-    </div>
-  );
+  return (
+    <div
+      style={{
+        margin: '0 14px 14px',
+        padding: '14px',
+        borderRadius: 14,
+        border: '1px solid rgba(255,255,255,0.06)',
+        background: 'rgba(2,6,23,0.72)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        minHeight: 0,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
+            Detailed result
+          </span>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.68)' }}>
+            Updated: {fmtDateTime(state.updatedAt)}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {codeDeltaDetails?.files?.length ? (
+            <button
+              type="button"
+              onClick={() => void handleDownload()}
+              disabled={downloading}
+              style={{
+                padding: '5px 10px',
+                borderRadius: 7,
+                border: '1px solid rgba(96,165,250,0.28)',
+                background: downloading ? 'rgba(96,165,250,0.04)' : 'rgba(96,165,250,0.08)',
+                color: downloading ? 'rgba(96,165,250,0.42)' : '#93c5fd',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: downloading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {downloading ? 'Downloading…' : 'Download fixture zip'}
+            </button>
+          ) : null}
+          <CopyButton value={rawPayload} label="Copy full result" ariaLabel={`Copy full result ${def.label}`} />
+          {state.error ? <CopyButton value={state.error} label="Copy error" ariaLabel={`Copy error ${def.label}`} /> : null}
+          {state.summary ? <CopyButton value={state.summary} label="Copy summary" ariaLabel={`Copy summary ${def.label}`} /> : null}
+        </div>
+      </div>
 
-  const renderPanel = (content: React.ReactNode) => (
-    <div style={panelStyle}>
-      {sep}
-      {content}
-      {isFixtureBacked && (
-        <div style={{
-          marginTop: 10,
-          paddingTop: 8,
-          borderTop: '1px solid rgba(255,255,255,0.05)',
-          fontSize: 11,
-          color: 'rgba(255,255,255,0.4)',
-        }}>
-          {FIXTURE_NOTE_TEXT}
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <KV label="status" value={state.status} />
+        <KV label="duration" value={fmtDuration(state.duration_ms) || '0ms'} />
+        <KV label="truth" value={getStepEvidence(def.id as StepId).label} />
+        <KV label="summary" value={state.summary ?? '—'} />
+        <KV label="error" value={state.error ?? '—'} />
+        <KV label="warnings" value={state.warnings?.join(' · ') ?? '—'} />
+      </div>
+
+      {state.llm && (
+        <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+          <KV label="model" value={state.llm.model} />
+          <KV label="prompt_tokens" value={String(state.llm.prompt_tokens)} />
+          <KV label="completion_tokens" value={String(state.llm.completion_tokens)} />
+          <KV label="total_tokens" value={String(state.llm.total_tokens)} />
         </div>
       )}
+
+      {hasDetails ? (
+        <SelectionBlock title="Details" value={detailsPayload} copyLabel="Copy details" maxHeight={220} />
+      ) : null}
+      <SelectionBlock title="Full payload" value={rawPayload} copyLabel="Copy payload" maxHeight={260} />
+      {FIXTURE_BACKED_TESTS.has(def.id as StepId) ? (
+        <div style={{ fontSize: 11, color: '#fbbf24' }}>{FIXTURE_NOTE_TEXT}</div>
+      ) : null}
     </div>
-  );
-
-  if (testId === 'canary') {
-    const d = details as unknown as CanaryDetails;
-    return renderPanel(
-      <>
-        <KV label="httpStatus"       value={<span style={{ color: '#4ade80' }}>{d.httpStatus}</span>} />
-        <KV label="response.status"  value={d.response?.status ?? '—'} />
-        <KV label="response.provider" value={d.response?.provider ?? '—'} />
-      </>
-    );
-  }
-
-  if (testId === 'idea-validate') {
-    const d = details as unknown as IdeaDetails;
-    const prompt = String(d.prompt ?? '');
-    const truncated = prompt.length > 64 ? `${prompt.slice(0, 64)}…` : prompt;
-    return renderPanel(
-      <>
-        <KV label="prompt" value={<span style={{ color: '#e2c08d' }}>{`"${truncated}"`}</span>} />
-        <KV label="length" value={String(d.length)} />
-        <KV label="valid"  value={<span style={{ color: '#4ade80' }}>true</span>} />
-      </>
-    );
-  }
-
-  if (testId === 'architecture') {
-    const d = details as unknown as ArchDetails;
-    const skeletonEntries = Object.entries(d.skeletonFiles ?? {});
-    const deltaEntries    = Object.entries(d.fileTree ?? {});
-    const fileRow = (path: string, purpose: string, color: string) => (
-      <div key={path} style={{ display: 'flex', flexDirection: 'column', paddingLeft: 12, marginBottom: 4 }}>
-        <span style={{ fontSize: 11, fontFamily: 'monospace', color }}>{path}</span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', paddingLeft: 4 }}>{purpose}</span>
-      </div>
-    );
-    return renderPanel(
-      <>
-        <KV label="appName"  value={<span style={{ color: '#e2c08d' }}>{`"${d.appName}"`}</span>} />
-        <KV label="skeleton" value={<span style={{ color: '#e2c08d' }}>{`"${d.skeleton}"`}</span>} />
-        {d.dataModel && (
-          <KV label="dataModel" value={
-            <code style={{ color: '#a78bfa', fontSize: 10, background: 'rgba(167,139,250,0.08)', padding: '1px 5px', borderRadius: 3 }}>
-              {d.dataModel}
-            </code>
-          } />
-        )}
-        {d.contextContract && (
-          <KV label="contextContract" value={
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>{d.contextContract}</span>
-          } />
-        )}
-
-        {skeletonEntries.length > 0 && (
-          <>
-            <div style={{ marginTop: 10, marginBottom: 4, padding: '2px 6px', background: 'rgba(255,255,255,0.04)', borderRadius: 3 }}>
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>
-                🔒 skeleton provided ({skeletonEntries.length} files) — import freely, do NOT overwrite
-              </span>
-            </div>
-            {skeletonEntries.map(([p, desc]) => fileRow(p, desc, 'rgba(255,255,255,0.3)'))}
-          </>
-        )}
-
-        <div style={{ marginTop: 10, marginBottom: 4, padding: '2px 6px', background: 'rgba(96,165,250,0.06)', borderRadius: 3 }}>
-          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(96,165,250,0.7)' }}>
-            ✏️ delta files ({deltaEntries.length}) — architect defines, coder writes
-          </span>
-        </div>
-        {deltaEntries.map(([p, desc]) => fileRow(p, desc, '#60a5fa'))}
-      </>
-    );
-  }
-
-  if (testId === 'code-delta') {
-    const d = details as unknown as CodeDeltaDetails;
-    const handleDownload = async () => {
-      setDownloading(true);
-      try { await downloadFixtureZip(d.files); }
-      finally { setDownloading(false); }
-    };
-    return renderPanel(
-      <>
-        <KV label="buildId" value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
-        <div style={{ marginTop: 6, marginBottom: 4 }}>
-          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>files:</span>
-        </div>
-        {(d.files ?? []).map(f => (
-          <div key={f.path} style={{ display: 'flex', gap: 10, paddingLeft: 12, marginBottom: 2, fontSize: 11, fontFamily: 'monospace' }}>
-            <span style={{ color: '#60a5fa', flex: 1 }}>{f.path}</span>
-            <span style={{ color: 'rgba(255,255,255,0.25)', flexShrink: 0 }}>{fmtSize(f.size)}</span>
-          </div>
-        ))}
-        <button
-          onClick={() => void handleDownload()}
-          disabled={downloading}
-          style={{
-            marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5,
-            padding: '4px 12px', borderRadius: 5,
-            border: '1px solid rgba(96,165,250,0.3)',
-            background: downloading ? 'rgba(96,165,250,0.04)' : 'rgba(96,165,250,0.08)',
-            color: downloading ? 'rgba(96,165,250,0.4)' : '#60a5fa',
-            fontSize: 11, fontWeight: 600,
-            cursor: downloading ? 'not-allowed' : 'pointer',
-          }}
-        >
-          <Download size={11} />
-          {downloading ? 'Скачивание…' : 'Скачать архив'}
-        </button>
-      </>
-    );
-  }
-
-  if (testId === 'compile') {
-    const d = details as unknown as CompileDetails;
-    return renderPanel(
-      <>
-        <KV label="buildId" value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
-        <div style={{ marginTop: 6, marginBottom: 4 }}>
-          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>assets:</span>
-        </div>
-        {(d.assets ?? []).map(f => (
-          <div key={f.name} style={{ display: 'flex', gap: 10, paddingLeft: 12, marginBottom: 2, fontSize: 11, fontFamily: 'monospace' }}>
-            <span style={{ color: 'rgba(255,255,255,0.6)', flex: 1 }}>{f.name}</span>
-            <span style={{ color: 'rgba(255,255,255,0.25)', flexShrink: 0 }}>{fmtSize(f.size)}</span>
-          </div>
-        ))}
-      </>
-    );
-  }
-
-  if (testId === 'preview-http') {
-    const d = details as unknown as PreviewHttpDetails;
-    return renderPanel(
-      <>
-        <KV label="httpStatus"    value={<span style={{ color: '#4ade80' }}>{d.httpStatus}</span>} />
-        <KV label="contentLength" value={`${d.contentLengthStr} (${d.contentLength} bytes)`} />
-        <KV label="hasRootDiv"    value={<span style={{ color: d.hasRootDiv ? '#4ade80' : '#f87171' }}>{String(d.hasRootDiv)}</span>} />
-        <KV label="buildId"       value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
-      </>
-    );
-  }
-
-  if (testId === 'preview-mounted') {
-    const d = details as unknown as PreviewMtdDetails;
-    return renderPanel(
-      <>
-        <KV label="lineNumber" value={String(d.lineNumber)} />
-        <KV label="line" value={
-          <code style={{
-            color: '#a78bfa', background: 'rgba(167,139,250,0.08)',
-            padding: '1px 5px', borderRadius: 3,
-            fontSize: 10, wordBreak: 'break-all',
-          }}>
-            {d.line}
-          </code>
-        } />
-      </>
-    );
-  }
-
-  if (testId === 'save-ready') {
-    const d = details as unknown as SaveReadyDetails;
-    return renderPanel(
-      <>
-        <KV label="compileSuccess" value={<span style={{ color: '#4ade80' }}>true</span>} />
-        <KV label="buildId"        value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
-        <KV label="assetsCount"    value={String(d.assetsCount)} />
-      </>
-    );
-  }
-
-  if (testId === 'no-premature-save') {
-    const d = details as unknown as NoPremSaveDetails;
-    return renderPanel(
-      <>
-        <KV label="projectsBeforeSave" value={<span style={{ color: '#4ade80' }}>0</span>} />
-        <KV label="totalSessions"      value={String(d.totalSessions)} />
-        <KV label="correct"            value={<span style={{ color: '#4ade80' }}>true</span>} />
-      </>
-    );
-  }
-
-  if (testId === 'architect-real') {
-    const d = details as unknown as ArchRealDetails;
-    const deltaEntries = Object.entries(d.fileTree ?? {});
-    const fileRow = (p: string, purpose: string) => (
-      <div key={p} style={{ display: 'flex', flexDirection: 'column', paddingLeft: 12, marginBottom: 4 }}>
-        <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#60a5fa' }}>{p}</span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', paddingLeft: 4 }}>{purpose}</span>
-      </div>
-    );
-    return renderPanel(
-      <>
-        <KV label="appName"  value={<span style={{ color: '#e2c08d' }}>{`"${d.appName}"`}</span>} />
-        <KV label="skeleton" value={<span style={{ color: '#e2c08d' }}>{`"${d.skeleton}"`}</span>} />
-        <KV label="model"    value={<span style={{ color: '#a78bfa' }}>{d.model}</span>} />
-        {d.dataModel && (
-          <KV label="dataModel" value={
-            <code style={{ color: '#a78bfa', fontSize: 10, background: 'rgba(167,139,250,0.08)', padding: '1px 5px', borderRadius: 3 }}>
-              {d.dataModel}
-            </code>
-          } />
-        )}
-        {d.contextContract && (
-          <KV label="contextContract" value={
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>{d.contextContract}</span>
-          } />
-        )}
-        <div style={{ marginTop: 10, marginBottom: 4, padding: '2px 6px', background: 'rgba(96,165,250,0.06)', borderRadius: 3 }}>
-          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(96,165,250,0.7)' }}>
-            ✏️ delta files ({deltaEntries.length}) — реальный LLM output
-          </span>
-        </div>
-        {deltaEntries.map(([p, desc]) => fileRow(p, desc))}
-      </>
-    );
-  }
-
-  // fallback
-  return renderPanel(
-    <>
-      <pre style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, margin: 0, whiteSpace: 'pre-wrap' }}>
-        {JSON.stringify(details, null, 2)}
-      </pre>
-    </>
   );
 }
 
@@ -863,7 +1135,9 @@ function TestRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const canExpand = state.status === 'pass' && !!state.details;
+  const canExpand = state.status !== 'idle' && Boolean(
+    state.details || state.error || state.summary || state.llm || state.output || state.warnings?.length
+  );
   const evidence = getStepEvidence(def.id as StepId);
 
   const icon =
@@ -901,13 +1175,15 @@ function TestRow({
   const metaLines = state.status === 'running' ? [] : buildTestMetaLines(def.id as StepId, state);
 
   return (
-    <div>
-      {/* Row header */}
+    <div style={{ padding: '0 14px 14px' }}>
       <div
         style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '9px 16px',
-          background: rowBg, borderLeft: leftBorder,
+          display: 'flex', alignItems: 'flex-start', gap: 12,
+          padding: '14px 16px',
+          background: `linear-gradient(180deg, ${rowBg}, rgba(15,23,42,0.68))`,
+          borderLeft: leftBorder,
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: canExpand && expanded ? '16px 16px 0 0' : 16,
           transition: 'all 0.18s',
           cursor: canExpand ? 'pointer' : 'default',
           userSelect: 'none',
@@ -928,39 +1204,36 @@ function TestRow({
           <div style={{ width: 11, flexShrink: 0 }} />
         )}
 
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          minWidth: 0,
-        }}>
-          <span style={{
-            fontSize: 12, fontWeight: 600, fontFamily: 'monospace',
-            color: labelColor, minWidth: 0, overflow: 'hidden',
-            textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {def.label}
-          </span>
-          <span style={evidenceBadgeStyle(evidence.kind)} title={evidence.note}>
-            {evidence.label}
-          </span>
-        </div>
-        <div style={{
-          width: 52, fontSize: 11, fontFamily: 'monospace',
-          color: 'rgba(255,255,255,0.3)', textAlign: 'right', flexShrink: 0,
-        }}>
-          {durText}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{
+              fontSize: 13, fontWeight: 700, fontFamily: 'monospace',
+              color: labelColor, minWidth: 0, overflow: 'hidden',
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {def.label}
+            </span>
+            <span style={evidenceBadgeStyle(evidence.kind)} title={evidence.note}>
+              {evidence.label}
+            </span>
+            <span style={statusBadgeStyle(state.status === 'running' ? 'running' : state.status === 'pass' ? 'pass' : state.status === 'fail' ? 'fail' : state.status === 'cancelled' ? 'warning' : 'idle')}>
+              {statusLabel(state.status === 'cancelled' ? 'warning' : state.status === 'running' ? 'running' : state.status === 'idle' ? 'idle' : state.status)}
+            </span>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>{durText || 'Not run'}</span>
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>{def.desc}</div>
         </div>
         <button
+          type="button"
           onClick={(e) => { e.stopPropagation(); onRun(); }}
           disabled={anyRunning}
+          aria-label={`Run ${def.label}`}
           style={{
-            padding: '3px 10px', borderRadius: 5, flexShrink: 0,
+            padding: '6px 12px', borderRadius: 8, flexShrink: 0,
             border: '1px solid rgba(255,255,255,0.1)',
             background: anyRunning ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.06)',
             color: anyRunning ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.65)',
-            fontSize: 11, fontWeight: 600,
+            fontSize: 12, fontWeight: 700,
             cursor: anyRunning ? 'not-allowed' : 'pointer',
           }}
         >
@@ -970,12 +1243,17 @@ function TestRow({
 
       {metaLines.length > 0 && (
         <div style={{
-          padding: '0 16px 8px 40px',
+          padding: '10px 16px 12px 42px',
           display: 'flex',
           flexDirection: 'column',
           gap: 4,
           background: rowBg,
           borderLeft: leftBorder,
+          borderRight: '1px solid rgba(255,255,255,0.06)',
+          borderLeftColor: leftBorder.replace('2px solid ', ''),
+          borderBottom: expanded ? 'none' : '1px solid rgba(255,255,255,0.06)',
+          borderBottomLeftRadius: expanded ? 0 : 16,
+          borderBottomRightRadius: expanded ? 0 : 16,
         }}>
           {metaLines.map(line => (
             <div
@@ -984,9 +1262,8 @@ function TestRow({
                 fontSize: 11,
                 fontFamily: 'monospace',
                 color: line.color ?? 'rgba(255,255,255,0.45)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
+                whiteSpace: 'normal',
+                overflowWrap: 'anywhere',
               }}
               title={line.text}
             >
@@ -999,10 +1276,14 @@ function TestRow({
       {/* Error — always visible on fail */}
       {state.status === 'fail' && state.error && (
         <div style={{
-          padding: '4px 16px 6px 40px',
+          padding: '4px 16px 12px 42px',
           fontSize: 11, color: '#f87171',
           background: 'rgba(248,113,113,0.03)',
           borderLeft: '2px solid rgba(248,113,113,0.15)',
+          borderRight: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: expanded ? 'none' : '1px solid rgba(255,255,255,0.06)',
+          borderBottomLeftRadius: expanded ? 0 : 16,
+          borderBottomRightRadius: expanded ? 0 : 16,
           wordBreak: 'break-all',
         }}>
           {state.error}
@@ -1011,19 +1292,22 @@ function TestRow({
 
       {state.status === 'cancelled' && (state.error || state.summary) && (
         <div style={{
-          padding: '4px 16px 6px 40px',
+          padding: '4px 16px 12px 42px',
           fontSize: 11, color: '#fbbf24',
           background: 'rgba(251,191,36,0.04)',
           borderLeft: '2px solid rgba(251,191,36,0.18)',
+          borderRight: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: expanded ? 'none' : '1px solid rgba(255,255,255,0.06)',
+          borderBottomLeftRadius: expanded ? 0 : 16,
+          borderBottomRightRadius: expanded ? 0 : 16,
           wordBreak: 'break-all',
         }}>
           {state.error ?? state.summary}
         </div>
       )}
 
-      {/* Detail panel — expanded on pass */}
       {expanded && canExpand && (
-        <DetailPanel testId={def.id as StepId} details={state.details!} />
+        <DetailPanel def={def} state={state} />
       )}
     </div>
   );
@@ -1032,20 +1316,25 @@ function TestRow({
 // ── FlowChainTab ───────────────────────────────────────────────────────────────
 
 function FlowChainTab() {
-  const [testStates,   setTestStates]   = useState<Record<StepId, TestState>>(makeInitStates);
-  const [expanded,     setExpanded]     = useState<Record<StepId, boolean>>(makeInitExpanded);
+  const [testStates, setTestStates] = useState<Record<StepId, TestState>>(makeInitStates);
+  const [expanded, setExpanded] = useState<Record<StepId, boolean>>(makeInitExpanded);
   const [runAllActive, setRunAllActive] = useState(false);
-  const [lastRunAt,    setLastRunAt]    = useState<string | null>(() => {
+  const [preflight, setPreflight] = useState<LiveReadinessPreflightResult | null>(() => loadPersistedPreflight());
+  const [preflightExpanded, setPreflightExpanded] = useState<Record<string, boolean>>({});
+  const [preflightRunning, setPreflightRunning] = useState(false);
+  const [preflightRunningCheckId, setPreflightRunningCheckId] = useState<string | null>(null);
+  const [clearMenuOpen, setClearMenuOpen] = useState(false);
+  const [clearSummary, setClearSummary] = useState<ClearSummary | null>(null);
+  const [lastRunAt, setLastRunAt] = useState<string | null>(() => {
     try { return localStorage.getItem(LS_LAST_RUN_KEY); } catch { return null; }
   });
   const [brokenAt, setBrokenAt] = useState<string | null>(null);
-  // Shared buildId for Code Delta → Compile → Preview HTTP → Save Ready chain
   const qualityBuildIdRef = React.useRef<string | null>(null);
   const activeRunRef = React.useRef<ActiveRun | null>(null);
   const runTokenRef = React.useRef(0);
+  const preflightTokenRef = React.useRef(0);
   const runningStepRef = React.useRef<StepId | null>(null);
 
-  // Restore last run status from localStorage (no details — run again to see them)
   useEffect(() => {
     const restored = makeInitStates();
     STEP_DEFS.forEach(def => {
@@ -1055,8 +1344,8 @@ function FlowChainTab() {
         restored[def.id as StepId] = {
           status: last.status,
           duration_ms: last.duration_ms,
+          updatedAt: last.timestamp,
           error: last.error,
-          // details intentionally not persisted
         };
       }
     });
@@ -1066,10 +1355,15 @@ function FlowChainTab() {
   useEffect(() => () => {
     activeRunRef.current?.controller.abort();
     activeRunRef.current = null;
+    preflightTokenRef.current += 1;
   }, []);
 
-  const anyRunning = runAllActive || Object.values(testStates).some(s => s.status === 'running');
-  const hasReportData = Object.values(testStates).some(s => s.status !== 'idle');
+  const qualityControls = {
+    hasRunPreflightButton: true,
+    isolatedFromRunAll: true,
+    clearsPreflightState: true,
+    reportIncludesPreflight: true,
+  } as const;
 
   const setOneState = useCallback((id: StepId, patch: Partial<TestState>) => {
     setTestStates(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -1077,6 +1371,10 @@ function FlowChainTab() {
 
   const handleToggle = useCallback((id: StepId) => {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
+  const togglePreflightDetails = useCallback((id: string) => {
+    setPreflightExpanded(prev => ({ ...prev, [id]: !prev[id] }));
   }, []);
 
   const isRunCurrent = useCallback((run: ActiveRun): boolean => (
@@ -1122,6 +1420,7 @@ function FlowChainTab() {
       setOneState(currentStep, {
         status: 'cancelled',
         duration_ms: 0,
+        updatedAt: new Date().toISOString(),
         error: CANCELLED_BY_USER,
         summary: CANCELLED_BY_USER,
         llm: undefined,
@@ -1135,6 +1434,7 @@ function FlowChainTab() {
 
   const runSingleTest = useCallback(async (id: StepId, run: ActiveRun): Promise<TestApiResult> => {
     if (!isRunCurrent(run)) return { ...CANCELLED_TEST_RESULT };
+    setClearSummary(null);
     runningStepRef.current = id;
     setOneState(id, {
       status: 'running',
@@ -1151,10 +1451,8 @@ function FlowChainTab() {
       let result: TestApiResult;
 
       if (id === 'architect-real') {
-        // Frontend-only LLM call — no backend proxy
         result = await runArchitectRealTest(run.controller.signal);
       } else {
-        // For chain tests, pass the shared buildId from Code Delta
         const chainBuildId = (id === 'compile' || id === 'preview-http' || id === 'save-ready')
           ? (qualityBuildIdRef.current ?? undefined)
           : undefined;
@@ -1165,42 +1463,41 @@ function FlowChainTab() {
         return { ...CANCELLED_TEST_RESULT, duration_ms: result.duration_ms };
       }
 
-      // After Code Delta succeeds, capture its buildId for downstream chain tests
       if (id === 'code-delta' && result.status === 'pass') {
         const bid = (result.details as Record<string, unknown> | undefined)?.buildId;
-        if (typeof bid === 'string') {
-          qualityBuildIdRef.current = bid;
-        }
+        if (typeof bid === 'string') qualityBuildIdRef.current = bid;
       }
 
+      const updatedAt = new Date().toISOString();
       setOneState(id, {
-        status:     result.status,
+        status: result.status,
         duration_ms: result.duration_ms,
-        error:       result.error,
-        summary:     result.summary,
-        llm:         result.llm,
-        output:      result.output,
-        warnings:    result.warnings,
-        details:     result.details,
+        updatedAt,
+        error: result.error,
+        summary: result.summary,
+        llm: result.llm,
+        output: result.output,
+        warnings: result.warnings,
+        details: result.details,
       });
-      // Auto-expand on pass with details
-      if (result.status === 'pass' && result.details) {
+      if ((result.status === 'pass' || result.status === 'fail') && (result.details || result.error || result.summary)) {
         setExpanded(prev => ({ ...prev, [id]: true }));
       }
       persistTestRun(id, {
-        timestamp:   new Date().toISOString(),
-        status:      result.status,
+        timestamp: updatedAt,
+        status: result.status,
         duration_ms: result.duration_ms,
-        error:       result.error,
+        error: result.error,
       });
       return result;
     } catch (err: unknown) {
       if (isAbortError(err) || !isRunCurrent(run)) {
         return { ...CANCELLED_TEST_RESULT };
       }
+      const updatedAt = new Date().toISOString();
       const error = err instanceof Error ? err.message : String(err);
-      setOneState(id, { status: 'fail', duration_ms: 0, error, summary: undefined, llm: undefined, output: undefined, warnings: undefined });
-      persistTestRun(id, { timestamp: new Date().toISOString(), status: 'fail', duration_ms: 0, error });
+      setOneState(id, { status: 'fail', duration_ms: 0, updatedAt, error, summary: undefined, llm: undefined, output: undefined, warnings: undefined });
+      persistTestRun(id, { timestamp: updatedAt, status: 'fail', duration_ms: 0, error });
       return { status: 'fail', duration_ms: 0, error };
     } finally {
       if (runningStepRef.current === id) runningStepRef.current = null;
@@ -1208,16 +1505,17 @@ function FlowChainTab() {
   }, [isRunCurrent, setOneState]);
 
   const handleRunOne = useCallback((id: StepId) => {
-    if (activeRunRef.current) return;
+    if (activeRunRef.current || preflightRunning || preflightRunningCheckId) return;
     const run = beginRun('single');
     void runSingleTest(id, run).finally(() => {
       if (finishRun(run)) setRunAllActive(false);
     });
-  }, [beginRun, finishRun, runSingleTest]);
+  }, [beginRun, finishRun, preflightRunning, preflightRunningCheckId, runSingleTest]);
 
   const handleRunAll = useCallback(async () => {
-    if (activeRunRef.current) return;
+    if (activeRunRef.current || preflightRunning || preflightRunningCheckId) return;
     const run = beginRun('all');
+    setClearSummary(null);
     setRunAllActive(true);
     setBrokenAt(null);
     setExpanded(makeInitExpanded());
@@ -1232,167 +1530,577 @@ function FlowChainTab() {
         if (!isRunCurrent(run)) break;
         const result = await runSingleTest(def.id as StepId, run);
         if (!isRunCurrent(run) || result.status === 'cancelled') break;
-        if (result.status === 'fail') { setBrokenAt(def.id); break; }
+        if (result.status === 'fail') {
+          setBrokenAt(def.id);
+          break;
+        }
       }
     } finally {
       if (finishRun(run)) setRunAllActive(false);
     }
-  }, [beginRun, finishRun, isRunCurrent, runSingleTest]);
+  }, [beginRun, finishRun, isRunCurrent, preflightRunning, preflightRunningCheckId, runSingleTest]);
 
-  const handleClear = useCallback(() => {
+  const mergePreflightCheck = useCallback((nextCheck: LiveReadinessPreflightCheck) => {
+    setPreflight(prev => {
+      const byId = new Map((prev?.checks ?? []).map(check => [check.id, check]));
+      byId.set(nextCheck.id, nextCheck);
+      const checks = PREFLIGHT_CHECK_DEFS
+        .map(def => byId.get(def.id))
+        .filter((check): check is LiveReadinessPreflightCheck => Boolean(check));
+      const passCount = checks.filter(check => check.status === 'pass').length;
+      const failCount = checks.filter(check => check.status === 'fail').length;
+      const warningCount = checks.filter(check => check.status === 'warning').length;
+      const nextResult: LiveReadinessPreflightResult = {
+        status: failCount > 0 ? 'fail' : warningCount > 0 ? 'warning' : 'pass',
+        checkedAt: nextCheck.checkedAt ?? new Date().toISOString(),
+        passCount,
+        failCount,
+        warningCount,
+        checks,
+      };
+      persistPreflight(nextResult);
+      return nextResult;
+    });
+  }, []);
+
+  const handleRunPreflight = useCallback(async () => {
+    if (activeRunRef.current || preflightRunning || preflightRunningCheckId) return;
+    const token = preflightTokenRef.current + 1;
+    preflightTokenRef.current = token;
+    setClearSummary(null);
+    setPreflightRunning(true);
+    try {
+      const result = await runLiveReadinessPreflight({ qualityControls });
+      if (preflightTokenRef.current !== token) return;
+      setPreflight(result);
+      persistPreflight(result);
+    } finally {
+      if (preflightTokenRef.current === token) setPreflightRunning(false);
+    }
+  }, [preflightRunning, preflightRunningCheckId]);
+
+  const handleRunPreflightCheck = useCallback(async (id: string) => {
+    if (activeRunRef.current || preflightRunning || preflightRunningCheckId) return;
+    const token = preflightTokenRef.current + 1;
+    preflightTokenRef.current = token;
+    setClearSummary(null);
+    setPreflightRunningCheckId(id);
+    try {
+      const result = await runLiveReadinessPreflight({ qualityControls, checkIds: [id] });
+      if (preflightTokenRef.current !== token) return;
+      if (result.checks[0]) mergePreflightCheck(result.checks[0]);
+      setPreflightExpanded(prev => ({ ...prev, [id]: true }));
+    } finally {
+      if (preflightTokenRef.current === token) setPreflightRunningCheckId(null);
+    }
+  }, [mergePreflightCheck, preflightRunning, preflightRunningCheckId]);
+
+  const applyClearSummary = useCallback((action: string, cleared: string[]) => {
+    setClearSummary({
+      action,
+      cleared,
+      preserved: ['auth/session/project/navigation keys'],
+    });
+  }, []);
+
+  const clearFlowChainState = useCallback(() => {
     stopActiveRun(false);
     runTokenRef.current += 1;
     qualityBuildIdRef.current = null;
-    clearQualityPanelHistory();
+    const flowCount = removeQualityKeys(key => key.startsWith('quality.test.') || key === LS_LAST_RUN_KEY);
     setTestStates(makeInitStates());
     setExpanded(makeInitExpanded());
     setRunAllActive(false);
     setLastRunAt(null);
     setBrokenAt(null);
-  }, [stopActiveRun]);
+    setClearMenuOpen(false);
+    applyClearSummary('Clear Flow Chain', [
+      `Flow Chain history: ${flowCount} keys`,
+      'Preflight result: preserved',
+      'Report cache: preserved',
+    ]);
+  }, [applyClearSummary, stopActiveRun]);
+
+  const clearPreflightState = useCallback(() => {
+    preflightTokenRef.current += 1;
+    const preflightCount = removeQualityKeys(key => key === LS_PREFLIGHT_KEY || key.startsWith('quality.preflight.'));
+    setPreflight(null);
+    setPreflightExpanded({});
+    setPreflightRunning(false);
+    setPreflightRunningCheckId(null);
+    setClearMenuOpen(false);
+    applyClearSummary('Clear Preflight', [
+      'Flow Chain history: preserved',
+      `Preflight result: ${preflightCount > 0 ? 'cleared' : 'already empty'}`,
+      'Report cache: preserved',
+    ]);
+  }, [applyClearSummary]);
+
+  const clearAllQualityState = useCallback(() => {
+    stopActiveRun(false);
+    runTokenRef.current += 1;
+    preflightTokenRef.current += 1;
+    qualityBuildIdRef.current = null;
+    const flowCount = removeQualityKeys(key => key.startsWith('quality.test.') || key === LS_LAST_RUN_KEY);
+    const preflightCount = removeQualityKeys(key => key === LS_PREFLIGHT_KEY || key.startsWith('quality.preflight.'));
+    const reportCacheCount = removeQualityKeys(key => QUALITY_REPORT_CACHE_PREFIXES.some(prefix => key.startsWith(prefix)));
+    setTestStates(makeInitStates());
+    setExpanded(makeInitExpanded());
+    setPreflight(null);
+    setPreflightExpanded({});
+    setPreflightRunning(false);
+    setPreflightRunningCheckId(null);
+    setRunAllActive(false);
+    setLastRunAt(null);
+    setBrokenAt(null);
+    setClearMenuOpen(false);
+    applyClearSummary('Clear All Quality State', [
+      `Flow Chain history: ${flowCount} keys`,
+      `Preflight result: ${preflightCount > 0 ? 'cleared' : 'already empty'}`,
+      `Report cache: ${reportCacheCount > 0 ? 'cleared' : 'already empty'}`,
+    ]);
+  }, [applyClearSummary, stopActiveRun]);
 
   const handleStop = useCallback(() => {
     stopActiveRun(true);
   }, [stopActiveRun]);
 
-  // Footer verdict
-  const passCount = Object.values(testStates).filter(s => s.status === 'pass').length;
-  const failCount = Object.values(testStates).filter(s => s.status === 'fail').length;
-  const fixturePassCount = STEP_DEFS.filter(def =>
-    getStepEvidence(def.id as StepId).fixtureBacked && testStates[def.id as StepId].status === 'pass'
-  ).length;
-  const realRuntimePassCount = STEP_DEFS.filter(def =>
-    getStepEvidence(def.id as StepId).realRuntime && testStates[def.id as StepId].status === 'pass'
-  ).length;
-  const realLlmPassCount = STEP_DEFS.filter(def =>
-    getStepEvidence(def.id as StepId).realLlm && testStates[def.id as StepId].status === 'pass'
-  ).length;
-  const verdict: 'PASS' | 'PARTIAL' | 'FAIL' | null =
-    failCount === 0 && passCount === STEP_DEFS.length ? 'PASS'    :
-    failCount > 0  && passCount > 0                   ? 'PARTIAL' :
-    failCount > 0  && passCount === 0                 ? 'FAIL'    :
-    null;
+  const architectState = testStates['architect-real'];
+  const recentLiveTrace = generationTracer.getRecent(20)
+    .slice()
+    .reverse()
+    .find(trace => trace.runSummary?.path.kind === 'real' || trace.runSummary?.path.testEnvironment === false) ?? null;
+  const lastLiveStep = recentLiveTrace?.visibleReasoningTrace.steps
+    .slice()
+    .reverse()
+    .find(step => step.status === 'failed' || step.status === 'warning')
+    ?? recentLiveTrace?.visibleReasoningTrace.steps.at(-1);
 
-  const lastRunStr = lastRunAt
-    ? new Date(lastRunAt).toLocaleString('ru-RU', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-      })
-    : null;
+  const passCount = Object.values(testStates).filter(state => state.status === 'pass').length;
+  const failCount = Object.values(testStates).filter(state => state.status === 'fail').length;
+  const completedCount = Object.values(testStates).filter(state => state.status !== 'idle').length;
+  const fixturePassCount = STEP_DEFS.filter(def => getStepEvidence(def.id as StepId).fixtureBacked && testStates[def.id as StepId].status === 'pass').length;
+  const realRuntimePassCount = STEP_DEFS.filter(def => getStepEvidence(def.id as StepId).realRuntime && testStates[def.id as StepId].status === 'pass').length;
+  const realLlmPassCount = STEP_DEFS.filter(def => getStepEvidence(def.id as StepId).realLlm && testStates[def.id as StepId].status === 'pass').length;
+  const anyRunning = runAllActive || preflightRunning || preflightRunningCheckId !== null || Object.values(testStates).some(state => state.status === 'running');
+
+  const flowFailures = STEP_DEFS
+    .filter(def => testStates[def.id as StepId].status === 'fail')
+    .map(def => `${def.label}: ${testStates[def.id as StepId].error ?? testStates[def.id as StepId].summary ?? 'failed'}`);
+  const flowWarnings = STEP_DEFS
+    .filter(def => testStates[def.id as StepId].status === 'cancelled')
+    .map(def => `${def.label}: ${testStates[def.id as StepId].error ?? CANCELLED_BY_USER}`);
+  const flowChainSummary: AggregateSummary = flowFailures.length > 0
+    ? {
+        status: 'fail',
+        reason: flowFailures[0],
+        blockingFailures: flowFailures,
+        warnings: flowWarnings,
+      }
+    : passCount === STEP_DEFS.length
+      ? {
+          status: 'pass',
+          reason: 'All Flow Chain checks passed.',
+          blockingFailures: [],
+          warnings: flowWarnings,
+        }
+      : completedCount === 0
+        ? {
+            status: 'idle',
+            reason: 'Run Flow Chain checks to validate fixture, runtime, and real LLM layers.',
+            blockingFailures: [],
+            warnings: [],
+          }
+        : {
+            status: 'warning',
+            reason: 'Flow Chain is only partially verified.',
+            blockingFailures: [],
+            warnings: [
+              ...flowWarnings,
+              `${passCount}/${STEP_DEFS.length} checks completed successfully.`,
+            ],
+          };
+
+  const preflightChecksAvailable = preflight?.checks.length ?? 0;
+  const preflightFailedChecks = (preflight?.checks ?? []).filter(check => check.status === 'fail');
+  const preflightWarningChecks = (preflight?.checks ?? []).filter(check => check.status === 'warning');
+  const preflightSummary: AggregateSummary = preflightFailedChecks.length > 0
+    ? {
+        status: 'fail',
+        reason: 'Live Readiness Preflight failed. Live generation is likely to crash.',
+        blockingFailures: preflightFailedChecks.map(check => `${check.label}: ${check.summary}`),
+        warnings: preflightWarningChecks.map(check => `${check.label}: ${check.summary}`),
+      }
+    : !preflight || preflightChecksAvailable === 0
+      ? {
+          status: 'warning',
+          reason: 'Live Readiness Preflight has not been run yet.',
+          blockingFailures: [],
+          warnings: ['Fast deterministic preflight is still missing.'],
+        }
+      : preflightWarningChecks.length > 0 || preflightChecksAvailable < PREFLIGHT_CHECK_DEFS.length
+        ? {
+            status: 'warning',
+            reason: preflightChecksAvailable < PREFLIGHT_CHECK_DEFS.length
+              ? 'Preflight coverage is partial. Some checks have not run yet.'
+              : 'Live Readiness Preflight completed with warnings.',
+            blockingFailures: [],
+            warnings: [
+              ...preflightWarningChecks.map(check => `${check.label}: ${check.summary}`),
+              ...(preflightChecksAvailable < PREFLIGHT_CHECK_DEFS.length ? [`Only ${preflightChecksAvailable}/${PREFLIGHT_CHECK_DEFS.length} preflight checks have results.`] : []),
+            ],
+          }
+        : {
+            status: 'pass',
+            reason: 'All Live Readiness Preflight checks passed.',
+            blockingFailures: [],
+            warnings: [],
+          };
+
+  const realLlmSummary: AggregateSummary = architectState.status === 'pass'
+    ? {
+        status: 'pass',
+        reason: 'Architect Real passed with real LLM telemetry.',
+        blockingFailures: [],
+        warnings: [],
+      }
+    : architectState.status === 'fail'
+      ? {
+          status: 'fail',
+          reason: architectState.error ?? 'Architect Real failed.',
+          blockingFailures: [architectState.error ?? 'Architect Real failed.'],
+          warnings: [],
+        }
+      : architectState.status === 'running'
+        ? {
+            status: 'warning',
+            reason: 'Architect Real is running.',
+            blockingFailures: [],
+            warnings: [],
+          }
+        : {
+            status: 'warning',
+            reason: 'Architect Real has not been run yet.',
+            blockingFailures: [],
+            warnings: ['Real LLM path is still unverified.'],
+          };
+
+  const lastLiveSummary: AggregateSummary = recentLiveTrace
+    ? {
+        status: mapTraceOutcomeToAggregate(recentLiveTrace.visibleReasoningTrace.finalOutcome),
+        reason: recentLiveTrace.errorSummary
+          ?? lastLiveStep?.errorSummary
+          ?? recentLiveTrace.runSummary?.quality?.summary
+          ?? 'Last live generation result loaded.',
+        blockingFailures: recentLiveTrace.runSummary?.quality?.blockers ?? [],
+        warnings: recentLiveTrace.runSummary?.quality?.warnings ?? [],
+      }
+    : {
+        status: 'idle',
+        reason: 'No live generation result captured yet.',
+        blockingFailures: [],
+        warnings: [],
+      };
+
+  const overallStatus: AggregateSummary = (() => {
+    if (preflightSummary.status === 'fail') {
+      return {
+        status: 'fail',
+        reason: 'Live Readiness Preflight failed. Live generation is likely to crash.',
+        blockingFailures: [...preflightSummary.blockingFailures, ...flowChainSummary.blockingFailures],
+        warnings: [...preflightSummary.warnings, ...flowChainSummary.warnings],
+      };
+    }
+    if (flowChainSummary.status === 'fail') {
+      return {
+        status: 'fail',
+        reason: flowChainSummary.reason,
+        blockingFailures: [...flowChainSummary.blockingFailures],
+        warnings: [...preflightSummary.warnings],
+      };
+    }
+    if (realLlmSummary.status === 'fail') {
+      return {
+        status: 'fail',
+        reason: realLlmSummary.reason,
+        blockingFailures: [...realLlmSummary.blockingFailures],
+        warnings: [...preflightSummary.warnings],
+      };
+    }
+    if (flowChainSummary.status === 'pass' && preflightSummary.status === 'pass' && realLlmSummary.status === 'pass') {
+      if (lastLiveSummary.status === 'fail' || lastLiveSummary.status === 'warning') {
+        return {
+          status: 'warning',
+          reason: 'Critical checks passed, but the latest live generation still shows warnings or failures.',
+          blockingFailures: [],
+          warnings: [...lastLiveSummary.blockingFailures, ...lastLiveSummary.warnings],
+        };
+      }
+      return {
+        status: 'pass',
+        reason: 'Flow Chain, Live Readiness Preflight, and Architect Real all passed.',
+        blockingFailures: [],
+        warnings: [],
+      };
+    }
+
+    const warnings = [
+      ...flowChainSummary.warnings,
+      ...preflightSummary.warnings,
+      ...realLlmSummary.warnings,
+      ...(lastLiveSummary.status === 'fail' || lastLiveSummary.status === 'warning'
+        ? [...lastLiveSummary.blockingFailures, ...lastLiveSummary.warnings]
+        : []),
+    ];
+    return {
+      status: 'warning',
+      reason: flowChainSummary.status === 'warning'
+        ? flowChainSummary.reason
+        : preflightSummary.status === 'warning'
+          ? preflightSummary.reason
+          : realLlmSummary.reason,
+      blockingFailures: [],
+      warnings,
+    };
+  })();
+
+  const reportVerdict: ReportVerdict = overallStatus.status === 'fail' ? 'FAIL' : overallStatus.status === 'pass' ? 'PASS' : 'WARNING';
+  const lastRunStr = lastRunAt ? fmtDateTime(lastRunAt) : null;
+  const nextRecommendedAction = overallStatus.status === 'fail'
+    ? preflightSummary.status === 'fail'
+      ? 'Fix the failing Live Readiness Preflight checks and rerun the failing preflight items.'
+      : flowChainSummary.status === 'fail'
+        ? 'Rerun the failing Flow Chain step and inspect its detailed diagnostics.'
+        : 'Fix the failing real LLM path before trusting live generation.'
+    : overallStatus.status === 'warning'
+      ? preflightSummary.status !== 'pass'
+        ? 'Run or complete Live Readiness Preflight until it is fully green.'
+        : realLlmSummary.status !== 'pass'
+          ? 'Run Architect Real to verify the real LLM path.'
+          : 'Review the latest live generation warning and rerun the affected slice.'
+      : 'Run the flow-chain and live generation canaries as the final audit before commit.';
+
+  const lastLivePayload = recentLiveTrace ? {
+    status: lastLiveSummary.status,
+    stage: lastLiveStep?.kind ?? 'unknown',
+    root_cause_type: undefined,
+    raw_error_excerpt: recentLiveTrace.errorSummary ?? lastLiveStep?.errorSummary ?? null,
+    candidate_graph_summary: recentLiveTrace.runSummary?.output?.structure?.summary ?? null,
+    suggested_fix: recentLiveTrace.runSummary?.quality?.blockers?.[0] ?? recentLiveTrace.runSummary?.quality?.warnings?.[0] ?? null,
+    trace: recentLiveTrace,
+  } : null;
+
+  const reportPayload = {
+    generatedAt: new Date().toISOString(),
+    verdict: reportVerdict,
+    overallStatus: overallStatus.status,
+    flowChainStatus: flowChainSummary.status,
+    preflightStatus: !preflight ? 'skipped' : preflightSummary.status,
+    realLlmStatus: architectState.status === 'idle' ? 'skipped' : realLlmSummary.status,
+    lastLiveStatus: lastLiveSummary.status === 'idle' ? 'skipped' : lastLiveSummary.status,
+    reason: overallStatus.reason,
+    blockingFailures: overallStatus.blockingFailures,
+    warnings: overallStatus.warnings,
+    nextRecommendedAction,
+    lastRunAt,
+    brokenAt,
+    preflight,
+    lastLiveResult: lastLivePayload ? {
+      status: lastLivePayload.status,
+      stage: lastLivePayload.stage,
+      root_cause_type: lastLivePayload.root_cause_type,
+      raw_error_excerpt: lastLivePayload.raw_error_excerpt,
+      candidate_graph_summary: lastLivePayload.candidate_graph_summary,
+      suggested_fix: lastLivePayload.suggested_fix,
+    } : null,
+    tests: STEP_DEFS.map(def => {
+      const evidence = getStepEvidence(def.id as StepId);
+      return {
+        id: def.id,
+        label: def.label,
+        description: def.desc,
+        truthLevel: evidence.kind,
+        truthLabel: evidence.label,
+        fixtureBacked: evidence.fixtureBacked,
+        realRuntime: evidence.realRuntime,
+        realLlm: evidence.realLlm,
+        current: testStates[def.id as StepId],
+        history: loadTestHistory(def.id),
+      };
+    }),
+  };
+  const reportJson = JSON.stringify(reportPayload, null, 2);
+  const hasReportData = Object.values(testStates).some(state => state.status !== 'idle') || preflight !== null || lastLivePayload !== null;
 
   const handleDownloadReport = useCallback(() => {
-    const report = {
-      generatedAt: new Date().toISOString(),
-      lastRunAt,
-      verdict,
-      passCount,
-      failCount,
-      fixturePassCount,
-      realRuntimePassCount,
-      realLlmPassCount,
-      brokenAt,
-      tests: STEP_DEFS.map(def => {
-        const evidence = getStepEvidence(def.id as StepId);
-        return {
-          id: def.id,
-          label: def.label,
-          description: def.desc,
-          truthLevel: evidence.kind,
-          truthLabel: evidence.label,
-          fixtureBacked: evidence.fixtureBacked,
-          realRuntime: evidence.realRuntime,
-          realLlm: evidence.realLlm,
-          current: testStates[def.id as StepId],
-          history: loadTestHistory(def.id),
-        };
-      }),
+    downloadQualityReport(reportPayload);
+  }, [reportJson]);
+
+  const handleCopyReport = useCallback(async () => {
+    await copyTextToClipboard(reportJson);
+  }, [reportJson]);
+
+  const preflightCards = PREFLIGHT_CHECK_DEFS.map(def => {
+    const found = preflight?.checks.find(check => check.id === def.id);
+    return {
+      check: found ?? {
+        id: def.id,
+        label: def.label,
+        status: 'warning' as const,
+        summary: 'Not run yet. Run this check to capture deterministic diagnostics.',
+      },
+      displayStatus: preflightRunningCheckId === def.id ? 'running' as const : found ? found.status : 'idle' as const,
     };
-    downloadQualityReport(report);
-  }, [brokenAt, failCount, fixturePassCount, lastRunAt, passCount, realLlmPassCount, realRuntimePassCount, testStates, verdict]);
+  });
 
   return (
     <div style={{
       background: 'rgba(255,255,255,0.03)',
       border: '1px solid rgba(255,255,255,0.07)',
-      borderRadius: 12, overflow: 'hidden',
-      display: 'flex', flexDirection: 'column',
-      flex: 1, minHeight: 0,
+      borderRadius: 18,
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+      flex: 1,
+      minHeight: 0,
     }}>
-      {/* Panel header */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '11px 16px',
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        padding: '14px 16px',
         borderBottom: '1px solid rgba(255,255,255,0.06)',
+        background: 'linear-gradient(180deg, rgba(8,10,16,0.98), rgba(8,10,16,0.92))',
+        flexShrink: 0,
       }}>
-        <span style={{
-          fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-          textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)',
-        }}>
-          Quality Tests
-        </span>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.42)' }}>
+            Quality diagnostics
+          </span>
+          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.76)' }}>
+            Flow Chain, Live Readiness Preflight, Architect Real, and the latest live result are shown as separate diagnostic layers.
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button
+            type="button"
             onClick={() => void handleRunAll()}
             disabled={anyRunning}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '5px 14px', borderRadius: 7, border: 'none',
-              background: anyRunning ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.85)',
+              padding: '7px 14px', borderRadius: 9, border: 'none',
+              background: anyRunning ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.90)',
               color: anyRunning ? 'rgba(96,165,250,0.5)' : '#fff',
-              fontSize: 12, fontWeight: 600,
+              fontSize: 12, fontWeight: 700,
               cursor: anyRunning ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s',
             }}
           >
-            {anyRunning
-              ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Running…</>
-              : <><Play size={12} /> Run All</>
-            }
+            <Play size={12} />
+            Run All
           </button>
-          {anyRunning && (
+          <button
+            type="button"
+            onClick={() => void handleRunPreflight()}
+            disabled={anyRunning}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', borderRadius: 9,
+              border: '1px solid rgba(110,231,183,0.28)',
+              background: anyRunning ? 'rgba(16,185,129,0.04)' : 'rgba(16,185,129,0.10)',
+              color: anyRunning ? 'rgba(110,231,183,0.38)' : '#6ee7b7',
+              fontSize: 12, fontWeight: 700,
+              cursor: anyRunning ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {preflightRunning ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <FlaskConical size={12} />}
+            Run Preflight
+          </button>
+          {activeRunRef.current && (
             <button
+              type="button"
               onClick={handleStop}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '5px 12px', borderRadius: 7,
+                padding: '7px 12px', borderRadius: 9,
                 border: '1px solid rgba(251,191,36,0.35)',
                 background: 'rgba(251,191,36,0.10)',
                 color: '#fbbf24',
                 fontSize: 12, fontWeight: 700,
                 cursor: 'pointer',
-                transition: 'all 0.15s',
               }}
             >
               <X size={12} />
               Stop
             </button>
           )}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setClearMenuOpen(prev => !prev)}
+              style={{
+                padding: '7px 12px',
+                borderRadius: 9,
+                border: '1px solid rgba(248,113,113,0.35)',
+                background: 'rgba(248,113,113,0.10)',
+                color: 'rgba(254,226,226,0.95)',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Clear
+            </button>
+            {clearMenuOpen && (
+              <div style={{
+                position: 'absolute',
+                right: 0,
+                top: 'calc(100% + 8px)',
+                minWidth: 240,
+                borderRadius: 12,
+                border: '1px solid rgba(255,255,255,0.10)',
+                background: 'rgba(8,10,16,0.98)',
+                boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+                padding: 8,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                zIndex: 5,
+              }}>
+                <button type="button" onClick={clearFlowChainState} style={{ padding: '9px 10px', borderRadius: 8, border: 'none', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.88)', textAlign: 'left', cursor: 'pointer' }}>Clear Flow Chain</button>
+                <button type="button" onClick={clearPreflightState} style={{ padding: '9px 10px', borderRadius: 8, border: 'none', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.88)', textAlign: 'left', cursor: 'pointer' }}>Clear Preflight</button>
+                <button type="button" onClick={clearAllQualityState} style={{ padding: '9px 10px', borderRadius: 8, border: 'none', background: 'rgba(248,113,113,0.10)', color: '#fecaca', textAlign: 'left', cursor: 'pointer' }}>Clear All Quality State</button>
+              </div>
+            )}
+          </div>
           <button
-            onClick={handleClear}
+            type="button"
+            onClick={() => void handleCopyReport()}
+            disabled={!hasReportData || anyRunning}
             style={{
-              padding: '5px 12px', borderRadius: 7,
-              border: '1px solid rgba(255,255,255,0.12)',
-              background: 'rgba(255,255,255,0.06)',
-              color: 'rgba(255,255,255,0.65)',
-              fontSize: 12, fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.15s',
+              padding: '7px 12px', borderRadius: 9,
+              border: '1px solid rgba(255,255,255,0.14)',
+              background: anyRunning || !hasReportData ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.08)',
+              color: anyRunning || !hasReportData ? 'rgba(255,255,255,0.24)' : 'rgba(255,255,255,0.82)',
+              fontSize: 12, fontWeight: 700,
+              cursor: anyRunning || !hasReportData ? 'not-allowed' : 'pointer',
             }}
           >
-            Clear
+            Copy report JSON
           </button>
           <button
+            type="button"
             onClick={handleDownloadReport}
-            disabled={anyRunning || !hasReportData}
+            disabled={!hasReportData || anyRunning}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '5px 12px', borderRadius: 7,
+              padding: '7px 12px', borderRadius: 9,
               border: '1px solid rgba(96,165,250,0.24)',
               background: anyRunning || !hasReportData ? 'rgba(255,255,255,0.03)' : 'rgba(96,165,250,0.08)',
-              color: anyRunning || !hasReportData ? 'rgba(255,255,255,0.2)' : '#93c5fd',
-              fontSize: 12, fontWeight: 600,
+              color: anyRunning || !hasReportData ? 'rgba(255,255,255,0.24)' : '#93c5fd',
+              fontSize: 12, fontWeight: 700,
               cursor: anyRunning || !hasReportData ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s',
             }}
           >
             <Download size={12} />
@@ -1401,47 +2109,146 @@ function FlowChainTab() {
         </div>
       </div>
 
-      {/* Test rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {STEP_DEFS.map((def, idx) => (
-          <div
-            key={def.id}
-            style={{ borderBottom: idx < STEP_DEFS.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}
-          >
-            <TestRow
-              def={def}
-              state={testStates[def.id as StepId]}
-              onRun={() => handleRunOne(def.id as StepId)}
-              anyRunning={anyRunning}
-              expanded={expanded[def.id as StepId]}
-              onToggle={() => handleToggle(def.id as StepId)}
-            />
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {clearSummary && (
+          <div style={{ border: '1px solid rgba(96,165,250,0.20)', borderRadius: 16, background: 'rgba(30,41,59,0.72)', padding: 16, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: 'rgba(255,255,255,0.92)' }}>{clearSummary.action}</div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.82)', whiteSpace: 'pre-line' }}>
+              Cleared:
+              {'\n'}- {clearSummary.cleared.join('\n- ')}
+              {'\n'}Preserved:
+              {'\n'}- {clearSummary.preserved.join('\n- ')}
+            </div>
           </div>
-        ))}
+        )}
+
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, background: 'linear-gradient(180deg, rgba(14,165,233,0.10), rgba(15,23,42,0.72))', padding: 18, display: 'flex', flexDirection: 'column', gap: 14, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(191,219,254,0.82)' }}>Overall Quality Status</span>
+              <span style={{ fontSize: 22, fontWeight: 800, color: 'rgba(255,255,255,0.96)' }}>Overall: {statusLabel(overallStatus.status)}</span>
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 1.5 }}>Reason: {overallStatus.reason}</span>
+            </div>
+            <span style={statusBadgeStyle(overallStatus.status)}>{statusLabel(overallStatus.status)}</span>
+          </div>
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.03)' }}><KV label="Flow Chain" value={statusLabel(flowChainSummary.status)} /><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.66)' }}>{flowChainSummary.reason}</div></div>
+            <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.03)' }}><KV label="Live Readiness" value={statusLabel(preflightSummary.status)} /><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.66)' }}>{preflightSummary.reason}</div></div>
+            <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.03)' }}><KV label="Architect Real" value={statusLabel(realLlmSummary.status)} /><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.66)' }}>{realLlmSummary.reason}</div></div>
+            <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.03)' }}><KV label="Last live result" value={statusLabel(lastLiveSummary.status)} /><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.66)' }}>{lastLiveSummary.reason}</div></div>
+          </div>
+          {overallStatus.blockingFailures.length > 0 && (
+            <SelectionBlock title="Blocking failures" value={overallStatus.blockingFailures.join('\n')} copyLabel="Copy blockers" maxHeight={140} />
+          )}
+        </div>
+
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, background: 'rgba(15,23,42,0.72)', display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0, flexShrink: 0 }}>
+          <div style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.52)' }}>Flow Chain</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)' }}>Fixture, real runtime, and real LLM checks remain separate and explicit. Each step keeps its own status, duration, summary, rerun button, details, and copyable payload.</span>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12, color: 'rgba(255,255,255,0.60)' }}>
+              <span>{passCount}/{STEP_DEFS.length}</span>
+              <span>Fixture PASS: {fixturePassCount}</span>
+              <span>Real runtime PASS: {realRuntimePassCount}</span>
+              <span>Real LLM PASS: {realLlmPassCount}</span>
+              {brokenAt ? <span style={{ color: '#f87171' }}>stopped at {brokenAt}</span> : null}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0, minHeight: 0, paddingBottom: 2 }}>
+            {STEP_DEFS.map(def => (
+              <TestRow
+                key={def.id}
+                def={def}
+                state={testStates[def.id as StepId]}
+                onRun={() => handleRunOne(def.id as StepId)}
+                anyRunning={anyRunning}
+                expanded={expanded[def.id as StepId]}
+                onToggle={() => handleToggle(def.id as StepId)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, background: 'linear-gradient(180deg, rgba(16,185,129,0.06), rgba(15,23,42,0.74))', padding: 16, display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0, flexShrink: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(110,231,183,0.82)' }}>Live Readiness Preflight</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 1.55 }}>Fast deterministic preflight. No LLM. No Vite build. Checks contracts before live generation.</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.70)', lineHeight: 1.55 }}>Быстрая статическая проверка. Не вызывает LLM и не собирает preview. Проверяет контракты файлов, импортов, экспортов, skeleton-ов и prompt catalog.</span>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={statusBadgeStyle(preflightRunning ? 'running' : preflightSummary.status)}>{statusLabel(preflightRunning ? 'running' : preflightSummary.status)}</span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.62)' }}>{preflight ? `${preflight.passCount} pass · ${preflight.failCount} fail · ${preflight.warningCount} warning` : 'No preflight result yet'}</span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.50)' }}>{preflight ? fmtDateTime(preflight.checkedAt) : 'Not run yet'}</span>
+            </div>
+            {preflightSummary.status === 'fail' ? (
+              <div style={{ border: '1px solid rgba(248,113,113,0.24)', borderRadius: 12, background: 'rgba(248,113,113,0.08)', color: '#fecaca', padding: '10px 12px', fontSize: 12 }}>Live generation is likely to crash until these contract failures are fixed.</div>
+            ) : null}
+          </div>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {preflightCards.map(({ check, displayStatus }) => (
+              <PreflightCheckCard
+                key={check.id}
+                check={check}
+                displayStatus={displayStatus}
+                expanded={Boolean(preflightExpanded[check.id])}
+                running={preflightRunningCheckId === check.id}
+                onToggle={() => togglePreflightDetails(check.id)}
+                onRun={() => void handleRunPreflightCheck(check.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, background: 'rgba(15,23,42,0.74)', padding: 16, display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(196,181,253,0.82)' }}>Real LLM / Architect Real</span>
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)' }}>Real model telemetry is shown separately so it does not disappear into the main diagnostic stream.</span>
+            </div>
+            <span style={statusBadgeStyle(architectState.status === 'pass' ? 'pass' : architectState.status === 'fail' ? 'fail' : architectState.status === 'running' ? 'running' : 'warning')}>
+              {statusLabel(architectState.status === 'idle' ? 'warning' : architectState.status === 'cancelled' ? 'warning' : architectState.status)}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            <KV label="model" value={architectState.llm?.model ?? 'Not run yet'} />
+            <KV label="prompt tokens" value={architectState.llm ? String(architectState.llm.prompt_tokens) : '—'} />
+            <KV label="completion tokens" value={architectState.llm ? String(architectState.llm.completion_tokens) : '—'} />
+            <KV label="total tokens" value={architectState.llm ? String(architectState.llm.total_tokens) : '—'} />
+            <KV label="file count" value={architectState.output?.file_count ? String(architectState.output.file_count) : '—'} />
+            <KV label="status" value={architectState.status} />
+          </div>
+          <SelectionBlock title="Architect Real details" value={JSON.stringify(architectState.details ?? { summary: 'Architect Real has not been run yet.' }, null, 2)} copyLabel="Copy architect details" maxHeight={220} />
+          <SelectionBlock title="Architect Real raw result" value={buildStepDetailsPayload(STEP_DEFS[STEP_DEFS.length - 1], architectState)} copyLabel="Copy raw result" maxHeight={220} />
+        </div>
+
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, background: 'rgba(15,23,42,0.74)', padding: 16, display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.52)' }}>Last Live Generation Result</span>
+          {lastLivePayload ? (
+            <>
+              <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                <KV label="status" value={lastLivePayload.status} />
+                <KV label="stage" value={lastLivePayload.stage} />
+                <KV label="root_cause_type" value={lastLivePayload.root_cause_type ?? '—'} />
+                <KV label="candidate graph" value={lastLivePayload.candidate_graph_summary ?? '—'} />
+                <KV label="suggested fix" value={lastLivePayload.suggested_fix ?? '—'} />
+                <KV label="started" value={fmtDateTime(recentLiveTrace?.startedAt)} />
+              </div>
+              <SelectionBlock title="Raw error excerpt" value={lastLivePayload.raw_error_excerpt ?? 'No raw error excerpt captured.'} copyLabel="Copy raw error" maxHeight={160} />
+              <SelectionBlock title="Live trace summary" value={JSON.stringify({ runSummary: recentLiveTrace?.runSummary, visibleReasoningTrace: recentLiveTrace?.visibleReasoningTrace }, null, 2)} copyLabel="Copy live trace" maxHeight={260} />
+            </>
+          ) : (
+            <div style={{ border: '1px dashed rgba(255,255,255,0.16)', borderRadius: 12, padding: '14px 16px', fontSize: 13, color: 'rgba(255,255,255,0.66)' }}>
+              No live generation result captured yet.
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Footer */}
-      <div style={{
-        borderTop: '1px solid rgba(255,255,255,0.06)',
-        padding: '9px 16px',
-        display: 'flex', alignItems: 'center', gap: 10,
-        fontSize: 11, color: 'rgba(255,255,255,0.3)',
-        flexWrap: 'wrap',
-      }}>
+      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 11, color: 'rgba(255,255,255,0.42)' }}>
         <Clock size={11} />
-        {lastRunStr ? (
-          <>
-            <span>Last run: {lastRunStr}</span>
-            {verdict && <span style={verdictBadgeStyle(verdict)}>{verdict}</span>}
-            <span>{passCount}/{STEP_DEFS.length}</span>
-            <span>Fixture PASS: {fixturePassCount}</span>
-            <span>Real runtime PASS: {realRuntimePassCount}</span>
-            <span>Real LLM PASS: {realLlmPassCount}</span>
-            {brokenAt && <span style={{ color: '#f87171' }}>stopped at {brokenAt}</span>}
-          </>
-        ) : (
-          <span>Нет прогонов. Нажмите Run или Run All.</span>
-        )}
+        <span>{lastRunStr ? `Last run: ${lastRunStr}` : 'No Flow Chain run yet.'}</span>
+        <span style={verdictBadgeStyle(reportVerdict === 'WARNING' ? 'PARTIAL' : reportVerdict)}>{reportVerdict}</span>
+        <span>{passCount}/{STEP_DEFS.length}</span>
+        {brokenAt ? <span style={{ color: '#f87171' }}>stopped at {brokenAt}</span> : null}
       </div>
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
@@ -1474,6 +2281,7 @@ export function QualityPanel({ apiKey = '', selectedModel = '' }: QualityPanelPr
         <div style={{ display: 'flex', gap: 4, marginLeft: 16 }}>
           {tabs.map(t => (
             <button
+              type="button"
               key={t.id}
               onClick={() => setTab(t.id)}
               style={{
