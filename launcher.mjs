@@ -16,6 +16,9 @@ const STATUS_FILE = join(__dirname, 'launcher-status.json');
 const isWin = process.platform === 'win32';
 
 // ── Server definitions ────────────────────────────────────────────────────────
+// NOTE: preview-workspace dev server (:3100) is intentionally excluded.
+// The live preview path uses backend static builds served by Express :3000;
+// the Vite HMR watcher on :3100 only caused write-lock contention on Windows.
 const SERVERS = {
   frontend: {
     cmd:    isWin ? 'npm.cmd' : 'npm',
@@ -28,12 +31,6 @@ const SERVERS = {
     args:   ['tsx', 'backend/auth-token.ts'],
     port:   3000,
     label:  'Backend (:3000)',
-  },
-  preview: {
-    cmd:    isWin ? 'npm.cmd' : 'npm',
-    args:   ['run', 'dev', '--prefix', 'preview-workspace', '--', '--port', '3100', '--strictPort'],
-    port:   3100,
-    label:  'Preview-workspace (:3100)',
   },
 };
 
