@@ -6,7 +6,7 @@
  * Запуск: node launcher.mjs   или   npm start
  */
 
-import { spawn } from 'child_process';
+import { spawn, execFileSync } from 'child_process';
 import { writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -25,12 +25,14 @@ const SERVERS = {
     args:   ['run', 'dev', '--prefix', 'frontend'],
     port:   5183,
     label:  'Frontend (Vite :5183)',
+    probeUrl: 'http://localhost:5183/',
   },
   backend: {
     cmd:    isWin ? 'npx.cmd' : 'npx',
     args:   ['tsx', 'backend/auth-token.ts'],
     port:   3000,
     label:  'Backend (:3000)',
+    probeUrl: 'http://localhost:3000/api/health',
   },
 };
 
@@ -38,6 +40,81 @@ const SERVERS = {
 const state = {};
 for (const name of Object.keys(SERVERS)) {
   state[name] = { status: 'stopped', pid: null, restarts: 0, startedAt: null };
+}
+
+const MAX_RESTARTS = 5;
+
+function restartDelayMs(restarts) {
+  return Math.min(2000 * (restarts + 1), 10000);
+}
+
+function safeExecFile(command, args) {
+  try {
+    return execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return '';
+  }
+}
+
+function describeWindowsPid(pid) {
+  if (!pid || Number.isNaN(pid)) return null;
+
+  const tasklistOutput = safeExecFile('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']).trim();
+  if (!tasklistOutput || tasklistOutput.startsWith('INFO:')) {
+    return { pid, processName: null };
+  }
+
+  const processName = tasklistOutput.replace(/^"/, '').split('",')[0]?.replace(/^"|"$/g, '') ?? null;
+  return { pid, processName };
+}
+
+function inspectPort(port) {
+  if (process.platform === 'win32') {
+    const netstatOutput = safeExecFile('netstat', ['-ano', '-p', 'tcp']);
+    const lines = netstatOutput.split(/\r?\n/);
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 5 || parts[0] !== 'TCP' || parts[3] !== 'LISTENING') continue;
+      if (!new RegExp(`:${port}$`).test(parts[1])) continue;
+      const pid = Number(parts[4]);
+      return { occupied: true, ...(describeWindowsPid(pid) ?? {}) };
+    }
+    return { occupied: false, pid: null, processName: null };
+  }
+
+  const lsofOutput = safeExecFile('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']).trim();
+  if (!lsofOutput) return { occupied: false, pid: null, processName: null };
+
+  const pid = Number(lsofOutput.split(/\r?\n/, 1)[0]);
+  const psOutput = safeExecFile('ps', ['-p', String(pid), '-o', 'comm=']).trim();
+  return { occupied: true, pid, processName: psOutput || null };
+}
+
+function formatOccupant(inspection) {
+  if (!inspection.occupied) return 'unknown process';
+  if (inspection.processName && inspection.pid) return `PID ${inspection.pid} (${inspection.processName})`;
+  if (inspection.pid) return `PID ${inspection.pid}`;
+  return 'unknown process';
+}
+
+async function probeExpectedService(url) {
+  if (!url) return false;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 1500);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: controller.signal,
+      headers: { Accept: 'text/html,application/json;q=0.9,*/*;q=0.1' },
+    });
+    return response.status > 0;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ── Status file ───────────────────────────────────────────────────────────────
@@ -59,11 +136,47 @@ function writeStatus() {
 }
 
 // ── Start / restart logic ─────────────────────────────────────────────────────
-function startServer(name) {
+async function startServer(name) {
   const srv    = SERVERS[name];
   const st     = state[name];
 
   if (st.status === 'running' || st.status === 'starting') return;
+
+  if (st.restarts >= MAX_RESTARTS) {
+    console.error(`[launcher] ${srv.label} exceeded max restarts (${MAX_RESTARTS}). Not restarting. Fix the issue and restart the launcher.`);
+    st.status = 'error';
+    writeStatus();
+    return;
+  }
+
+  const expectedServiceRunning = await probeExpectedService(srv.probeUrl);
+  if (expectedServiceRunning) {
+    const inspection = inspectPort(srv.port);
+    st.pid = inspection.pid ?? null;
+    st.startedAt = st.startedAt ?? new Date().toISOString();
+
+    st.status = 'running';
+    console.log(`[launcher] ${srv.label} — already responding on ${srv.probeUrl}; skipping duplicate start${inspection.occupied ? ` (${formatOccupant(inspection)})` : ''}.`);
+    writeStatus();
+    return;
+  }
+
+  const inspection = inspectPort(srv.port);
+  if (inspection.occupied) {
+    st.pid = inspection.pid ?? null;
+    st.startedAt = st.startedAt ?? new Date().toISOString();
+    st.status = 'error';
+    console.error(`[launcher] ${srv.label} — port ${srv.port} is occupied by ${formatOccupant(inspection)}. Not restarting.`);
+    writeStatus();
+    return;
+  }
+
+  _spawnServer(name);
+}
+
+function _spawnServer(name) {
+  const srv    = SERVERS[name];
+  const st     = state[name];
 
   console.log(`[launcher] Starting ${srv.label}…`);
   st.status    = 'starting';
@@ -90,17 +203,18 @@ function startServer(name) {
     st.pid    = null;
     st.restarts++;
     writeStatus();
-    setTimeout(() => startServer(name), 2000);
+    setTimeout(() => { void startServer(name); }, restartDelayMs(st.restarts));
   });
 
   child.on('exit', (code, signal) => {
     if (st.status === 'stopped') return; // intentional shutdown
-    console.log(`[launcher] ${srv.label} exited (code=${code} signal=${signal}), restarting in 2 s…`);
+    const delayMs = restartDelayMs(st.restarts);
+    console.log(`[launcher] ${srv.label} exited (code=${code} signal=${signal}), restarting in ${Math.round(delayMs / 1000)} s…`);
     st.status = 'restarting';
     st.pid    = null;
     st.restarts++;
     writeStatus();
-    setTimeout(() => startServer(name), 2000);
+    setTimeout(() => { void startServer(name); }, delayMs);
   });
 }
 
@@ -122,5 +236,5 @@ console.log('[launcher] AIC-RG Studio — process manager starting');
 console.log('[launcher] Press Ctrl+C to stop all servers\n');
 
 for (const name of Object.keys(SERVERS)) {
-  startServer(name);
+  void startServer(name);
 }
