@@ -1138,7 +1138,17 @@ async function triggerCompile(
     );
   }
 
-  let body: { success: boolean; error?: string } | null = null;
+  let body: {
+    success: boolean;
+    error?: string;
+    diagnostics?: Array<{
+      root_cause_type?: string;
+      file?: string | null;
+      import_path?: string | null;
+      expected?: string | null;
+      actual?: string | null;
+    }>;
+  } | null = null;
   try { body = await res.json(); } catch { /* non-JSON response — backend likely down or proxy error */ }
 
   if (!res.ok || body?.success === false) {
@@ -1147,7 +1157,14 @@ async function triggerCompile(
         ? `Backend server returned an unexpected response (HTTP ${res.status}). ` +
           `Ensure the backend is running (npm run dev:backend).`
         : `Compile request failed (HTTP ${res.status})`);
-    throw new Error(detail);
+    const firstDiagnostic = body?.diagnostics?.[0];
+    if (!firstDiagnostic) {
+      throw new Error(detail);
+    }
+    throw new Error([
+      detail,
+      JSON.stringify(firstDiagnostic, null, 2),
+    ].join('\n'));
   }
 }
 
