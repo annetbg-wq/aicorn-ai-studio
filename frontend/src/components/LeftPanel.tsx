@@ -1165,6 +1165,7 @@ const SurfaceChoiceCard: React.FC<{
         {surfaces.map(({ value, label }) => (
           <button
             key={value}
+            data-testid={`surface-choice-btn-${value}`}
             onClick={() => onChooseSurface?.(value)}
             style={{
               flex: 1, minWidth: 100, padding: '10px 8px',

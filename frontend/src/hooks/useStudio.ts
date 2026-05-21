@@ -101,6 +101,7 @@ import { refreshArchitectureAfterBuild } from '../services/BranchArchitectureOrc
 import { resolveStandardRoute } from '../services/buildAgentRouting';
 import type { AgentExecutionRoute } from '../services/buildAgentRouting';
 import { showToast } from '../services/toastBus';
+import { autoSelectSurface, SURFACE_CHOICE_TIMEOUT_MS } from '../lib/surfaceHeuristic';
 
 export type DeviceType = 'desktop' | 'iphone' | 'pixel' | 'ipad';
 export type FileMap     = Record<string, string>;
@@ -1491,6 +1492,8 @@ export const useStudio = () => {
   // Surface choice — resolver set when surface-choice card is shown,
   // resolved when user picks a surface type via chooseSurface().
   const surfaceChoiceResolverRef = useRef<((surface: 'landing' | 'app' | 'superapp') => void) | null>(null);
+  // Timer ID for the surface-choice auto-select fallback (60 s).
+  const surfaceChoiceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Tracks whether generationMode was explicitly set by the user or plan context.
   // When false, the surface-choice dialog appears before each genesis generation.
@@ -2959,6 +2962,10 @@ export const useStudio = () => {
     clearComposerContextItems();
     modeSetByUserRef.current = false;
     clarificationResolverRef.current = null;
+    if (surfaceChoiceTimeoutRef.current !== null) {
+      clearTimeout(surfaceChoiceTimeoutRef.current);
+      surfaceChoiceTimeoutRef.current = null;
+    }
     surfaceChoiceResolverRef.current = null;
     setPreviewBlockedReason(null);
     setPreviewUrl('');
@@ -3772,7 +3779,7 @@ export const useStudio = () => {
           content:   '',
           timestamp: Date.now(),
         });
-        const chosen = await waitForSurfaceChoice(controller.signal);
+        const chosen = await waitForSurfaceChoice(controller.signal, userPrompt);
         if (controller.signal.aborted || chosen === null) {
           finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
           setIsGenerating(false);
@@ -5285,17 +5292,41 @@ export const useStudio = () => {
     modeSetByUserRef.current = true;
   }, []);
 
-  const waitForSurfaceChoice = useCallback((signal: AbortSignal): Promise<'landing' | 'app' | 'superapp' | null> => {
-    return new Promise((resolve) => {
-      if (signal.aborted) { resolve(null); return; }
-      const onAbort = () => { surfaceChoiceResolverRef.current = null; resolve(null); };
-      signal.addEventListener('abort', onAbort, { once: true });
-      surfaceChoiceResolverRef.current = (surface) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(surface);
-      };
-    });
-  }, []);
+  const waitForSurfaceChoice = useCallback(
+    (signal: AbortSignal, prompt: string, timeoutMs = SURFACE_CHOICE_TIMEOUT_MS): Promise<'landing' | 'app' | 'superapp' | null> => {
+      return new Promise((resolve) => {
+        if (signal.aborted) { resolve(null); return; }
+
+        const onAbort = () => {
+          if (surfaceChoiceTimeoutRef.current !== null) {
+            clearTimeout(surfaceChoiceTimeoutRef.current);
+            surfaceChoiceTimeoutRef.current = null;
+          }
+          surfaceChoiceResolverRef.current = null;
+          resolve(null);
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+
+        surfaceChoiceResolverRef.current = (surface) => {
+          if (surfaceChoiceTimeoutRef.current !== null) {
+            clearTimeout(surfaceChoiceTimeoutRef.current);
+            surfaceChoiceTimeoutRef.current = null;
+          }
+          surfaceChoiceResolverRef.current = null;
+          signal.removeEventListener('abort', onAbort);
+          resolve(surface);
+        };
+
+        surfaceChoiceTimeoutRef.current = setTimeout(() => {
+          surfaceChoiceTimeoutRef.current = null;
+          surfaceChoiceResolverRef.current = null;
+          signal.removeEventListener('abort', onAbort);
+          const autoSurface = autoSelectSurface(prompt);
+          console.log(`[surface-choice] auto-selected="${autoSurface}" after ${timeoutMs}ms (no user interaction)`);
+          resolve(autoSurface);
+        }, timeoutMs);
+      });
+    }, []);
 
   // Opens clarification flow from plan cards that do not have inline textarea.
   const onClarifyPlan = useCallback((_messageId: string) => {
@@ -5557,6 +5588,10 @@ export const useStudio = () => {
       if (clarificationResolverRef.current) {
         clarificationResolverRef.current('');
         clarificationResolverRef.current = null;
+      }
+      if (surfaceChoiceTimeoutRef.current !== null) {
+        clearTimeout(surfaceChoiceTimeoutRef.current);
+        surfaceChoiceTimeoutRef.current = null;
       }
       surfaceChoiceResolverRef.current = null;
     };

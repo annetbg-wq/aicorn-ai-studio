@@ -442,6 +442,13 @@ test.describe('Chat → generation → blueprint → preview', () => {
       await openEngine(page);
 
       await typeInChat(page, LIVE_CANARY_PROMPT);
+
+      // If the surface-choice card appears (no modeSetByUser yet), click APP so the
+      // pipeline continues immediately without waiting for the 60 s auto-timeout.
+      await page.locator('[data-testid="surface-choice-btn-app"]')
+        .click({ timeout: 5_000 })
+        .catch(() => { /* card may not appear if mode was already set */ });
+
       await expect(page.locator('[data-testid="generation-plan-card"]')).toBeVisible({
         timeout: LIVE_FLOW_TIMEOUT,
       });
