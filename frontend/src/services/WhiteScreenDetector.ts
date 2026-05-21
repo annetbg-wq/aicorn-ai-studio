@@ -297,6 +297,27 @@ function inspectIframeRenderSurface(iframe: HTMLIFrameElement | null): Immediate
           metrics: hiddenMetrics,
         };
       }
+      // Content-only checks that do not require layout — safe for hidden iframes.
+      if (hiddenMetrics && isLikelyLoadingShell(hiddenMetrics)) {
+        const failure = describeRenderFailure('loading-shell-only');
+        return {
+          healthy: false,
+          failureReason: failure.failureReason,
+          probeReason: 'loading-shell-only',
+          message: failure.message,
+          metrics: hiddenMetrics,
+        };
+      }
+      if (hiddenMetrics && hiddenMetrics.rootChildCount === 0 && hiddenMetrics.bodyChildCount > 0) {
+        const failure = describeRenderFailure('empty-root');
+        return {
+          healthy: false,
+          failureReason: failure.failureReason,
+          probeReason: 'empty-root',
+          message: failure.message,
+          metrics: hiddenMetrics,
+        };
+      }
       return {
         healthy: true,
         failureReason: null,

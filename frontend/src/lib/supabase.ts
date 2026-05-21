@@ -5,21 +5,25 @@ import { createClient } from '@supabase/supabase-js';
 // Fallback: localStorage (persisted from Settings UI)
 // Last resort: hardcoded dev values
 
+// Guard: localStorage is not available in Node/Vitest environments
+const _localStorage: Storage | undefined =
+  typeof localStorage !== 'undefined' ? localStorage : undefined;
+
 const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL ||
-  localStorage.getItem('SUPABASE_URL') ||
+  _localStorage?.getItem('SUPABASE_URL') ||
   'https://zdzuaodphrlpvorutpyc.supabase.co';
 
 const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  localStorage.getItem('SUPABASE_ANON_KEY') ||
+  _localStorage?.getItem('SUPABASE_ANON_KEY') ||
   '';
 
 // Persist to localStorage so it survives .env changes
-if (SUPABASE_URL && !SUPABASE_URL.includes('placeholder')) {
+if (_localStorage && SUPABASE_URL && !SUPABASE_URL.includes('placeholder')) {
   try {
-    localStorage.setItem('SUPABASE_URL', SUPABASE_URL);
-    localStorage.setItem('SUPABASE_ANON_KEY', SUPABASE_ANON_KEY);
+    _localStorage.setItem('SUPABASE_URL', SUPABASE_URL);
+    _localStorage.setItem('SUPABASE_ANON_KEY', SUPABASE_ANON_KEY);
   } catch { /* quota / blocked */ }
 }
 
@@ -33,7 +37,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken:   true,
     persistSession:     true,
     detectSessionInUrl: false,
-    storage:            localStorage,
+    storage:            _localStorage,
   },
 });
 
