@@ -255,8 +255,8 @@ describe('CORS helpers', () => {
     const defaults = parseAllowedOrigins(undefined);
     expect(defaults).toContain('http://127.0.0.1:5183');
     expect(defaults).toContain('http://localhost:5183');
-    expect(defaults).toContain('http://127.0.0.1:3100');
-    expect(defaults).toContain('http://localhost:3100');
+    expect(defaults).not.toContain('http://127.0.0.1:3100');
+    expect(defaults).not.toContain('http://localhost:3100');
   });
 
   it('allowed origin returns true', () => {

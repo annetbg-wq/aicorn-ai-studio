@@ -11,8 +11,6 @@ import path from 'path';
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://127.0.0.1:5183',
   'http://localhost:5183',
-  'http://127.0.0.1:3100',
-  'http://localhost:3100',
 ];
 
 export function parseAllowedOrigins(raw?: string): string[] {
