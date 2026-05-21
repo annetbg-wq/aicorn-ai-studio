@@ -482,8 +482,3 @@ export function resolvePremiumComponentSelection(input: ResolvePremiumComponentS
 export function resetPremiumComponentBankCache(): void {
   cachedBank = null;
 }
-
-// Auto-warmup previews in browser — skipped in Vitest (import.meta.env.TEST === true)
-if (!import.meta.env.TEST) {
-  warmupPremiumPreviews().catch(() => {});
-}

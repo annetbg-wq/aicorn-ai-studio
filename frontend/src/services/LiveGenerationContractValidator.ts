@@ -10,6 +10,7 @@ import {
   buildLiveGenerationUiPrimitiveImportCatalog,
   canonicalUiPrimitiveId,
   filterAdvertisedUiPrimitiveNames,
+  toPascalCaseUiPrimitiveName,
   type CanonicalUiPrimitive,
   uiPrimitiveWorkspaceCandidates,
 } from './LiveGenerationUiPrimitives';
@@ -359,7 +360,7 @@ function parseImports(source: string, importer: string): ParsedImport[] {
     }
 
     const head = normalizedClause.split(',')[0]?.trim();
-    if (head && head !== '*') {
+    if (head && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(head)) {
       defaultImport = head;
       sawValueBinding = true;
     }
@@ -534,6 +535,22 @@ function resolveLocalImportTarget(
   for (const candidate of normalizedCandidates) {
     if (Object.prototype.hasOwnProperty.call(files, candidate)) {
       return candidate;
+    }
+  }
+
+  const primitive = isUiPrimitiveSpecifier(normalizedSpecifier, normalizeCandidatePath(basePath));
+  if (primitive && normalizeCandidatePath(basePath).startsWith('src/components/ui/')) {
+    const primitiveCandidates = uniqueSorted(
+      [primitive, toPascalCaseUiPrimitiveName(primitive)].flatMap(name => [
+        ...SOURCE_EXTENSIONS.map(ext => normalizeCandidatePath(`src/components/ui/${name}${ext}`)),
+        ...SOURCE_EXTENSIONS.map(ext => normalizeCandidatePath(`src/components/ui/${name}/index${ext}`)),
+      ]),
+    );
+
+    for (const candidate of primitiveCandidates) {
+      if (Object.prototype.hasOwnProperty.call(files, candidate)) {
+        return candidate;
+      }
     }
   }
 
