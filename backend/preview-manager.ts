@@ -197,7 +197,9 @@ export function appendPreviewSessionToPreviewAssetUrl(assetUrl: string, sessionT
   const assetPath = queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash;
   const query = queryIndex >= 0 ? beforeHash.slice(queryIndex + 1) : '';
 
-  if (!/^\.\/assets\/[^?#]+\.(?:js|css)$/i.test(assetPath)) return assetUrl;
+  // Rewriting module script URLs with previewSession creates a second module
+  // graph when lazy chunks import the same file without that query string.
+  if (!/^\.\/assets\/[^?#]+\.css$/i.test(assetPath)) return assetUrl;
   if (new URLSearchParams(query).has('previewSession')) return assetUrl;
 
   const separator = query ? '&' : '?';

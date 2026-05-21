@@ -225,12 +225,10 @@ describe('preview-manager UI primitive guard', () => {
 describe('preview-manager preview asset sessions', () => {
   const validToken = 'preview-session-token-123';
 
-  it('appends previewSession to Vite JS asset URLs in HTML', () => {
+  it('does not append previewSession to Vite JS asset URLs in HTML', () => {
     const html = '<script type="module" crossorigin src="./assets/index-abc123.js"></script>';
 
-    expect(injectPreviewSessionIntoHtmlAssetUrls(html, validToken)).toBe(
-      '<script type="module" crossorigin src="./assets/index-abc123.js?previewSession=preview-session-token-123"></script>',
-    );
+    expect(injectPreviewSessionIntoHtmlAssetUrls(html, validToken)).toBe(html);
   });
 
   it('appends previewSession to Vite CSS asset URLs in HTML', () => {
@@ -458,7 +456,7 @@ describe('preview-manager build route access', () => {
     await withPreviewBuildRoute(async (baseUrl, buildId) => {
       const response = await fetch(`${baseUrl}/preview/${buildId}/?previewSession=${validToken}`);
       expect(response.status).toBe(200);
-      expect(await response.text()).toContain('previewSession=preview-session-token-123');
+      expect(await response.text()).not.toContain('previewSession=preview-session-token-123');
     });
   });
 
