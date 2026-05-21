@@ -39,11 +39,15 @@ jobs:
         run: npm test
         env:
           VITE_OPENROUTER_API_KEY: placeholder   # tests must not require real keys
+          VITE_SUPABASE_URL:       https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY:  placeholder-anon-key
 
       - name: Preview baseline smoke (required)
         run: npm run test:smoke
         env:
           VITE_OPENROUTER_API_KEY: placeholder
+          VITE_SUPABASE_URL:       https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY:  placeholder-anon-key
 
   # ── Production build ───────────────────────────────────────────────────────
   build:
