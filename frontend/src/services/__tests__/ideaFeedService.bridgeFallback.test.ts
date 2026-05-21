@@ -29,7 +29,7 @@ describe('runIdeaModelPrompt bridge fallback', () => {
     const geminiSpy = vi.spyOn(GeminiService, 'generate').mockResolvedValue('[{"id":"idea-1"}]');
 
     try {
-      const result = await runIdeaModelPrompt('package this idea');
+      const result = await runIdeaModelPrompt('package this idea', 'fake-google-token');
 
       expect(result).toBe('[{"id":"idea-1"}]');
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -57,7 +57,7 @@ describe('runIdeaModelPrompt bridge fallback', () => {
     );
 
     try {
-      await expect(runIdeaModelPrompt('package this idea')).rejects.toThrow(
+      await expect(runIdeaModelPrompt('package this idea', 'fake-google-token')).rejects.toThrow(
         /Dev-agent bridge unavailable .* Standard idea-model fallback failed/i,
       );
     } finally {
