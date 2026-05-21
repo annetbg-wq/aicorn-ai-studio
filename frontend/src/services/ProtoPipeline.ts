@@ -385,7 +385,7 @@ const STEP_LABEL: Record<StepId, string> = {
 
 const STEP_BUDGET = {
   clarify:   { maxTokens:  600,  timeoutMs:  20_000 },
-  architect: { maxTokens: 4_000, timeoutMs:  60_000 },
+  architect: { maxTokens: 8_000, timeoutMs:  60_000 },
   coder:     { maxTokens: 35_000, timeoutMs: 360_000 },
   repair:    { maxTokens: 12_000, timeoutMs: 120_000 },
 } as const;
@@ -2230,7 +2230,10 @@ RULES
 - You are extending the installed skeleton by delta. NEVER rebuild the app shell, router, providers, or placeholder app from scratch when the selected skeleton already provides them.
 - Do not modify any skeleton-locked path.
 - No commentary outside the markers. No markdown. No code fences.
-- Quality over verbosity: real content, no lorem ipsum, no TODOs.`;
+- Quality over verbosity: real content, no lorem ipsum, no TODOs.
+- DESIGN TOKENS: ALWAYS use Tailwind design token classes — bg-background, bg-card, bg-muted, bg-primary, text-foreground, text-muted-foreground, text-primary, text-primary-foreground, border-border. NEVER use raw color utilities (bg-white, bg-black, bg-gray-100, text-gray-900, border-gray-200). Use var(--primary) / var(--foreground) in style props when tokens are needed inline.
+- REAL DATA: Write actual domain entities with real business labels, realistic numbers, and meaningful copy. Never write "Lorem ipsum", "placeholder", "TODO", or generic "Item 1 / Item 2" lists.
+- COMPLETENESS: Every emitted file must be fully functional — no partial stubs, no "// rest of implementation" comments, no empty component bodies.`;
 
   let firstReason = '';
   let body = '';
