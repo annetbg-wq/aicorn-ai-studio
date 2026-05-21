@@ -440,7 +440,6 @@ test.describe('Chat → generation → blueprint → preview', () => {
 
       await expectProductionArtifactStudio(page);
       await openEngine(page);
-      await page.getByRole('button', { name: 'PAGE' }).click();
 
       await typeInChat(page, LIVE_CANARY_PROMPT);
       await expect(page.locator('[data-testid="generation-plan-card"]')).toBeVisible({
