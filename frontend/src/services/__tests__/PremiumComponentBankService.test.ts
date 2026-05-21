@@ -1,12 +1,21 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
   loadPremiumComponentBank,
+  resetPremiumComponentBankCache,
   resolvePremiumComponentSelection,
   selectPremiumRecipe,
+  warmupPremiumPreviews,
 } from '../PremiumComponentBankService';
 
 describe('PremiumComponentBankService', () => {
+  beforeAll(async () => {
+    // Bucket C moved warmup to explicit call in VisualBankModule (no longer auto-runs on import).
+    // Tests must warm up preview adapters before querying renderSafeComponents.
+    await warmupPremiumPreviews();
+    resetPremiumComponentBankCache();
+  });
+
   it('loads source audits, component manifests, recipes, and previews from prototype-bank files', () => {
     const bank = loadPremiumComponentBank();
 
