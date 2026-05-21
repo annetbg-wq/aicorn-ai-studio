@@ -3497,8 +3497,10 @@ export const useStudio = () => {
 
   // ── handleSend ────────────────────────────────────────────────────────────
   // overridePrompt: used by REQUEST_PLAN_REVISION to bypass the textarea state.
-  const _sendImpl = async (overridePrompt?: string) => {
-    const effectiveInput = overridePrompt ?? inputRef.current;
+  const _sendImpl = async (overridePrompt?: unknown) => {
+    const effectiveInput = typeof overridePrompt === 'string'
+      ? overridePrompt
+      : inputRef.current;
     const composerContextItemsSnapshot = composerContextItemsRef.current;
     const activeProjectContextSnapshot = activeProjectContextRef.current;
     const generationSourceSnapshot = generationSourceRef.current;
@@ -4171,10 +4173,14 @@ export const useStudio = () => {
           addLog(`[Kickoff] kickoff_scope_defaulted: ${architectPlan.defaultOptionId}`);
 
           if (!controller.signal.aborted) {
+            const kickoffPlanForChat = {
+              ...architectPlan,
+              selectedOptionId: architectPlan.defaultOptionId,
+            } as typeof architectPlan & { selectedOptionId: KickoffBuildScopeId };
             chatAppend({
               role:      'assistant' as const,
               type:      'text',
-              content:   ArchitectPlannerService.formatPlanForChat(architectPlan, appLanguage),
+              content:   ArchitectPlannerService.formatPlanForChat(kickoffPlanForChat, appLanguage),
               timestamp: Date.now(),
             });
           }
@@ -4446,6 +4452,7 @@ export const useStudio = () => {
 
           return await new Promise<PlanApprovalDecision>((resolve) => {
             planResolverRef.current = resolve;
+              setIsGenerating(false);
             setKickoffPhase('awaiting_confirmation');
             addLog('[Kickoff] kickoff_waiting_for_confirmation');
             setPendingPlan({
@@ -5106,7 +5113,7 @@ export const useStudio = () => {
   };
   const _sendRef = useRef(_sendImpl);
   _sendRef.current = _sendImpl;
-  const handleSend = useCallback((overridePrompt?: string) => _sendRef.current(overridePrompt), []);
+  const handleSend = useCallback((overridePrompt?: unknown) => _sendRef.current(overridePrompt), []);
   const handleRetry = useCallback(() => {
     const retryPrompt = lastGenerationPromptRef.current.trim();
     consecutiveErrors.current = 0;
@@ -5172,6 +5179,7 @@ export const useStudio = () => {
   const confirmPlan = useCallback(async (_plan?: object) => {
     if (confirmingRef.current) return;
     confirmingRef.current = true;
+    setIsGenerating(true);
     setKickoffPhase('build_starting');
     addLog('[Kickoff] kickoff_build_started');
     try {
