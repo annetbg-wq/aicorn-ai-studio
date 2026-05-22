@@ -421,68 +421,6 @@ export function registerPreviewCompileRoute(app: express.Express): void {
 
 // ── internal helpers ──────────────────────────────────────────────────────────
 
-/**
- * Ensure shadcn/ui accordion (and peer components) are installed in
- * preview-workspace/src/components/ui/.
- *
- * Idempotent: skips entirely when accordion.tsx already exists.
- * Non-fatal: a failed shadcn add is logged but does not abort the build.
- */
-async function ensureShadcnComponents(workspaceRoot: string): Promise<void> {
-  const accordionPath = path.join(workspaceRoot, 'src', 'components', 'ui', 'accordion.tsx');
-  if (fs.existsSync(accordionPath)) return;
-
-  // Overwrite components.json with the Lyra/Vega preset (new-york + neutral, radius 0.75)
-  const componentsJson = {
-    $schema: 'https://ui.shadcn.com/schema.json',
-    style: 'new-york',
-    rsc: false,
-    tsx: true,
-    tailwind: {
-      config: 'tailwind.config.js',
-      css: 'src/index.css',
-      baseColor: 'neutral',
-      cssVariables: true,
-    },
-    aliases: {
-      components: '@/components',
-      utils: '@/lib/utils',
-    },
-    radius: 0.75,
-  };
-  await fsPromises.writeFile(
-    path.join(workspaceRoot, 'components.json'),
-    JSON.stringify(componentsJson, null, 2),
-    'utf-8',
-  );
-
-  console.log('[preview-manager] Installing shadcn/ui...');
-  await new Promise<void>((resolve) => {
-    const child = spawn(
-      'npx',
-      ['shadcn@latest', 'add', 'accordion', 'button', 'card', 'input', 'label', 'textarea', '--overwrite', '-y'],
-      {
-        cwd: workspaceRoot,
-        stdio: 'pipe',
-        shell: process.platform === 'win32',
-      },
-    );
-    let stderr = '';
-    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.stdout?.on('data', () => {});
-    child.on('close', (code) => {
-      if (code === 0) {
-        console.log('[preview-manager] shadcn/ui ready');
-      } else {
-        // Non-fatal: templates using accordion will fail to compile, but the
-        // build is not aborted — simpler components continue to work.
-        console.warn('[preview-manager] shadcn add exited', code, stderr.slice(0, 400));
-      }
-      resolve();
-    });
-  });
-}
-
 export async function ensurePreviewLibShims(workspaceRoot: string): Promise<void> {
   const libDir = path.join(workspaceRoot, 'src', 'lib');
   const utilsPath = path.join(libDir, 'utils.ts');
@@ -730,9 +668,6 @@ async function compileBuild(
 ): Promise<void> {
   const outDir = path.join(BUILDS_WORKSPACE, buildId);
   const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
-
-  // 0-pre. Ensure shadcn/ui accordion is present (idempotent, non-fatal).
-  await ensureShadcnComponents(PREVIEW_WORKSPACE);
 
   // 0. Workspace reset — two modes:
   //    a) Skeleton mode (skeletonId provided): wipe src/* entirely, then copy

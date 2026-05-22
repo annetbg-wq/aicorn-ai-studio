@@ -192,6 +192,17 @@ describe('preview-manager UI primitive guard', () => {
     });
   });
 
+  it('accordion is in the known materializable primitives set', () => {
+    expect(getKnownMaterializableUiPrimitives()).toContain('accordion');
+  });
+
+  it('preview-manager compile path contains no runtime shadcn generation', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src, 'shadcn@latest must not appear in compile path').not.toContain('shadcn@latest');
+    expect(src, 'npx shadcn must not appear in compile path').not.toContain('npx shadcn');
+    expect(src, 'ensureShadcnComponents must not exist').not.toContain('ensureShadcnComponents');
+  });
+
   it('keeps every exported skeleton UI barrel backed by a physical file', async () => {
     const barrelPaths = [
       path.resolve('preview-workspace/src/components/ui/index.ts'),
