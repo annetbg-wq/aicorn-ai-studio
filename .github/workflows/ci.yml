@@ -94,12 +94,16 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             frontend/package-lock.json
+            preview-workspace/package.json
 
       - name: Install root dependencies
         run: npm ci
 
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
+
+      - name: Install preview workspace dependencies
+        run: npm install --prefix preview-workspace --no-package-lock
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
