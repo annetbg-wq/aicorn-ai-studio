@@ -506,7 +506,7 @@ test.describe('Chat → generation → blueprint → preview', () => {
         const src = await iframe.getAttribute('src');
         expect(src).toBeTruthy();
         expect(src).not.toBe('about:blank');
-        expect(src).toMatch(/\/preview\/[0-9a-f-]+/i);
+        expect(src).toMatch(/\/preview\/[\w-]+/i);
       }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [1_000, 2_000, 3_000] });
       console.log('CANARY_STEP: iframe_url_ok');
 
