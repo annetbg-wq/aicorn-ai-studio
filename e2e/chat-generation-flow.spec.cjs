@@ -11,7 +11,7 @@ const WATCHDOG_STABLE_TIMEOUT_MS = Math.max(
   WATCHDOG_WINDOW_MS * 3,
   WATCHDOG_WINDOW_MS + (process.env.CI ? 45_000 : 20_000),
 );
-const LIVE_FLOW_TIMEOUT = Math.max(120_000, WATCHDOG_STABLE_TIMEOUT_MS + 90_000);
+const LIVE_FLOW_TIMEOUT = Math.max(300_000, WATCHDOG_STABLE_TIMEOUT_MS + 90_000);
 
 const PREVIEW_FILES = {
   'src/App.tsx': [
@@ -498,23 +498,25 @@ test.describe('Chat → generation → blueprint → preview', () => {
       }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [500, 1_000, 2_000] });
       console.log('CANARY_STEP: controller_compiling_seen');
 
+      // ready_set fires only after the backend preview compile finishes (~80-120s in CI).
+      // Use the full live-flow budget here so a slow compile does not fail the test.
+      await expect(async () => {
+        expect(timelineLines(logs).some(line => line.includes('ready_set'))).toBe(true);
+      }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [500, 1_000, 2_000] });
+      console.log('CANARY_STEP: ready_set_seen');
+
+      // Compile is now complete; iframe should already be rendered with the correct URL.
       const iframe = page.locator('[data-testid="preview-iframe"]');
       console.log('CANARY_STEP: waiting_for_iframe');
-      await expect(iframe).toBeVisible({ timeout: LIVE_FLOW_TIMEOUT });
+      await expect(iframe).toBeVisible({ timeout: FLOW_TIMEOUT });
       console.log('CANARY_STEP: iframe_seen');
       await expect(async () => {
         const src = await iframe.getAttribute('src');
         expect(src).toBeTruthy();
         expect(src).not.toBe('about:blank');
         expect(src).toMatch(/\/preview\/[\w-]+/i);
-      }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [1_000, 2_000, 3_000] });
+      }).toPass({ timeout: FLOW_TIMEOUT, intervals: [1_000, 2_000, 3_000] });
       console.log('CANARY_STEP: iframe_url_ok');
-
-      await expect(async () => {
-        expect(timelineLines(logs).some(line => line.includes('controller_compiling'))).toBe(true);
-        expect(timelineLines(logs).some(line => line.includes('ready_set'))).toBe(true);
-      }).toPass({ timeout: FLOW_TIMEOUT, intervals: [500, 1_000, 2_000] });
-      console.log('CANARY_STEP: ready_set_seen');
 
       await expect(
         page.frameLocator('[data-testid="preview-iframe"]').locator('[data-testid="live-canary-surface"]')
