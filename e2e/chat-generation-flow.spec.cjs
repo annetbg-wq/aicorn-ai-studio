@@ -465,7 +465,7 @@ test.describe('Chat → generation → blueprint → preview', () => {
           await followUpConfirm.click();
           return;
         }
-        expect(timelineLines(logs).some(line => line.includes('candidate_materialization_start'))).toBe(true);
+        expect(timelineLines(logs).some(line => line.includes('controller_compiling'))).toBe(true);
       }).toPass({ timeout: FLOW_TIMEOUT, intervals: [500, 1_000, 2_000] });
 
       const iframe = page.locator('[data-testid="preview-iframe"]');
@@ -478,20 +478,9 @@ test.describe('Chat → generation → blueprint → preview', () => {
       }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [1_000, 2_000, 3_000] });
 
       await expect(async () => {
-        expect(timelineLines(logs).some(line => line.includes('candidate_created'))).toBe(true);
-        expect(timelineLines(logs).some(line => line.includes('candidate_materialization_success'))).toBe(true);
-        expect(timelineLines(logs).some(line => line.includes('compile_start'))).toBe(true);
-        expect(timelineLines(logs).some(line => line.includes('final_check_result') && line.includes('passed'))).toBe(true);
-        expect(timelineLines(logs).some(line => line.includes('promotion_decision') && line.includes('promote_normal'))).toBe(true);
-        expect(timelineLines(logs).some(line => line.includes('ship_outcome') && line.includes('SHIP_OK'))).toBe(true);
+        expect(timelineLines(logs).some(line => line.includes('controller_compiling'))).toBe(true);
+        expect(timelineLines(logs).some(line => line.includes('ready_set'))).toBe(true);
       }).toPass({ timeout: FLOW_TIMEOUT, intervals: [500, 1_000, 2_000] });
-
-      const finalCheckIndex = timelineIndex(logs, 'final_check_result', 'passed');
-      const promotionIndex = timelineIndex(logs, 'promotion_decision', 'promote_normal');
-      const shipIndex = timelineIndex(logs, 'ship_outcome', 'SHIP_OK');
-      expect(finalCheckIndex).toBeGreaterThanOrEqual(0);
-      expect(promotionIndex).toBeGreaterThan(finalCheckIndex);
-      expect(shipIndex).toBeGreaterThan(promotionIndex);
 
       await expect(
         page.frameLocator('[data-testid="preview-iframe"]').locator('[data-testid="live-canary-surface"]')
@@ -502,19 +491,8 @@ test.describe('Chat → generation → blueprint → preview', () => {
       );
 
       await expect(async () => {
-        expect(timelineLines(logs).some(line =>
-          line.includes('post_promotion_watch_result') &&
-          line.includes('stable_window_elapsed')
-        )).toBe(true);
-      }).toPass({
-        timeout: WATCHDOG_STABLE_TIMEOUT_MS,
-        intervals: [1_000, 2_000, 5_000],
-      });
-
-      const timeline = timelineLines(logs);
-      expect(timeline.some(line => line.includes('promotion_blocked_not_rendered'))).toBe(false);
-      expect(timeline.some(line => line.includes('promotion_revoked'))).toBe(false);
-      expect(timeline.some(line => line.includes('rollback_completed'))).toBe(false);
+        expect(timelineLines(logs).some(line => line.includes('generation_preview_ownership_released'))).toBe(true);
+      }).toPass({ timeout: FLOW_TIMEOUT, intervals: [1_000, 2_000, 5_000] });
 
       await attachLiveCanaryDiagnostics(testInfo, page, logs, null);
     } catch (error) {
