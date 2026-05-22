@@ -255,7 +255,7 @@ async function typeInChat(page, text) {
   await textarea.fill(text);
   // Enter can be flaky in CI when focus briefly shifts; click send as a stable fallback.
   await textarea.press('Enter');
-  const sendBtn = page.locator('textarea').first().locator('xpath=following-sibling::button[not(@disabled)]').first();
+  const sendBtn = page.locator('textarea').first().locator('xpath=following-sibling::button[not(@disabled) and not(@title="Stop generation")]').first();
   if (await sendBtn.count()) {
     await sendBtn.click({ force: true }); // игнорим перекрытие
   }
