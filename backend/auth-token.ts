@@ -2,7 +2,7 @@ import 'dotenv/config';
 import dotenv from 'dotenv';
 import express from 'express';
 import { execSync, spawn, spawnSync } from 'child_process';
-import { registerPreviewBuildRoute, registerPreviewCompileRoute, runCompileJob } from './preview-manager';
+import { registerPreviewBuildRoute, registerPreviewCompileRoute, registerPreviewStatusRoute, runCompileJob } from './preview-manager';
 import { inspectLivePreviewWorkspace } from './quality-runtime';
 import fs from 'fs';
 import os from 'os';
@@ -54,6 +54,7 @@ app.use((req, res, next) => {
 
 registerPreviewBuildRoute(app);
 registerPreviewCompileRoute(app);
+registerPreviewStatusRoute(app);
 
 app.use(express.json({ limit: '10mb' }));
 

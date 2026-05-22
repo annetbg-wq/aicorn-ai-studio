@@ -498,23 +498,48 @@ test.describe('Chat → generation → blueprint → preview', () => {
       }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [500, 1_000, 2_000] });
       console.log('CANARY_STEP: controller_compiling_seen');
 
-      // ready_set fires only after the backend preview compile finishes (~80-120s in CI).
-      // Use the full live-flow budget here so a slow compile does not fail the test.
-      await expect(async () => {
-        expect(timelineLines(logs).some(line => line.includes('ready_set'))).toBe(true);
-      }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [500, 1_000, 2_000] });
-      console.log('CANARY_STEP: ready_set_seen');
+      // Extract buildId from the controller_compiling timeline log.
+      // Format after serializeConsoleMessage: [preview-timeline] controller_compiling {"buildId":"uuid",...}
+      let canaryBuildId = null;
+      for (const line of [...timelineLines(logs)].reverse()) {
+        const m = line.match(/"buildId"\s*:\s*"([\w-]+)"/);
+        if (m) { canaryBuildId = m[1]; break; }
+      }
 
-      // Compile is now complete; iframe should already be rendered with the correct URL.
+      // Get the previewSession token the frontend bound to this buildId.
+      // It is persisted in sessionStorage by PreviewSessionService.
+      const canaryPreviewSession = await page.evaluate(() =>
+        sessionStorage.getItem('AIC_PREVIEW_SESSION_ID'),
+      ).catch(() => null);
+
+      // Poll backend build status until ready. Replaces frontend ready_set signal.
+      let _lastStatusSeen = null;
+      await expect(async () => {
+        if (!canaryBuildId) throw new Error('buildId not found in controller_compiling log');
+        const statusRes = await page.request.get(
+          `${BASE_URL}/api/preview/${canaryBuildId}/status`,
+          { headers: { 'X-Preview-Session': canaryPreviewSession ?? '' } },
+        );
+        if (statusRes.status() === 404) throw new Error('build status not registered yet');
+        const body = await statusRes.json();
+        const s = body?.status;
+        if (s !== _lastStatusSeen) {
+          console.log(`CANARY_STEP: build_status_${s}`);
+          _lastStatusSeen = s;
+        }
+        expect(s).toBe('ready');
+      }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [2_000, 3_000, 5_000] });
+      console.log('CANARY_STEP: build_status_ready');
+
+      // Compile is now confirmed ready by backend; iframe should be rendered.
       const iframe = page.locator('[data-testid="preview-iframe"]');
-      console.log('CANARY_STEP: waiting_for_iframe');
       await expect(iframe).toBeVisible({ timeout: FLOW_TIMEOUT });
       console.log('CANARY_STEP: iframe_seen');
       await expect(async () => {
         const src = await iframe.getAttribute('src');
         expect(src).toBeTruthy();
         expect(src).not.toBe('about:blank');
-        expect(src).toMatch(/\/preview\/[\w-]+/i);
+        expect(src).toMatch(new RegExp(`/preview/${canaryBuildId}`, 'i'));
       }).toPass({ timeout: FLOW_TIMEOUT, intervals: [1_000, 2_000, 3_000] });
       console.log('CANARY_STEP: iframe_url_ok');
 
