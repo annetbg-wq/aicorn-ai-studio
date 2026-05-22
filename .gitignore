@@ -10,6 +10,7 @@ preview-workspace/dist/
 tmp-*.log
 tmp_*.json
 launcher-status.json
+.launcher-backend.lock
 .playwright-mcp/
 test-results/
 playwright-report/
