@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { LIVE_GENERATION_ALLOWED_UI_PRIMITIVES } from '../frontend/src/services/LiveGenerationUiPrimitives';
 import {
   registerPreviewBuildRoute,
+  registerPreviewStatusRoute,
   ensureImportedUiPrimitives,
   ensurePreviewLibShims,
   findUiPrimitiveImportsInSource,
@@ -15,12 +16,15 @@ import {
   injectPreviewSessionIntoHtmlAssetUrls,
   bindPreviewBuildSession,
   canReadPreviewBuild,
+  clearPreviewBuildStatuses,
   getPreservedPreviewDirs,
+  getPreviewBuildStatus,
   normalizePreviewSessionToken,
   prunePreviewSessionBindings,
   resolvePreviewSrcPath,
   resolveSectionTemplatePaths,
   sanitizeCompileFiles,
+  setPreviewBuildStatus,
   validatePreviewBuildSession,
 } from './preview-manager';
 
@@ -504,5 +508,124 @@ describe('preview-manager build route access', () => {
       expect(response.status).toBe(404);
       expect(await response.text()).toContain('Asset not found');
     });
+  });
+});
+
+describe('preview-manager build status', () => {
+  const validToken = 'preview-session-status-tok';
+
+  async function withStatusRoute<T>(run: (baseUrl: string) => Promise<T>): Promise<T> {
+    const app = express();
+    registerPreviewStatusRoute(app);
+    const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
+      const nextServer = app.listen(0, '127.0.0.1', () => resolve(nextServer));
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Failed to resolve status route test server address');
+    }
+    try {
+      return await run(`http://127.0.0.1:${address.port}`);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+      clearPreviewBuildStatuses();
+      prunePreviewSessionBindings(new Set());
+    }
+  }
+
+  it('returns 404 for an unknown buildId', async () => {
+    await withStatusRoute(async (baseUrl) => {
+      const res = await fetch(`${baseUrl}/api/preview/unknown-build-xyz/status`);
+      expect(res.status).toBe(404);
+      const body = await res.json();
+      expect(body.error).toBeTruthy();
+    });
+  });
+
+  it('returns 403 for a session-bound build when previewSession is missing', async () => {
+    await withStatusRoute(async (baseUrl) => {
+      const buildId = `status-bound-${Date.now()}`;
+      bindPreviewBuildSession(buildId, validToken);
+      setPreviewBuildStatus({ buildId, status: 'building', updatedAt: new Date().toISOString() });
+
+      const res = await fetch(`${baseUrl}/api/preview/${buildId}/status`);
+      expect(res.status).toBe(403);
+    });
+  });
+
+  it('returns 403 for a session-bound build when previewSession is wrong', async () => {
+    await withStatusRoute(async (baseUrl) => {
+      const buildId = `status-wrong-token-${Date.now()}`;
+      bindPreviewBuildSession(buildId, validToken);
+      setPreviewBuildStatus({ buildId, status: 'ready', previewPath: `/preview/${buildId}`, updatedAt: new Date().toISOString() });
+
+      const res = await fetch(`${baseUrl}/api/preview/${buildId}/status`, {
+        headers: { 'X-Preview-Session': 'different-session-token' },
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  it('returns status JSON for a session-bound build with the correct previewSession', async () => {
+    await withStatusRoute(async (baseUrl) => {
+      const buildId = `status-valid-${Date.now()}`;
+      bindPreviewBuildSession(buildId, validToken);
+      setPreviewBuildStatus({
+        buildId,
+        status: 'ready',
+        previewPath: `/preview/${buildId}`,
+        durationMs: 1234,
+        updatedAt: new Date().toISOString(),
+      });
+
+      const res = await fetch(`${baseUrl}/api/preview/${buildId}/status`, {
+        headers: { 'X-Preview-Session': validToken },
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.buildId).toBe(buildId);
+      expect(body.status).toBe('ready');
+      expect(body.previewPath).toBe(`/preview/${buildId}`);
+      expect(body.durationMs).toBe(1234);
+    });
+  });
+
+  it('records building then ready transitions in the status store', () => {
+    const buildId = `status-lifecycle-${Date.now()}`;
+    setPreviewBuildStatus({ buildId, status: 'building', updatedAt: new Date().toISOString() });
+    expect(getPreviewBuildStatus(buildId)?.status).toBe('building');
+
+    setPreviewBuildStatus({
+      buildId,
+      status: 'ready',
+      previewPath: `/preview/${buildId}`,
+      durationMs: 500,
+      updatedAt: new Date().toISOString(),
+    });
+    expect(getPreviewBuildStatus(buildId)?.status).toBe('ready');
+    expect(getPreviewBuildStatus(buildId)?.previewPath).toBe(`/preview/${buildId}`);
+    clearPreviewBuildStatuses();
+    expect(getPreviewBuildStatus(buildId)).toBeUndefined();
+  });
+
+  it('records failed status with error and diagnostics', () => {
+    const buildId = `status-failed-${Date.now()}`;
+    const diagnostics = [{ root_cause_type: 'vite_build_error', message: 'TS error in App.tsx' }];
+    setPreviewBuildStatus({
+      buildId,
+      status: 'failed',
+      error: 'Build failed',
+      diagnostics,
+      durationMs: 300,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const record = getPreviewBuildStatus(buildId);
+    expect(record?.status).toBe('failed');
+    expect(record?.error).toBe('Build failed');
+    expect(record?.diagnostics).toEqual(diagnostics);
+    clearPreviewBuildStatuses();
   });
 });

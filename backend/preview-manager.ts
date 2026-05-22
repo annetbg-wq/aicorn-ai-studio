@@ -120,6 +120,34 @@ let compileQueue: Promise<void> = Promise.resolve();
 
 const previewSessionBindings = new Map<string, string>();
 
+// ── build status store ────────────────────────────────────────────────────────
+
+export type PreviewBuildStatusCode = 'building' | 'ready' | 'failed';
+
+export interface PreviewBuildStatus {
+  buildId: string;
+  status: PreviewBuildStatusCode;
+  previewPath?: string;
+  error?: string;
+  diagnostics?: unknown[];
+  durationMs?: number;
+  updatedAt: string;
+}
+
+const _buildStatuses = new Map<string, PreviewBuildStatus>();
+
+export function getPreviewBuildStatus(buildId: string): PreviewBuildStatus | undefined {
+  return _buildStatuses.get(buildId);
+}
+
+export function setPreviewBuildStatus(record: PreviewBuildStatus): void {
+  _buildStatuses.set(record.buildId, record);
+}
+
+export function clearPreviewBuildStatuses(): void {
+  _buildStatuses.clear();
+}
+
 export function normalizePreviewSessionToken(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const token = value.trim();
@@ -333,6 +361,35 @@ export function registerPreviewBuildRoute(app: express.Express): void {
 }
 
 /**
+ * Mount build status endpoint.
+ * GET /api/preview/:buildId/status
+ * Returns PreviewBuildStatus JSON; 404 if unknown, 403 if session invalid.
+ */
+export function registerPreviewStatusRoute(app: express.Express): void {
+  app.get('/api/preview/:buildId/status', (req, res) => {
+    const { buildId } = req.params;
+
+    const record = _buildStatuses.get(buildId);
+    if (!record) {
+      return res.status(404).json({ error: 'Build not found' });
+    }
+
+    const queryToken = normalizePreviewSessionToken(req.query.previewSession);
+    const headerToken = normalizePreviewSessionToken(req.get('X-Preview-Session'));
+    const sessionToken = queryToken ?? headerToken;
+
+    if (!canReadPreviewBuild(buildId, sessionToken, previewSessionBindings, {
+      nodeEnv: process.env.NODE_ENV,
+      serverMode: process.env.AIC_SERVER_MODE,
+    })) {
+      return res.status(403).json({ error: 'Preview access denied' });
+    }
+
+    return res.json(record);
+  });
+}
+
+/**
  * Mount compile endpoint.
  * POST /api/preview/:buildId/compile  { files: Record<string, string> }
  * Returns { success, buildId, url } on success, { success: false, error } on failure.
@@ -393,18 +450,37 @@ export function registerPreviewCompileRoute(app: express.Express): void {
       }
 
       // Enqueue — only one build runs at a time
+      const buildStartMs = Date.now();
+      setPreviewBuildStatus({ buildId, status: 'building', updatedAt: new Date().toISOString() });
       const job = compileQueue.then(() => compileBuild(buildId, sanitizedFiles, skeletonId));
       compileQueue = job.then(() => undefined, () => undefined);
 
       try {
         await job;
+        const durationMs = Date.now() - buildStartMs;
         await cleanupLRU();
+        setPreviewBuildStatus({
+          buildId,
+          status: 'ready',
+          previewPath: `/preview/${buildId}`,
+          durationMs,
+          updatedAt: new Date().toISOString(),
+        });
         res.json({ success: true, buildId, url: `/preview/${buildId}` });
       } catch (e: any) {
+        const durationMs = Date.now() - buildStartMs;
         if (isLiveGenerationContractError(e)) {
           const rootCause = e.diagnostics?.[0]?.root_cause_type;
           const statusCode = rootCause === 'vite_build_error' ? 500 : 422;
           console.error(`[preview-manager] compile contract failed for ${buildId}:`, e.message);
+          setPreviewBuildStatus({
+            buildId,
+            status: 'failed',
+            error: e.message ?? String(e),
+            diagnostics: e.diagnostics,
+            durationMs,
+            updatedAt: new Date().toISOString(),
+          });
           return res.status(statusCode).json({
             success: false,
             error: e.message ?? String(e),
@@ -413,6 +489,13 @@ export function registerPreviewCompileRoute(app: express.Express): void {
           });
         }
         console.error(`[preview-manager] compile failed for ${buildId}:`, e.message);
+        setPreviewBuildStatus({
+          buildId,
+          status: 'failed',
+          error: e.message ?? String(e),
+          durationMs,
+          updatedAt: new Date().toISOString(),
+        });
         res.status(500).json({ success: false, error: e.message ?? String(e) });
       }
     },
