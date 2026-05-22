@@ -5,7 +5,7 @@ const { test, expect } = require('@playwright/test');
 
 const BASE_URL     = process.env.STUDIO_URL ?? 'http://localhost:5183';
 const FLOW_TIMEOUT = 60_000;
-const LIVE_CANARY_PROMPT = 'single screen counter app with one increment button';
+const LIVE_CANARY_PROMPT = 'landing page for a simple counter product';
 const WATCHDOG_WINDOW_MS = readWatchdogWindowMs();
 const WATCHDOG_STABLE_TIMEOUT_MS = Math.max(
   WATCHDOG_WINDOW_MS * 3,
@@ -209,6 +209,19 @@ const LIVE_CANARY_ARCHITECT_ANALYSIS_RESPONSE = JSON.stringify({
   openQuestions: [],
 });
 
+// ProtoPipeline uses stream:false for ALL LLM calls. Route by system prompt keyword.
+const LIVE_CANARY_PROTO_ARCHITECT_PLAN = JSON.stringify({
+  appName: 'Live Canary Counter',
+  skeleton: 'landing-page',
+  summary: 'A minimal counter that proves the preview pipeline works end-to-end.',
+  fileTree: {
+    'src/App.tsx': 'Root app: renders the live canary counter surface with a visible section and increment button',
+  },
+});
+
+const LIVE_CANARY_PROTO_CODER_PLAN =
+  `<<<FILE: src/App.tsx>>>\n${LIVE_CANARY_APP_TSX}\n<<<END>>>`;
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function parseMsLiteral(raw) {
@@ -263,6 +276,15 @@ async function typeInChat(page, text) {
 
 function responseTextForLLM(systemText, userText, stream) {
   if (!stream) {
+    if (systemText.includes('senior product architect')) {
+      return LIVE_CANARY_PROTO_ARCHITECT_PLAN;
+    }
+    if (
+      systemText.includes('senior React') ||
+      systemText.includes('fixing build errors')
+    ) {
+      return LIVE_CANARY_PROTO_CODER_PLAN;
+    }
     return LIVE_CANARY_ARCHITECT_ANALYSIS_RESPONSE;
   }
   if (systemText.includes('Generate a step-by-step plan')) {
