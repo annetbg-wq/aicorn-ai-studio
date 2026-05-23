@@ -274,9 +274,9 @@ export interface PrototypeQualityGateTelemetry {
   /** Number of advisory (warn-only) reasons. */
   advisory_reasons_count: number;
   /**
-   * False: no safe repair hook available in this commit.
-   * The next commit should add runQualityRepair(designCtx, filteredFiles, qualityGate)
-   * targeting token + placeholder violations via a bounded coder patch prompt.
+   * True: runQualityRepair() is wired and will be called for blocking reasons.
+   * Repair hook is available for design token + placeholder violations.
+   * Advisory reasons (premium-unused, media-unused) do not trigger repair yet.
    */
   repair_hook_available: boolean;
 }
@@ -431,10 +431,11 @@ const STEP_LABEL: Record<StepId, string> = {
 // ── Token / timeout budgets per step ──────────────────────────────────────────
 
 const STEP_BUDGET = {
-  clarify:   { maxTokens:  600,  timeoutMs:  20_000 },
-  architect: { maxTokens: 8_000, timeoutMs:  60_000 },
-  coder:     { maxTokens: 35_000, timeoutMs: 360_000 },
-  repair:    { maxTokens: 12_000, timeoutMs: 120_000 },
+  clarify:       { maxTokens:  600,   timeoutMs:  20_000 },
+  architect:     { maxTokens: 8_000,  timeoutMs:  60_000 },
+  coder:         { maxTokens: 35_000, timeoutMs: 360_000 },
+  repair:        { maxTokens: 12_000, timeoutMs: 120_000 },
+  qualityRepair: { maxTokens:  8_000, timeoutMs:  90_000 },
 } as const;
 
 const MAX_REPAIR_PASSES = 2;
@@ -1322,7 +1323,7 @@ export function evaluatePrototypeQualityGate(
       generic_dashboard_card_flag: genericDashboardCardFlag,
       specificity_score: psd?.specificityScore ?? null,
       advisory_reasons_count: advisoryReasons.length,
-      repair_hook_available: false,
+      repair_hook_available: true,
     },
   };
 }
@@ -1707,7 +1708,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       log(`[design] ${verdict.violations.length} contract violation(s):\n${summary}`, 'warn');
     }
 
-    const filteredFiles: Record<string, string> = {};
+    let filteredFiles: Record<string, string> = {};
     let droppedProtected = 0;
     for (const [path, content] of Object.entries(deltaFiles)) {
       if (isProtectedSkeletonFile(config.skeletonId, path)) {
@@ -1816,35 +1817,77 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     };
     emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`, stepResults.apply);
 
-    // ── Prototype quality gate (blocking for design tokens + placeholders) ──
-    // Advisory for premium-unused and media-unused:
-    //   runRepair() is for TypeScript compile errors only (not quality issues).
-    //   Next commit should add runQualityRepair(designCtx, filteredFiles, qualityGate)
-    //   targeting blockingReasons via a bounded coder patch prompt.
+    // ── Prototype quality gate — one bounded repair pass, then hard-block ───
+    // Advisory: premium-unused / media-unused are warn-only (no targeted repair yet).
+    // Blocking: design token violations + generic placeholders → runQualityRepair() once.
     const qualityGate = evaluatePrototypeQualityGate({
       designContractViolations: verdict.ok ? [] : verdict.violations,
       visualUsageDiagnostics,
       productSpecificityDiagnostics,
     });
-    // Log advisory issues (warn-only: premium-unused, media-unused — repair hook pending)
+    // Log advisory issues (warn-only: premium-unused, media-unused)
     if (qualityGate.advisoryReasons.length > 0) {
       log(
-        `[quality-gate] ${qualityGate.advisoryReasons.length} advisory issue(s) (not blocking — repair hook pending): ` +
+        `[quality-gate] ${qualityGate.advisoryReasons.length} advisory issue(s) (not blocking): ` +
           qualityGate.advisoryReasons.join(' | '),
         'warn',
       );
     }
-    // Hard-block on: design contract violations + generic placeholders (no repair attempt)
+    // If blocking, attempt exactly one quality repair pass before hard-failing
     if (!qualityGate.ok) {
+      log(
+        `[quality-gate] ${qualityGate.blockingReasons.length} blocking issue(s); attempting one quality repair pass`,
+        'warn',
+      );
       for (const instruction of qualityGate.repairInstructions) {
         log(`[quality-gate] repair needed: ${instruction}`, 'warn');
       }
-      return fail(
-        'apply',
-        `Quality gate failed: ${qualityGate.blockingReasons.join(' | ')}`,
-      );
-    }
-    if (qualityGate.advisoryReasons.length === 0) {
+      try {
+        filteredFiles = await runQualityRepair({
+          prompt:                       clarifiedPrompt,
+          skeletonId:                   config.skeletonId,
+          currentFiles:                 filteredFiles,
+          blockingReasons:              qualityGate.blockingReasons,
+          repairInstructions:           qualityGate.repairInstructions,
+          designCtx,
+          productSpecificityDiagnostics,
+          signal:                       config.signal,
+          routeOverrides:               config.routeOverrides,
+          onLog:                        log,
+        });
+        // Re-run diagnostics on repaired files — pure JS, no LLM
+        const repairedVerdict = validateDesignContract(filteredFiles, designCtx);
+        const repairedVisualUsage = buildVisualUsageDiagnostics({
+          files:                      filteredFiles,
+          skeletonId:                 config.skeletonId,
+          selectedPremiumComponentIds,
+          materializedMediaFiles:     mediaMaterialization.materializedFiles,
+        });
+        const repairedSpecificity = buildProductSpecificityDiagnostics({
+          files: filteredFiles,
+          plan:  productSpecificityPlan,
+        });
+        const repairedGate = evaluatePrototypeQualityGate({
+          designContractViolations: repairedVerdict.ok ? [] : repairedVerdict.violations,
+          visualUsageDiagnostics:   repairedVisualUsage,
+          productSpecificityDiagnostics: repairedSpecificity,
+        });
+        if (!repairedGate.ok) {
+          return fail(
+            'apply',
+            `Quality gate failed after repair: ${repairedGate.blockingReasons.join(' | ')}`,
+          );
+        }
+        log('[quality-gate] quality gate passed after repair');
+      } catch (err) {
+        if (isAbort(err)) return fail('apply', 'aborted');
+        log(`[quality-gate] repair attempt failed: ${(err as Error).message}`, 'warn');
+        return fail(
+          'apply',
+          `Quality gate failed: ${qualityGate.blockingReasons.join(' | ')}`,
+        );
+      }
+    } else if (qualityGate.advisoryReasons.length === 0) {
       log('[quality-gate] prototype quality gate: ok');
     }
 
@@ -2615,6 +2658,100 @@ ${input.errorLog.slice(0, 4000)}`;
   return parsed;
 }
 
+// ── Quality repair pass ───────────────────────────────────────────────────────
+
+/**
+ * Bounded one-shot quality repair — separate from compile repair (runRepair).
+ *
+ * Called only when evaluatePrototypeQualityGate() returns blockingReasons.length > 0.
+ * Makes exactly ONE LLM call via the 'fix' slot with a quality-focused prompt.
+ * Parses output using parseFileMarkers; only accepts paths already in currentFiles
+ * (safety filter — prevents injecting new skeleton-protected files).
+ *
+ * No loops, no retry. At most one repair attempt per pipeline run.
+ */
+export async function runQualityRepair(input: {
+  prompt:                       string;
+  skeletonId:                   SkeletonId;
+  currentFiles:                 Record<string, string>;
+  blockingReasons:              string[];
+  repairInstructions:           string[];
+  designCtx?:                   DesignContext;
+  productSpecificityDiagnostics?: ProductSpecificityDiagnostics | null;
+  signal?:                      AbortSignal;
+  routeOverrides?:              RouteOverrideMap;
+  onLog:                        (msg: string, level?: 'info' | 'warn' | 'error') => void;
+  onUsage?:                     (usage: StepLlmMetrics) => void;
+}): Promise<Record<string, string>> {
+  const reasonsList = input.blockingReasons
+    .map((r, i) => `  ${i + 1}. ${r}`)
+    .join('\n');
+  const instructionsList = input.repairInstructions
+    .map((ins, i) => `  ${i + 1}. ${ins}`)
+    .join('\n');
+  const designBlock = input.designCtx
+    ? `\nDESIGN CONTRACT:\n${designContractForCoder(input.designCtx)}\n`
+    : '';
+  const specificityNote = input.productSpecificityDiagnostics
+    ? `\nPRODUCT SPECIFICITY SUMMARY: score=${input.productSpecificityDiagnostics.specificityScore ?? 'n/a'}, ` +
+      `domain entities: ${input.productSpecificityDiagnostics.domainEntitySignals.slice(0, 6).join(', ')}, ` +
+      `product metrics: ${input.productSpecificityDiagnostics.productMetricSignals.slice(0, 4).join(', ')}\n`
+    : '';
+
+  const targets = Object.entries(input.currentFiles)
+    .map(([path, content]) => `<<<FILE: ${path}>>>\n${content}\n<<<END>>>`)
+    .join('\n\n');
+
+  const system =
+    `You are fixing prototype quality gate failures. Re-emit only the files you change.\n` +
+    `Use the same <<<FILE: path>>>...<<<END>>> marker format. Do not modify skeleton-locked paths.\n\n` +
+    `QUALITY GATE BLOCKING REASONS:\n${reasonsList}\n\n` +
+    `REPAIR INSTRUCTIONS:\n${instructionsList}\n` +
+    designBlock +
+    specificityNote +
+    `\nRULES:\n` +
+    `- Replace all generic placeholders (Feature 1, AppName, Lorem ipsum, Untitled, TODO, Item 1, KPI 1) with product-specific copy.\n` +
+    `- Replace raw hex colours (#xxxxxx), raw colour functions (rgb/hsl), and Tailwind palette classes (bg-blue-500) ` +
+    `with semantic design tokens: bg-primary, bg-background, bg-card, text-foreground, text-muted-foreground, etc.\n` +
+    `- Fill empty dashboard metric cards with real domain-specific labels and realistic sample values.\n` +
+    `- Emit only files you actually changed. Each emitted file must be complete and compilable.`;
+
+  input.onLog(
+    `[quality-repair] attempting repair of ${input.blockingReasons.length} issue(s) across ` +
+    `${Object.keys(input.currentFiles).length} file(s)`,
+  );
+
+  let body = '';
+  await streamCall({
+    slot:           'fix',
+    system,
+    user:           `Original task: ${input.prompt}\n\nFiles to repair:\n\n${targets}`,
+    maxTokens:      STEP_BUDGET.qualityRepair.maxTokens,
+    timeoutMs:      STEP_BUDGET.qualityRepair.timeoutMs,
+    signal:         input.signal,
+    routeOverrides: input.routeOverrides,
+    onChunk:        (delta) => { body += delta; },
+    onUsage:        input.onUsage,
+  });
+
+  const patches = parseFileMarkers(body);
+  if (Object.keys(patches).length === 0) {
+    throw new Error('Quality repair produced no FILE/END blocks');
+  }
+
+  // Safety filter: only accept patches for paths already present in currentFiles.
+  const safePatches = Object.fromEntries(
+    Object.entries(patches).filter(([path]) => path in input.currentFiles),
+  );
+  if (Object.keys(safePatches).length === 0) {
+    input.onLog('[quality-repair] all patched paths were unexpected — no files merged', 'warn');
+    return input.currentFiles;
+  }
+
+  input.onLog(`[quality-repair] repair patched ${Object.keys(safePatches).length} file(s)`);
+  return { ...input.currentFiles, ...safePatches };
+}
+
 // ── Backend compile call ─────────────────────────────────────────────────────
 
 async function compile(
@@ -2705,7 +2842,7 @@ function waitForIframeMounted(buildId: string, signal?: AbortSignal, previewUrl 
 
 // ── LLM helpers ──────────────────────────────────────────────────────────────
 
-interface ResolvedRoute {
+export interface ResolvedRoute {
   modelId:  string;
   apiKey:   string;
   endpoint: string;

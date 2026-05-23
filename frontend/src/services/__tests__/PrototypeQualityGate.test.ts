@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 /**
  * Unit tests for evaluatePrototypeQualityGate — deterministic helper, no LLM calls.
+ * Unit tests for runQualityRepair — LLM call mocked via stubGlobal('fetch').
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   evaluatePrototypeQualityGate,
+  runQualityRepair,
   type PrototypeQualityGateInput,
   type VisualUsageDiagnostics,
 } from '../ProtoPipeline';
@@ -121,7 +123,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.advisoryInstructions.some(r => r.includes('@/design-pack/premium-components/'))).toBe(true);
     expect(result.telemetry.premium_selected_not_used).toBe(true);
     expect(result.telemetry.advisory_reasons_count).toBe(1);
-    expect(result.telemetry.repair_hook_available).toBe(false);
+    expect(result.telemetry.repair_hook_available).toBe(true);
   });
 
   it('media-unused is advisory only — ok=true, no blocking reason', () => {
@@ -146,7 +148,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.advisoryInstructions.some(r => /import.*media asset/i.test(r))).toBe(true);
     expect(result.telemetry.media_materialized_not_used).toBe(true);
     expect(result.telemetry.advisory_reasons_count).toBe(1);
-    expect(result.telemetry.repair_hook_available).toBe(false);
+    expect(result.telemetry.repair_hook_available).toBe(true);
   });
 
   it('fails when generic placeholder content is present (Feature 1, AppName, Lorem ipsum, Untitled)', () => {
@@ -272,7 +274,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.telemetry.checks_run).toContain('product_specificity');
   });
 
-  it('hard-blocks design token violation — no repair attempt (repair_hook_available=false)', () => {
+  it('hard-blocks design token violation — repair attempt delegated to runQualityRepair (repair_hook_available=true)', () => {
     const violations: DesignViolation[] = [
       { path: 'pages/Landing.tsx', rule: 'no-raw-hex', example: '#2563eb', line: 5 },
     ];
@@ -287,12 +289,12 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.blockingReasons).toHaveLength(1);
     expect(result.blockingReasons[0]).toMatch(/Design contract/i);
     expect(result.repairInstructions[0]).toMatch(/semantic tokens/i);
-    expect(result.telemetry.repair_hook_available).toBe(false);
+    expect(result.telemetry.repair_hook_available).toBe(true);
     // Advisory arrays must be empty (no advisory issues in this fixture)
     expect(result.advisoryReasons).toHaveLength(0);
   });
 
-  it('hard-blocks generic placeholder — no repair attempt (repair_hook_available=false)', () => {
+  it('hard-blocks generic placeholder — repair attempt delegated to runQualityRepair (repair_hook_available=true)', () => {
     const vud = validVisualDiagnostics();
     vud.genericPlaceholderFindings = ['App.tsx: Feature 1', 'pages/Home.tsx: AppName'];
 
@@ -305,7 +307,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.ok).toBe(false);
     expect(result.blockingReasons.some(r => /generic placeholder/i.test(r))).toBe(true);
     expect(result.repairInstructions.some(r => /Feature 1/i.test(r))).toBe(true);
-    expect(result.telemetry.repair_hook_available).toBe(false);
+    expect(result.telemetry.repair_hook_available).toBe(true);
     expect(result.advisoryReasons).toHaveLength(0);
   });
 
@@ -329,7 +331,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.telemetry.advisory_reasons_count).toBe(2);
     expect(result.telemetry.premium_selected_not_used).toBe(true);
     expect(result.telemetry.media_materialized_not_used).toBe(true);
-    expect(result.telemetry.repair_hook_available).toBe(false);
+    expect(result.telemetry.repair_hook_available).toBe(true);
   });
 
   it('valid output has empty advisoryReasons and advisoryInstructions', () => {
@@ -343,6 +345,195 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.advisoryReasons).toHaveLength(0);
     expect(result.advisoryInstructions).toHaveLength(0);
     expect(result.telemetry.advisory_reasons_count).toBe(0);
-    expect(result.telemetry.repair_hook_available).toBe(false);
+    expect(result.telemetry.repair_hook_available).toBe(true);
+  });
+});
+
+// ── runQualityRepair tests ─────────────────────────────────────────────────────
+//
+// The LLM call inside runQualityRepair is mocked via vi.stubGlobal('fetch').
+// streamCall uses fetch('/api/quality/llm-run', ...) when provider='claude-cli',
+// so we control the response fully without any real network traffic.
+
+/** Build a minimal claude-cli response with FILE/END markers. */
+function mockLlmResponse(fileMap: Record<string, string>) {
+  const content = Object.entries(fileMap)
+    .map(([path, body]) => `<<<FILE: ${path}>>>\n${body}\n<<<END>>>`)
+    .join('\n\n');
+  return JSON.stringify({ output_text: content, finish_reason: 'stop' });
+}
+
+/** routeOverrides that bypass ConfigService and use the fetch mock. */
+const TEST_ROUTE_OVERRIDES = {
+  fix: {
+    modelId:  'test-model',
+    endpoint: 'https://test.example.com/api',
+    apiKey:   'test-key',
+    provider: 'claude-cli',
+  },
+} as const;
+
+/** Minimal current files with a blocking placeholder. */
+function filesWithPlaceholder(): Record<string, string> {
+  return {
+    'pages/App.tsx':
+      'export default function App() { return <div><h1>Feature 1</h1></div>; }',
+    'pages/Dashboard.tsx':
+      'export default function Dashboard() { return <div>AppName Dashboard</div>; }',
+  };
+}
+
+describe('runQualityRepair', () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns merged files with LLM patches applied (exactly one LLM call)', async () => {
+    const repairedApp = 'export default function App() { return <div><h1>Active Patients</h1></div>; }';
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () => mockLlmResponse({ 'pages/App.tsx': repairedApp }),
+    });
+
+    const result = await runQualityRepair({
+      prompt:             'Healthcare patient management app',
+      skeletonId:         'mobile-app',
+      currentFiles:       filesWithPlaceholder(),
+      blockingReasons:    ['Generic placeholder content: Feature 1'],
+      repairInstructions: ['Replace Feature 1 with product-specific copy'],
+      routeOverrides:     TEST_ROUTE_OVERRIDES,
+      onLog:              () => {},
+    });
+
+    // One LLM call — no loops
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    // Patch applied (parser adds trailing \n — trim for comparison)
+    expect(result['pages/App.tsx'].trimEnd()).toBe(repairedApp);
+    // Non-patched file preserved
+    expect(result['pages/Dashboard.tsx']).toContain('AppName');
+  });
+
+  it('re-evaluated gate passes when repaired files contain no blocking patterns', async () => {
+    const cleanApp = 'export default function App() { return <div><h1>Patient List</h1></div>; }';
+    const cleanDash = 'export default function Dashboard() { return <div>HealthTrack Dashboard</div>; }';
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () => mockLlmResponse({ 'pages/App.tsx': cleanApp, 'pages/Dashboard.tsx': cleanDash }),
+    });
+
+    const repairedFiles = await runQualityRepair({
+      prompt:             'Healthcare patient management app',
+      skeletonId:         'mobile-app',
+      currentFiles:       filesWithPlaceholder(),
+      blockingReasons:    ['Generic placeholder: Feature 1, AppName'],
+      repairInstructions: ['Replace placeholders with product-specific copy'],
+      routeOverrides:     TEST_ROUTE_OVERRIDES,
+      onLog:              () => {},
+    });
+
+    // Verify repaired files no longer trigger the gate
+    const vud: VisualUsageDiagnostics = {
+      premiumUsageChecked: false, premiumComponentsSelected: [],
+      premiumComponentImportsFound: [], premiumUsageCount: 0, premiumUsageObserved: false,
+      mediaUsageChecked: false, mediaAssetsMaterialized: [], mediaAssetReferencesFound: [],
+      mediaUsageCount: 0, mediaUsageObserved: false,
+      firstScreenFilesChecked: [], firstScreenPremiumUsageObserved: false, firstScreenMediaUsageObserved: false,
+      meaningfulScreenFiles: [], meaningfulScreenCount: 0,
+      genericPlaceholderFindings: [], visualUsageNotes: [], suggestedNextAction: 'none',
+    };
+    const gateResult = evaluatePrototypeQualityGate({
+      designContractViolations:      [],
+      visualUsageDiagnostics:        vud,
+    });
+    expect(gateResult.ok).toBe(true);
+    expect(repairedFiles['pages/App.tsx'].trimEnd()).toBe(cleanApp);
+  });
+
+  it('throws when LLM returns no FILE/END blocks (failed repair)', async () => {
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () => JSON.stringify({ output_text: 'Sorry, I cannot repair this.', finish_reason: 'stop' }),
+    });
+
+    await expect(runQualityRepair({
+      prompt:             'Healthcare app',
+      skeletonId:         'mobile-app',
+      currentFiles:       filesWithPlaceholder(),
+      blockingReasons:    ['Generic placeholder: Feature 1'],
+      repairInstructions: ['Replace Feature 1'],
+      routeOverrides:     TEST_ROUTE_OVERRIDES,
+      onLog:              () => {},
+    })).rejects.toThrow('Quality repair produced no FILE/END blocks');
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('safety filter: ignores patches for paths not in currentFiles', async () => {
+    const injectedPath = 'pages/NewPage.tsx';
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () => mockLlmResponse({
+        'pages/App.tsx': 'export default function App() { return <div>Fixed</div>; }',
+        [injectedPath]:  'export default function NewPage() { return <div>Injected</div>; }',
+      }),
+    });
+
+    const result = await runQualityRepair({
+      prompt:             'Healthcare app',
+      skeletonId:         'mobile-app',
+      currentFiles:       { 'pages/App.tsx': 'original' },
+      blockingReasons:    ['placeholder'],
+      repairInstructions: ['fix'],
+      routeOverrides:     TEST_ROUTE_OVERRIDES,
+      onLog:              () => {},
+    });
+
+    // Patch for known path applied (parser adds trailing \n — trim for comparison)
+    expect(result['pages/App.tsx'].trimEnd()).toBe('export default function App() { return <div>Fixed</div>; }');
+    // Injected unknown path blocked
+    expect(result[injectedPath]).toBeUndefined();
+  });
+
+  it('advisory-only gate (ok=true) means no repair is needed — fetch not called', () => {
+    // premium-unused and media-unused are advisory only → ok=true → runQualityRepair would not be called
+    const vud: VisualUsageDiagnostics = {
+      premiumUsageChecked:             true,
+      premiumComponentsSelected:       ['wellness-hero'],
+      premiumComponentImportsFound:    [],
+      premiumUsageCount:               0,
+      premiumUsageObserved:            false,
+      mediaUsageChecked:               true,
+      mediaAssetsMaterialized:         ['src/assets/generated/hero.svg'],
+      mediaAssetReferencesFound:       [],
+      mediaUsageCount:                 0,
+      mediaUsageObserved:              false,
+      firstScreenFilesChecked:         [],
+      firstScreenPremiumUsageObserved: false,
+      firstScreenMediaUsageObserved:   false,
+      meaningfulScreenFiles:           [],
+      meaningfulScreenCount:           0,
+      genericPlaceholderFindings:      [],
+      visualUsageNotes:                [],
+      suggestedNextAction:             'improve_prompt',
+    };
+
+    const gate = evaluatePrototypeQualityGate({
+      designContractViolations: [],
+      visualUsageDiagnostics:   vud,
+    });
+
+    // Gate is ok — runQualityRepair must NOT be called
+    expect(gate.ok).toBe(true);
+    expect(gate.blockingReasons).toHaveLength(0);
+    expect(gate.advisoryReasons).toHaveLength(2);
+    // fetch was stubbed in beforeEach but never invoked — confirms no LLM call
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
