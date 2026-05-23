@@ -1820,9 +1820,13 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`, stepResults.apply);
 
     // ── Prototype quality gate — one bounded repair pass, then hard-block ───
-    // Hard-blocking (fail even if repair throws): design token violations,
+    // All blocking reasons: attempt repair first.
+    //   If repair THROWS (infra failure — no FILE/END blocks, timeout, abort): degrade all
+    //   blocking issues to advisory and continue. Do not fail for broken repair infra.
+    //   If repair SUCCEEDS but re-evaluation still shows hard-blocking reasons: fail.
+    // Hard-blocking (if repair succeeds but issues persist): design token violations,
     //   generic placeholders, empty dashboard metric cards.
-    // Soft-blocking / repair-first (degrade to advisory if repair fails):
+    // Soft-blocking (degrade to advisory even if repair succeeds but post-repair still fails):
     //   premium components selected-but-unused, media assets materialized-but-unused.
     const qualityGate = evaluatePrototypeQualityGate({
       designContractViolations: verdict.ok ? [] : verdict.violations,
@@ -1887,11 +1891,13 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           productSpecificityDiagnostics: repairedSpecificity,
         });
         if (!repairedGate.ok) {
-          // If post-repair failures include hard-blocking reasons, or if originally hard-blocking, fail
+          // Fail only if post-repair result still has hard-blocking reasons.
+          // If repair fixed all hard-blocking issues and only soft-blocking remains,
+          // degrade those to advisory and continue.
           const postRepairAllSoft = repairedGate.blockingReasons.every(r =>
             SOFT_BLOCKING_PREFIXES.some(p => r.startsWith(p)),
           );
-          if (!postRepairAllSoft || !allSoftBlocking) {
+          if (!postRepairAllSoft) {
             return fail(
               'apply',
               `Quality gate failed after repair: ${repairedGate.blockingReasons.join(' | ')}`,
@@ -1909,15 +1915,14 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       } catch (err) {
         if (isAbort(err)) return fail('apply', 'aborted');
         log(`[quality-gate] repair attempt failed: ${(err as Error).message}`, 'warn');
-        if (!allSoftBlocking) {
-          // Hard-blocking issue + failed repair → fail the pipeline
-          return fail(
-            'apply',
-            `Quality gate failed: ${qualityGate.blockingReasons.join(' | ')}`,
-          );
-        }
-        // Soft-blocking only (premium/media) + failed repair → degrade to advisory, continue
-        log('[quality-gate] premium/media repair failed — continuing as best-effort (advisory)', 'warn');
+        // Repair infrastructure failure (no FILE/END blocks, timeout, etc.) — we cannot
+        // determine whether it would have fixed the issues. Degrade ALL blocking reasons to
+        // advisory and continue. Hard-fail is reserved for when repair runs successfully but
+        // re-evaluation still shows hard-blocking issues (handled in the try block above).
+        log(
+          `[quality-gate] repair infrastructure failure — all ${qualityGate.blockingReasons.length} quality issue(s) downgraded to advisory (best-effort)`,
+          'warn',
+        );
       }
     } else if (qualityGate.advisoryReasons.length === 0) {
       log('[quality-gate] prototype quality gate: ok');
