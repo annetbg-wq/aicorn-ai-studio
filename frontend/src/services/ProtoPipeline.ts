@@ -41,6 +41,7 @@ import {
   validateDesignContract,
   describeViolations,
   type DesignContext,
+  type DesignViolation,
   type MediaHint,
 } from './DesignContract';
 import { resolveMediaIntent } from './media/MediaIntentService';
@@ -89,6 +90,7 @@ import {
   buildProductSpecificityPromptBlock,
   serializeProductSpecificityDiagnostics,
   serializeProductSpecificityPlan,
+  type ProductSpecificityDiagnostics,
   type ProductSpecificityDiagnosticsTelemetry,
   type ProductSpecificityPlan,
   type ProductSpecificityPlanTelemetry,
@@ -243,6 +245,40 @@ export interface VisualUsageDiagnosticsTelemetry {
   generic_placeholder_findings: string[];
   visual_usage_notes: string[];
   suggested_next_action: 'none' | 'improve_prompt' | 'improve_assets' | 'add_repair_later';
+}
+
+// ── Prototype quality gate ────────────────────────────────────────────────────
+
+/**
+ * Input to the deterministic prototype quality gate helper.
+ * All fields are optional — omit any you don't have yet.
+ */
+export interface PrototypeQualityGateInput {
+  /** Violations from validateDesignContract(). Null/undefined = check not run. */
+  designContractViolations?: DesignViolation[] | null;
+  /** Pre-computed visual usage diagnostics. Null/undefined = check not run. */
+  visualUsageDiagnostics?: VisualUsageDiagnostics | null;
+  /** Pre-computed product specificity diagnostics. Null/undefined = check not run. */
+  productSpecificityDiagnostics?: ProductSpecificityDiagnostics | null;
+}
+
+/** The telemetry payload included with every quality gate result. */
+export interface PrototypeQualityGateTelemetry {
+  checks_run: string[];
+  design_contract_violations: number;
+  premium_selected_not_used: boolean;
+  media_materialized_not_used: boolean;
+  generic_placeholder_count: number;
+  generic_dashboard_card_flag: boolean;
+  specificity_score: number | null;
+}
+
+/** Result returned by evaluatePrototypeQualityGate(). */
+export interface PrototypeQualityGateResult {
+  ok: boolean;
+  blockingReasons: string[];
+  repairInstructions: string[];
+  telemetry: PrototypeQualityGateTelemetry;
 }
 
 export interface StepOutputMetrics {
@@ -1110,6 +1146,169 @@ export function serializeVisualUsageDiagnostics(
   };
 }
 
+// ── Prototype quality gate helper ─────────────────────────────────────────────
+
+/**
+ * Deterministic quality gate for generated prototype output.
+ *
+ * Consumes pre-computed diagnostic signals (no LLM calls, no file I/O).
+ * Returns ok=false with blockingReasons and repairInstructions on any
+ * clearly bad case:
+ *   - raw design token violations from the design contract
+ *   - premium components selected but none referenced in generated source
+ *   - media assets materialized but none referenced in generated source
+ *   - obvious generic placeholders (Feature 1, AppName, Item 1, KPI 1, …)
+ *   - empty/generic dashboard metrics flagged by product specificity
+ *
+ * NOT wired to block the live pipeline in this commit.
+ * Safe wiring point for the next commit:
+ *   frontend/src/services/ProtoPipeline.ts → ProtoPipeline.run(), after
+ *   emit('apply', 'done', ...) at the end of the apply step.
+ *   The verdict and visualUsageDiagnostics and productSpecificityDiagnostics
+ *   are all available there — pass them to evaluatePrototypeQualityGate() and
+ *   log / surface the result; add a hard block only after test coverage is green.
+ */
+export function evaluatePrototypeQualityGate(
+  input: PrototypeQualityGateInput,
+): PrototypeQualityGateResult {
+  const blockingReasons: string[] = [];
+  const repairInstructions: string[] = [];
+  const checksRun: string[] = [];
+
+  // ── Check 1: design contract raw token violations ─────────────────────────
+  const violations = input.designContractViolations ?? null;
+  const designContractViolationCount = violations !== null ? violations.length : 0;
+  if (violations !== null) {
+    checksRun.push('design_contract');
+    if (designContractViolationCount > 0) {
+      const ruleSet = Array.from(new Set(violations.map(v => v.rule))).slice(0, 4).join(', ');
+      blockingReasons.push(
+        `Design contract: ${designContractViolationCount} raw token violation(s) in generated source (rules: ${ruleSet})`,
+      );
+      repairInstructions.push(
+        'Replace raw hex/rgb/hsl colours and Tailwind palette classes (e.g. bg-blue-500) ' +
+        'with semantic tokens: bg-background, text-foreground, bg-primary, bg-card, bg-muted, etc.',
+      );
+    }
+  }
+
+  // ── Check 2: premium components selected but not referenced ───────────────
+  const vud = input.visualUsageDiagnostics ?? null;
+  const premiumSelectedNotUsed =
+    vud !== null && vud.premiumUsageChecked && !vud.premiumUsageObserved;
+  const mediaNotUsed =
+    vud !== null && vud.mediaUsageChecked && !vud.mediaUsageObserved;
+
+  if (vud !== null) {
+    checksRun.push('visual_usage');
+
+    if (premiumSelectedNotUsed) {
+      const ids = vud.premiumComponentsSelected.slice(0, 4).join(', ');
+      blockingReasons.push(
+        `Premium components selected (${ids}) but none referenced in generated source`,
+      );
+      repairInstructions.push(
+        'Import at least one premium component from ' +
+        '@/design-pack/premium-components/ and render it on the first screen.',
+      );
+    }
+
+    // ── Check 3: media materialized but not referenced ───────────────────────
+    if (mediaNotUsed) {
+      const files = vud.mediaAssetsMaterialized.slice(0, 3).join(', ');
+      blockingReasons.push(
+        `Generated media assets materialized (${files}) but none referenced in generated source`,
+      );
+      repairInstructions.push(
+        'Import and render at least one generated media asset (SVG/image) on the first screen. ' +
+        'Example: import heroImg from \'./src/assets/generated/landing-hero.svg\'',
+      );
+    }
+
+    // ── Check 4: generic placeholder content ─────────────────────────────────
+    const visualPlaceholders = vud.genericPlaceholderFindings;
+    const BLOCKING_PLACEHOLDER_LABELS = new Set([
+      'Feature 1', 'Feature 2', 'Feature 3',
+      'AppName', 'PRODUCT',
+      'Lorem', 'lorem ipsum',
+      'Untitled', 'TODO',
+    ]);
+    const blockingVisualPlaceholders = visualPlaceholders.filter(finding => {
+      const label = finding.split(': ').slice(1).join(': ');
+      return BLOCKING_PLACEHOLDER_LABELS.has(label);
+    });
+
+    if (blockingVisualPlaceholders.length > 0) {
+      blockingReasons.push(
+        `Generic placeholder content in ${blockingVisualPlaceholders.length} location(s): ` +
+        blockingVisualPlaceholders.slice(0, 4).join('; '),
+      );
+      repairInstructions.push(
+        'Replace all generic placeholders (Feature 1, AppName, Lorem ipsum, Untitled, TODO) ' +
+        'with product-specific copy and domain-specific entity names.',
+      );
+    }
+  }
+
+  // ── Check 5: product specificity — empty/generic dashboard cards ──────────
+  const psd = input.productSpecificityDiagnostics ?? null;
+  const genericDashboardCardFlag = psd !== null && (
+    psd.emptyMetricFindings.length > 0 ||
+    psd.suggestedNextAction === 'add_repair_later'
+  );
+
+  // Also detect Item 1 / KPI 1 from specificity generic placeholder findings
+  let specificityPlaceholderCount = 0;
+  if (psd !== null) {
+    checksRun.push('product_specificity');
+
+    const SPECIFICITY_BLOCKING_PATTERNS = /\b(Item\s+\d+|KPI\s+\d+|Metric\s+\d+|Stat\s+\d+)\b/i;
+    specificityPlaceholderCount = psd.genericPlaceholderFindings.filter(
+      finding => SPECIFICITY_BLOCKING_PATTERNS.test(finding),
+    ).length;
+
+    if (specificityPlaceholderCount > 0) {
+      blockingReasons.push(
+        `Generic numbered metric placeholders in ${specificityPlaceholderCount} location(s) ` +
+        '(e.g. Item 1, KPI 1, Metric 1)',
+      );
+      repairInstructions.push(
+        'Replace numbered metric slots (Item 1, KPI 1, Metric 1) with real domain-specific ' +
+        'labels and example values (e.g. "Active Users This Week", "Revenue MTD").',
+      );
+    }
+
+    if (genericDashboardCardFlag && psd.emptyMetricFindings.length > 0) {
+      const examples = psd.emptyMetricFindings.slice(0, 3).join('; ');
+      blockingReasons.push(
+        `Empty or generic dashboard metric cards: ${examples}`,
+      );
+      repairInstructions.push(
+        'Fill dashboard cards with product-specific metrics and realistic sample values. ' +
+        'Use domain entities and product metrics from the ProductSpecificityPlan.',
+      );
+    }
+  }
+
+  const totalGenericPlaceholderCount =
+    (vud?.genericPlaceholderFindings.length ?? 0) + specificityPlaceholderCount;
+
+  return {
+    ok: blockingReasons.length === 0,
+    blockingReasons,
+    repairInstructions,
+    telemetry: {
+      checks_run: checksRun,
+      design_contract_violations: designContractViolationCount,
+      premium_selected_not_used: premiumSelectedNotUsed,
+      media_materialized_not_used: mediaNotUsed,
+      generic_placeholder_count: totalGenericPlaceholderCount,
+      generic_dashboard_card_flag: genericDashboardCardFlag,
+      specificity_score: psd?.specificityScore ?? null,
+    },
+  };
+}
+
 // ── Implementation ────────────────────────────────────────────────────────────
 
 export class ProtoPipeline {
@@ -1598,6 +1797,24 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
     emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`, stepResults.apply);
+
+    // ── Prototype quality gate (advisory / telemetry only in this commit) ──
+    // Safe wiring point: this is where all required signals are available.
+    // Next commit can promote failing gate to a hard block before the build step.
+    const qualityGate = evaluatePrototypeQualityGate({
+      designContractViolations: verdict.ok ? [] : verdict.violations,
+      visualUsageDiagnostics,
+      productSpecificityDiagnostics,
+    });
+    if (!qualityGate.ok) {
+      log(
+        `[quality-gate] ${qualityGate.blockingReasons.length} issue(s) — advisory (not blocking): ` +
+          qualityGate.blockingReasons.join(' | '),
+        'warn',
+      );
+    } else {
+      log('[quality-gate] prototype quality gate: ok');
+    }
 
     // ── Step 7 — Build (with at most 2 repair passes) ─────────────────────
     emit('build', 'active');
