@@ -1751,6 +1751,280 @@ export function buildCompositionPlanPromptBlock(plan: ScreenCompositionPlan): st
   return lines.join('\n');
 }
 
+// ── Screen composition diagnostics (advisory-only) ────────────────────────────
+
+/** Returned by evaluateScreenCompositionDiagnostics. Advisory — never blocks generation. */
+export interface ScreenCompositionDiagnosticsResult {
+  ok: boolean;
+  compositionScore: number;
+  warnings: string[];
+  missingRoles: string[];
+  detectedRoles: string[];
+  suggestedImprovements: string[];
+  telemetry: {
+    skeleton_id: string;
+    screen_count: number;
+    detected_roles: string[];
+    missing_roles: string[];
+    warnings: string[];
+    suggested_improvements: string[];
+    composition_score: number;
+    ok: boolean;
+  };
+}
+
+const APP_LIKE_SKELETONS = new Set<string>([
+  'mobile-app',
+  'saas-dashboard',
+  'social-community',
+  'ecommerce',
+  'productivity-tool',
+  'b2b-operations-workspace',
+  'marketplace-platform',
+  'creator-editor-workspace',
+  'dating-matching-app',
+  'gaming-casino-app',
+  'game-interactive-app',
+  'booking-service-app',
+  'content-learning-app',
+]);
+
+/**
+ * Advisory-only screen composition diagnostics.
+ *
+ * Detects clear composition weaknesses (sparse layout, missing CTA, missing
+ * product-specific content roles, dashboard without metrics, etc.) and returns
+ * a structured result for logging and telemetry.
+ *
+ * Does NOT block generation, does NOT trigger runQualityRepair, does NOT alter
+ * quality gate behavior.
+ */
+export function evaluateScreenCompositionDiagnostics(
+  plan: ScreenCompositionPlan,
+): ScreenCompositionDiagnosticsResult {
+  const { skeletonId, screens } = plan;
+  const warnings: string[] = [];
+  const missingRoles: string[] = [];
+  const suggestedImprovements: string[] = [];
+  let compositionScore = 100;
+
+  const allZoneRoles = screens.flatMap(s => s.zones.map(z => z.role));
+  const allScreenRoles = screens.map(s => s.role);
+  const allScreenIds = screens.map(s => s.id);
+  const detectedRoles: string[] = [...new Set([...allZoneRoles, ...allScreenRoles])];
+
+  const isAppLike = APP_LIKE_SKELETONS.has(skeletonId);
+  const isMobile = skeletonId === 'mobile-app';
+  const isDashboard = skeletonId === 'saas-dashboard' || skeletonId === 'b2b-operations-workspace';
+  const isSocial = skeletonId === 'social-community';
+  const isLanding = skeletonId === 'landing-page';
+
+  // 1. Sparse composition — fewer than 3 screens for app-like products
+  if (isAppLike && screens.length < 3) {
+    warnings.push(
+      `Sparse composition: only ${screens.length} screen(s) for skeleton "${skeletonId}"; expected ≥ 3 meaningful screens.`,
+    );
+    missingRoles.push('sufficient-screens');
+    suggestedImprovements.push(
+      'Add at least 3 screens covering entry, core workflow, and detail/progress views.',
+    );
+    compositionScore -= 20;
+  }
+
+  // 2. Missing primary hero/entry section
+  const hasEntryScreen = isLanding
+    ? allScreenIds.some(id => id.includes('hero'))
+    : allScreenRoles.some(r => r === 'home' || r === 'dashboard') ||
+      allScreenIds.some(id =>
+        id.includes('home') ||
+        id.includes('dashboard') ||
+        id.includes('discover') ||
+        id.includes('lobby'),
+      );
+  if (!hasEntryScreen) {
+    warnings.push(`Missing primary entry/hero screen for skeleton "${skeletonId}".`);
+    missingRoles.push('hero-entry-screen');
+    suggestedImprovements.push(
+      'Add a primary entry screen (home, dashboard, or hero section) as the product entry point.',
+    );
+    compositionScore -= 15;
+  }
+
+  // 3. Missing primary action/CTA
+  const hasCta = allZoneRoles.some(r => r === 'primary_action' || r === 'cta');
+  if (!hasCta) {
+    warnings.push('Missing primary_action or cta zone across all screens.');
+    missingRoles.push('primary-action-cta');
+    suggestedImprovements.push('Add a primary_action or cta zone on the main entry screen.');
+    compositionScore -= 15;
+  }
+
+  // 4. Missing product-specific content role
+  const CONTENT_ROLES: ScreenZoneRole[] = [
+    'feed', 'list', 'table', 'form', 'progress', 'insight', 'media',
+  ];
+  const hasContentRole = allZoneRoles.some(r => CONTENT_ROLES.includes(r));
+  if (!hasContentRole && screens.length > 0) {
+    warnings.push(
+      'Missing product-specific content role (feed, list, table, form, progress, insight, media, or commerce) across all zones.',
+    );
+    missingRoles.push('product-specific-content');
+    suggestedImprovements.push(
+      'Include at least one specific content zone (feed, list, progress, table, etc.) instead of only generic zones.',
+    );
+    compositionScore -= 10;
+  }
+
+  // 5. Too many generic zones (> 50% 'other' or 'secondary_feature')
+  const totalZones = allZoneRoles.length;
+  if (totalZones > 0) {
+    const genericCount = allZoneRoles.filter(r => r === 'other' || r === 'secondary_feature').length;
+    if (genericCount / totalZones > 0.5) {
+      warnings.push(
+        `Generic zone overload: ${genericCount}/${totalZones} zones (${Math.round((genericCount / totalZones) * 100)}%) are 'other' or 'secondary_feature'.`,
+      );
+      missingRoles.push('specific-zone-roles');
+      suggestedImprovements.push(
+        "Replace generic zones with product-specific roles: feed, list, progress, insight, or cta.",
+      );
+      compositionScore -= 10;
+    }
+  }
+
+  // 6. Dashboard without metrics/status/action sections
+  if (isDashboard) {
+    const firstScreen = screens.find(s => s.id === plan.firstScreenId) ?? screens[0];
+    const firstZoneRoles = firstScreen?.zones.map(z => z.role) ?? [];
+    if (!firstZoneRoles.some(r => r === 'status' || r === 'insight')) {
+      warnings.push(`Dashboard skeleton "${skeletonId}" first screen is missing metrics/status zones.`);
+      missingRoles.push('dashboard-metrics-status');
+      suggestedImprovements.push(
+        'Add status or insight zones to the dashboard entry screen for key metrics display.',
+      );
+      compositionScore -= 15;
+    }
+    if (
+      !firstZoneRoles.some(r => r === 'primary_action' || r === 'cta' || r === 'list' || r === 'table')
+    ) {
+      warnings.push(`Dashboard skeleton "${skeletonId}" first screen is missing action/list/table zones.`);
+      missingRoles.push('dashboard-action-list');
+      suggestedImprovements.push(
+        'Add primary_action, list, or table zones to the dashboard entry screen for workflow access.',
+      );
+      compositionScore -= 10;
+    }
+  }
+
+  // 7. Mobile app without home/progress/action/detail-like screen roles
+  if (isMobile) {
+    const hasHome =
+      allScreenRoles.some(r => r === 'home') ||
+      allScreenIds.some(id => id.includes('home') || id.includes('today'));
+    if (!hasHome) {
+      warnings.push('Mobile app is missing a home/today entry screen.');
+      missingRoles.push('mobile-home-screen');
+      suggestedImprovements.push(
+        'Add a home/today screen as the primary entry point for the mobile app.',
+      );
+      compositionScore -= 15;
+    }
+    const hasProgressOrInsight =
+      allScreenRoles.some(r => r === 'progress') ||
+      allScreenIds.some(id => id.includes('progress')) ||
+      allZoneRoles.some(r => r === 'progress' || r === 'insight');
+    if (!hasProgressOrInsight) {
+      warnings.push('Mobile app is missing progress or insight screen/zone.');
+      missingRoles.push('mobile-progress-insight');
+      suggestedImprovements.push(
+        'Add a progress screen or progress/insight zone to track user state.',
+      );
+      compositionScore -= 10;
+    }
+    const hasDetail =
+      allScreenRoles.some(r => r === 'detail') ||
+      allScreenIds.some(id => id.includes('detail'));
+    if (!hasDetail) {
+      warnings.push('Mobile app is missing a detail screen for item inspection.');
+      missingRoles.push('mobile-detail-screen');
+      suggestedImprovements.push(
+        'Add a detail screen for viewing individual items in depth.',
+      );
+      compositionScore -= 10;
+    }
+    const hasActionZone = allZoneRoles.some(r => r === 'primary_action');
+    if (!hasActionZone) {
+      warnings.push('Mobile app is missing a primary_action zone on any screen.');
+      missingRoles.push('mobile-primary-action-zone');
+      suggestedImprovements.push(
+        'Add a primary_action zone on the home screen for the main user action.',
+      );
+      compositionScore -= 10;
+    }
+  }
+
+  // 8. Social/feed app without feed/profile/community-like roles
+  if (isSocial) {
+    const hasFeed =
+      allZoneRoles.some(r => r === 'feed') ||
+      allScreenIds.some(id => id.includes('feed'));
+    if (!hasFeed) {
+      warnings.push('Social/community app is missing a feed zone or feed screen.');
+      missingRoles.push('social-feed');
+      suggestedImprovements.push(
+        'Add a feed zone or feed screen as the core content surface.',
+      );
+      compositionScore -= 15;
+    }
+    const hasProfile =
+      allScreenRoles.some(r => r === 'profile') ||
+      allScreenIds.some(id => id.includes('profile'));
+    if (!hasProfile) {
+      warnings.push('Social/community app is missing a profile screen.');
+      missingRoles.push('social-profile');
+      suggestedImprovements.push(
+        'Add a profile screen for user identity and social presence.',
+      );
+      compositionScore -= 10;
+    }
+    const hasCommunityOrDiscover = allScreenIds.some(id =>
+      id.includes('community') ||
+      id.includes('groups') ||
+      id.includes('explore') ||
+      id.includes('discover'),
+    );
+    if (!hasCommunityOrDiscover) {
+      warnings.push('Social/community app is missing community/explore/discover screens.');
+      missingRoles.push('social-community-discovery');
+      suggestedImprovements.push(
+        'Add a community, explore, or discover screen for social content discovery.',
+      );
+      compositionScore -= 10;
+    }
+  }
+
+  compositionScore = Math.max(0, Math.min(100, compositionScore));
+  const ok = warnings.length === 0;
+
+  return {
+    ok,
+    compositionScore,
+    warnings,
+    missingRoles,
+    detectedRoles,
+    suggestedImprovements,
+    telemetry: {
+      skeleton_id: skeletonId,
+      screen_count: screens.length,
+      detected_roles: detectedRoles,
+      missing_roles: missingRoles,
+      warnings,
+      suggested_improvements: suggestedImprovements,
+      composition_score: compositionScore,
+      ok,
+    },
+  };
+}
+
 // ── Telemetry serializer ──────────────────────────────────────────────────────
 
 export function serializeScreenCompositionPlan(plan: ScreenCompositionPlan): ScreenCompositionPlanTelemetry {
