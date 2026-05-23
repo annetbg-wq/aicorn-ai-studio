@@ -805,12 +805,20 @@ async function compileBuild(
     }
   }
 
+  // Skeleton-only compile: files={} means the skeleton src is the full source
+  // of truth. Skeleton App.tsx imports section files that were just copied in
+  // step 0 — overwriting them with generic template files breaks those imports.
+  const isSkeletonOnlyCompile = Object.keys(files).length === 0;
+
   // 0.5. Mirror section templates into the preview workspace so generated
   await ensurePreviewLibShims(PREVIEW_WORKSPACE);
   // App.tsx imports always resolve to concrete files.
-  const { templatesSrc, sectionsDest } = resolveSectionTemplatePaths(PREVIEW_WORKSPACE);
-  await fsPromises.rm(sectionsDest, { recursive: true, force: true });
-  await fsPromises.cp(templatesSrc, sectionsDest, { recursive: true });
+  // Skip for skeleton-only compiles: skeleton sections must be preserved.
+  if (!isSkeletonOnlyCompile) {
+    const { templatesSrc, sectionsDest } = resolveSectionTemplatePaths(PREVIEW_WORKSPACE);
+    await fsPromises.rm(sectionsDest, { recursive: true, force: true });
+    await fsPromises.cp(templatesSrc, sectionsDest, { recursive: true });
+  }
 
   // 1. Write user source files (delta over the skeleton base)
   for (const [filePath, content] of Object.entries(files)) {
