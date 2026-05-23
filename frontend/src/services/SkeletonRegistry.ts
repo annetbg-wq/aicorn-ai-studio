@@ -1204,6 +1204,159 @@ export function selectSkeletonWithDiagnostics(
   };
 }
 
+// ── Skeleton selection safe overrides ────────────────────────────────────────
+
+export interface SkeletonSelectionOverrideResult {
+  /** Skeleton chosen by the original selectSkeleton scoring algorithm. */
+  originalSelectedSkeletonId: SkeletonId;
+  /** Final skeleton after safe overrides are applied (may equal original). */
+  finalSelectedSkeletonId: SkeletonId;
+  overrideApplied: boolean;
+  overrideReason?: string;
+  confidence: 'high' | 'medium' | 'low';
+  bestScore: number;
+  runnerUpSkeletonId: SkeletonId | null;
+  runnerUpScore: number;
+  fallbackReason?: string;
+  mismatchWarnings: string[];
+  intentSignals: string[];
+}
+
+/**
+ * Deterministic override rules: each entry maps an intent signal to the
+ * preferred skeleton and the set of skeletons that are clearly wrong for it.
+ *
+ * A rule fires only when:
+ *   1. The intent signal is present in the diagnostics.
+ *   2. The originally-selected skeleton is in the rule's `badSelections` set.
+ *   3. The preferred skeleton is available in the registry.
+ *   4. At least one mismatch warning was raised (not an ambiguous prompt).
+ */
+const SAFE_OVERRIDE_RULES: ReadonlyArray<{
+  signal: string;
+  badSelections: ReadonlySet<SkeletonId>;
+  preferred: SkeletonId;
+}> = [
+  {
+    signal: 'landing-intent',
+    badSelections: new Set<SkeletonId>(['mobile-app']),
+    preferred: 'landing-page',
+  },
+  {
+    signal: 'dashboard-intent',
+    badSelections: new Set<SkeletonId>(['mobile-app']),
+    preferred: 'saas-dashboard',
+  },
+  {
+    signal: 'marketplace-intent',
+    badSelections: new Set<SkeletonId>(['mobile-app']),
+    preferred: 'ecommerce',
+  },
+  {
+    signal: 'social-intent',
+    // Any skeleton that isn't in SOCIAL_APPROPRIATE is a bad fit.
+    // The mismatch warning guard (below) ensures this only fires when the
+    // diagnostics already reported a mismatch.
+    badSelections: new Set<SkeletonId>([
+      'mobile-app', 'landing-page', 'saas-dashboard', 'productivity-tool',
+      'ecommerce', 'b2b-operations-workspace', 'creator-editor-workspace',
+      'gaming-casino-app', 'game-interactive-app', 'booking-service-app',
+      'content-learning-app',
+    ]),
+    preferred: 'social-community',
+  },
+  {
+    signal: 'game-intent',
+    // Plain desktop/document skeletons are clearly wrong for interactive game intent.
+    badSelections: new Set<SkeletonId>([
+      'landing-page', 'saas-dashboard', 'productivity-tool',
+      'b2b-operations-workspace', 'creator-editor-workspace',
+    ]),
+    preferred: 'game-interactive-app',
+  },
+];
+
+/**
+ * Deterministic skeleton selection with safe behavioral overrides.
+ *
+ * Calls `selectSkeletonWithDiagnostics` internally for base selection and
+ * signal detection, then applies a narrow set of override rules for obvious
+ * high-confidence mismatches.
+ *
+ * Override fires only when:
+ *   - At least one intent signal is present (not an ambiguous prompt)
+ *   - At least one mismatch warning is present (not an already-correct selection)
+ *   - The original selected skeleton is in the rule's bad-selections set
+ *   - The preferred override target is available in the registry
+ *
+ * Ambiguous prompts (no intent signals) always keep the original selection.
+ * Already-correct selections (no mismatch warnings) are never overridden.
+ */
+export function selectSkeletonWithSafeOverrides(
+  appType: string | undefined,
+  tags: string[] = [],
+): SkeletonSelectionOverrideResult {
+  const diag = selectSkeletonWithDiagnostics(appType, tags);
+  const {
+    selectedSkeletonId: originalSelectedSkeletonId,
+    intentSignals,
+    mismatchWarnings,
+    confidence: diagConfidence,
+    bestScore,
+    runnerUpSkeletonId,
+    runnerUpScore,
+    fallbackReason,
+  } = diag;
+
+  const base = {
+    bestScore,
+    runnerUpSkeletonId,
+    runnerUpScore,
+    intentSignals,
+    mismatchWarnings,
+    ...(fallbackReason !== undefined ? { fallbackReason } : {}),
+  };
+
+  // Guard: ambiguous input (no recognized intent signals) — never override.
+  // Guard: no mismatch warnings — selection is already appropriate.
+  if (intentSignals.length === 0 || mismatchWarnings.length === 0) {
+    return {
+      originalSelectedSkeletonId,
+      finalSelectedSkeletonId: originalSelectedSkeletonId,
+      overrideApplied: false,
+      confidence: diagConfidence,
+      ...base,
+    };
+  }
+
+  // Try override rules in priority order; take the first match.
+  for (const rule of SAFE_OVERRIDE_RULES) {
+    if (
+      intentSignals.includes(rule.signal) &&
+      rule.badSelections.has(originalSelectedSkeletonId) &&
+      SKELETON_REGISTRY[rule.preferred]?.available
+    ) {
+      return {
+        originalSelectedSkeletonId,
+        finalSelectedSkeletonId: rule.preferred,
+        overrideApplied: true,
+        overrideReason: `${rule.signal} detected; '${originalSelectedSkeletonId}' is a poor fit — overriding to '${rule.preferred}'`,
+        confidence: 'medium',
+        ...base,
+      };
+    }
+  }
+
+  // No override rule matched — keep original selection.
+  return {
+    originalSelectedSkeletonId,
+    finalSelectedSkeletonId: originalSelectedSkeletonId,
+    overrideApplied: false,
+    confidence: diagConfidence,
+    ...base,
+  };
+}
+
 function normalizeSkeletonPath(path: string): string {
   let p = String(path || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
   if (!p) return '';
