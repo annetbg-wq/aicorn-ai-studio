@@ -60,8 +60,10 @@ import {
   buildScreenCompositionPlan,
   buildCompositionPlanPromptBlock,
   serializeScreenCompositionPlan,
+  evaluateScreenCompositionDiagnostics,
   type ScreenCompositionPlan,
   type ScreenCompositionPlanTelemetry,
+  type ScreenCompositionDiagnosticsResult,
 } from './ScreenCompositionPlanner';
 import {
   buildFunctionalFlowPlan,
@@ -327,6 +329,7 @@ export interface StepOutputMetrics {
   functional_implementation_diagnostics?: FunctionalImplementationDiagnosticsTelemetry;
   architecture_implementation_diagnostics?: ArchitectureImplementationDiagnosticsTelemetry;
   product_specificity_diagnostics?: ProductSpecificityDiagnosticsTelemetry;
+  screen_composition_diagnostics?: ScreenCompositionDiagnosticsResult;
 }
 
 export interface StepExecutionMetrics {
@@ -1760,6 +1763,16 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     designSelectionDiagnostics.compositionFirstScreenId = compositionPlan.firstScreenId;
     designSelectionDiagnostics.compositionScreenCount = compositionPlan.screens.length;
     designSelectionDiagnostics.compositionZoneCountOnFirstScreen = firstCompositionScreen?.zones.length ?? 0;
+    // Advisory composition diagnostics — never blocks generation
+    const compositionDiagnostics = evaluateScreenCompositionDiagnostics(compositionPlan);
+    if (!compositionDiagnostics.ok) {
+      log(
+        `[composition-diagnostics] advisory: score=${compositionDiagnostics.compositionScore} warnings=${compositionDiagnostics.warnings.length}: ${compositionDiagnostics.warnings.join(' | ')}`,
+        'warn',
+      );
+    } else {
+      log(`[composition-diagnostics] ok: score=${compositionDiagnostics.compositionScore}`);
+    }
     designSelectionDiagnostics.functionalFlowPlanCreated = true;
     designSelectionDiagnostics.functionalFlowCount = functionalFlowPlan.flows.length;
     designSelectionDiagnostics.functionalEntityCount = functionalFlowPlan.entities.length;
@@ -1814,6 +1827,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         functional_implementation_diagnostics: serializeFunctionalImplementationDiagnostics(functionalImplementationDiagnostics),
         architecture_implementation_diagnostics: serializeArchitectureImplementationDiagnostics(architectureImplementationDiagnostics),
         product_specificity_diagnostics: serializeProductSpecificityDiagnostics(productSpecificityDiagnostics),
+        screen_composition_diagnostics: compositionDiagnostics,
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
