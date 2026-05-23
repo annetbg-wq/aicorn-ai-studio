@@ -1820,9 +1820,10 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`, stepResults.apply);
 
     // ── Prototype quality gate — one bounded repair pass, then hard-block ───
-    // Blocking: design token violations, generic placeholders, empty dashboard cards,
-    //           premium components selected-but-unused, media materialized-but-unused.
-    // Advisory: none currently — all checks are blocking with one repair attempt.
+    // Hard-blocking (fail even if repair throws): design token violations,
+    //   generic placeholders, empty dashboard metric cards.
+    // Soft-blocking / repair-first (degrade to advisory if repair fails):
+    //   premium components selected-but-unused, media assets materialized-but-unused.
     const qualityGate = evaluatePrototypeQualityGate({
       designContractViolations: verdict.ok ? [] : verdict.violations,
       visualUsageDiagnostics,
@@ -1838,8 +1839,18 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     }
     // If blocking, attempt exactly one quality repair pass before hard-failing
     if (!qualityGate.ok) {
+      // Determine whether all blocking reasons are soft (premium/media) or include hard ones
+      const SOFT_BLOCKING_PREFIXES = [
+        'Premium components selected',
+        'Generated media assets materialized',
+      ] as const;
+      const allSoftBlocking = qualityGate.blockingReasons.every(r =>
+        SOFT_BLOCKING_PREFIXES.some(p => r.startsWith(p)),
+      );
       log(
-        `[quality-gate] ${qualityGate.blockingReasons.length} blocking issue(s); attempting one quality repair pass`,
+        `[quality-gate] ${qualityGate.blockingReasons.length} blocking issue(s)` +
+          (allSoftBlocking ? ' (soft/repair-first)' : ' (includes hard-blocking)') +
+          '; attempting one quality repair pass',
         'warn',
       );
       for (const instruction of qualityGate.repairInstructions) {
@@ -1876,19 +1887,37 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           productSpecificityDiagnostics: repairedSpecificity,
         });
         if (!repairedGate.ok) {
-          return fail(
-            'apply',
-            `Quality gate failed after repair: ${repairedGate.blockingReasons.join(' | ')}`,
+          // If post-repair failures include hard-blocking reasons, or if originally hard-blocking, fail
+          const postRepairAllSoft = repairedGate.blockingReasons.every(r =>
+            SOFT_BLOCKING_PREFIXES.some(p => r.startsWith(p)),
           );
+          if (!postRepairAllSoft || !allSoftBlocking) {
+            return fail(
+              'apply',
+              `Quality gate failed after repair: ${repairedGate.blockingReasons.join(' | ')}`,
+            );
+          }
+          // Soft-blocking still failing after repair — degrade to advisory and continue
+          log(
+            `[quality-gate] premium/media still unused after repair (advisory): ` +
+              repairedGate.blockingReasons.join(' | '),
+            'warn',
+          );
+        } else {
+          log('[quality-gate] quality gate passed after repair');
         }
-        log('[quality-gate] quality gate passed after repair');
       } catch (err) {
         if (isAbort(err)) return fail('apply', 'aborted');
         log(`[quality-gate] repair attempt failed: ${(err as Error).message}`, 'warn');
-        return fail(
-          'apply',
-          `Quality gate failed: ${qualityGate.blockingReasons.join(' | ')}`,
-        );
+        if (!allSoftBlocking) {
+          // Hard-blocking issue + failed repair → fail the pipeline
+          return fail(
+            'apply',
+            `Quality gate failed: ${qualityGate.blockingReasons.join(' | ')}`,
+          );
+        }
+        // Soft-blocking only (premium/media) + failed repair → degrade to advisory, continue
+        log('[quality-gate] premium/media repair failed — continuing as best-effort (advisory)', 'warn');
       }
     } else if (qualityGate.advisoryReasons.length === 0) {
       log('[quality-gate] prototype quality gate: ok');

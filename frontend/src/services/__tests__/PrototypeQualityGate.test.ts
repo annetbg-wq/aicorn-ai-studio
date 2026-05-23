@@ -536,3 +536,75 @@ describe('runQualityRepair', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });
+
+// ── Soft/hard blocking classification tests ───────────────────────────────────
+//
+// These tests verify the gate correctly classifies which blocking reasons are
+// "soft" (premium/media — degrade if repair fails) vs "hard" (tokens/placeholders).
+
+describe('soft vs hard blocking classification', () => {
+  it('premium-only blocking starts with expected prefix for allSoftBlocking detection', () => {
+    const vud: VisualUsageDiagnostics = {
+      premiumUsageChecked: true,
+      premiumComponentsSelected: ['analytics-chart'],
+      premiumComponentImportsFound: [],
+      premiumUsageCount: 0,
+      premiumUsageObserved: false,
+      mediaUsageChecked: false,
+      mediaAssetsMaterialized: [],
+      mediaAssetReferencesFound: [],
+      mediaUsageCount: 0,
+      mediaUsageObserved: false,
+      firstScreenFilesChecked: [],
+      firstScreenPremiumUsageObserved: false,
+      firstScreenMediaUsageObserved: false,
+      meaningfulScreenFiles: [],
+      meaningfulScreenCount: 0,
+      genericPlaceholderFindings: [],
+      visualUsageNotes: [],
+      suggestedNextAction: 'improve_prompt',
+    };
+    const gate = evaluatePrototypeQualityGate({ designContractViolations: [], visualUsageDiagnostics: vud });
+    expect(gate.ok).toBe(false);
+    // Must start with "Premium components selected" so allSoftBlocking check works
+    expect(gate.blockingReasons[0]).toMatch(/^Premium components selected/);
+  });
+
+  it('media-only blocking starts with expected prefix for allSoftBlocking detection', () => {
+    const vud: VisualUsageDiagnostics = {
+      premiumUsageChecked: false,
+      premiumComponentsSelected: [],
+      premiumComponentImportsFound: [],
+      premiumUsageCount: 0,
+      premiumUsageObserved: false,
+      mediaUsageChecked: true,
+      mediaAssetsMaterialized: ['src/assets/generated/hero.svg'],
+      mediaAssetReferencesFound: [],
+      mediaUsageCount: 0,
+      mediaUsageObserved: false,
+      firstScreenFilesChecked: [],
+      firstScreenPremiumUsageObserved: false,
+      firstScreenMediaUsageObserved: false,
+      meaningfulScreenFiles: [],
+      meaningfulScreenCount: 0,
+      genericPlaceholderFindings: [],
+      visualUsageNotes: [],
+      suggestedNextAction: 'improve_prompt',
+    };
+    const gate = evaluatePrototypeQualityGate({ designContractViolations: [], visualUsageDiagnostics: vud });
+    expect(gate.ok).toBe(false);
+    // Must start with "Generated media assets materialized" so allSoftBlocking check works
+    expect(gate.blockingReasons[0]).toMatch(/^Generated media assets materialized/);
+  });
+
+  it('design token violation does NOT start with soft prefix — correctly classified as hard-blocking', () => {
+    const gate = evaluatePrototypeQualityGate({
+      designContractViolations: [{ path: 'App.tsx', rule: 'no-raw-hex', example: '#ff0000', line: 1 }],
+    });
+    expect(gate.ok).toBe(false);
+    expect(gate.blockingReasons[0]).toMatch(/^Design contract/);
+    // Should NOT match either soft prefix
+    expect(gate.blockingReasons[0].startsWith('Premium components selected')).toBe(false);
+    expect(gate.blockingReasons[0].startsWith('Generated media assets materialized')).toBe(false);
+  });
+});
