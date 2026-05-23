@@ -23,6 +23,19 @@ import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
 import { canonicalizeProjectPath } from '../frontend/src/shared/safePaths';
+import type { SkeletonId } from '../frontend/src/services/SkeletonRegistry';
+import {
+  LIVE_GENERATION_ALLOWED_UI_PRIMITIVES,
+  canonicalUiPrimitiveId,
+  preferredUiPrimitiveWorkspaceRoots,
+  uiPrimitiveWorkspaceCandidates,
+} from '../frontend/src/services/LiveGenerationUiPrimitives';
+import {
+  LiveGenerationContractError,
+  createViteBuildDiagnostic,
+  isLiveGenerationContractError,
+  validateLiveGenerationContract,
+} from '../frontend/src/services/LiveGenerationContractValidator';
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -38,6 +51,7 @@ const BUILDS_WORKSPACE = path.resolve(__dirname, '..', 'builds');
 /** Maximum compiled builds to keep on disk (LRU). */
 const MAX_BUILDS = 20;
 const PRESERVED_PREVIEW_DIRS = ['components', 'config', 'context', 'data', 'hooks', 'lib', 'pages', 'themes'];
+const REPO_ROOT = path.resolve(__dirname, '..');
 
 /** Root directory where skeleton source trees live: skeletons/<id>/skeleton-<id>/src */
 const SKELETONS_ROOT = path.resolve(__dirname, '..', 'skeletons');
@@ -105,6 +119,34 @@ export function sanitizeCompileFiles(
 let compileQueue: Promise<void> = Promise.resolve();
 
 const previewSessionBindings = new Map<string, string>();
+
+// ── build status store ────────────────────────────────────────────────────────
+
+export type PreviewBuildStatusCode = 'building' | 'ready' | 'failed';
+
+export interface PreviewBuildStatus {
+  buildId: string;
+  status: PreviewBuildStatusCode;
+  previewPath?: string;
+  error?: string;
+  diagnostics?: unknown[];
+  durationMs?: number;
+  updatedAt: string;
+}
+
+const _buildStatuses = new Map<string, PreviewBuildStatus>();
+
+export function getPreviewBuildStatus(buildId: string): PreviewBuildStatus | undefined {
+  return _buildStatuses.get(buildId);
+}
+
+export function setPreviewBuildStatus(record: PreviewBuildStatus): void {
+  _buildStatuses.set(record.buildId, record);
+}
+
+export function clearPreviewBuildStatuses(): void {
+  _buildStatuses.clear();
+}
 
 export function normalizePreviewSessionToken(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -183,7 +225,9 @@ export function appendPreviewSessionToPreviewAssetUrl(assetUrl: string, sessionT
   const assetPath = queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash;
   const query = queryIndex >= 0 ? beforeHash.slice(queryIndex + 1) : '';
 
-  if (!/^\.\/assets\/[^?#]+\.(?:js|css)$/i.test(assetPath)) return assetUrl;
+  // Rewriting module script URLs with previewSession creates a second module
+  // graph when lazy chunks import the same file without that query string.
+  if (!/^\.\/assets\/[^?#]+\.css$/i.test(assetPath)) return assetUrl;
   if (new URLSearchParams(query).has('previewSession')) return assetUrl;
 
   const separator = query ? '&' : '?';
@@ -218,6 +262,46 @@ function isPreviewIndexRequest(req: express.Request): boolean {
   return req.path === '/' || req.path === '/index.html';
 }
 
+function isPreviewAssetRequest(req: express.Request): boolean {
+  return req.path.startsWith('/assets/');
+}
+
+async function sendPreviewStaticAsset(
+  res: express.Response,
+  buildPath: string,
+  assetRequestPath: string,
+): Promise<void> {
+  const relativeAssetPath = assetRequestPath.replace(/^\/+/, '');
+  const assetPath = path.resolve(buildPath, relativeAssetPath);
+  assertWithinRoot(buildPath, assetPath, `preview asset path "${assetRequestPath}"`);
+
+  let assetStats: fs.Stats;
+  try {
+    assetStats = await fsPromises.stat(assetPath);
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      res.status(404).send('Asset not found');
+      return;
+    }
+    throw error;
+  }
+
+  if (!assetStats.isFile()) {
+    res.status(404).send('Asset not found');
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    res.sendFile(assetPath, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 async function sendPreviewIndexHtml(
   res: express.Response,
   buildPath: string,
@@ -242,13 +326,6 @@ export function registerPreviewBuildRoute(app: express.Express): void {
 
     const queryToken = normalizePreviewSessionToken(req.query.previewSession);
     const headerToken = normalizePreviewSessionToken(req.get('X-Preview-Session'));
-    if (!canReadPreviewBuild(buildId, queryToken ?? headerToken, previewSessionBindings, {
-      nodeEnv: process.env.NODE_ENV,
-      serverMode: process.env.AIC_SERVER_MODE,
-    })) {
-      return res.status(403).send('Preview access denied');
-    }
-
     const sessionToken = queryToken ?? headerToken;
     const redirectPath = getPreviewDocumentTrailingSlashRedirectPath(req.originalUrl, buildId);
     if (redirectPath) {
@@ -256,14 +333,59 @@ export function registerPreviewBuildRoute(app: express.Express): void {
     }
 
     if (isPreviewIndexRequest(req)) {
+      if (!canReadPreviewBuild(buildId, sessionToken, previewSessionBindings, {
+        nodeEnv: process.env.NODE_ENV,
+        serverMode: process.env.AIC_SERVER_MODE,
+      })) {
+        return res.status(403).send('Preview access denied');
+      }
       return sendPreviewIndexHtml(res, buildPath, sessionToken).catch(next);
+    }
+
+    if (isPreviewAssetRequest(req)) {
+      return sendPreviewStaticAsset(res, buildPath, req.path).catch(next);
     }
 
     return express.static(buildPath, { index: false })(req, res, (err) => {
       if (err) return next(err);
       // SPA fallback — serve index.html for any unmatched path inside the build
+      if (!canReadPreviewBuild(buildId, sessionToken, previewSessionBindings, {
+        nodeEnv: process.env.NODE_ENV,
+        serverMode: process.env.AIC_SERVER_MODE,
+      })) {
+        return res.status(403).send('Preview access denied');
+      }
       return sendPreviewIndexHtml(res, buildPath, sessionToken).catch(next);
     });
+  });
+}
+
+/**
+ * Mount build status endpoint.
+ * GET /api/preview/:buildId/status
+ * Returns PreviewBuildStatus JSON; 404 if unknown, 403 if session invalid.
+ */
+export function registerPreviewStatusRoute(app: express.Express): void {
+  app.get('/api/preview/:buildId/status', (req, res) => {
+    const { buildId } = req.params;
+
+    const record = _buildStatuses.get(buildId);
+    if (!record) {
+      return res.status(404).json({ error: 'Build not found' });
+    }
+
+    const queryToken = normalizePreviewSessionToken(req.query.previewSession);
+    const headerToken = normalizePreviewSessionToken(req.get('X-Preview-Session'));
+    const sessionToken = queryToken ?? headerToken;
+
+    if (!canReadPreviewBuild(buildId, sessionToken, previewSessionBindings, {
+      nodeEnv: process.env.NODE_ENV,
+      serverMode: process.env.AIC_SERVER_MODE,
+    })) {
+      return res.status(403).json({ error: 'Preview access denied' });
+    }
+
+    return res.json(record);
   });
 }
 
@@ -285,7 +407,7 @@ export function registerPreviewCompileRoute(app: express.Express): void {
       }
 
       const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
-        ? req.body as { files?: Record<string, string>; skeletonId?: string; sessionId?: unknown }
+        ? req.body as { files?: Record<string, string>; skeletonId?: SkeletonId; sessionId?: unknown }
         : {};
       const rawSessionToken = req.get('X-Preview-Session') ?? body.sessionId;
       if (rawSessionToken === undefined || rawSessionToken === null) {
@@ -328,15 +450,52 @@ export function registerPreviewCompileRoute(app: express.Express): void {
       }
 
       // Enqueue — only one build runs at a time
+      const buildStartMs = Date.now();
+      setPreviewBuildStatus({ buildId, status: 'building', updatedAt: new Date().toISOString() });
       const job = compileQueue.then(() => compileBuild(buildId, sanitizedFiles, skeletonId));
       compileQueue = job.then(() => undefined, () => undefined);
 
       try {
         await job;
+        const durationMs = Date.now() - buildStartMs;
         await cleanupLRU();
+        setPreviewBuildStatus({
+          buildId,
+          status: 'ready',
+          previewPath: `/preview/${buildId}`,
+          durationMs,
+          updatedAt: new Date().toISOString(),
+        });
         res.json({ success: true, buildId, url: `/preview/${buildId}` });
       } catch (e: any) {
+        const durationMs = Date.now() - buildStartMs;
+        if (isLiveGenerationContractError(e)) {
+          const rootCause = e.diagnostics?.[0]?.root_cause_type;
+          const statusCode = rootCause === 'vite_build_error' ? 500 : 422;
+          console.error(`[preview-manager] compile contract failed for ${buildId}:`, e.message);
+          setPreviewBuildStatus({
+            buildId,
+            status: 'failed',
+            error: e.message ?? String(e),
+            diagnostics: e.diagnostics,
+            durationMs,
+            updatedAt: new Date().toISOString(),
+          });
+          return res.status(statusCode).json({
+            success: false,
+            error: e.message ?? String(e),
+            diagnostics: e.diagnostics,
+            candidateGraphSummary: e.candidateGraphSummary,
+          });
+        }
         console.error(`[preview-manager] compile failed for ${buildId}:`, e.message);
+        setPreviewBuildStatus({
+          buildId,
+          status: 'failed',
+          error: e.message ?? String(e),
+          durationMs,
+          updatedAt: new Date().toISOString(),
+        });
         res.status(500).json({ success: false, error: e.message ?? String(e) });
       }
     },
@@ -345,66 +504,230 @@ export function registerPreviewCompileRoute(app: express.Express): void {
 
 // ── internal helpers ──────────────────────────────────────────────────────────
 
-/**
- * Ensure shadcn/ui accordion (and peer components) are installed in
- * preview-workspace/src/components/ui/.
- *
- * Idempotent: skips entirely when accordion.tsx already exists.
- * Non-fatal: a failed shadcn add is logged but does not abort the build.
- */
-async function ensureShadcnComponents(workspaceRoot: string): Promise<void> {
-  const accordionPath = path.join(workspaceRoot, 'src', 'components', 'ui', 'accordion.tsx');
-  if (fs.existsSync(accordionPath)) return;
+export async function ensurePreviewLibShims(workspaceRoot: string): Promise<void> {
+  const libDir = path.join(workspaceRoot, 'src', 'lib');
+  const utilsPath = path.join(libDir, 'utils.ts');
+  if (fs.existsSync(utilsPath)) return;
 
-  // Overwrite components.json with the Lyra/Vega preset (new-york + neutral, radius 0.75)
-  const componentsJson = {
-    $schema: 'https://ui.shadcn.com/schema.json',
-    style: 'new-york',
-    rsc: false,
-    tsx: true,
-    tailwind: {
-      config: 'tailwind.config.js',
-      css: 'src/index.css',
-      baseColor: 'neutral',
-      cssVariables: true,
-    },
-    aliases: {
-      components: '@/components',
-      utils: '@/lib/utils',
-    },
-    radius: 0.75,
-  };
+  await fsPromises.mkdir(libDir, { recursive: true });
   await fsPromises.writeFile(
-    path.join(workspaceRoot, 'components.json'),
-    JSON.stringify(componentsJson, null, 2),
+    utilsPath,
+    [
+      "export { cn } from './cn';",
+      "export * from './cn';",
+      '',
+    ].join('\n'),
     'utf-8',
   );
+}
 
-  console.log('[preview-manager] Installing shadcn/ui...');
-  await new Promise<void>((resolve) => {
-    const child = spawn(
-      'npx',
-      ['shadcn@latest', 'add', 'accordion', 'button', 'card', 'input', 'label', 'textarea', '--overwrite', '-y'],
-      {
-        cwd: workspaceRoot,
-        stdio: 'pipe',
-        shell: process.platform === 'win32',
-      },
-    );
-    let stderr = '';
-    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.stdout?.on('data', () => {});
-    child.on('close', (code) => {
-      if (code === 0) {
-        console.log('[preview-manager] shadcn/ui ready');
-      } else {
-        // Non-fatal: templates using accordion will fail to compile, but the
-        // build is not aborted — simpler components continue to work.
-        console.warn('[preview-manager] shadcn add exited', code, stderr.slice(0, 400));
+export interface UiPrimitiveImport {
+  primitive: string;
+  importedBy: string;
+  specifier: string;
+}
+
+export interface UiPrimitiveGuardResult {
+  imports: UiPrimitiveImport[];
+  materialized: string[];
+}
+
+const UI_PRIMITIVE_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
+const CANDIDATE_GRAPH_TEXT_EXTENSIONS = new Set(['.css', '.js', '.json', '.jsx', '.ts', '.tsx']);
+const KNOWN_MATERIALIZABLE_UI_PRIMITIVES = new Set(LIVE_GENERATION_ALLOWED_UI_PRIMITIVES);
+
+export function getKnownMaterializableUiPrimitives(): string[] {
+  return Array.from(KNOWN_MATERIALIZABLE_UI_PRIMITIVES).sort((left, right) => left.localeCompare(right));
+}
+
+function stripModuleExtension(value: string): string {
+  return value.replace(/\.(?:tsx?|jsx?)$/i, '');
+}
+
+function normalizeUiPrimitiveName(value: string): string {
+  const trimmed = stripModuleExtension(value.trim());
+  if (!trimmed) return '';
+  if (trimmed.includes('-')) return trimmed.toLowerCase();
+  return trimmed
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[_\s]+/g, '-')
+    .toLowerCase();
+}
+
+export function extractUiPrimitiveImportName(specifier: string): string | null {
+  const normalized = stripModuleExtension(specifier.replace(/\\/g, '/'));
+  const match = normalized.match(/(?:^|\/)components\/ui\/([^/]+)$/);
+  if (!match) return null;
+  const primitive = normalizeUiPrimitiveName(match[1]);
+  return /^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(primitive) ? primitive : null;
+}
+
+export function findUiPrimitiveImportsInSource(source: string, importedBy: string): UiPrimitiveImport[] {
+  const imports: UiPrimitiveImport[] = [];
+  const seen = new Set<string>();
+  const addSpecifier = (specifier: string) => {
+    const primitive = extractUiPrimitiveImportName(specifier);
+    if (!primitive) return;
+    const key = `${primitive}\0${specifier}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    imports.push({ primitive, importedBy, specifier });
+  };
+
+  for (const match of source.matchAll(/\bfrom\s*['"]([^'"]+)['"]/g)) {
+    addSpecifier(match[1]);
+  }
+  for (const match of source.matchAll(/\bimport\s*['"]([^'"]+)['"]/g)) {
+    addSpecifier(match[1]);
+  }
+
+  return imports;
+}
+
+function toUiPrimitivePascalName(primitive: string): string {
+  return primitive
+    .split('-')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+}
+
+function hasUiPrimitiveFile(uiRoot: string, primitive: string): boolean {
+  const pascalName = toUiPrimitivePascalName(primitive);
+  const candidates = [
+    `${primitive}.ts`,
+    `${primitive}.tsx`,
+    `${pascalName}.ts`,
+    `${pascalName}.tsx`,
+    path.join(primitive, 'index.ts'),
+    path.join(primitive, 'index.tsx'),
+    path.join(pascalName, 'index.ts'),
+    path.join(pascalName, 'index.tsx'),
+  ];
+  return candidates.some(candidate => fs.existsSync(path.join(uiRoot, candidate)));
+}
+
+function canonicalUiPrimitiveCandidates(primitive: string, skeletonId?: string): string[] {
+  const canonicalPrimitive = canonicalUiPrimitiveId(primitive);
+  if (!canonicalPrimitive) return [];
+
+  return uiPrimitiveWorkspaceCandidates(
+    canonicalPrimitive,
+    preferredUiPrimitiveWorkspaceRoots(skeletonId),
+  ).map(candidate => path.join(REPO_ROOT, candidate));
+}
+
+async function materializeKnownUiPrimitive(
+  uiRoot: string,
+  primitive: string,
+  skeletonId?: string,
+): Promise<string> {
+  if (!KNOWN_MATERIALIZABLE_UI_PRIMITIVES.has(primitive)) {
+    throw new Error(`Missing UI primitive import: components/ui/${primitive}`);
+  }
+
+  const canonicalSource = canonicalUiPrimitiveCandidates(primitive, skeletonId)
+    .find(candidate => fs.existsSync(candidate));
+
+  if (!canonicalSource) {
+    throw new Error(`Missing UI primitive import: components/ui/${primitive} (canonical source not found)`);
+  }
+
+  const targetPath = path.join(uiRoot, `${primitive}${path.extname(canonicalSource) || '.tsx'}`);
+  await fsPromises.mkdir(path.dirname(targetPath), { recursive: true });
+  await fsPromises.copyFile(canonicalSource, targetPath);
+  return targetPath;
+}
+
+async function collectSourceFiles(root: string): Promise<string[]> {
+  const out: string[] = [];
+  const visit = async (dir: string) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fsPromises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'build') continue;
+        await visit(entryPath);
+      } else if (UI_PRIMITIVE_SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
+        out.push(entryPath);
       }
-      resolve();
-    });
-  });
+    }
+  };
+
+  await visit(root);
+  return out;
+}
+
+async function collectCandidateGraphFiles(root: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const visit = async (dir: string) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fsPromises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'build') continue;
+        await visit(entryPath);
+        continue;
+      }
+
+      if (!CANDIDATE_GRAPH_TEXT_EXTENSIONS.has(path.extname(entry.name))) continue;
+      const relativePath = path.relative(root, entryPath).replace(/\\/g, '/');
+      out[relativePath] = await fsPromises.readFile(entryPath, 'utf-8');
+    }
+  };
+
+  await visit(root);
+  return out;
+}
+
+export async function ensureImportedUiPrimitives(
+  srcDir: string,
+  skeletonId?: string,
+): Promise<UiPrimitiveGuardResult> {
+  const uiRoot = path.join(srcDir, 'components', 'ui');
+  const sourceFiles = await collectSourceFiles(srcDir);
+  const imports: UiPrimitiveImport[] = [];
+  const importByPrimitive = new Map<string, UiPrimitiveImport>();
+
+  for (const sourceFile of sourceFiles) {
+    const content = await fsPromises.readFile(sourceFile, 'utf-8');
+    const importedBy = `src/${path.relative(srcDir, sourceFile).replace(/\\/g, '/')}`;
+    for (const uiImport of findUiPrimitiveImportsInSource(content, importedBy)) {
+      imports.push(uiImport);
+      if (!importByPrimitive.has(uiImport.primitive)) {
+        importByPrimitive.set(uiImport.primitive, uiImport);
+      }
+    }
+  }
+
+  const materialized: string[] = [];
+  for (const [primitive, uiImport] of importByPrimitive) {
+    if (hasUiPrimitiveFile(uiRoot, primitive)) continue;
+
+    if (KNOWN_MATERIALIZABLE_UI_PRIMITIVES.has(primitive)) {
+      const targetPath = await materializeKnownUiPrimitive(uiRoot, primitive, skeletonId);
+      materialized.push(path.relative(srcDir, targetPath).replace(/\\/g, '/'));
+      continue;
+    }
+
+    throw new Error(
+      `Missing UI primitive import: components/ui/${primitive} (imported by ${uiImport.importedBy})`,
+    );
+  }
+
+  return { imports, materialized };
 }
 
 /**
@@ -424,13 +747,10 @@ async function ensureShadcnComponents(workspaceRoot: string): Promise<void> {
 async function compileBuild(
   buildId: string,
   files: Record<string, string>,
-  skeletonId?: string,
+  skeletonId?: SkeletonId,
 ): Promise<void> {
   const outDir = path.join(BUILDS_WORKSPACE, buildId);
   const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
-
-  // 0-pre. Ensure shadcn/ui accordion is present (idempotent, non-fatal).
-  await ensureShadcnComponents(PREVIEW_WORKSPACE);
 
   // 0. Workspace reset — two modes:
   //    a) Skeleton mode (skeletonId provided): wipe src/* entirely, then copy
@@ -453,6 +773,7 @@ async function compileBuild(
     }
     // 0a-ii. Copy skeleton src/* into preview-workspace/src/
     await fsPromises.cp(skeletonSrc, srcDir, { recursive: true });
+    await ensurePreviewLibShims(PREVIEW_WORKSPACE);
     console.log(`[preview-manager] Skeleton ${skeletonId} installed into src/`);
   } else {
     // 0b. Legacy cleanup — preserve skeleton infra dirs, remove unknown files.
@@ -484,17 +805,31 @@ async function compileBuild(
     }
   }
 
+  // Skeleton-only compile: files={} means the skeleton src is the full source
+  // of truth. Skeleton App.tsx imports section files that were just copied in
+  // step 0 — overwriting them with generic template files breaks those imports.
+  const isSkeletonOnlyCompile = Object.keys(files).length === 0;
+
   // 0.5. Mirror section templates into the preview workspace so generated
+  await ensurePreviewLibShims(PREVIEW_WORKSPACE);
   // App.tsx imports always resolve to concrete files.
-  const { templatesSrc, sectionsDest } = resolveSectionTemplatePaths(PREVIEW_WORKSPACE);
-  await fsPromises.rm(sectionsDest, { recursive: true, force: true });
-  await fsPromises.cp(templatesSrc, sectionsDest, { recursive: true });
+  // Skip for skeleton-only compiles: skeleton sections must be preserved.
+  if (!isSkeletonOnlyCompile) {
+    const { templatesSrc, sectionsDest } = resolveSectionTemplatePaths(PREVIEW_WORKSPACE);
+    await fsPromises.rm(sectionsDest, { recursive: true, force: true });
+    await fsPromises.cp(templatesSrc, sectionsDest, { recursive: true });
+  }
 
   // 1. Write user source files (delta over the skeleton base)
   for (const [filePath, content] of Object.entries(files)) {
     const { fullPath } = resolvePreviewSrcPath(srcDir, filePath);
     await fsPromises.mkdir(path.dirname(fullPath), { recursive: true });
     await fsPromises.writeFile(fullPath, content, 'utf-8');
+  }
+
+  const uiPrimitiveGuard = await ensureImportedUiPrimitives(srcDir, skeletonId);
+  for (const materializedPath of uiPrimitiveGuard.materialized) {
+    console.log(`[preview-manager] Materialized UI primitive: ${materializedPath}`);
   }
 
   // 1.5a. In skeleton mode: force-restore skeleton's index.css after user file writes
@@ -600,34 +935,59 @@ window.addEventListener('unhandledrejection', (e) => {
 `;
   await fsPromises.writeFile(path.join(srcDir, 'main.tsx'), canonicalMainTsx, 'utf-8');
 
+  const finalCandidateFiles = await collectCandidateGraphFiles(srcDir);
+  const materializedFiles: Record<string, string> = {};
+  for (const materializedPath of uiPrimitiveGuard.materialized) {
+    const fullPath = path.join(srcDir, materializedPath);
+    if (!fs.existsSync(fullPath)) continue;
+    materializedFiles[materializedPath] = await fsPromises.readFile(fullPath, 'utf-8');
+  }
+  const contract = validateLiveGenerationContract({
+    finalFiles: finalCandidateFiles,
+    skeletonId,
+    generatedDeltaFiles: files,
+    materializedFiles,
+  });
+  if (!contract.ok) {
+    throw new LiveGenerationContractError(contract.diagnostics, contract.candidateGraphSummary);
+  }
+
   // 3. Ensure builds/ exists and run vite build
   //    outDir is outside preview-workspace/ so Vite's root-check passes.
   await fsPromises.mkdir(BUILDS_WORKSPACE, { recursive: true });
 
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      'npx',
-      ['vite', 'build', '--outDir', outDir, '--emptyOutDir'],
-      {
-        cwd: PREVIEW_WORKSPACE,
-        stdio: 'pipe',
-        shell: process.platform === 'win32',
-      },
-    );
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        'npx',
+        ['vite', 'build', '--outDir', outDir, '--emptyOutDir'],
+        {
+          cwd: PREVIEW_WORKSPACE,
+          stdio: 'pipe',
+          shell: process.platform === 'win32',
+        },
+      );
 
-    let stderr = '';
-    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.stdout?.on('data', () => {}); // drain to avoid backpressure
+      let stderr = '';
+      child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+      child.stdout?.on('data', () => {}); // drain to avoid backpressure
 
-    child.on('close', (code) => {
-      if (code === 0) {
-        console.log(`[preview-manager] build complete: ${buildId}`);
-        resolve();
-      } else {
-        reject(new Error(`vite build exited ${code}:\n${stderr.slice(0, 1000)}`));
-      }
+      child.on('close', (code) => {
+        if (code === 0) {
+          console.log(`[preview-manager] build complete: ${buildId}`);
+          resolve();
+        } else {
+          reject(new Error(`vite build exited ${code}:\n${stderr.slice(0, 1000)}`));
+        }
+      });
     });
-  });
+  } catch (err) {
+    const excerpt = err instanceof Error ? err.message : String(err);
+    throw new LiveGenerationContractError(
+      [createViteBuildDiagnostic(contract.candidateGraphSummary, excerpt)],
+      contract.candidateGraphSummary,
+    );
+  }
 }
 
 /**
@@ -637,7 +997,7 @@ window.addEventListener('unhandledrejection', (e) => {
 export async function runCompileJob(
   buildId: string,
   files: Record<string, string>,
-  skeletonId?: string,
+  skeletonId?: SkeletonId,
 ): Promise<void> {
   const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
   const sanitized = sanitizeCompileFiles(files, srcDir);

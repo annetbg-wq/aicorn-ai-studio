@@ -1,27 +1,56 @@
 /// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
+import type { WebSocketLikeConstructor } from '@supabase/realtime-js';
 
 // Primary: env vars (build time)
 // Fallback: localStorage (persisted from Settings UI)
 // Last resort: hardcoded dev values
 
+// Guard: localStorage is not available in Node/Vitest environments
+const _localStorage: Storage | undefined =
+  typeof localStorage !== 'undefined' ? localStorage : undefined;
+
 const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL ||
-  localStorage.getItem('SUPABASE_URL') ||
+  _localStorage?.getItem('SUPABASE_URL') ||
   'https://zdzuaodphrlpvorutpyc.supabase.co';
 
 const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  localStorage.getItem('SUPABASE_ANON_KEY') ||
+  _localStorage?.getItem('SUPABASE_ANON_KEY') ||
   '';
 
 // Persist to localStorage so it survives .env changes
-if (SUPABASE_URL && !SUPABASE_URL.includes('placeholder')) {
+if (_localStorage && SUPABASE_URL && !SUPABASE_URL.includes('placeholder')) {
   try {
-    localStorage.setItem('SUPABASE_URL', SUPABASE_URL);
-    localStorage.setItem('SUPABASE_ANON_KEY', SUPABASE_ANON_KEY);
+    _localStorage.setItem('SUPABASE_URL', SUPABASE_URL);
+    _localStorage.setItem('SUPABASE_ANON_KEY', SUPABASE_ANON_KEY);
   } catch { /* quota / blocked */ }
 }
+
+// Node.js < 22 has no native WebSocket. Supabase realtime-js throws at
+// createClient() time if no transport is provided. Supply a no-op stub so
+// module import succeeds in CI/Vitest node environments — the realtime client
+// never actually connects in tests (no .channel().subscribe() calls).
+// In browsers and Node 22+, WebSocket is always available and this is unused.
+const _realtimeTransport: WebSocketLikeConstructor | undefined =
+  typeof WebSocket === 'undefined'
+    ? (class _NoopWS {
+        readyState = 3;
+        url = '';
+        protocol = '';
+        onopen:    ((this: any, ev: Event) => any) | null = null;
+        onmessage: ((this: any, ev: MessageEvent) => any) | null = null;
+        onclose:   ((this: any, ev: CloseEvent) => any) | null = null;
+        onerror:   ((this: any, ev: Event) => any) | null = null;
+        CONNECTING = 0; OPEN = 1; CLOSING = 2; CLOSED = 3;
+        constructor(_url: string | URL) {}
+        close(_code?: number, _reason?: string): void {}
+        send(_data: string | ArrayBufferLike | Blob | ArrayBufferView): void {}
+        addEventListener(_type: string, _listener: EventListener): void {}
+        removeEventListener(_type: string, _listener: EventListener): void {}
+      } as unknown as WebSocketLikeConstructor)
+    : undefined;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -33,8 +62,9 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken:   true,
     persistSession:     true,
     detectSessionInUrl: false,
-    storage:            localStorage,
+    storage:            _localStorage,
   },
+  ...(_realtimeTransport ? { realtime: { transport: _realtimeTransport } } : {}),
 });
 
 console.log('[Supabase] Connected to:', SUPABASE_URL);

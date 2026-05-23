@@ -202,7 +202,7 @@ export function VisualBankModule({ runtimeDiscoveryOverride }: VisualBankModuleP
   const [selectedVariant, setSelectedVariant] = useState<string>('');
   const [selectedColorFamily, setSelectedColorFamily] = useState<string>('');
   const [premiumCategoryFilter, setPremiumCategoryFilter] = useState<string>('all');
-  const premiumLayerLoad = useMemo(() => loadPremiumBankForVisualBank(), []);
+  const [premiumLayerLoad, setPremiumLayerLoad] = useState<PremiumBankLoadState>(() => loadPremiumBankForVisualBank());
 
   useEffect(() => {
     let cancelled = false;
@@ -237,6 +237,26 @@ export function VisualBankModule({ runtimeDiscoveryOverride }: VisualBankModuleP
       cancelled = true;
     };
   }, [runtimeDiscoveryOverride]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void PremiumComponentBankService.warmupPremiumPreviews()
+      .then(() => {
+        if (cancelled) return;
+        PremiumComponentBankService.resetPremiumComponentBankCache();
+        setPremiumLayerLoad(loadPremiumBankForVisualBank());
+      })
+      .catch(() => {
+        if (cancelled) return;
+        PremiumComponentBankService.resetPremiumComponentBankCache();
+        setPremiumLayerLoad(loadPremiumBankForVisualBank());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const skeletons = useMemo(() => {
     if (!loadedBank) return SKELETON_ORDER;

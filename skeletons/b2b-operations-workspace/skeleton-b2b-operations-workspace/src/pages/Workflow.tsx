@@ -1,0 +1,3 @@
+import { useApp } from '@/context/AppContext';
+const stages = ['Lead','Qualified','In Review','Approved','Blocked'];
+export default function Workflow(){ const app = useApp(); return <main className="page"><h1 className="title">Workflow board</h1><div className="grid three">{stages.map((stage)=><section className="card pad stack" key={stage}><h3>{stage}</h3>{app.records.filter((record)=>record.stage===stage).map((record)=><button className="pill" key={record.id} onClick={()=>{app.setSelectedRecordId(record.id); app.setActiveRoute('RecordDetail')}}>{record.company}</button>)}</section>)}</div></main> }

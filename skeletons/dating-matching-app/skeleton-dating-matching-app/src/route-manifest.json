@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "skeletonId": "dating-matching-app",
+  "routes": [
+    {
+      "id": "Onboarding",
+      "path": "/onboarding",
+      "filePath": "src/pages/Onboarding.tsx",
+      "title": "Onboarding"
+    },
+    {
+      "id": "Discover",
+      "path": "/discover",
+      "filePath": "src/pages/Discover.tsx",
+      "title": "Discover"
+    },
+    {
+      "id": "Matches",
+      "path": "/matches",
+      "filePath": "src/pages/Matches.tsx",
+      "title": "Matches"
+    },
+    {
+      "id": "Conversation",
+      "path": "/conversation",
+      "filePath": "src/pages/Conversation.tsx",
+      "title": "Conversation"
+    },
+    {
+      "id": "Profile",
+      "path": "/profile",
+      "filePath": "src/pages/Profile.tsx",
+      "title": "Profile"
+    },
+    {
+      "id": "Settings",
+      "path": "/settings",
+      "filePath": "src/pages/Settings.tsx",
+      "title": "Settings"
+    }
+  ]
+}

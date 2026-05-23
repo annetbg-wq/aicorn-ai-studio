@@ -1,51 +1,37 @@
 import * as esbuild from 'esbuild-wasm';
 import { metricsService, enrichError } from '../services/MetricsService';
+import { CDN_WASM_URL, resolveBundlerWasmUrl } from './bundlerConfig';
 
 // --- Warm-up state --------------------------------------------------------
-const ESBUILD_VERSION = '0.25.12';
-const CDN_WASM_URL = `https://unpkg.com/esbuild-wasm@${ESBUILD_VERSION}/esbuild.wasm`;
-const LOCAL_WASM_URL = '/esbuild.wasm';
-
 let isInitialized = false;
 let pendingPromise: Promise<void> | null = null;
 
 /**
  * Инициализирует esbuild-wasm.
  * Идемпотентна: повторные вызовы возвращают тот же Promise.
- * Сначала пробует локальный /esbuild.wasm, при ошибке — CDN fallback.
+ * По умолчанию использует CDN-asset. Локальный URL можно передать через
+ * VITE_ESBUILD_WASM_URL, когда бинарник действительно опубликован.
  */
 export function initBundler(): Promise<void> {
   // Уже выполняется или завершена — возвращаем единственный Promise
   if (pendingPromise) return pendingPromise;
 
   pendingPromise = (async () => {
-    // 1. Попытка с локальным WASM
-    try {
-      await esbuild.initialize({ wasmURL: LOCAL_WASM_URL, worker: true });
-      isInitialized = true;
-      return;
-    } catch (localErr) {
-      console.warn(
-        '[bundler] Локальный WASM недоступен (/esbuild.wasm), переключаемся на CDN...',
-        localErr,
-      );
-    }
+    const wasmURL = resolveBundlerWasmUrl();
 
-    // 2. Fallback на CDN
     try {
-      await esbuild.initialize({ wasmURL: CDN_WASM_URL, worker: true });
+      await esbuild.initialize({ wasmURL, worker: true });
       isInitialized = true;
-    } catch (cdnErr) {
+    } catch (initErr) {
       // Сбрасываем Promise, чтобы следующий вызов мог попробовать снова
       pendingPromise = null;
       console.error(
-        '[bundler] КРИТИЧЕСКАЯ ОШИБКА: не удалось загрузить esbuild WASM ' +
-          'ни локально, ни через CDN.\n' +
-          'Рекомендация: убедитесь, что файл /esbuild.wasm доступен в папке public/, ' +
-          `либо проверьте сетевой доступ к CDN (${CDN_WASM_URL}).`,
-        cdnErr,
+        '[bundler] КРИТИЧЕСКАЯ ОШИБКА: не удалось загрузить esbuild WASM.\n' +
+          `Используемый URL: ${wasmURL}\n` +
+          `Рекомендация: проверьте VITE_ESBUILD_WASM_URL или сетевой доступ к CDN (${CDN_WASM_URL}).`,
+        initErr,
       );
-      throw cdnErr;
+      throw initErr;
     }
   })();
 

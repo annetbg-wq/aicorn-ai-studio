@@ -12,9 +12,14 @@ import { resolvePreviewBridgePath } from './src/shared/previewBridgePaths'
 // strictPort: true means Vite will FAIL with a clear error if this port is occupied,
 // preventing a second studio from silently starting on a different port.
 const devPort = parseInt(process.env.VITE_PORT ?? '5183', 10);
+const frontendRoot = __dirname;
+const workspaceRoot = path.resolve(__dirname, '..');
+const previewWorkspaceRoot = path.join(workspaceRoot, 'preview-workspace');
+const previewSrcRoot = path.join(previewWorkspaceRoot, 'src');
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  root: frontendRoot,
   plugins: [
     react(),
     tailwindcss(),
@@ -64,7 +69,7 @@ export default defineConfig({
     {
       name: 'preview-bridge',
       configureServer(server) {
-        const previewSrc = path.join(process.cwd(), '..', 'preview-workspace', 'src');
+        const previewSrc = previewSrcRoot;
 
         // Clear all files in preview-workspace/src except main.tsx and index.css
         // After clearing, writes a placeholder App.tsx so Vite never breaks
@@ -133,7 +138,7 @@ export default defineConfig({
         // Deploy preview-workspace to Vercel via CLI
         server.middlewares.use('/__deploy_preview', (req, res) => {
           if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
-          const previewRoot = path.join(process.cwd(), '..', 'preview-workspace');
+          const previewRoot = previewWorkspaceRoot;
           try {
             execSync('npm run build', { cwd: previewRoot, stdio: 'pipe', timeout: 60_000 });
             const output = execSync(
@@ -152,7 +157,6 @@ export default defineConfig({
           }
         });
 
-        // Read ALL user-generated files from preview-workspace/src/ in one call
         server.middlewares.use('/__read_all_preview', (_req, res) => {
           try {
             const files: Record<string, string> = {};
@@ -368,6 +372,14 @@ export default defineConfig({
   server: {
     port: devPort,
     strictPort: true,   // fail hard if port is taken — no silent fallback
+    watch: {
+      ignored: [
+        '**/test-results/**',
+        '**/playwright-report/**',
+        '**/artifacts/**',
+        '**/builds/**',
+      ],
+    },
     proxy: {
       // Forward all /api calls and preview HMR to auth-token backend (port 3000)
       '/api': {

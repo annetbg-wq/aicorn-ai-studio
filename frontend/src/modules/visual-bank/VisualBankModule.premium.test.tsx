@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VisualBankModule } from './VisualBankModule';
@@ -10,6 +10,10 @@ import type { PremiumComponentBank } from '../../services/PremiumComponentBankSe
 async function renderLoaded() {
   const result = render(<VisualBankModule />);
   await screen.findByTestId('live-visual-preview');
+  // Await warmup so _loadedPreviews is populated and React state updates are flushed
+  await act(async () => {
+    await PremiumComponentBankService.warmupPremiumPreviews();
+  });
   return result;
 }
 

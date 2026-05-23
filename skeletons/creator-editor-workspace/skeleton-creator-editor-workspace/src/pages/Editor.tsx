@@ -1,0 +1,3 @@
+import { useState } from 'react';
+import { useApp } from '@/context/AppContext';
+export default function Editor(){ const app = useApp(); const [text,setText]=useState(app.activeDraft?.body ?? ''); return <main className="page"><section className="card hero stack"><span className="badge">{app.wordCount} words</span><h1 className="title">{app.activeDraft?.title ?? 'Editor'}</h1><textarea className="input" style={{ minHeight: 220 }} value={text} onChange={(e)=>{setText(e.target.value); app.updateDraft(e.target.value)}}/><div className="row"><button className="btn" onClick={app.publishDoc}>Publish</button><button className="btn secondary" onClick={()=>app.setActiveRoute('Media')}>Insert media</button></div></section></main> }

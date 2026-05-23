@@ -3,10 +3,10 @@ import { RootLayout }           from './layouts/RootLayout';
 import { AdmissionWarningModal } from './components/AdmissionWarningModal';
 import { AppSidebar }           from './components/AppSidebar';
 import ArchitectDashboard       from './modules/architect/ArchitectDashboard';
-const EngineWorkspace    = lazy(() => lazyWithRetry(() => import('./modules/engine/EngineWorkspace')).then(m => ({ default: m.EngineWorkspace })));
+import { Dashboard }            from './components/Dashboard';
+import { TrendNichesModule }    from './components/dashboard/TrendNichesModule';
+import { EngineWorkspace }      from './modules/engine/EngineWorkspace';
 
-const Dashboard          = lazy(() => lazyWithRetry(() => import('./components/Dashboard')).then(m => ({ default: m.Dashboard })));
-const TrendNichesModule  = lazy(() => lazyWithRetry(() => import('./components/dashboard/TrendNichesModule')).then(m => ({ default: m.TrendNichesModule })));
 const ProjectsPage       = lazy(() => lazyWithRetry(() => import('./pages/ProjectsPage')));
 const PlatinumFigma      = lazy(() => lazyWithRetry(() => import('./components/PlatinumFigma')).then(m => ({ default: m.PlatinumFigma })));
 const BenchmarkDashboard    = lazy(() => lazyWithRetry(() => import('./components/BenchmarkDashboard')));
@@ -45,24 +45,42 @@ import {
   type ProductBlueprint,
   type TrendNicheIdea,
 } from './services/ideaFeedService';
+import { launchTrendIdeaBuild } from './services/TrendIdeaLaunchService';
 import type { ModuleId, ViewId } from './shared/types';
 
 const CODE_STUDIO_INTENT_PREFIX = '__OPEN_CODE_STUDIO__';
 const CODE_STUDIO_INPUT_KEY = 'AIC_CODE_STUDIO_INITIAL_INPUT';
 const LAZY_RELOAD_KEY = 'AIC_LAZY_RELOAD_DONE';
 
-function lazyWithRetry<T>(importer: () => Promise<T>): Promise<T> {
-  return importer().then((module) => {
+async function lazyWithRetry<T>(importer: () => Promise<T>): Promise<T> {
+  const clearReloadFlag = () => {
     try {
       sessionStorage.removeItem(LAZY_RELOAD_KEY);
     } catch {
       // no-op
     }
-    return module;
-  }).catch((error) => {
+  };
+
+  const isDynamicImportError = (error: unknown) => {
     const msg = String((error as Error)?.message ?? error ?? '');
-    const isDynamicImportError = /Failed to fetch dynamically imported module|Importing a module script failed/i.test(msg);
-    if (!isDynamicImportError) throw error;
+    return /Failed to fetch dynamically imported module|Importing a module script failed/i.test(msg);
+  };
+
+  try {
+    const module = await importer();
+    clearReloadFlag();
+    return module;
+  } catch (error) {
+    if (!isDynamicImportError(error)) throw error;
+  }
+
+  try {
+    await new Promise(resolve => window.setTimeout(resolve, 150));
+    const module = await importer();
+    clearReloadFlag();
+    return module;
+  } catch (retryError) {
+    if (!isDynamicImportError(retryError)) throw retryError;
 
     let alreadyReloaded = false;
     try {
@@ -78,8 +96,8 @@ function lazyWithRetry<T>(importer: () => Promise<T>): Promise<T> {
       }
       window.location.reload();
     }
-    throw error;
-  });
+    throw retryError;
+  }
 }
 
 export default function App() {
@@ -320,10 +338,15 @@ function StudioApp() {
     setView('engine');
   };
 
-  const handleStartBlueprint = (text: string) => {
-    studio.addComposerContextFromPlan(null, text, 'manual');
+  const handleStartBlueprint = React.useCallback(async (text: string) => {
     setView('engine');
-  };
+    try {
+      await studio.startExternalChatDraftSession();
+      studio.addComposerContextFromPlan(null, text, 'manual');
+    } catch (error: unknown) {
+      studio.addSystemMessage(`⚠️ Failed to open a clean chat draft: ${(error as Error)?.message ?? String(error)}`);
+    }
+  }, [studio]);
 
   const handleLaunchWithPlan = React.useCallback((plan: any, intent: string, source?: 'chat' | 'weekly-feed' | 'niche' | 'trend-niche' | 'weekly-feed-code-studio') => {
     const fromWeeklyCodeStudio = source === 'weekly-feed-code-studio' || intent.startsWith(CODE_STUDIO_INTENT_PREFIX);
@@ -346,24 +369,35 @@ function StudioApp() {
     try {
       await studio.startTrendIdeaDraftSession('chat');
       studio.setChatContext(founderBrief, 'trend-niche', idea.appName);
-      studio.onSend();
+      studio.onSend(founderBrief);
     } catch (error: unknown) {
       studio.addSystemMessage(`⚠️ Failed to open isolated trend draft: ${(error as Error)?.message ?? String(error)}`);
     }
   }, [studio]);
 
   const handleBuildTrendIdea = React.useCallback(async (idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => {
-    const copy = getTrendIdeaText(idea, studio.appLanguage);
     setView('engine');
     try {
-      await studio.launchWithPlan(blueprint, intent, 'trend-niche');
-      studio.addSystemMessage([
-        `🧠 Blueprint packaged: **${blueprint.appName || copy.title}**`,
-        '',
-        `Market angle: ${copy.marketAngle}`,
-        `Why now: ${copy.whyInteresting}`,
-        `Files planned: ${blueprint.fileArchitecture?.length ?? 0}`,
-      ].join('\n'));
+      await launchTrendIdeaBuild({
+        idea,
+        blueprint,
+        intent,
+        language: studio.appLanguage,
+        deps: {
+          launchWithPlan: async (plan, nextIntent) => {
+            await studio.startTrendIdeaDraftSession('build');
+            studio.addComposerContextFromPlan(plan, nextIntent, 'trend-niche');
+          },
+          addSystemMessage: studio.addSystemMessage,
+          setInput: studio.setInput,
+          onSend: studio.onSend,
+          scheduleSend: (callback) => {
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(callback);
+            });
+          },
+        },
+      });
     } catch (error: unknown) {
       studio.addSystemMessage(`⚠️ Failed to launch packaged trend idea: ${(error as Error)?.message ?? String(error)}`);
     }

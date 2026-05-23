@@ -9,3 +9,4 @@ export * from './Select';
 export * from './Sheet';
 export * from './Skeleton';
 export * from './Tabs';
+export * from './scroll-area';

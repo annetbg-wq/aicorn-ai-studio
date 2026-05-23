@@ -9,44 +9,48 @@
  * Tab "Benchmark" — BenchmarkDashboard (Golden Suite + Compare Models).
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import JSZip from 'jszip';
 import {
   FlaskConical, Play, Loader2, CheckCircle2, XCircle, Circle,
-  Clock, BarChart2, ChevronDown, ChevronRight, Download, GitCompare, FileText, Layers3,
+  Clock, BarChart2, ChevronDown, ChevronRight, Download, X,
 } from 'lucide-react';
 import { BenchmarkDashboard } from '../../components/BenchmarkDashboard';
 import { ConfigService } from '../../services/ConfigService';
 import { Orchestrator } from '../../services/Orchestrator';
-import { fetchModelsWithCache, type Model } from '../../services/ModelRegistry';
-import { ProtoPipeline } from '../../services/ProtoPipeline';
-import { getDevAgentCliStatus } from '../code-studio-internal/ClaudeDevBridge';
-import { VisualBankModule } from '../visual-bank/VisualBankModule';
+import { generationTracer } from '../../services/GenerationTracer';
 import {
-  analyzeArchitectPlanTruth,
-  type OutputTruthResult,
-  type OutputStructureContractSummary,
-  type OutputSkeletonDeltaSummary,
-} from '../../shared/outputTruth';
+  extractJsonObjectFromModelText,
+  validateArchitectJsonShape,
+} from '../../services/architectJson';
+import {
+  runLiveReadinessPreflight,
+  type LiveReadinessPreflightCheck,
+  type LiveReadinessPreflightResult,
+} from './LiveReadinessPreflight';
 
 // ── Step definitions ───────────────────────────────────────────────────────────
 
 const STEP_DEFS = [
   { id: 'canary',            label: 'Canary',            desc: 'Backend доступен (GET /api/health → 200)' },
-  { id: 'idea-validate',     label: 'Idea Validate',     desc: 'Стандартный prototype brief принят и использован в реальном LLM-run' },
-  { id: 'architecture',      label: 'Architecture',      desc: 'Реальный architect output для стандартного lightweight prototype' },
-  { id: 'code-delta',        label: 'Code Delta',        desc: 'Реальная delta поверх skeleton компилируется и проходит proof contract' },
+  { id: 'idea-validate',     label: 'Idea Validate',     desc: 'Промпт не пустой, длина > 10 символов' },
+  { id: 'architecture',      label: 'Architecture',      desc: 'Fixture plan содержит skeleton, deltaFiles, pages' },
+  { id: 'code-delta',        label: 'Code Delta',        desc: 'POST /api/preview/{id}/compile → success: true' },
   { id: 'compile',           label: 'Compile',           desc: 'В builds/ есть папка с .js assets' },
   { id: 'preview-http',      label: 'Preview HTTP',      desc: 'GET /preview/{buildId} → 200 и HTML' },
   { id: 'preview-mounted',   label: 'Preview Mounted',   desc: 'main.tsx содержит postMessage({type: preview-mounted})' },
-  { id: 'save-ready',        label: 'Save Ready',        desc: 'Save-ready только для real preview с proof-validated output' },
+  { id: 'save-ready',        label: 'Save Ready',        desc: 'Compile вернул success: true (save-ready state)' },
   { id: 'no-premature-save', label: 'No Premature Save', desc: 'Проект не создан до явного save' },
-  { id: 'architect-real',    label: 'Architect Real',    desc: 'Реальный LLM вызов по стандартному prototype brief — fileTree ≥5 файлов, реальные токены' },
+  { id: 'architect-real',    label: 'Architect Real',    desc: 'Реальный LLM вызов — fileTree ≥5 файлов, реальные токены' },
 ] as const;
 
 type StepId = typeof STEP_DEFS[number]['id'];
-type TabId  = 'flow-chain' | 'benchmark' | 'showcase';
-type QualityTruthKind = 'real-runtime' | 'real-llm';
+type TabId  = 'flow-chain' | 'benchmark';
+type TestStatus = 'idle' | 'running' | 'pass' | 'fail' | 'cancelled';
+type CompletedTestStatus = 'pass' | 'fail';
+type EvidenceKind = 'fixture' | 'real-runtime' | 'real-llm';
+type AggregateStatus = 'idle' | 'pass' | 'warning' | 'fail';
+type ReportVerdict = 'PASS' | 'WARNING' | 'FAIL';
 
 // ── Per-test detail types ──────────────────────────────────────────────────────
 
@@ -54,54 +58,23 @@ interface CanaryDetails       { httpStatus: number; response: { status: string; 
 interface IdeaDetails         { prompt: string; length: number; valid: boolean }
 interface ArchDetails         { appName: string; skeleton: string; skeletonFiles?: Record<string, string>; fileTree: Record<string, string>; contextContract?: string; dataModel?: string }
 interface CodeDeltaFile       { path: string; size: number; content: string }
-interface CodeDeltaDetails    { buildId: string; files: CodeDeltaFile[]; structure?: OutputStructureContractSummary; skeletonDelta?: OutputSkeletonDeltaSummary }
+interface CodeDeltaDetails    { buildId: string; files: CodeDeltaFile[] }
 interface CompileAsset        { name: string; size: number }
 interface CompileDetails      { buildId: string; assets: CompileAsset[] }
-interface PreviewHttpDetails  { httpStatus: number; contentLength: number; contentLengthStr: string; hasRootDiv: boolean; buildId: string; htmlExcerpt?: string }
+interface PreviewHttpDetails  { httpStatus: number; contentLength: number; contentLengthStr: string; hasRootDiv: boolean; buildId: string }
 interface PreviewMtdDetails   { lineNumber: number; line: string }
-interface SaveReadyDetails    { compileSuccess: boolean; buildId: string; assetsCount: number; structure?: OutputStructureContractSummary; skeletonDelta?: OutputSkeletonDeltaSummary }
+interface SaveReadyDetails    { compileSuccess: boolean; buildId: string; assetsCount: number }
 interface NoPremSaveDetails   { projectsBeforeSave: number; totalSessions: number; correct: boolean }
-interface ArchRealDetails    { appName: string; skeleton: string; fileTree: Record<string, string>; contextContract?: string; dataModel?: string; model: string; fileCount: number; prompt?: string; rawResponse?: string; finishReason?: string | null; routeLabel?: string; repairAttempted?: boolean }
+interface ArchRealDetails    { appName: string; skeleton: string; fileTree: Record<string, string>; contextContract?: string; dataModel?: string; model: string; fileCount: number }
 interface TestLlmMetrics      { model: string; prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd?: number }
 interface TestOutputMetrics   { file_count?: number; total_bytes?: number; asset_count?: number; build_size_kb?: number; preview_url?: string; files?: string[] }
-interface QualityWorkspaceSnapshot {
-  skeletonId: string | null;
-  routeCount: number;
-  workspaceFiles: Record<string, string>;
-  deltaFiles: Record<string, string>;
-  outputTruth: OutputTruthResult;
-}
-interface QualityCompareSourceFile {
-  path: string;
-  size: number;
-  content: string;
-  origin: 'skeleton' | 'delta';
-}
-interface QualityCompareRunMetrics {
-  generation_ms: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cost_usd?: number;
-  costEstimated?: boolean;
-}
-interface QualityCompareSuiteData {
-  buildId: string;
-  previewUrl?: string;
-  prompt: string;
-  skeletonId: string | null;
-  workspace?: QualityWorkspaceSnapshot;
-  sourceFiles: QualityCompareSourceFile[];
-  codeSections: QualityRealTextSection[];
-  metrics: QualityCompareRunMetrics;
-  tests: Record<StepId, TestApiResult>;
-}
 
 // ── General types ──────────────────────────────────────────────────────────────
 
 interface TestState {
-  status: 'idle' | 'running' | 'pass' | 'fail';
+  status: TestStatus;
   duration_ms: number;
+  updatedAt?: string;
   error?: string;
   summary?: string;
   llm?: TestLlmMetrics;
@@ -112,13 +85,13 @@ interface TestState {
 
 interface TestHistoryRun {
   timestamp: string;
-  status: 'pass' | 'fail';
+  status: CompletedTestStatus;
   duration_ms: number;
   error?: string;
 }
 
 interface TestApiResult {
-  status: 'pass' | 'fail';
+  status: CompletedTestStatus | 'cancelled';
   duration_ms: number;
   summary?: string;
   llm?: TestLlmMetrics;
@@ -128,196 +101,107 @@ interface TestApiResult {
   details?: Record<string, unknown>;
 }
 
-export type QualityCompareRoute = 'standard-api' | 'openrouter' | 'claude-cli' | 'codex-cli';
-
-export interface QualityRealTextSection {
-  id: string;
-  label: string;
-  content: string;
-}
-
-export interface QualityCompareProfile {
-  route: QualityCompareRoute;
-  model: string;
-}
-
-interface QualityCompareProfileStatus {
-  ready: boolean;
-  label: string;
-  reason?: string;
-}
-
-export interface QualityCompareRunSide {
-  profile: QualityCompareProfile;
-  status: QualityCompareProfileStatus;
-  result?: TestApiResult;
-  realText: QualityRealTextSection[];
-  /** Per-token pricing looked up from the OpenRouter catalog at run time */
-  pricing?: { promptPerToken: number; completionPerToken: number };
-  suite?: QualityCompareSuiteData;
-}
-
-interface QualityCompareRunRecord {
-  state: 'idle' | 'running' | 'done';
-  supported: boolean;
-  reason?: string;
-  left?: QualityCompareRunSide;
-  right?: QualityCompareRunSide;
-}
-
-interface QualityCompareReportSideSummary {
-  profile?: QualityCompareProfile;
-  status?: QualityCompareProfileStatus;
-  result?: TestApiResult;
-  metrics?: QualityCompareRunMetrics;
-  buildId?: string;
-  previewUrl?: string;
-  sourceFileCount?: number;
-  skeletonFileCount?: number;
-  deltaFileCount?: number;
-}
-
-interface QualityRunScope {
-  mode: 'single' | 'all';
-  compare: boolean;
-  stepIds: StepId[];
-}
-
-type DevAgentCliStatus = Awaited<ReturnType<typeof getDevAgentCliStatus>>;
-
 // ── localStorage helpers ───────────────────────────────────────────────────────
 
-const LS_TEST_KEY     = (id: string) => `quality.real-suite.test.${id}`;
-const LS_LAST_RUN_KEY = 'quality.real-suite.lastRun';
+const LS_TEST_KEY     = (id: string) => `quality.test.${id}`;
+const LS_LAST_RUN_KEY = 'quality.lastRunAll';
+const LS_PREFLIGHT_KEY = 'quality.preflight.last';
 const MAX_HIST        = 5;
-const REAL_RUNTIME_TESTS = new Set<StepId>([
-  'canary',
-  'code-delta',
-  'compile',
-  'preview-http',
-  'preview-mounted',
-  'save-ready',
-  'no-premature-save',
-]);
-const REAL_LLM_TESTS = new Set<StepId>([
-  'idea-validate',
-  'architecture',
-  'architect-real',
-]);
-const BLOCKING_REAL_TESTS = new Set<StepId>([
-  'canary',
-  'idea-validate',
-  'architecture',
-  'architect-real',
-  'code-delta',
-  'compile',
-  'preview-http',
-  'preview-mounted',
-  'save-ready',
-]);
-const ALL_STEP_IDS = STEP_DEFS.map(def => def.id as StepId);
+const FIXTURE_BACKED_TESTS = new Set<StepId>(['idea-validate', 'architecture', 'code-delta']);
+const PREFLIGHT_CHECK_DEFS = [
+  { id: 'ui-primitive-catalog', label: 'UI primitive catalog' },
+  { id: 'import-export-contract', label: 'Import/export contract' },
+  { id: 'shared-hook-contracts', label: 'Shared hook contracts' },
+  { id: 'protected-shell-boundary', label: 'Protected shell boundary' },
+  { id: 'candidate-graph-foundation', label: 'Candidate graph foundation' },
+  { id: 'prompt-catalog-truthfulness', label: 'Prompt catalog truthfulness' },
+  { id: 'premium-component-hints', label: 'Premium component hints' },
+  { id: 'launch-flow-wiring', label: 'Launch flow wiring' },
+  { id: 'quality-controls-contract', label: 'Quality controls contract' },
+] as const;
+const FIXTURE_NOTE_TEXT = 'Not real LLM output';
+const CANCELLED_BY_USER = 'Cancelled by user';
+const QUALITY_STORAGE_PREFIXES = [
+  'quality.test.',
+  'quality.preflight.',
+  'quality.lastRun',
+  'quality.real-suite.',
+  'quality.compare.',
+  'quality.benchmark.',
+] as const;
+const QUALITY_REPORT_CACHE_PREFIXES = [
+  'quality.real-suite.',
+  'quality.compare.',
+  'quality.benchmark.',
+] as const;
 
-function getTruthKind(id: StepId): QualityTruthKind {
-  if (REAL_LLM_TESTS.has(id)) return 'real-llm';
-  return 'real-runtime';
+interface AggregateSummary {
+  status: AggregateStatus;
+  reason: string;
+  blockingFailures: string[];
+  warnings: string[];
 }
 
-const QUALITY_COMPARE_ROUTE_LABELS: Record<QualityCompareRoute, string> = {
-  'standard-api': 'Standard API',
-  openrouter: 'OpenRouter',
-  'claude-cli': 'Claude CLI',
-  'codex-cli': 'Codex CLI',
+interface ClearSummary {
+  action: string;
+  cleared: string[];
+  preserved: string[];
+}
+
+interface StepEvidence {
+  kind: EvidenceKind;
+  label: string;
+  note?: string;
+  fixtureBacked: boolean;
+  realRuntime: boolean;
+  realLlm: boolean;
+}
+
+interface ActiveRun {
+  token: number;
+  controller: AbortController;
+  cancelled: boolean;
+  mode: 'single' | 'all';
+}
+
+const CANCELLED_TEST_RESULT: TestApiResult = {
+  status: 'cancelled',
+  duration_ms: 0,
+  error: CANCELLED_BY_USER,
+  summary: CANCELLED_BY_USER,
 };
 
-function getPrimaryProviderForQuality(): string {
-  return ConfigService.getAgentConfig('agent_primary').provider || 'openrouter';
-}
-
-function describeQualityCompareProfile(profile: QualityCompareProfile, primaryProvider = getPrimaryProviderForQuality()): string {
-  if (profile.route === 'standard-api') {
-    return `${QUALITY_COMPARE_ROUTE_LABELS[profile.route]} · ${primaryProvider}`;
-  }
-  return QUALITY_COMPARE_ROUTE_LABELS[profile.route];
-}
-
-function getQualityCompareProfileStatus(
-  profile: QualityCompareProfile,
-  cliStatus: DevAgentCliStatus | null,
-  primaryProvider = getPrimaryProviderForQuality(),
-): QualityCompareProfileStatus {
-  const model = profile.model.trim();
-  const label = describeQualityCompareProfile(profile, primaryProvider);
-
-  if (!model) {
-    return { ready: false, label, reason: 'Select or enter a model first.' };
-  }
-
-  if (profile.route === 'standard-api') {
-    const key = ConfigService.getKeyForAgent('primary');
-    return key
-      ? { ready: true, label }
-      : { ready: false, label, reason: `Add a ${primaryProvider} key in Settings → Providers.` };
-  }
-
-  if (profile.route === 'openrouter') {
-    const key = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
-    return key
-      ? { ready: true, label }
-      : { ready: false, label, reason: 'Add an OpenRouter key in Settings → Providers.' };
-  }
-
-  const cliKey = profile.route === 'codex-cli' ? 'codex' : 'claude';
-  const cli = cliStatus?.[cliKey];
-  return cli?.available
-    ? { ready: true, label }
-    : { ready: false, label, reason: cli?.reason || `${label} is not available on this machine.` };
-}
-
-function buildQualityCompareRouteOverrides(
-  profile: QualityCompareProfile,
-  primaryProvider = getPrimaryProviderForQuality(),
-): Partial<Record<'spec' | 'primary' | 'build' | 'fix' | 'qa', {
-  modelId: string;
-  apiKey: string;
-  endpoint: string;
-  provider: string;
-}>> {
-  const modelId = profile.model.trim();
-  if (!modelId) {
-    throw new Error('Compare profile model is required.');
-  }
-
-  if (profile.route === 'standard-api') {
-    const apiKey = ConfigService.getKeyForAgent('primary');
-    if (!apiKey) throw new Error(`API key missing for ${primaryProvider}.`);
-    const endpoint = Orchestrator.getEndpoint(primaryProvider);
-    const route = { modelId, apiKey, endpoint, provider: primaryProvider };
-    return { spec: route, primary: route, build: route, fix: route, qa: route };
-  }
-
-  if (profile.route === 'openrouter') {
-    const apiKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
-    if (!apiKey) throw new Error('OpenRouter key missing.');
-    const route = {
-      modelId,
-      apiKey,
-      endpoint: Orchestrator.getEndpoint('openrouter'),
-      provider: 'openrouter',
+function getStepEvidence(id: StepId): StepEvidence {
+  if (FIXTURE_BACKED_TESTS.has(id)) {
+    return {
+      kind: 'fixture',
+      label: 'Baseline fixture',
+      note: FIXTURE_NOTE_TEXT,
+      fixtureBacked: true,
+      realRuntime: false,
+      realLlm: false,
     };
-    return { spec: route, primary: route, build: route, fix: route, qa: route };
   }
-
-  const route = {
-    modelId,
-    apiKey: '',
-    endpoint: '/api/quality/llm-run',
-    provider: profile.route,
+  if (id === 'architect-real') {
+    return {
+      kind: 'real-llm',
+      label: 'Real LLM',
+      fixtureBacked: false,
+      realRuntime: false,
+      realLlm: true,
+    };
+  }
+  return {
+    kind: 'real-runtime',
+    label: 'Real runtime',
+    fixtureBacked: false,
+    realRuntime: true,
+    realLlm: false,
   };
-  return { spec: route, primary: route, build: route, fix: route, qa: route };
 }
 
-function areQualityCompareProfilesEqual(left: QualityCompareProfile, right: QualityCompareProfile): boolean {
-  return left.route === right.route && left.model.trim() === right.model.trim();
+function isQualityPanelStorageKey(key: string): boolean {
+  return QUALITY_STORAGE_PREFIXES.some(prefix => key.startsWith(prefix));
 }
 
 function loadTestHistory(id: string): TestHistoryRun[] {
@@ -337,18 +221,95 @@ function persistTestRun(id: string, run: TestHistoryRun): void {
 
 function clearQualityPanelHistory(): void {
   try {
-    STEP_DEFS.forEach(def => localStorage.removeItem(LS_TEST_KEY(def.id)));
-    localStorage.removeItem(LS_LAST_RUN_KEY);
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && isQualityPanelStorageKey(key)) keys.push(key);
+    }
+    keys.forEach(key => localStorage.removeItem(key));
   } catch { /* ignore */ }
+}
+
+function listQualityStorageKeys(): string[] {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && isQualityPanelStorageKey(key)) keys.push(key);
+    }
+    return keys;
+  } catch {
+    return [];
+  }
+}
+
+function removeQualityKeys(predicate: (key: string) => boolean): number {
+  const keys = listQualityStorageKeys().filter(predicate);
+  keys.forEach(key => {
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+  });
+  return keys.length;
+}
+
+function loadPersistedPreflight(): LiveReadinessPreflightResult | null {
+  try {
+    const raw = localStorage.getItem(LS_PREFLIGHT_KEY);
+    return raw ? (JSON.parse(raw) as LiveReadinessPreflightResult) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistPreflight(result: LiveReadinessPreflightResult): void {
+  try {
+    localStorage.setItem(LS_PREFLIGHT_KEY, JSON.stringify(result));
+  } catch {
+    /* quota */
+  }
+}
+
+function hasPersistedQualityPanelState(): boolean {
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && isQualityPanelStorageKey(key)) return true;
+    }
+  } catch { /* ignore */ }
+  return false;
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────────
 
-async function callTestApi(testId: string, buildId?: string): Promise<TestApiResult> {
+function isAbortError(err: unknown): boolean {
+  return typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError'
+    || err instanceof Error && err.name === 'AbortError';
+}
+
+function createLinkedTimeoutSignal(timeoutMs: number, parentSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timeoutId = setTimeout(abort, timeoutMs);
+
+  if (parentSignal?.aborted) {
+    abort();
+  } else {
+    parentSignal?.addEventListener('abort', abort, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      parentSignal?.removeEventListener('abort', abort);
+    },
+  };
+}
+
+async function callTestApi(testId: string, buildId?: string, signal?: AbortSignal): Promise<TestApiResult> {
   const url = buildId
     ? `/api/quality/test/${testId}?buildId=${encodeURIComponent(buildId)}`
     : `/api/quality/test/${testId}`;
-  const resp = await fetch(url);
+  const resp = await fetch(url, { signal });
   if (!resp.ok) {
     const text = await resp.text().catch(() => resp.statusText);
     return { status: 'fail', duration_ms: 0, error: `HTTP ${resp.status}: ${text}` };
@@ -356,9 +317,33 @@ async function callTestApi(testId: string, buildId?: string): Promise<TestApiRes
   return (await resp.json()) as TestApiResult;
 }
 
-// ── Architect Real — direct LLM call (standard/openrouter) + local CLI proxy ───
+// ── Architect Real — direct LLM call (frontend-only, no backend proxy) ─────────
 
-const QUALITY_ARCHITECT_SYSTEM_PROMPT = `You are an app architect. Return a JSON object — no markdown fences, no extra text.
+async function runArchitectRealTest(signal?: AbortSignal): Promise<TestApiResult> {
+  const t0 = Date.now();
+  const ms = () => Date.now() - t0;
+
+  if (signal?.aborted) return { ...CANCELLED_TEST_RESULT, duration_ms: ms() };
+
+  let modelId: string;
+  let apiKey: string;
+  let endpoint: string;
+  let normalizedModelId: string;
+
+  try {
+    modelId = ConfigService.resolveModel('primary');
+    if (!modelId) throw new Error('Model not configured for primary slot. Open Settings → Agents.');
+    apiKey = ConfigService.getKeyForAgent('primary');
+    if (!apiKey) throw new Error('API key missing for primary slot. Open Settings → Providers.');
+    const agentCfg = ConfigService.getAgentConfig('agent_primary');
+    const provider = agentCfg.provider || 'openrouter';
+    endpoint = Orchestrator.getEndpoint(provider);
+    normalizedModelId = Orchestrator.normalizeModelId(modelId, endpoint);
+  } catch (err: unknown) {
+    return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const SYSTEM_PROMPT = `You are an app architect. Return a JSON object — no markdown fences, no extra text.
 Schema:
 {
   "appName": "<name derived from user prompt>",
@@ -373,449 +358,98 @@ Rules:
 - fileTree must contain ONLY delta files (files the coder will create from scratch)
 - Do NOT include skeleton files already provided: src/App.tsx, src/main.tsx, src/context/AppContext.tsx, src/hooks/useLocalStorage.ts, src/components/ui/*, src/components/BottomTabs.tsx, src/lib/cn.ts
 - Minimum 5 delta files required
-- Each fileTree value: exactly one sentence describing purpose + data used`;
+- Each fileTree value: exactly one sentence describing purpose + data used
 
-const QUALITY_STANDARD_PROTOTYPE_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
+ARCHITECT_OUTPUT_CONTRACT:
+Return exactly one valid JSON object.
+Do not wrap it in markdown.
+Do not use code fences.
+Do not add commentary before or after JSON.
+Do not include explanations outside JSON.
+The JSON must match the required architect schema.`;
 
-interface ArchitectCompletionMeta {
-  content: string;
-  usageRaw?: Record<string, unknown>;
-  llmModel: string;
-  finishReason: string | null;
-}
+  const USER_PROMPT = 'Трекер привычек: ежедневные отметки, стрик, статистика';
 
-export interface ArchitectRunnerProfile {
-  route: QualityCompareRoute;
-  model?: string;
-}
-
-interface ArchitectExecutionConfig {
-  provider: string;
-  apiKey: string;
-  endpoint: string;
-  model: string;
-  routeLabel: string;
-}
-
-function stripJsonMarkdownFences(raw: string): string {
-  return raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-}
-
-function tryParseJsonObject(raw: string): Record<string, unknown> | null {
-  const parseCandidate = (candidate: string): Record<string, unknown> | null => {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : null;
-    } catch {
-      const repairedWhitespaceEscapes = candidate.replace(/\\(?=[ \t])/g, '');
-      if (repairedWhitespaceEscapes === candidate) return null;
-      try {
-        const parsed = JSON.parse(repairedWhitespaceEscapes) as unknown;
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-          ? parsed as Record<string, unknown>
-          : null;
-      } catch {
-        return null;
-      }
-    }
-  };
-
-  const trimmed = stripJsonMarkdownFences(raw);
-  const direct = parseCandidate(trimmed);
-  if (direct) return direct;
-
-  const start = trimmed.indexOf('{');
-  if (start === -1) return null;
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let i = start; i < trimmed.length; i += 1) {
-    const ch = trimmed[i];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === '\\') {
-        escaped = true;
-      } else if (ch === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === '{') depth += 1;
-    else if (ch === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        return parseCandidate(trimmed.slice(start, i + 1));
-      }
-    }
-  }
-
-  return null;
-}
-
-export function extractArchitectCompletionMeta(raw: unknown, fallbackModel: string): ArchitectCompletionMeta {
-  const data = raw as Record<string, unknown> | null | undefined;
-  const choices = Array.isArray(data?.choices) ? data.choices as Array<Record<string, unknown>> : [];
-  const firstChoice = choices[0] ?? null;
-
-  if (firstChoice) {
-    const message = (firstChoice.message ?? null) as Record<string, unknown> | null;
-    const messageContent = message?.content;
-    const content = typeof messageContent === 'string'
-      ? messageContent
-      : Array.isArray(messageContent)
-        ? messageContent
-            .map(part => {
-              if (typeof part === 'string') return part;
-              const block = part as Record<string, unknown>;
-              return typeof block.text === 'string' ? block.text : '';
-            })
-            .join('\n')
-        : '';
-    return {
-      content,
-      usageRaw: typeof data?.usage === 'object' && data?.usage !== null ? data.usage as Record<string, unknown> : undefined,
-      llmModel: typeof data?.model === 'string' ? data.model : fallbackModel,
-      finishReason: typeof firstChoice.finish_reason === 'string' ? firstChoice.finish_reason : null,
-    };
-  }
-
-  const contentBlocks = Array.isArray(data?.content) ? data.content as Array<Record<string, unknown>> : [];
-  if (contentBlocks.length > 0) {
-    return {
-      content: contentBlocks
-        .map(block => typeof block.text === 'string' ? block.text : '')
-        .filter(Boolean)
-        .join('\n'),
-      usageRaw: typeof data?.usage === 'object' && data?.usage !== null ? data.usage as Record<string, unknown> : undefined,
-      llmModel: typeof data?.model === 'string' ? data.model : fallbackModel,
-      finishReason: typeof data?.stop_reason === 'string' ? data.stop_reason : null,
-    };
-  }
-
-  return {
-    content: typeof data?.output_text === 'string' ? data.output_text : '',
-    usageRaw: typeof data?.usage === 'object' && data?.usage !== null ? data.usage as Record<string, unknown> : undefined,
-    llmModel: typeof data?.model === 'string' ? data.model : fallbackModel,
-    finishReason: typeof data?.finish_reason === 'string' ? data.finish_reason : null,
-  };
-}
-
-function buildArchitectRepairPrompt(input: {
-  originalPrompt: string;
-  brokenContent: string;
-  blockers?: string[];
-}): string {
-  return [
-    `Original brief: ${input.originalPrompt}`,
-    'Your previous architect output was invalid, incomplete, or truncated.',
-    'Return one complete valid JSON object only. No markdown fences. No commentary.',
-    'If needed, restart from scratch, but obey the exact schema and minimum 5 delta files rule.',
-    input.blockers && input.blockers.length > 0
-      ? `Previous blockers: ${input.blockers.join(' | ')}`
-      : null,
-    'Previous malformed output:',
-    input.brokenContent.slice(0, 4000),
-  ].filter(Boolean).join('\n\n');
-}
-
-function shouldRetryArchitectAttempt(input: {
-  plan: Record<string, unknown> | null;
-  finishReason: string | null;
-  blockers: string[];
-}): boolean {
-  if (!input.plan) return true;
-  if (input.finishReason === 'length' || input.finishReason === 'max_tokens') return true;
-  return input.blockers.some(blocker =>
-    /too small|missing|too shallow|need multiple real screens|skeleton-aware enough/i.test(blocker),
-  );
-}
-
-function resolveArchitectExecutionConfig(profile?: ArchitectRunnerProfile): ArchitectExecutionConfig {
-  const route = profile?.route ?? 'standard-api';
-  const requestedModel = profile?.model?.trim() || ConfigService.resolveModel('primary');
-
-  if (!requestedModel) {
-    throw new Error('Model not configured for quality compare. Open Settings → Agents or enter a model in Compare.');
-  }
-
-  if (route === 'standard-api') {
-    const apiKey = ConfigService.getKeyForAgent('primary');
-    if (!apiKey) throw new Error('API key missing for primary slot. Open Settings → Providers.');
-    const provider = getPrimaryProviderForQuality();
-    const endpoint = Orchestrator.getEndpoint(provider);
-    return {
-      provider,
-      apiKey,
-      endpoint,
-      model: Orchestrator.normalizeModelId(requestedModel, endpoint),
-      routeLabel: describeQualityCompareProfile({ route, model: requestedModel }, provider),
-    };
-  }
-
-  if (route === 'openrouter') {
-    const apiKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
-    if (!apiKey) throw new Error('OpenRouter API key missing. Open Settings → Providers.');
-    const endpoint = Orchestrator.getEndpoint('openrouter');
-    return {
-      provider: 'openrouter',
-      apiKey,
-      endpoint,
-      model: Orchestrator.normalizeModelId(requestedModel, endpoint),
-      routeLabel: QUALITY_COMPARE_ROUTE_LABELS.openrouter,
-    };
-  }
-
-  return {
-    provider: route,
-    apiKey: '',
-    endpoint: '/api/quality/llm-run',
-    model: requestedModel,
-    routeLabel: QUALITY_COMPARE_ROUTE_LABELS[route],
-  };
-}
-
-async function requestArchitectCompletion(input: {
-  provider: string;
-  apiKey: string;
-  endpoint: string;
-  model: string;
-  systemPrompt: string;
-  userPrompt: string;
-  maxTokens: number;
-}): Promise<ArchitectCompletionMeta> {
   let resp: Response;
-
-  if (input.provider === 'anthropic' || input.endpoint.includes('api.anthropic.com')) {
-    resp = await fetch(input.endpoint, {
+  const timeoutSignal = createLinkedTimeoutSignal(60_000, signal);
+  try {
+    resp = await fetch(endpoint, {
       method: 'POST',
       headers: {
-        'x-api-key': input.apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: input.model,
-        system: input.systemPrompt,
-        messages: [{ role: 'user', content: input.userPrompt }],
-        temperature: 0.2,
-        max_tokens: input.maxTokens,
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } else if (input.provider === 'claude-cli' || input.provider === 'codex-cli') {
-    resp = await fetch(input.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        provider: input.provider === 'codex-cli' ? 'codex' : 'claude',
-        model: input.model,
-        systemPrompt: input.systemPrompt,
-        userPrompt: input.userPrompt,
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } else if (input.provider === 'claude-bridge' || /\/chat$/i.test(input.endpoint)) {
-    resp = await fetch(input.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: `[System]\n${input.systemPrompt}\n\n[User]\n${input.userPrompt}`,
-        model: input.model || 'claude-sonnet-4-6',
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } else {
-    resp = await fetch(input.endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${input.apiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': window.location.origin,
-        'X-Title': 'AIC-RG Studio',
       },
       body: JSON.stringify({
-        model: input.model,
+        model: normalizedModelId,
         messages: [
-          { role: 'system', content: input.systemPrompt },
-          { role: 'user', content: input.userPrompt },
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user',   content: USER_PROMPT },
         ],
         stream: false,
-        temperature: 0.2,
-        max_tokens: input.maxTokens,
+        temperature: 0.3,
+        max_tokens: 1200,
       }),
-      signal: AbortSignal.timeout(60_000),
+      signal: timeoutSignal.signal,
     });
+  } catch (err: unknown) {
+    if (isAbortError(err) && signal?.aborted) {
+      return { ...CANCELLED_TEST_RESULT, duration_ms: ms() };
+    }
+    if (isAbortError(err)) {
+      return { status: 'fail', duration_ms: ms(), error: 'LLM request timed out after 60s' };
+    }
+    return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    timeoutSignal.cleanup();
   }
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => '');
-    throw new Error(`LLM ${resp.status}: ${errText.slice(0, 300)}`);
+    return { status: 'fail', duration_ms: ms(), error: `LLM ${resp.status}: ${errText.slice(0, 300)}` };
   }
 
-  const raw = await resp.json() as unknown;
-  return extractArchitectCompletionMeta(raw, input.model);
-}
-
-export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Promise<TestApiResult> {
-  const t0 = Date.now();
-  const ms = () => Date.now() - t0;
-
-  let config: ArchitectExecutionConfig;
+  let raw: unknown;
   try {
-    config = resolveArchitectExecutionConfig(profile);
+    raw = await resp.json();
   } catch (err: unknown) {
-    return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
+    return { status: 'fail', duration_ms: ms(), error: `Failed to parse LLM HTTP response as JSON: ${err instanceof Error ? err.message : String(err)}` };
   }
 
-  let completion: ArchitectCompletionMeta;
-  try {
-    completion = await requestArchitectCompletion({
-      provider: config.provider,
-      apiKey: config.apiKey,
-      endpoint: config.endpoint,
-      model: config.model,
-      systemPrompt: QUALITY_ARCHITECT_SYSTEM_PROMPT,
-        userPrompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
-      maxTokens: 1800,
-    });
-  } catch (err: unknown) {
-    return { status: 'fail', duration_ms: ms(), error: err instanceof Error ? err.message : String(err) };
-  }
+  const content: string = (raw as any)?.choices?.[0]?.message?.content ?? '';
+  const usageRaw = (raw as any)?.usage;
+  const llmModel: string = typeof (raw as any)?.model === 'string' ? (raw as any).model : normalizedModelId;
 
-  let repairAttempted = false;
-
-  const validatePlan = (plan: Record<string, unknown>) => {
-    const fileTree = (plan.fileTree ?? {}) as Record<string, string>;
-    const planTruth = analyzeArchitectPlanTruth({
-      appName: String(plan.appName ?? ''),
-      skeleton: String(plan.skeleton ?? ''),
-      summary: typeof plan.summary === 'string' ? plan.summary : '',
-      fileTree,
-      contextContract: typeof plan.contextContract === 'string' ? plan.contextContract : undefined,
-      dataModel: typeof plan.dataModel === 'string' ? plan.dataModel : undefined,
-      pages: Array.isArray(plan.pages) ? plan.pages as Array<{ path?: string; name?: string; file?: string; purpose?: string }> : undefined,
-      minDeltaFiles: 5,
-      forbiddenPaths: [
-        'src/App.tsx',
-        'src/main.tsx',
-        'src/context/AppContext.tsx',
-        'src/hooks/useLocalStorage.ts',
-        'src/hooks/useTheme.ts',
-        'src/config/theme.ts',
-        'src/config/routes.ts',
-        'src/components/BottomTabs.tsx',
-        'src/components/ErrorBoundary.tsx',
-        'src/components/LoadingScreen.tsx',
-        'src/components/EmptyState.tsx',
-        'src/components/PaywallSheet.tsx',
-        'src/lib/cn.ts',
-      ],
-    });
-    return { fileTree, planTruth };
-  };
-
-  let plan = tryParseJsonObject(completion.content);
-  let validation = plan ? validatePlan(plan) : null;
-
-  if (shouldRetryArchitectAttempt({
-    plan,
-    finishReason: completion.finishReason,
-    blockers: validation?.planTruth.blockers ?? [],
-  })) {
-    repairAttempted = true;
-    try {
-      const repaired = await requestArchitectCompletion({
-        provider: config.provider,
-        apiKey: config.apiKey,
-        endpoint: config.endpoint,
-        model: config.model,
-        systemPrompt: QUALITY_ARCHITECT_SYSTEM_PROMPT,
-        userPrompt: buildArchitectRepairPrompt({
-          originalPrompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
-          brokenContent: completion.content,
-          blockers: validation?.planTruth.blockers ?? [],
-        }),
-        maxTokens: 2600,
-      });
-      const repairedPlan = tryParseJsonObject(repaired.content);
-      const repairedValidation = repairedPlan ? validatePlan(repairedPlan) : null;
-      if (repairedPlan && repairedValidation?.planTruth.passed) {
-        completion = repaired;
-        plan = repairedPlan;
-        validation = repairedValidation;
-      } else if (!plan || !validation?.planTruth.passed) {
-        completion = repaired;
-        plan = repairedPlan;
-        validation = repairedValidation;
-      }
-    } catch {
-      // Keep the first attempt diagnostics if retry also fails at the transport layer.
-    }
-  }
-
-  if (!plan) {
-    const truncatedHint = completion.finishReason === 'length' || completion.finishReason === 'max_tokens'
-      ? 'Response was truncated before the JSON object completed.'
-      : 'The model did not return a valid JSON object.';
+  const extracted = extractJsonObjectFromModelText(content, {
+    validate: value => validateArchitectJsonShape(value, { minFileEntries: 5 }),
+  });
+  if (!extracted.ok) {
+    const reason = extracted.schemaError
+      ? `Architect JSON parsed but schema validation failed: ${extracted.schemaError}`
+      : `LLM returned non-JSON: ${extracted.error}`;
     return {
       status: 'fail',
       duration_ms: ms(),
-      error: `${truncatedHint} Raw excerpt: ${completion.content.slice(0, 200)}`,
-      details: {
-        prompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
-        rawResponse: completion.content,
-        finishReason: completion.finishReason,
-        routeLabel: config.routeLabel,
-        repairAttempted,
-      },
+      error: `${reason}. Raw snippet: ${extracted.rawSnippet}`,
     };
   }
+  const plan = extracted.value as Record<string, unknown>;
 
-  if (!validation?.planTruth.passed) {
-    return {
-      status: 'fail',
-      duration_ms: ms(),
-      error: validation?.planTruth.blockers.join(' ') || 'Architect plan failed validation.',
-      details: {
-        prompt: QUALITY_STANDARD_PROTOTYPE_PROMPT,
-        rawResponse: completion.content,
-        finishReason: completion.finishReason,
-        routeLabel: config.routeLabel,
-        repairAttempted,
-      },
-    };
+  const fileTree = (plan.fileTree ?? {}) as Record<string, string>;
+  const fileCount = Object.keys(fileTree).length;
+  if (fileCount < 5) {
+    return { status: 'fail', duration_ms: ms(), error: `fileTree too small: ${fileCount} files (need ≥5). Got: ${Object.keys(fileTree).join(', ')}` };
   }
-  const fileCount = Object.keys(validation.fileTree).length;
-  const usageRaw = completion.usageRaw;
-  const llmModel = completion.llmModel;
 
-  const promptTokens: number = typeof usageRaw?.prompt_tokens === 'number'
-    ? usageRaw.prompt_tokens as number
-    : typeof usageRaw?.input_tokens === 'number'
-      ? usageRaw.input_tokens as number
-      : 0;
-  const completionTokens: number = typeof usageRaw?.completion_tokens === 'number'
-    ? usageRaw.completion_tokens as number
-    : typeof usageRaw?.output_tokens === 'number'
-      ? usageRaw.output_tokens as number
-      : 0;
+  const promptTokens: number = typeof usageRaw?.prompt_tokens === 'number' ? usageRaw.prompt_tokens : 0;
+  const completionTokens: number = typeof usageRaw?.completion_tokens === 'number' ? usageRaw.completion_tokens : 0;
   const totalTokens: number = typeof usageRaw?.total_tokens === 'number'
-    ? usageRaw.total_tokens as number
+    ? usageRaw.total_tokens
     : promptTokens + completionTokens;
   const costUsd: number | undefined =
-    typeof usageRaw?.cost_usd === 'number' ? usageRaw.cost_usd as number :
-    typeof usageRaw?.total_cost === 'number' ? usageRaw.total_cost as number :
-    typeof usageRaw?.cost === 'number' ? usageRaw.cost as number :
+    typeof usageRaw?.cost_usd === 'number' ? usageRaw.cost_usd :
+    typeof usageRaw?.total_cost === 'number' ? usageRaw.total_cost :
+    typeof usageRaw?.cost === 'number' ? usageRaw.cost :
     undefined;
 
   return {
@@ -823,30 +457,22 @@ export async function runArchitectRealTest(profile?: ArchitectRunnerProfile): Pr
     duration_ms: ms(),
     summary: `${fileCount} файлов · реальный LLM output`,
     llm: { model: llmModel, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: totalTokens, cost_usd: costUsd },
-    output: { file_count: fileCount, files: Object.keys(validation.fileTree) },
+    output: { file_count: fileCount, files: Object.keys(fileTree) },
     details: {
       appName:         String(plan.appName ?? ''),
       skeleton:        String(plan.skeleton ?? ''),
-      fileTree:        validation.fileTree,
+      fileTree,
       contextContract: typeof plan.contextContract === 'string' ? plan.contextContract : undefined,
       dataModel:       typeof plan.dataModel === 'string' ? plan.dataModel : undefined,
       model:           llmModel,
       fileCount,
-      prompt:          QUALITY_STANDARD_PROTOTYPE_PROMPT,
-      rawResponse:     completion.content,
-      finishReason:    completion.finishReason,
-      routeLabel:      config.routeLabel,
-      repairAttempted,
     } as unknown as Record<string, unknown>,
   };
 }
 
 // ── ZIP download helper ────────────────────────────────────────────────────────
 
-export async function downloadSourceZip(
-  files: Array<{ path: string; content: string }>,
-  filename: string,
-): Promise<void> {
+async function downloadFixtureZip(files: CodeDeltaFile[]): Promise<void> {
   const zip = new JSZip();
   for (const f of files) {
     zip.file(f.path, f.content);
@@ -855,22 +481,11 @@ export async function downloadSourceZip(
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = filename;
+  a.download = 'fixture-code.zip';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-async function downloadDeltaZip(files: CodeDeltaFile[]): Promise<void> {
-  await downloadSourceZip(files, 'real-delta-code.zip');
-}
-
-export async function downloadQualityCompareSourceZip(
-  files: Array<{ path: string; content: string }>,
-  filename: string,
-): Promise<void> {
-  await downloadSourceZip(files, filename);
 }
 
 function downloadQualityReport(payload: unknown): void {
@@ -913,379 +528,122 @@ function pluralRu(count: number, [one, few, many]: [string, string, string]): st
 
 function fmtCost(cost?: number): string | null {
   if (typeof cost !== 'number' || !Number.isFinite(cost)) return null;
-  if (cost === 0) return '$0.000000';
-  if (cost < 0.001) return `~$${cost.toFixed(6)}`;
-  if (cost < 0.01)  return `~$${cost.toFixed(4)}`;
-  if (cost < 1)     return `~$${cost.toFixed(2)}`;
+  if (cost < 0.01) return `~$${cost.toFixed(3)}`;
+  if (cost < 1) return `~$${cost.toFixed(2)}`;
   return `~$${cost.toFixed(1)}`;
 }
 
-const QUALITY_COMPARE_FALLBACK_PRICING_PER_MILLION: Record<string, { input: number; output: number }> = {
-  'anthropic/claude-3.5-sonnet':         { input: 3.00, output: 15.00 },
-  'anthropic/claude-sonnet-4-5':         { input: 3.00, output: 15.00 },
-  'anthropic/claude-sonnet-4-6':         { input: 3.00, output: 15.00 },
-  'anthropic/claude-3-opus':             { input: 15.00, output: 75.00 },
-  'anthropic/claude-opus-4-6':           { input: 15.00, output: 75.00 },
-  'anthropic/claude-3.5-haiku':          { input: 0.80, output: 4.00 },
-  'anthropic/claude-haiku-4-5-20251001': { input: 0.80, output: 4.00 },
-  'openai/gpt-4o':                       { input: 2.50, output: 10.00 },
-  'openai/gpt-4o-mini':                  { input: 0.15, output: 0.60 },
-  'openai/o1-preview':                   { input: 15.00, output: 60.00 },
-  'openai/o1-mini':                      { input: 3.00, output: 12.00 },
-  'openai/o3-mini':                      { input: 1.10, output: 4.40 },
-  'google/gemini-2.0-pro-exp-02-05:free':{ input: 0.00, output: 0.00 },
-  'google/gemini-2.0-flash-001':         { input: 0.10, output: 0.40 },
-  'deepseek/deepseek-r1':                { input: 0.55, output: 2.19 },
-  'deepseek/deepseek-chat':              { input: 0.14, output: 0.28 },
-  'deepseek/deepseek-v3':                { input: 0.14, output: 0.28 },
-  'meta-llama/llama-3.3-70b-instruct':   { input: 0.59, output: 0.79 },
-  'meta-llama/llama-3.1-8b-instruct:free': { input: 0.00, output: 0.00 },
-  'mistralai/mistral-large':             { input: 2.00, output: 6.00 },
-  'qwen/qwen-2.5-coder-32b-instruct':    { input: 0.07, output: 0.16 },
-  'claude-sonnet-4-6':                   { input: 3.00, output: 15.00 },
-  'gpt-5.1-codex':                       { input: 1.50, output: 6.00 },
-};
-
-function normalizePricingLookupKey(modelId: string): string {
-  return modelId.trim().toLowerCase();
+function fmtDateTime(value?: string | null): string {
+  if (!value) return 'Not run yet';
+  return new Date(value).toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
 }
 
-function resolveComparePricing(
-  modelId: string,
-  openRouterModels: Model[],
-): { promptPerToken: number; completionPerToken: number } | undefined {
-  const normalized = normalizePricingLookupKey(modelId);
-  const fromCatalog = openRouterModels.find(model => {
-    const id = normalizePricingLookupKey(model.id);
-    if (id === normalized) return true;
-    if (id.endsWith(`/${normalized}`)) return true;
-    if (normalized.endsWith(`/${id}`)) return true;
-    return false;
-  });
-  if (fromCatalog?.pricing) {
-    return {
-      promptPerToken: parseFloat(fromCatalog.pricing.prompt) || 0,
-      completionPerToken: parseFloat(fromCatalog.pricing.completion) || 0,
-    };
-  }
-  const fallback = QUALITY_COMPARE_FALLBACK_PRICING_PER_MILLION[normalized];
-  if (!fallback) return undefined;
+function statusLabel(status: AggregateStatus | TestStatus | LiveReadinessPreflightCheck['status']): string {
+  return String(status).toUpperCase();
+}
+
+function statusBadgeStyle(status: AggregateStatus | 'running'): React.CSSProperties {
+  const map = {
+    pass: { bg: 'rgba(74,222,128,0.12)', color: '#4ade80', border: 'rgba(74,222,128,0.30)' },
+    fail: { bg: 'rgba(248,113,113,0.12)', color: '#f87171', border: 'rgba(248,113,113,0.30)' },
+    warning: { bg: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: 'rgba(251,191,36,0.30)' },
+    idle: { bg: 'rgba(148,163,184,0.10)', color: 'rgba(226,232,240,0.76)', border: 'rgba(148,163,184,0.28)' },
+    running: { bg: 'rgba(96,165,250,0.12)', color: '#93c5fd', border: 'rgba(96,165,250,0.30)' },
+  }[status];
   return {
-    promptPerToken: fallback.input / 1_000_000,
-    completionPerToken: fallback.output / 1_000_000,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '4px 10px',
+    borderRadius: 999,
+    border: `1px solid ${map.border}`,
+    background: map.bg,
+    color: map.color,
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    whiteSpace: 'nowrap',
   };
 }
 
-async function fetchQualityWorkspaceSnapshot(): Promise<QualityWorkspaceSnapshot> {
-  const resp = await fetch('/api/quality/workspace-snapshot');
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => resp.statusText);
-    throw new Error(`workspace snapshot ${resp.status}: ${text}`);
+function summarizePrimaryBlockers(diagnostics?: LiveReadinessPreflightCheck['diagnostics']): string[] {
+  const ranked = new Map<string, number>();
+  for (const diagnostic of diagnostics ?? []) {
+    const label = diagnostic.import_path
+      ?? diagnostic.file
+      ?? diagnostic.actual
+      ?? diagnostic.root_cause_type;
+    if (!label) continue;
+    ranked.set(label, (ranked.get(label) ?? 0) + 1);
   }
-  return await resp.json() as QualityWorkspaceSnapshot;
-}
-
-function buildCompareSourceFiles(snapshot: QualityWorkspaceSnapshot): QualityCompareSourceFile[] {
-  const deltaPathSet = new Set(Object.keys(snapshot.deltaFiles));
-  return Object.entries(snapshot.workspaceFiles)
-    .map(([path, content]) => ({
-      path,
-      content,
-      size: new Blob([content]).size,
-      origin: deltaPathSet.has(path) ? 'delta' as const : 'skeleton' as const,
-    }))
-    .sort((a, b) => a.path.localeCompare(b.path));
-}
-
-function buildCompareCodeSections(snapshot: QualityWorkspaceSnapshot): QualityRealTextSection[] {
-  return buildCompareSourceFiles(snapshot)
-    .filter(file => file.origin === 'delta')
+  return Array.from(ranked.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, 3)
-    .map(file => ({
-      id: `code:${file.path}`,
-      label: file.path,
-      content: file.content.slice(0, 1800),
-    }));
+    .map(([label]) => label);
 }
 
-function sumCompareSuiteMetrics(
-  steps: Array<{ llm?: TestLlmMetrics }>,
-  pricing: { promptPerToken: number; completionPerToken: number } | undefined,
-  generationMs: number,
-): QualityCompareRunMetrics {
-  const total = steps.reduce((acc, step) => {
-    if (!step.llm) return acc;
-    acc.prompt_tokens += step.llm.prompt_tokens;
-    acc.completion_tokens += step.llm.completion_tokens;
-    acc.total_tokens += step.llm.total_tokens;
-    if (typeof step.llm.cost_usd === 'number') {
-      acc.cost_usd = (acc.cost_usd ?? 0) + step.llm.cost_usd;
-    }
-    return acc;
-  }, {
-    prompt_tokens: 0,
-    completion_tokens: 0,
-    total_tokens: 0,
-    cost_usd: undefined as number | undefined,
-  });
-  const estimatedCost = total.cost_usd === undefined && pricing
-    ? (total.prompt_tokens * pricing.promptPerToken) + (total.completion_tokens * pricing.completionPerToken)
-    : undefined;
-  return {
-    generation_ms: generationMs,
-    prompt_tokens: total.prompt_tokens,
-    completion_tokens: total.completion_tokens,
-    total_tokens: total.total_tokens,
-    cost_usd: total.cost_usd ?? estimatedCost,
-    costEstimated: total.cost_usd === undefined && estimatedCost !== undefined,
-  };
+function buildStepDetailsPayload(def: typeof STEP_DEFS[number], state: TestState): string {
+  return JSON.stringify({
+    id: def.id,
+    label: def.label,
+    status: state.status,
+    updatedAt: state.updatedAt,
+    duration_ms: state.duration_ms,
+    summary: state.summary,
+    error: state.error,
+    llm: state.llm,
+    output: state.output,
+    warnings: state.warnings,
+    details: state.details,
+  }, null, 2);
 }
 
-export async function runQualityCompareSuite(input: {
-  profile: QualityCompareProfile;
-  cliStatus: DevAgentCliStatus | null;
-  primaryProvider?: string;
-  openRouterModels?: Model[];
-  comparePrompt?: string;
-  pipelineRun?: typeof ProtoPipeline.run;
-  fetchWorkspaceSnapshot?: () => Promise<QualityWorkspaceSnapshot>;
-  testApiRunner?: (testId: StepId, buildId?: string) => Promise<TestApiResult>;
-}): Promise<QualityCompareRunSide> {
-  const {
-    profile,
-    cliStatus,
-    primaryProvider = getPrimaryProviderForQuality(),
-    openRouterModels = [],
-    comparePrompt = QUALITY_STANDARD_PROTOTYPE_PROMPT,
-    pipelineRun = ProtoPipeline.run,
-    fetchWorkspaceSnapshot = fetchQualityWorkspaceSnapshot,
-    testApiRunner = callTestApi,
-  } = input;
+function mapTraceOutcomeToAggregate(outcome?: string | null): AggregateStatus {
+  if (outcome === 'ship_ok') return 'pass';
+  if (outcome === 'ship_partial') return 'warning';
+  if (outcome === 'ship_fail') return 'fail';
+  if (outcome === 'cancelled') return 'warning';
+  return 'idle';
+}
 
-  const status = getQualityCompareProfileStatus(profile, cliStatus, primaryProvider);
-  const pricing = resolveComparePricing(profile.model.trim(), openRouterModels);
-
-  const makeCompareFailureResult = (error: string, duration_ms = 0): TestApiResult => ({
-    status: 'fail',
-    duration_ms,
-    error,
-  });
-
-  const buildFailureMap = (error: string, duration_ms = 0): Record<StepId, TestApiResult> =>
-    Object.fromEntries(
-      STEP_DEFS.map(def => [def.id as StepId, makeCompareFailureResult(error, duration_ms)]),
-    ) as Record<StepId, TestApiResult>;
-
-  if (!status.ready) {
-    const result = makeCompareFailureResult(status.reason || 'Compare profile is not ready.');
-    return {
-      profile,
-      status,
-      result,
-      realText: [],
-      pricing,
-      suite: {
-        buildId: 'compare-not-ready',
-        prompt: comparePrompt,
-        skeletonId: null,
-        sourceFiles: [],
-        codeSections: [],
-        metrics: {
-          generation_ms: 0,
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_tokens: 0,
-        },
-        tests: buildFailureMap(result.error || 'Compare profile is not ready.'),
-      },
-    };
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
   }
 
-  const buildId = `qcmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  const startedAt = Date.now();
-
-  const pipelineResult = await pipelineRun({
-    prompt: comparePrompt,
-    skeletonId: 'mobile-app',
-    buildId,
-    routeOverrides: buildQualityCompareRouteOverrides(profile, primaryProvider),
-    onStep: () => {},
-    onLog: () => {},
-    onCoderStream: () => {},
-  });
-
-  const llmSteps = Object.values(pipelineResult.stepResults ?? {})
-    .filter((step): step is NonNullable<typeof step> => Boolean(step))
-    .filter(step => Boolean(step.llm))
-    .map(step => ({ llm: step.llm as TestLlmMetrics }));
-  const generationMs = Date.now() - startedAt;
-  const metrics = sumCompareSuiteMetrics(llmSteps, pricing, generationMs);
-
-  if (!pipelineResult.success) {
-    const error = pipelineResult.error ?? 'Compare generation failed.';
-    return {
-      profile,
-      status,
-      result: makeCompareFailureResult(error, generationMs),
-      realText: [],
-      pricing,
-      suite: {
-        buildId,
-        prompt: comparePrompt,
-        skeletonId: 'mobile-app',
-        sourceFiles: [],
-        codeSections: [],
-        metrics,
-        tests: buildFailureMap(error, generationMs),
-      },
-    };
-  }
-
-  const runTestSafe = async (testId: StepId, buildIdParam?: string): Promise<TestApiResult> => {
-    try {
-      return await testApiRunner(testId, buildIdParam);
-    } catch (err: unknown) {
-      return makeCompareFailureResult(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const workspace = await fetchWorkspaceSnapshot();
-  const sourceFiles = buildCompareSourceFiles(workspace);
-  const codeSections = buildCompareCodeSections(workspace);
-  const totalDeltaBytes = Object.values(workspace.deltaFiles).reduce((sum, content) => sum + new Blob([content]).size, 0);
-  const blockersText = workspace.outputTruth.blockers.map(blocker => blocker.message).join(' | ');
-  const architectStepDuration = pipelineResult.runTelemetry?.steps.find(step => step.id === 'architect')?.durationMs ?? 0;
-  const buildStepDuration = pipelineResult.runTelemetry?.steps.find(step => step.id === 'build')?.durationMs ?? generationMs;
-  const skeletonFiles = Object.fromEntries(
-    (pipelineResult.runTelemetry?.skeletonFiles ?? [])
-      .map(filePath => [filePath, 'Provided by selected skeleton base.'] as const),
-  );
-
-  const ideaValidateResult: TestApiResult = {
-    status: 'pass',
-    duration_ms: 0,
-    summary: `${comparePrompt.trim().length} chars · real prototype suite started`,
-    details: {
-      prompt: comparePrompt,
-      length: comparePrompt.trim().length,
-      valid: true,
-    },
-  };
-
-  const architectureResult: TestApiResult = {
-    status: 'pass',
-    duration_ms: architectStepDuration,
-    summary: `skeleton: ${pipelineResult.plan?.skeleton ?? workspace.skeletonId ?? 'mobile-app'}, ${Object.keys(skeletonFiles).length} provided + ${Object.keys(pipelineResult.plan?.fileTree ?? {}).length} delta`,
-    llm: pipelineResult.stepResults?.architect?.llm,
-    output: {
-      file_count: Object.keys(skeletonFiles).length + Object.keys(pipelineResult.plan?.fileTree ?? {}).length,
-      files: [
-        ...Object.keys(skeletonFiles),
-        ...Object.keys(pipelineResult.plan?.fileTree ?? {}),
-      ],
-    },
-    details: {
-      appName: pipelineResult.plan?.appName ?? 'App',
-      skeleton: pipelineResult.plan?.skeleton ?? workspace.skeletonId ?? 'mobile-app',
-      skeletonFiles,
-      fileTree: pipelineResult.plan?.fileTree ?? {},
-      contextContract: pipelineResult.plan?.contextContract,
-      dataModel: pipelineResult.plan?.dataModel,
-    },
-  };
-
-  const architectRealResult: TestApiResult = {
-    status: 'pass',
-    duration_ms: architectStepDuration,
-    summary: `${Object.keys(pipelineResult.plan?.fileTree ?? {}).length} файлов · полный dual-run`,
-    llm: pipelineResult.stepResults?.architect?.llm,
-    output: {
-      file_count: Object.keys(pipelineResult.plan?.fileTree ?? {}).length,
-      files: Object.keys(pipelineResult.plan?.fileTree ?? {}),
-    },
-    details: {
-      appName: pipelineResult.plan?.appName ?? 'App',
-      skeleton: pipelineResult.plan?.skeleton ?? workspace.skeletonId ?? 'mobile-app',
-      fileTree: pipelineResult.plan?.fileTree ?? {},
-      contextContract: pipelineResult.plan?.contextContract,
-      dataModel: pipelineResult.plan?.dataModel,
-      model: pipelineResult.stepResults?.architect?.llm?.model ?? profile.model,
-      fileCount: Object.keys(pipelineResult.plan?.fileTree ?? {}).length,
-      prompt: comparePrompt,
-      rawResponse: pipelineResult.plan?.rawResponse,
-      routeLabel: status.label,
-    },
-  };
-
-  const codeDeltaFiles = Object.entries(workspace.deltaFiles).map(([filePath, content]) => ({
-    path: filePath,
-    size: new Blob([content]).size,
-    content,
-  }));
-  const codeDeltaResult: TestApiResult = workspace.outputTruth.passed
-    ? {
-        status: 'pass',
-        duration_ms: buildStepDuration,
-        summary: `${codeDeltaFiles.length} delta files · ${sourceFiles.length} total with skeleton`,
-        output: {
-          file_count: codeDeltaFiles.length,
-          total_bytes: totalDeltaBytes,
-          files: codeDeltaFiles.map(file => file.path),
-        },
-        details: {
-          buildId: pipelineResult.buildId,
-          files: codeDeltaFiles,
-          structure: workspace.outputTruth.structure,
-          skeletonDelta: workspace.outputTruth.skeletonDelta,
-        },
-      }
-    : {
-        status: 'fail',
-        duration_ms: generationMs,
-        error: blockersText || 'Output truth contract failed.',
-        details: {
-          buildId: pipelineResult.buildId,
-          files: codeDeltaFiles,
-          structure: workspace.outputTruth.structure,
-          skeletonDelta: workspace.outputTruth.skeletonDelta,
-        },
-      };
-
-  const tests: Record<StepId, TestApiResult> = {
-    canary: await runTestSafe('canary'),
-    'idea-validate': ideaValidateResult,
-    architecture: architectureResult,
-    'code-delta': codeDeltaResult,
-    compile: await runTestSafe('compile', pipelineResult.buildId),
-    'preview-http': await runTestSafe('preview-http', pipelineResult.buildId),
-    'preview-mounted': await runTestSafe('preview-mounted'),
-    'save-ready': await runTestSafe('save-ready', pipelineResult.buildId),
-    'no-premature-save': await runTestSafe('no-premature-save'),
-    'architect-real': architectRealResult,
-  };
-
-  return {
-    profile,
-    status,
-    result: tests['architect-real'],
-    realText: buildQualityRealTextSections('architect-real', architectRealResult.details ?? {}),
-    pricing,
-    suite: {
-      buildId: pipelineResult.buildId,
-      previewUrl: pipelineResult.url,
-      prompt: comparePrompt,
-      skeletonId: workspace.skeletonId,
-      workspace,
-      sourceFiles,
-      codeSections,
-      metrics,
-      tests,
-    },
-  };
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
 }
 
-function buildTestMetaLines(state: TestState): Array<{ key: string; text: string; color?: string }> {
+function buildTestMetaLines(id: StepId, state: TestState): Array<{ key: string; text: string; color?: string }> {
   const lines: Array<{ key: string; text: string; color?: string }> = [];
+  const evidence = getStepEvidence(id);
+  if (state.summary) {
+    lines.push({
+      key: 'summary',
+      text: state.summary,
+      color: 'rgba(255,255,255,0.72)',
+    });
+  }
+  if (evidence.fixtureBacked && state.status !== 'idle') {
+    lines.push({
+      key: 'fixture-note',
+      text: evidence.note ?? FIXTURE_NOTE_TEXT,
+      color: '#fbbf24',
+    });
+  }
   if (state.llm) {
     const cost = fmtCost(state.llm.cost_usd);
     lines.push({
@@ -1326,7 +684,284 @@ function buildTestMetaLines(state: TestState): Array<{ key: string; text: string
       color: '#fbbf24',
     });
   }
+  if (state.updatedAt) {
+    lines.push({
+      key: 'updated',
+      text: `Updated: ${fmtDateTime(state.updatedAt)}`,
+      color: 'rgba(255,255,255,0.4)',
+    });
+  }
   return lines;
+}
+
+function evidenceBadgeStyle(kind: EvidenceKind): React.CSSProperties {
+  const map: Record<EvidenceKind, { bg: string; color: string; border: string }> = {
+    fixture:      { bg: 'rgba(251,191,36,0.10)', color: '#fbbf24', border: 'rgba(251,191,36,0.35)' },
+    'real-runtime': { bg: 'rgba(96,165,250,0.10)', color: '#93c5fd', border: 'rgba(96,165,250,0.32)' },
+    'real-llm':   { bg: 'rgba(167,139,250,0.12)', color: '#c4b5fd', border: 'rgba(167,139,250,0.36)' },
+  };
+  const c = map[kind];
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '2px 7px',
+    borderRadius: 5,
+    border: `1px solid ${c.border}`,
+    background: c.bg,
+    color: c.color,
+    fontSize: 10,
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  };
+}
+
+function preflightStatusStyle(status: 'pass' | 'fail' | 'warning'): React.CSSProperties {
+  const map = {
+    pass: { bg: 'rgba(74,222,128,0.12)', color: '#4ade80', border: 'rgba(74,222,128,0.30)' },
+    fail: { bg: 'rgba(248,113,113,0.12)', color: '#f87171', border: 'rgba(248,113,113,0.30)' },
+    warning: { bg: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: 'rgba(251,191,36,0.30)' },
+  }[status];
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '2px 8px',
+    borderRadius: 999,
+    border: `1px solid ${map.border}`,
+    background: map.bg,
+    color: map.color,
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+  };
+}
+
+function preflightCheckAccent(status: 'pass' | 'fail' | 'warning' | 'idle' | 'running'): string {
+  if (status === 'pass') return '#4ade80';
+  if (status === 'warning') return '#fbbf24';
+  if (status === 'running') return '#93c5fd';
+  if (status === 'idle') return 'rgba(226,232,240,0.58)';
+  return '#f87171';
+}
+
+function CopyButton({
+  value,
+  label = 'Copy',
+  disabled = false,
+  ariaLabel,
+}: {
+  value: string;
+  label?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    if (disabled) return;
+    await copyTextToClipboard(value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }, [disabled, value]);
+
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel ?? label}
+      onClick={() => void handleCopy()}
+      disabled={disabled}
+      style={{
+        padding: '5px 10px',
+        borderRadius: 7,
+        border: '1px solid rgba(255,255,255,0.12)',
+        background: disabled ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.08)',
+        color: disabled ? 'rgba(255,255,255,0.24)' : 'rgba(255,255,255,0.82)',
+        fontSize: 11,
+        fontWeight: 700,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {copied ? 'Copied' : label}
+    </button>
+  );
+}
+
+function SelectionBlock({
+  title,
+  value,
+  copyLabel,
+  maxHeight = 220,
+}: {
+  title: string;
+  value: string;
+  copyLabel: string;
+  maxHeight?: number;
+}) {
+  return (
+    <div
+      style={{
+        border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: 10,
+        background: 'rgba(2,6,23,0.55)',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+          padding: '10px 12px',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          background: 'rgba(255,255,255,0.03)',
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
+          {title}
+        </span>
+        <CopyButton value={value} label={copyLabel} ariaLabel={`${copyLabel} ${title}`} />
+      </div>
+      <pre
+        style={{
+          margin: 0,
+          padding: '12px',
+          maxHeight,
+          overflow: 'auto',
+          fontSize: 12,
+          lineHeight: 1.5,
+          color: 'rgba(255,255,255,0.88)',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          userSelect: 'text',
+          fontFamily: 'Consolas, "SFMono-Regular", monospace',
+        }}
+      >
+        {value}
+      </pre>
+    </div>
+  );
+}
+
+function PreflightCheckCard({
+  check,
+  displayStatus,
+  expanded,
+  running,
+  onToggle,
+  onRun,
+}: {
+  check: LiveReadinessPreflightCheck;
+  displayStatus: AggregateStatus | 'running';
+  expanded: boolean;
+  running: boolean;
+  onToggle: () => void;
+  onRun: () => void;
+}) {
+  const firstDiagnostic = check.diagnostics?.[0];
+  const primaryBlockers = summarizePrimaryBlockers(check.diagnostics);
+  const detailsPayload = JSON.stringify(check, null, 2);
+  const diagnosticsPayload = JSON.stringify(check.diagnostics ?? [], null, 2);
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${displayStatus === 'fail' ? 'rgba(248,113,113,0.18)' : 'rgba(255,255,255,0.08)'}`,
+        borderRadius: 16,
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(15,23,42,0.65))',
+        overflow: 'hidden',
+      }}
+    >
+      <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ width: 9, height: 9, borderRadius: '50%', background: preflightCheckAccent(displayStatus), flexShrink: 0 }} />
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>{check.label}</span>
+              <span style={statusBadgeStyle(displayStatus)}>{statusLabel(displayStatus)}</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 1.55 }}>{check.summary}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={onRun}
+              disabled={running}
+              aria-label={`Run preflight check ${check.label}`}
+              title="Run this check"
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(110,231,183,0.28)',
+                background: running ? 'rgba(110,231,183,0.04)' : 'rgba(16,185,129,0.10)',
+                color: running ? 'rgba(110,231,183,0.42)' : '#6ee7b7',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: running ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {running ? 'Running…' : 'Run this check'}
+            </button>
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label={expanded ? `Hide details for ${check.label}` : `Show details for ${check.label}`}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.06)',
+                color: 'rgba(255,255,255,0.82)',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {expanded ? 'Hide details' : 'Details'}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+          <KV label="root_cause_type" value={check.rootCauseType ?? '—'} />
+          <KV label="file" value={firstDiagnostic?.file ?? '—'} />
+          <KV label="import_path" value={firstDiagnostic?.import_path ?? '—'} />
+          <KV label="updated" value={fmtDateTime(check.checkedAt)} />
+          <KV label="duration" value={fmtDuration(check.durationMs ?? 0) || '0ms'} />
+          <KV label="suggested_fix" value={check.suggestedFix ?? '—'} />
+        </div>
+
+        {primaryBlockers.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
+              Primary blockers
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {primaryBlockers.map((item, index) => (
+                <div key={item} style={{ fontSize: 12, color: 'rgba(255,255,255,0.82)' }}>
+                  {index + 1}. {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {expanded && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <SelectionBlock title="Diagnostics" value={diagnosticsPayload} copyLabel="Copy diagnostics" maxHeight={220} />
+            <SelectionBlock title="Full check result" value={detailsPayload} copyLabel="Copy full result" maxHeight={260} />
+            {check.rootCauseType && (
+              <SelectionBlock title="Root cause" value={check.rootCauseType} copyLabel="Copy root cause" maxHeight={100} />
+            )}
+            {check.suggestedFix && (
+              <SelectionBlock title="Suggested fix" value={check.suggestedFix} copyLabel="Copy suggested fix" maxHeight={120} />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ── Initial state factories ────────────────────────────────────────────────────
@@ -1339,141 +974,6 @@ function makeInitStates(): Record<StepId, TestState> {
 
 function makeInitExpanded(): Record<StepId, boolean> {
   return Object.fromEntries(STEP_DEFS.map(d => [d.id, false])) as Record<StepId, boolean>;
-}
-
-type Verdict = 'PASS' | 'PARTIAL' | 'FAIL' | null;
-
-interface QualityBucketSummary {
-  total: number;
-  passCount: number;
-  failCount: number;
-  idleCount: number;
-  verdict: Verdict;
-  failedIds: StepId[];
-}
-
-function summarizeQualityBucket(
-  states: Record<StepId, TestState>,
-  ids: StepId[],
-): QualityBucketSummary {
-  if (ids.length === 0) {
-    return {
-      total: 0,
-      passCount: 0,
-      failCount: 0,
-      idleCount: 0,
-      verdict: null,
-      failedIds: [],
-    };
-  }
-  const bucketStates = ids.map(id => ({ id, state: states[id] }));
-  const passCount = bucketStates.filter(entry => entry.state.status === 'pass').length;
-  const failCount = bucketStates.filter(entry => entry.state.status === 'fail').length;
-  const idleCount = bucketStates.filter(entry => entry.state.status === 'idle').length;
-  const verdict: Verdict =
-    failCount === 0 && passCount === ids.length ? 'PASS' :
-    failCount > 0 && passCount > 0 ? 'PARTIAL' :
-    failCount > 0 ? 'FAIL' :
-    null;
-  return {
-    total: ids.length,
-    passCount,
-    failCount,
-    idleCount,
-    verdict,
-    failedIds: bucketStates
-      .filter(entry => entry.state.status === 'fail')
-      .map(entry => entry.id),
-  };
-}
-
-function buildCompareReportSideSummary(side?: QualityCompareRunSide): QualityCompareReportSideSummary | undefined {
-  if (!side) return undefined;
-  return {
-    profile: side.profile,
-    status: side.status,
-    result: side.result,
-    metrics: side.suite?.metrics,
-    buildId: side.suite?.buildId,
-    previewUrl: side.suite?.previewUrl,
-    sourceFileCount: side.suite?.sourceFiles.length,
-    skeletonFileCount: side.suite?.sourceFiles.filter(file => file.origin === 'skeleton').length,
-    deltaFileCount: side.suite?.sourceFiles.filter(file => file.origin === 'delta').length,
-  };
-}
-
-export function buildCompareDerivedTestState(record?: QualityCompareRunRecord): TestState | null {
-  if (!record || record.state !== 'done') return null;
-  const leftResult = record.left?.result;
-  const rightResult = record.right?.result;
-  if (!leftResult && !rightResult) return null;
-
-  const statuses = [leftResult?.status, rightResult?.status].filter(Boolean) as Array<'pass' | 'fail'>;
-  const status: TestState['status'] =
-    statuses.length === 0
-      ? 'idle'
-      : statuses.every(value => value === 'pass')
-        ? 'pass'
-        : 'fail';
-  const duration_ms = Math.max(leftResult?.duration_ms ?? 0, rightResult?.duration_ms ?? 0);
-  const summary = [
-    record.left ? `A ${record.left.status.label}: ${leftResult?.status ?? 'idle'}` : null,
-    record.right ? `B ${record.right.status.label}: ${rightResult?.status ?? 'idle'}` : null,
-  ].filter(Boolean).join(' · ');
-  const warnings = statuses.includes('fail')
-    ? ['Compare run contains at least one failed model variant.']
-    : ['Derived from full dual-run compare results.'];
-  const error = [leftResult?.error, rightResult?.error].filter(Boolean).join(' | ') || undefined;
-
-  return {
-    status,
-    duration_ms,
-    summary,
-    warnings,
-    error,
-    details: {
-      compare: {
-        left: buildCompareReportSideSummary(record.left),
-        right: buildCompareReportSideSummary(record.right),
-      },
-    },
-  };
-}
-
-export function buildEffectiveQualityStates(
-  baseStates: Record<StepId, TestState>,
-  compareRecords: Partial<Record<StepId, QualityCompareRunRecord>>,
-): Record<StepId, TestState> {
-  const next = { ...baseStates };
-  for (const def of STEP_DEFS) {
-    const stepId = def.id as StepId;
-    const compareState = buildCompareDerivedTestState(compareRecords[stepId]);
-    if (compareState) {
-      next[stepId] = compareState;
-    }
-  }
-  return next;
-}
-
-function buildTestStateFromApiResult(result: TestApiResult): TestState {
-  return {
-    status: result.status,
-    duration_ms: result.duration_ms,
-    error: result.error,
-    summary: result.summary,
-    llm: result.llm,
-    output: result.output,
-    warnings: result.warnings,
-    details: result.details,
-  };
-}
-
-function buildQualityRunScope(stepIds: StepId[], compare: boolean): QualityRunScope {
-  return {
-    mode: stepIds.length === ALL_STEP_IDS.length ? 'all' : 'single',
-    compare,
-    stepIds,
-  };
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
@@ -1526,565 +1026,100 @@ function KV({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function StructureProof({
-  structure,
-  skeletonDelta,
-}: {
-  structure?: OutputStructureContractSummary;
-  skeletonDelta?: OutputSkeletonDeltaSummary;
-}) {
-  if (!structure && !skeletonDelta) return null;
-
-  const tone = structure?.richness === 'rich' ? '#4ade80' : structure?.richness === 'adequate' ? '#fbbf24' : '#f87171';
-  const buckets = (structure?.buckets ?? [])
-    .filter(bucket => bucket.totalCount > 0 || bucket.deltaCount > 0)
-    .slice(0, 6);
-
-  return (
-    <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-      {structure && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: tone, textTransform: 'uppercase' }}>
-              {structure.richness}
-            </span>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.62)' }}>{structure.summary}</span>
-          </div>
-          {(structure.missingOutputClasses.length > 0 || structure.missingDeltaClasses.length > 0) && (
-            <div style={{ fontSize: 10, color: '#fbbf24', marginBottom: 6 }}>
-              {[
-                structure.missingOutputClasses.length > 0 ? `missing output: ${structure.missingOutputClasses.join(', ')}` : null,
-                structure.missingDeltaClasses.length > 0 ? `missing delta: ${structure.missingDeltaClasses.join(', ')}` : null,
-              ].filter(Boolean).join(' · ')}
-            </div>
-          )}
-        </>
-      )}
-
-      {skeletonDelta && (
-        <div style={{ marginBottom: 8, fontSize: 10, color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace' }}>
-          skeleton {skeletonDelta.skeletonFileCount} · delta {skeletonDelta.deltaFileCount} · modified base {skeletonDelta.modifiedExistingCount} · new {skeletonDelta.newFileCount}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {buckets.map(bucket => (
-          <div key={bucket.id} style={{ paddingLeft: 12 }}>
-            <div style={{ fontSize: 11, color: '#60a5fa', fontFamily: 'monospace' }}>
-              {bucket.label} — total {bucket.totalCount} · delta {bucket.deltaCount}
-            </div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 2 }}>
-              {bucket.meaning}
-            </div>
-            {bucket.keyPaths.length > 0 && (
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.48)', fontFamily: 'monospace', marginTop: 2 }}>
-                {bucket.keyPaths.join(' · ')}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function buildStructureProofText(
-  structure?: OutputStructureContractSummary,
-  skeletonDelta?: OutputSkeletonDeltaSummary,
-): string {
-  const lines: string[] = [];
-  if (structure) {
-    lines.push(`richness: ${structure.richness}`);
-    lines.push(structure.summary);
-    if (structure.missingOutputClasses.length > 0) {
-      lines.push(`missing output classes: ${structure.missingOutputClasses.join(', ')}`);
-    }
-    if (structure.missingDeltaClasses.length > 0) {
-      lines.push(`missing delta classes: ${structure.missingDeltaClasses.join(', ')}`);
-    }
-    for (const bucket of structure.buckets.filter(bucket => bucket.totalCount > 0 || bucket.deltaCount > 0).slice(0, 8)) {
-      lines.push(`${bucket.label}: total ${bucket.totalCount}, delta ${bucket.deltaCount}`);
-      if (bucket.keyPaths.length > 0) {
-        lines.push(`  ${bucket.keyPaths.join(' | ')}`);
-      }
-    }
-  }
-  if (skeletonDelta) {
-    lines.push(
-      `skeleton ${skeletonDelta.skeletonFileCount} · delta ${skeletonDelta.deltaFileCount} · modified ${skeletonDelta.modifiedExistingCount} · new ${skeletonDelta.newFileCount}`,
-    );
-    if (skeletonDelta.keyModifiedPaths.length > 0) {
-      lines.push(`modified existing: ${skeletonDelta.keyModifiedPaths.join(' | ')}`);
-    }
-    if (skeletonDelta.keyNewPaths.length > 0) {
-      lines.push(`new files: ${skeletonDelta.keyNewPaths.join(' | ')}`);
-    }
-  }
-  return lines.join('\n').trim();
-}
-
-export function buildQualityRealTextSections(
-  testId: StepId,
-  details: Record<string, unknown>,
-): QualityRealTextSection[] {
-  if (testId === 'canary') {
-    const d = details as unknown as CanaryDetails;
-    return [
-      {
-        id: 'response',
-        label: 'Health response',
-        content: JSON.stringify(d.response ?? {}, null, 2),
-      },
-      {
-        id: 'observed',
-        label: 'Observed text',
-        content: `HTTP ${d.httpStatus}\nstatus=${d.response?.status ?? '—'}\nprovider=${d.response?.provider ?? '—'}`,
-      },
-    ];
-  }
-
-  if (testId === 'idea-validate') {
-    const d = details as unknown as IdeaDetails;
-    return [
-      {
-        id: 'prompt',
-        label: 'Validated prompt',
-        content: String(d.prompt ?? ''),
-      },
-    ];
-  }
-
-  if (testId === 'architecture') {
-    const d = details as unknown as ArchDetails;
-    return [
-      {
-        id: 'skeleton',
-        label: 'Skeleton manifest',
-        content: Object.entries(d.skeletonFiles ?? {})
-          .map(([path, desc]) => `${path}\n  ${desc}`)
-          .join('\n\n'),
-      },
-      {
-        id: 'delta',
-        label: 'Delta manifest',
-        content: Object.entries(d.fileTree ?? {})
-          .map(([path, desc]) => `${path}\n  ${desc}`)
-          .join('\n\n'),
-      },
-      {
-        id: 'contracts',
-        label: 'Contracts',
-        content: [
-          d.contextContract ? `contextContract:\n${d.contextContract}` : null,
-          d.dataModel ? `dataModel:\n${d.dataModel}` : null,
-        ].filter(Boolean).join('\n\n'),
-      },
-    ].filter(section => section.content.trim().length > 0);
-  }
-
-  if (testId === 'code-delta') {
-    const d = details as unknown as CodeDeltaDetails;
-    return [
-      ...((d.files ?? []).slice(0, 4).map(file => ({
-        id: `file:${file.path}`,
-        label: file.path,
-        content: file.content.slice(0, 1800),
-      }))),
-      {
-        id: 'structure',
-        label: 'Structure proof',
-        content: buildStructureProofText(d.structure, d.skeletonDelta),
-      },
-    ].filter(section => section.content.trim().length > 0);
-  }
-
-  if (testId === 'compile') {
-    const d = details as unknown as CompileDetails;
-    return [
-      {
-        id: 'assets',
-        label: 'Compiled assets',
-        content: (d.assets ?? []).map(asset => `${asset.name} (${fmtSize(asset.size)})`).join('\n'),
-      },
-    ].filter(section => section.content.trim().length > 0);
-  }
-
-  if (testId === 'preview-http') {
-    const d = details as unknown as PreviewHttpDetails;
-    return [
-      {
-        id: 'html',
-        label: 'Preview HTML excerpt',
-        content: d.htmlExcerpt ?? `HTTP ${d.httpStatus}\nbytes=${d.contentLength}\nhasRootDiv=${String(d.hasRootDiv)}`,
-      },
-    ];
-  }
-
-  if (testId === 'preview-mounted') {
-    const d = details as unknown as PreviewMtdDetails;
-    return [{ id: 'mounted', label: 'Matched line', content: d.line }];
-  }
-
-  if (testId === 'save-ready') {
-    const d = details as unknown as SaveReadyDetails;
-    return [
-      {
-        id: 'save-ready',
-        label: 'Save-ready proof',
-        content: [
-          `buildId=${d.buildId}`,
-          `assetsCount=${d.assetsCount}`,
-          buildStructureProofText(d.structure, d.skeletonDelta),
-        ].filter(Boolean).join('\n\n'),
-      },
-    ];
-  }
-
-  if (testId === 'no-premature-save') {
-    const d = details as unknown as NoPremSaveDetails;
-    return [
-      {
-        id: 'sessions',
-        label: 'Session audit',
-        content: JSON.stringify({
-          projectsBeforeSave: d.projectsBeforeSave,
-          totalSessions: d.totalSessions,
-          correct: d.correct,
-        }, null, 2),
-      },
-    ];
-  }
-
-  if (testId === 'architect-real') {
-    const d = details as unknown as ArchRealDetails;
-    return [
-      d.prompt ? { id: 'prompt', label: 'Prompt', content: d.prompt } : null,
-      d.rawResponse ? { id: 'raw-response', label: 'Raw model response', content: d.rawResponse } : null,
-      {
-        id: 'validated-plan',
-        label: 'Validated plan',
-        content: Object.entries(d.fileTree ?? {})
-          .map(([path, desc]) => `${path}\n  ${desc}`)
-          .join('\n\n'),
-      },
-      {
-        id: 'contracts',
-        label: 'Contracts',
-        content: [
-          d.routeLabel ? `route: ${d.routeLabel}` : null,
-          d.contextContract ? `contextContract:\n${d.contextContract}` : null,
-          d.dataModel ? `dataModel:\n${d.dataModel}` : null,
-          typeof d.finishReason === 'string' ? `finishReason: ${d.finishReason}` : null,
-          d.repairAttempted ? 'repairAttempted: true' : null,
-        ].filter(Boolean).join('\n\n'),
-      },
-    ].filter((section): section is QualityRealTextSection => Boolean(section && section.content.trim().length > 0));
-  }
-
-  return [
-    {
-      id: 'json',
-      label: 'Raw details',
-      content: JSON.stringify(details, null, 2),
-    },
-  ];
-}
-
 // ── Detail panel ───────────────────────────────────────────────────────────────
 
-function DetailPanel({ testId, details }: { testId: StepId; details: Record<string, unknown> }) {
+function DetailPanel({ def, state }: { def: typeof STEP_DEFS[number]; state: TestState }) {
   const [downloading, setDownloading] = useState(false);
-  const [showRealText, setShowRealText] = useState(false);
-  const realTextSections = buildQualityRealTextSections(testId, details);
+  const rawPayload = buildStepDetailsPayload(def, state);
+  const detailsPayload = JSON.stringify(state.details ?? {}, null, 2);
+  const codeDeltaDetails = def.id === 'code-delta' ? state.details as CodeDeltaDetails | undefined : undefined;
+  const hasDetails = Boolean(state.details && Object.keys(state.details).length > 0);
 
-  const panelStyle: React.CSSProperties = {
-    padding: '6px 16px 10px 40px',
-    background: 'rgba(0,0,0,0.18)',
-    borderLeft: '2px solid rgba(74,222,128,0.12)',
-    maxHeight: 300,
-    overflowY: 'auto',
-  };
-  const sep = (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 6,
-      marginBottom: 8, paddingBottom: 6,
-      borderBottom: '1px solid rgba(255,255,255,0.05)',
-    }}>
-      <ChevronDown size={10} color="rgba(255,255,255,0.18)" />
-      <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.05)' }} />
-    </div>
-  );
+  const handleDownload = useCallback(async () => {
+    if (!codeDeltaDetails?.files?.length) return;
+    setDownloading(true);
+    try {
+      await downloadFixtureZip(codeDeltaDetails.files);
+    } finally {
+      setDownloading(false);
+    }
+  }, [codeDeltaDetails]);
 
-  const renderPanel = (content: React.ReactNode) => (
-    <div style={panelStyle}>
-      {sep}
-      {content}
-      {realTextSections.length > 0 && (
-        <div style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-          <button
-            onClick={() => setShowRealText(prev => !prev)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '4px 10px',
-              borderRadius: 6,
-              border: '1px solid rgba(96,165,250,0.24)',
-              background: showRealText ? 'rgba(96,165,250,0.12)' : 'rgba(255,255,255,0.03)',
-              color: showRealText ? '#93c5fd' : 'rgba(255,255,255,0.65)',
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            <FileText size={11} />
-            {showRealText ? 'Hide real text' : 'Show real text'}
-          </button>
-          {showRealText && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-              {realTextSections.map(section => (
-                <div key={section.id} style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, overflow: 'hidden' }}>
-                  <div style={{ padding: '6px 10px', fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.06em', background: 'rgba(255,255,255,0.03)' }}>
-                    {section.label}
-                  </div>
-                  <pre style={{ margin: 0, padding: '10px 12px', fontSize: 10, lineHeight: 1.5, color: 'rgba(255,255,255,0.78)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace' }}>
-                    {section.content}
-                  </pre>
-                </div>
-              ))}
-            </div>
-          )}
+  return (
+    <div
+      style={{
+        margin: '0 14px 14px',
+        padding: '14px',
+        borderRadius: 14,
+        border: '1px solid rgba(255,255,255,0.06)',
+        background: 'rgba(2,6,23,0.72)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        minHeight: 0,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
+            Detailed result
+          </span>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.68)' }}>
+            Updated: {fmtDateTime(state.updatedAt)}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {codeDeltaDetails?.files?.length ? (
+            <button
+              type="button"
+              onClick={() => void handleDownload()}
+              disabled={downloading}
+              style={{
+                padding: '5px 10px',
+                borderRadius: 7,
+                border: '1px solid rgba(96,165,250,0.28)',
+                background: downloading ? 'rgba(96,165,250,0.04)' : 'rgba(96,165,250,0.08)',
+                color: downloading ? 'rgba(96,165,250,0.42)' : '#93c5fd',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: downloading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {downloading ? 'Downloading…' : 'Download fixture zip'}
+            </button>
+          ) : null}
+          <CopyButton value={rawPayload} label="Copy full result" ariaLabel={`Copy full result ${def.label}`} />
+          {state.error ? <CopyButton value={state.error} label="Copy error" ariaLabel={`Copy error ${def.label}`} /> : null}
+          {state.summary ? <CopyButton value={state.summary} label="Copy summary" ariaLabel={`Copy summary ${def.label}`} /> : null}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <KV label="status" value={state.status} />
+        <KV label="duration" value={fmtDuration(state.duration_ms) || '0ms'} />
+        <KV label="truth" value={getStepEvidence(def.id as StepId).label} />
+        <KV label="summary" value={state.summary ?? '—'} />
+        <KV label="error" value={state.error ?? '—'} />
+        <KV label="warnings" value={state.warnings?.join(' · ') ?? '—'} />
+      </div>
+
+      {state.llm && (
+        <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+          <KV label="model" value={state.llm.model} />
+          <KV label="prompt_tokens" value={String(state.llm.prompt_tokens)} />
+          <KV label="completion_tokens" value={String(state.llm.completion_tokens)} />
+          <KV label="total_tokens" value={String(state.llm.total_tokens)} />
         </div>
       )}
+
+      {hasDetails ? (
+        <SelectionBlock title="Details" value={detailsPayload} copyLabel="Copy details" maxHeight={220} />
+      ) : null}
+      <SelectionBlock title="Full payload" value={rawPayload} copyLabel="Copy payload" maxHeight={260} />
+      {FIXTURE_BACKED_TESTS.has(def.id as StepId) ? (
+        <div style={{ fontSize: 11, color: '#fbbf24' }}>{FIXTURE_NOTE_TEXT}</div>
+      ) : null}
     </div>
-  );
-
-  if (testId === 'canary') {
-    const d = details as unknown as CanaryDetails;
-    return renderPanel(
-      <>
-        <KV label="httpStatus"       value={<span style={{ color: '#4ade80' }}>{d.httpStatus}</span>} />
-        <KV label="response.status"  value={d.response?.status ?? '—'} />
-        <KV label="response.provider" value={d.response?.provider ?? '—'} />
-      </>
-    );
-  }
-
-  if (testId === 'idea-validate') {
-    const d = details as unknown as IdeaDetails;
-    const prompt = String(d.prompt ?? '');
-    const truncated = prompt.length > 64 ? `${prompt.slice(0, 64)}…` : prompt;
-    return renderPanel(
-      <>
-        <KV label="prompt" value={<span style={{ color: '#e2c08d' }}>{`"${truncated}"`}</span>} />
-        <KV label="length" value={String(d.length)} />
-        <KV label="valid"  value={<span style={{ color: '#4ade80' }}>true</span>} />
-      </>
-    );
-  }
-
-  if (testId === 'architecture') {
-    const d = details as unknown as ArchDetails;
-    const skeletonEntries = Object.entries(d.skeletonFiles ?? {});
-    const deltaEntries    = Object.entries(d.fileTree ?? {});
-    const fileRow = (path: string, purpose: string, color: string) => (
-      <div key={path} style={{ display: 'flex', flexDirection: 'column', paddingLeft: 12, marginBottom: 4 }}>
-        <span style={{ fontSize: 11, fontFamily: 'monospace', color }}>{path}</span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', paddingLeft: 4 }}>{purpose}</span>
-      </div>
-    );
-    return renderPanel(
-      <>
-        <KV label="appName"  value={<span style={{ color: '#e2c08d' }}>{`"${d.appName}"`}</span>} />
-        <KV label="skeleton" value={<span style={{ color: '#e2c08d' }}>{`"${d.skeleton}"`}</span>} />
-        {d.dataModel && (
-          <KV label="dataModel" value={
-            <code style={{ color: '#a78bfa', fontSize: 10, background: 'rgba(167,139,250,0.08)', padding: '1px 5px', borderRadius: 3 }}>
-              {d.dataModel}
-            </code>
-          } />
-        )}
-        {d.contextContract && (
-          <KV label="contextContract" value={
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>{d.contextContract}</span>
-          } />
-        )}
-
-        {skeletonEntries.length > 0 && (
-          <>
-            <div style={{ marginTop: 10, marginBottom: 4, padding: '2px 6px', background: 'rgba(255,255,255,0.04)', borderRadius: 3 }}>
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>
-                🔒 skeleton provided ({skeletonEntries.length} files) — import freely, do NOT overwrite
-              </span>
-            </div>
-            {skeletonEntries.map(([p, desc]) => fileRow(p, desc, 'rgba(255,255,255,0.3)'))}
-          </>
-        )}
-
-        <div style={{ marginTop: 10, marginBottom: 4, padding: '2px 6px', background: 'rgba(96,165,250,0.06)', borderRadius: 3 }}>
-          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(96,165,250,0.7)' }}>
-            ✏️ delta files ({deltaEntries.length}) — architect defines, coder writes
-          </span>
-        </div>
-        {deltaEntries.map(([p, desc]) => fileRow(p, desc, '#60a5fa'))}
-      </>
-    );
-  }
-
-  if (testId === 'code-delta') {
-    const d = details as unknown as CodeDeltaDetails;
-    const handleDownload = async () => {
-      setDownloading(true);
-      try { await downloadDeltaZip(d.files); }
-      finally { setDownloading(false); }
-    };
-    return renderPanel(
-      <>
-        <KV label="buildId" value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
-        <div style={{ marginTop: 6, marginBottom: 4 }}>
-          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>files:</span>
-        </div>
-        {(d.files ?? []).map(f => (
-          <div key={f.path} style={{ display: 'flex', gap: 10, paddingLeft: 12, marginBottom: 2, fontSize: 11, fontFamily: 'monospace' }}>
-            <span style={{ color: '#60a5fa', flex: 1 }}>{f.path}</span>
-            <span style={{ color: 'rgba(255,255,255,0.25)', flexShrink: 0 }}>{fmtSize(f.size)}</span>
-          </div>
-        ))}
-        <button
-          onClick={() => void handleDownload()}
-          disabled={downloading}
-          style={{
-            marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5,
-            padding: '4px 12px', borderRadius: 5,
-            border: '1px solid rgba(96,165,250,0.3)',
-            background: downloading ? 'rgba(96,165,250,0.04)' : 'rgba(96,165,250,0.08)',
-            color: downloading ? 'rgba(96,165,250,0.4)' : '#60a5fa',
-            fontSize: 11, fontWeight: 600,
-            cursor: downloading ? 'not-allowed' : 'pointer',
-          }}
-        >
-          <Download size={11} />
-          {downloading ? 'Скачивание…' : 'Скачать архив'}
-        </button>
-        <StructureProof structure={d.structure} skeletonDelta={d.skeletonDelta} />
-      </>
-    );
-  }
-
-  if (testId === 'compile') {
-    const d = details as unknown as CompileDetails;
-    return renderPanel(
-      <>
-        <KV label="buildId" value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
-        <div style={{ marginTop: 6, marginBottom: 4 }}>
-          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)' }}>assets:</span>
-        </div>
-        {(d.assets ?? []).map(f => (
-          <div key={f.name} style={{ display: 'flex', gap: 10, paddingLeft: 12, marginBottom: 2, fontSize: 11, fontFamily: 'monospace' }}>
-            <span style={{ color: 'rgba(255,255,255,0.6)', flex: 1 }}>{f.name}</span>
-            <span style={{ color: 'rgba(255,255,255,0.25)', flexShrink: 0 }}>{fmtSize(f.size)}</span>
-          </div>
-        ))}
-      </>
-    );
-  }
-
-  if (testId === 'preview-http') {
-    const d = details as unknown as PreviewHttpDetails;
-    return renderPanel(
-      <>
-        <KV label="httpStatus"    value={<span style={{ color: '#4ade80' }}>{d.httpStatus}</span>} />
-        <KV label="contentLength" value={`${d.contentLengthStr} (${d.contentLength} bytes)`} />
-        <KV label="hasRootDiv"    value={<span style={{ color: d.hasRootDiv ? '#4ade80' : '#f87171' }}>{String(d.hasRootDiv)}</span>} />
-        <KV label="buildId"       value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
-      </>
-    );
-  }
-
-  if (testId === 'preview-mounted') {
-    const d = details as unknown as PreviewMtdDetails;
-    return renderPanel(
-      <>
-        <KV label="lineNumber" value={String(d.lineNumber)} />
-        <KV label="line" value={
-          <code style={{
-            color: '#a78bfa', background: 'rgba(167,139,250,0.08)',
-            padding: '1px 5px', borderRadius: 3,
-            fontSize: 10, wordBreak: 'break-all',
-          }}>
-            {d.line}
-          </code>
-        } />
-      </>
-    );
-  }
-
-  if (testId === 'save-ready') {
-    const d = details as unknown as SaveReadyDetails;
-    return renderPanel(
-      <>
-        <KV label="compileSuccess" value={<span style={{ color: '#4ade80' }}>true</span>} />
-        <KV label="buildId"        value={<span style={{ color: '#a78bfa' }}>{d.buildId}</span>} />
-        <KV label="assetsCount"    value={String(d.assetsCount)} />
-        <StructureProof structure={d.structure} skeletonDelta={d.skeletonDelta} />
-      </>
-    );
-  }
-
-  if (testId === 'no-premature-save') {
-    const d = details as unknown as NoPremSaveDetails;
-    return renderPanel(
-      <>
-        <KV label="projectsBeforeSave" value={<span style={{ color: '#4ade80' }}>0</span>} />
-        <KV label="totalSessions"      value={String(d.totalSessions)} />
-        <KV label="correct"            value={<span style={{ color: '#4ade80' }}>true</span>} />
-      </>
-    );
-  }
-
-  if (testId === 'architect-real') {
-    const d = details as unknown as ArchRealDetails;
-    const deltaEntries = Object.entries(d.fileTree ?? {});
-    const fileRow = (p: string, purpose: string) => (
-      <div key={p} style={{ display: 'flex', flexDirection: 'column', paddingLeft: 12, marginBottom: 4 }}>
-        <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#60a5fa' }}>{p}</span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', paddingLeft: 4 }}>{purpose}</span>
-      </div>
-    );
-    return renderPanel(
-      <>
-        <KV label="appName"  value={<span style={{ color: '#e2c08d' }}>{`"${d.appName}"`}</span>} />
-        <KV label="skeleton" value={<span style={{ color: '#e2c08d' }}>{`"${d.skeleton}"`}</span>} />
-        <KV label="model"    value={<span style={{ color: '#a78bfa' }}>{d.model}</span>} />
-        {d.dataModel && (
-          <KV label="dataModel" value={
-            <code style={{ color: '#a78bfa', fontSize: 10, background: 'rgba(167,139,250,0.08)', padding: '1px 5px', borderRadius: 3 }}>
-              {d.dataModel}
-            </code>
-          } />
-        )}
-        {d.contextContract && (
-          <KV label="contextContract" value={
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>{d.contextContract}</span>
-          } />
-        )}
-        <div style={{ marginTop: 10, marginBottom: 4, padding: '2px 6px', background: 'rgba(96,165,250,0.06)', borderRadius: 3 }}>
-          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(96,165,250,0.7)' }}>
-            ✏️ delta files ({deltaEntries.length}) — реальный LLM output
-          </span>
-        </div>
-        {deltaEntries.map(([p, desc]) => fileRow(p, desc))}
-      </>
-    );
-  }
-
-  // fallback
-  return renderPanel(
-    <>
-      <pre style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, margin: 0, whiteSpace: 'pre-wrap' }}>
-        {JSON.stringify(details, null, 2)}
-      </pre>
-    </>
   );
 }
 
@@ -2092,7 +1127,6 @@ function DetailPanel({ testId, details }: { testId: StepId; details: Record<stri
 
 function TestRow({
   def, state, onRun, anyRunning, expanded, onToggle,
-  compareEnabled = false, onCompare, compareDisabledReason, compareRunning = false, hasCompareResult = false, comparePanel = null,
 }: {
   def: typeof STEP_DEFS[number];
   state: TestState;
@@ -2100,36 +1134,37 @@ function TestRow({
   anyRunning: boolean;
   expanded: boolean;
   onToggle: () => void;
-  compareEnabled?: boolean;
-  onCompare?: () => void;
-  compareDisabledReason?: string | null;
-  compareRunning?: boolean;
-  hasCompareResult?: boolean;
-  comparePanel?: React.ReactNode;
 }) {
-  const canExpand = state.status === 'pass' && !!state.details;
+  const canExpand = state.status !== 'idle' && Boolean(
+    state.details || state.error || state.summary || state.llm || state.output || state.warnings?.length
+  );
+  const evidence = getStepEvidence(def.id as StepId);
 
   const icon =
     state.status === 'pass'    ? <CheckCircle2 size={14} color="#4ade80" /> :
     state.status === 'fail'    ? <XCircle size={14} color="#f87171" /> :
+    state.status === 'cancelled' ? <XCircle size={14} color="#fbbf24" /> :
     state.status === 'running' ? <Loader2 size={14} color="#60a5fa" style={{ animation: 'spin 1s linear infinite' }} /> :
     <Circle size={14} color="rgba(255,255,255,0.18)" />;
 
   const labelColor =
     state.status === 'pass'    ? '#4ade80' :
     state.status === 'fail'    ? '#f87171' :
+    state.status === 'cancelled' ? '#fbbf24' :
     state.status === 'running' ? '#60a5fa' :
     'rgba(255,255,255,0.6)';
 
   const rowBg =
     state.status === 'pass'    ? 'rgba(74,222,128,0.03)'  :
     state.status === 'fail'    ? 'rgba(248,113,113,0.03)' :
+    state.status === 'cancelled' ? 'rgba(251,191,36,0.04)' :
     state.status === 'running' ? 'rgba(59,130,246,0.04)'  :
     'transparent';
 
   const leftBorder =
     state.status === 'pass'    ? '2px solid rgba(74,222,128,0.2)'  :
     state.status === 'fail'    ? '2px solid rgba(248,113,113,0.2)' :
+    state.status === 'cancelled' ? '2px solid rgba(251,191,36,0.22)' :
     state.status === 'running' ? '2px solid rgba(96,165,250,0.25)' :
     '2px solid transparent';
 
@@ -2137,16 +1172,18 @@ function TestRow({
     state.status === 'idle'    ? '' :
     state.status === 'running' ? '…' :
     fmtDuration(state.duration_ms);
-  const metaLines = state.status === 'running' ? [] : buildTestMetaLines(state);
+  const metaLines = state.status === 'running' ? [] : buildTestMetaLines(def.id as StepId, state);
 
   return (
-    <div>
-      {/* Row header */}
+    <div style={{ padding: '0 14px 14px' }}>
       <div
         style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '9px 16px',
-          background: rowBg, borderLeft: leftBorder,
+          display: 'flex', alignItems: 'flex-start', gap: 12,
+          padding: '14px 16px',
+          background: `linear-gradient(180deg, ${rowBg}, rgba(15,23,42,0.68))`,
+          borderLeft: leftBorder,
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: canExpand && expanded ? '16px 16px 0 0' : 16,
           transition: 'all 0.18s',
           cursor: canExpand ? 'pointer' : 'default',
           userSelect: 'none',
@@ -2167,73 +1204,56 @@ function TestRow({
           <div style={{ width: 11, flexShrink: 0 }} />
         )}
 
-        <div style={{
-          flex: 1, fontSize: 12, fontWeight: 600, fontFamily: 'monospace',
-          color: labelColor, minWidth: 0, overflow: 'hidden',
-          textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {def.label}
-        </div>
-        <div style={{
-          width: 52, fontSize: 11, fontFamily: 'monospace',
-          color: 'rgba(255,255,255,0.3)', textAlign: 'right', flexShrink: 0,
-        }}>
-          {durText}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{
+              fontSize: 13, fontWeight: 700, fontFamily: 'monospace',
+              color: labelColor, minWidth: 0, overflow: 'hidden',
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {def.label}
+            </span>
+            <span style={evidenceBadgeStyle(evidence.kind)} title={evidence.note}>
+              {evidence.label}
+            </span>
+            <span style={statusBadgeStyle(state.status === 'running' ? 'running' : state.status === 'pass' ? 'pass' : state.status === 'fail' ? 'fail' : state.status === 'cancelled' ? 'warning' : 'idle')}>
+              {statusLabel(state.status === 'cancelled' ? 'warning' : state.status === 'running' ? 'running' : state.status === 'idle' ? 'idle' : state.status)}
+            </span>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>{durText || 'Not run'}</span>
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>{def.desc}</div>
         </div>
         <button
+          type="button"
           onClick={(e) => { e.stopPropagation(); onRun(); }}
           disabled={anyRunning}
+          aria-label={`Run ${def.label}`}
           style={{
-            padding: '3px 10px', borderRadius: 5, flexShrink: 0,
+            padding: '6px 12px', borderRadius: 8, flexShrink: 0,
             border: '1px solid rgba(255,255,255,0.1)',
             background: anyRunning ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.06)',
             color: anyRunning ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.65)',
-            fontSize: 11, fontWeight: 600,
+            fontSize: 12, fontWeight: 700,
             cursor: anyRunning ? 'not-allowed' : 'pointer',
           }}
         >
           Run
         </button>
-        {compareEnabled && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onCompare?.(); }}
-            disabled={anyRunning || compareRunning || Boolean(compareDisabledReason)}
-            title={compareDisabledReason ?? (hasCompareResult ? 'Run compare again' : 'Compare this test')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              padding: '3px 10px',
-              borderRadius: 5,
-              flexShrink: 0,
-              border: '1px solid rgba(168,85,247,0.2)',
-              background: compareRunning
-                ? 'rgba(168,85,247,0.12)'
-                : hasCompareResult
-                  ? 'rgba(168,85,247,0.1)'
-                  : 'rgba(255,255,255,0.03)',
-              color: anyRunning || compareDisabledReason
-                ? 'rgba(255,255,255,0.24)'
-                : '#c084fc',
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: anyRunning || compareRunning || compareDisabledReason ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {compareRunning ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <GitCompare size={11} />}
-            Compare
-          </button>
-        )}
       </div>
 
       {metaLines.length > 0 && (
         <div style={{
-          padding: '0 16px 8px 40px',
+          padding: '10px 16px 12px 42px',
           display: 'flex',
           flexDirection: 'column',
           gap: 4,
           background: rowBg,
           borderLeft: leftBorder,
+          borderRight: '1px solid rgba(255,255,255,0.06)',
+          borderLeftColor: leftBorder.replace('2px solid ', ''),
+          borderBottom: expanded ? 'none' : '1px solid rgba(255,255,255,0.06)',
+          borderBottomLeftRadius: expanded ? 0 : 16,
+          borderBottomRightRadius: expanded ? 0 : 16,
         }}>
           {metaLines.map(line => (
             <div
@@ -2242,9 +1262,8 @@ function TestRow({
                 fontSize: 11,
                 fontFamily: 'monospace',
                 color: line.color ?? 'rgba(255,255,255,0.45)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
+                whiteSpace: 'normal',
+                overflowWrap: 'anywhere',
               }}
               title={line.text}
             >
@@ -2257,310 +1276,65 @@ function TestRow({
       {/* Error — always visible on fail */}
       {state.status === 'fail' && state.error && (
         <div style={{
-          padding: '4px 16px 6px 40px',
+          padding: '4px 16px 12px 42px',
           fontSize: 11, color: '#f87171',
           background: 'rgba(248,113,113,0.03)',
           borderLeft: '2px solid rgba(248,113,113,0.15)',
+          borderRight: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: expanded ? 'none' : '1px solid rgba(255,255,255,0.06)',
+          borderBottomLeftRadius: expanded ? 0 : 16,
+          borderBottomRightRadius: expanded ? 0 : 16,
           wordBreak: 'break-all',
         }}>
           {state.error}
         </div>
       )}
 
-      {/* Detail panel — expanded on pass */}
-      {expanded && canExpand && (
-        <DetailPanel testId={def.id as StepId} details={state.details!} />
+      {state.status === 'cancelled' && (state.error || state.summary) && (
+        <div style={{
+          padding: '4px 16px 12px 42px',
+          fontSize: 11, color: '#fbbf24',
+          background: 'rgba(251,191,36,0.04)',
+          borderLeft: '2px solid rgba(251,191,36,0.18)',
+          borderRight: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: expanded ? 'none' : '1px solid rgba(255,255,255,0.06)',
+          borderBottomLeftRadius: expanded ? 0 : 16,
+          borderBottomRightRadius: expanded ? 0 : 16,
+          wordBreak: 'break-all',
+        }}>
+          {state.error ?? state.summary}
+        </div>
       )}
-      {comparePanel}
-    </div>
-  );
-}
 
-function CompareResultPanel({
-  record,
-  testId,
-}: {
-  record: QualityCompareRunRecord;
-  testId: StepId;
-}) {
-  if (record.state === 'idle') return null;
-
-  const panelStyle: React.CSSProperties = {
-    padding: '6px 16px 12px 40px',
-    background: 'rgba(124,58,237,0.05)',
-    borderLeft: '2px solid rgba(168,85,247,0.18)',
-  };
-
-  if (!record.supported) {
-    return (
-      <div style={panelStyle}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#c084fc', marginBottom: 4 }}>
-          Compare unavailable for this item
-        </div>
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>
-          {record.reason}
-        </div>
-      </div>
-    );
-  }
-
-  if (record.state === 'running') {
-    return (
-      <div style={panelStyle}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#c084fc' }}>
-          <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
-          Comparing {testId} across runner profiles…
-        </div>
-      </div>
-    );
-  }
-
-  const sides = [record.left, record.right].filter(Boolean) as QualityCompareRunSide[];
-  const [leftSide, rightSide] = sides;
-  const leftMetrics = leftSide?.suite?.metrics;
-  const rightMetrics = rightSide?.suite?.metrics;
-  const leftCost = leftMetrics?.cost_usd;
-  const rightCost = rightMetrics?.cost_usd;
-  const hasAnyLlm = sides.some(side => (side.suite?.metrics.total_tokens ?? 0) > 0 || !!side.result?.llm);
-
-  /** Returns percentage difference (B vs A). Negative means B is smaller. */
-  const pctDiff = (a: number | undefined, b: number | undefined): number | undefined => {
-    if (a === undefined || b === undefined || a === 0) return undefined;
-    return ((b - a) / a) * 100;
-  };
-
-  /** Returns per-side diff badge. lower = better (for latency, tokens, cost). */
-  const diffBadge = (pct: number | undefined, label: string): { a: string | null; b: string | null } => {
-    if (pct === undefined || Math.abs(pct) < 3) return { a: null, b: null };
-    const bBetter = pct < 0;
-    const tag = `← ${Math.abs(pct).toFixed(0)}% ${label}`;
-    return bBetter ? { a: null, b: tag } : { a: tag, b: null };
-  };
-
-  const speedBadge = diffBadge(pctDiff(leftMetrics?.generation_ms, rightMetrics?.generation_ms), 'faster');
-  const tokenBadge = diffBadge(pctDiff(leftMetrics?.total_tokens, rightMetrics?.total_tokens), 'fewer tkns');
-  const costBadge  = diffBadge(pctDiff(leftCost, rightCost), 'cheaper');
-
-  const CmpRow = ({ label, aVal, aB, bVal, bB }: { label: string; aVal: string; aB: string | null; bVal: string; bB: string | null }) => (
-    <div style={{ display: 'flex', gap: 8, fontSize: 11, marginBottom: 4, alignItems: 'baseline' }}>
-      <span style={{ color: 'rgba(255,255,255,0.32)', width: 92, flexShrink: 0, fontFamily: 'monospace' }}>{label}</span>
-      <span style={{ flex: 1, fontFamily: 'monospace', color: 'rgba(255,255,255,0.8)' }}>
-        {aVal}{aB && <span style={{ marginLeft: 5, fontSize: 10, color: '#4ade80' }}>{aB}</span>}
-      </span>
-      <span style={{ flex: 1, fontFamily: 'monospace', color: 'rgba(255,255,255,0.8)' }}>
-        {bVal}{bB && <span style={{ marginLeft: 5, fontSize: 10, color: '#4ade80' }}>{bB}</span>}
-      </span>
-    </div>
-  );
-
-  return (
-    <div style={panelStyle}>
-      {/* ── Metrics comparison table ─────────────────────────────── */}
-      <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(0,0,0,0.18)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.05)' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <div style={{ width: 92, flexShrink: 0 }} />
-          {sides.map((side, idx) => (
-            <div key={idx} style={{ flex: 1, fontSize: 10, color: '#c084fc', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {idx === 0 ? 'A' : 'B'} · {side.status.label}
-            </div>
-          ))}
-        </div>
-        {/* Latency row — always shown */}
-        <CmpRow
-          label="run total"
-          aVal={leftMetrics?.generation_ms !== undefined ? fmtDuration(leftMetrics.generation_ms) : '—'}
-          aB={speedBadge.a}
-          bVal={rightMetrics?.generation_ms !== undefined ? fmtDuration(rightMetrics.generation_ms) : '—'}
-          bB={speedBadge.b}
-        />
-        <CmpRow
-          label="step"
-          aVal={leftSide?.result?.duration_ms !== undefined ? fmtDuration(leftSide.result.duration_ms) : '—'}
-          aB={null}
-          bVal={rightSide?.result?.duration_ms !== undefined ? fmtDuration(rightSide.result.duration_ms) : '—'}
-          bB={null}
-        />
-        {/* Token + cost rows — only when at least one side has LLM data */}
-        {hasAnyLlm && (
-          <>
-            <CmpRow
-              label="prompt tkns"
-              aVal={leftMetrics ? String(leftMetrics.prompt_tokens) : '—'}
-              aB={null}
-              bVal={rightMetrics ? String(rightMetrics.prompt_tokens) : '—'}
-              bB={null}
-            />
-            <CmpRow
-              label="output tkns"
-              aVal={leftMetrics ? String(leftMetrics.completion_tokens) : '—'}
-              aB={null}
-              bVal={rightMetrics ? String(rightMetrics.completion_tokens) : '—'}
-              bB={null}
-            />
-            <CmpRow
-              label="total tkns"
-              aVal={leftMetrics ? String(leftMetrics.total_tokens) : '—'}
-              aB={tokenBadge.a}
-              bVal={rightMetrics ? String(rightMetrics.total_tokens) : '—'}
-              bB={tokenBadge.b}
-            />
-            <CmpRow
-              label="budget"
-              aVal={fmtCost(leftCost) ?? '—'}
-              aB={costBadge.a ?? (leftMetrics?.costEstimated ? 'estimated' : null)}
-              bVal={fmtCost(rightCost) ?? '—'}
-              bB={costBadge.b ?? (rightMetrics?.costEstimated ? 'estimated' : null)}
-            />
-          </>
-        )}
-        {!hasAnyLlm && (
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', marginTop: 2 }}>
-            N/A — no token usage for runtime checks
-          </div>
-        )}
-      </div>
-
-      {/* ── Side cards ────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        {sides.map((side, idx) => {
-          const result = side.result;
-          const pass = result?.status === 'pass';
-          const sourceFiles = side.suite?.sourceFiles ?? [];
-          const skeletonDelta = side.suite?.workspace?.outputTruth.skeletonDelta;
-          const sourceFilename = `quality-compare-${idx === 0 ? 'A' : 'B'}-${side.profile.model.replace(/[^\w.-]+/g, '-') || 'model'}.zip`;
-          return (
-            <div key={`${side.status.label}-${idx}`} style={{
-              flex: '1 1 280px',
-              minWidth: 0,
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderRadius: 10,
-              background: 'rgba(0,0,0,0.16)',
-              overflow: 'hidden',
-            }}>
-              <div style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  {idx === 0 ? 'Profile A' : 'Profile B'}
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#c084fc', marginTop: 2 }}>
-                  {side.status.label}
-                </div>
-              </div>
-              <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11 }}>
-                  <span style={{ color: 'rgba(255,255,255,0.45)' }}>status</span>
-                  <span style={{ color: pass ? '#4ade80' : '#f87171', fontWeight: 700 }}>
-                    {result?.status?.toUpperCase() ?? 'FAIL'}
-                  </span>
-                </div>
-                {result?.summary && (
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)' }}>{result.summary}</div>
-                )}
-                {result?.error && (
-                  <div style={{ fontSize: 11, color: '#f87171' }}>{result.error}</div>
-                )}
-                {side.suite && (
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.62)' }}>
-                      {sourceFiles.length} source files
-                      {skeletonDelta ? ` · skeleton ${skeletonDelta.skeletonFileCount} · delta ${skeletonDelta.deltaFileCount}` : ''}
-                    </div>
-                    {skeletonDelta && (
-                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.42)', lineHeight: 1.5 }}>
-                        {skeletonDelta.keyModifiedPaths.length > 0 && (
-                          <div>modified: {skeletonDelta.keyModifiedPaths.join(', ')}</div>
-                        )}
-                        {skeletonDelta.keyNewPaths.length > 0 && (
-                          <div>new: {skeletonDelta.keyNewPaths.join(', ')}</div>
-                        )}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => void downloadSourceZip(sourceFiles, sourceFilename)}
-                      disabled={sourceFiles.length === 0}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        width: 'fit-content',
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        border: '1px solid rgba(96,165,250,0.22)',
-                        background: sourceFiles.length === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(96,165,250,0.08)',
-                        color: sourceFiles.length === 0 ? 'rgba(255,255,255,0.24)' : '#93c5fd',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: sourceFiles.length === 0 ? 'not-allowed' : 'pointer',
-                      }}
-                    >
-                      <Download size={11} />
-                      Download full source
-                    </button>
-                  </div>
-                )}
-                {side.realText.length > 0 && (
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {side.realText.slice(0, 2).map(section => (
-                      <div key={section.id}>
-                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', marginBottom: 4 }}>
-                          {section.label}
-                        </div>
-                        <pre style={{ margin: 0, maxHeight: 140, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 10, lineHeight: 1.45, color: 'rgba(255,255,255,0.76)', fontFamily: 'monospace' }}>
-                          {section.content}
-                        </pre>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {side.suite && side.suite.codeSections.length > 0 && (
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {side.suite.codeSections.slice(0, 2).map(section => (
-                      <div key={section.id}>
-                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', marginBottom: 4 }}>
-                          Code · {section.label}
-                        </div>
-                        <pre style={{ margin: 0, maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 10, lineHeight: 1.45, color: 'rgba(255,255,255,0.76)', fontFamily: 'monospace' }}>
-                          {section.content}
-                        </pre>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {expanded && canExpand && (
+        <DetailPanel def={def} state={state} />
+      )}
     </div>
   );
 }
 
 // ── FlowChainTab ───────────────────────────────────────────────────────────────
 
-function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
-  const [testStates,   setTestStates]   = useState<Record<StepId, TestState>>(makeInitStates);
-  const [expanded,     setExpanded]     = useState<Record<StepId, boolean>>(makeInitExpanded);
+function FlowChainTab() {
+  const [testStates, setTestStates] = useState<Record<StepId, TestState>>(makeInitStates);
+  const [expanded, setExpanded] = useState<Record<StepId, boolean>>(makeInitExpanded);
   const [runAllActive, setRunAllActive] = useState(false);
-  const [lastRunAt,    setLastRunAt]    = useState<string | null>(() => {
+  const [preflight, setPreflight] = useState<LiveReadinessPreflightResult | null>(() => loadPersistedPreflight());
+  const [preflightExpanded, setPreflightExpanded] = useState<Record<string, boolean>>({});
+  const [preflightRunning, setPreflightRunning] = useState(false);
+  const [preflightRunningCheckId, setPreflightRunningCheckId] = useState<string | null>(null);
+  const [clearMenuOpen, setClearMenuOpen] = useState(false);
+  const [clearSummary, setClearSummary] = useState<ClearSummary | null>(null);
+  const [lastRunAt, setLastRunAt] = useState<string | null>(() => {
     try { return localStorage.getItem(LS_LAST_RUN_KEY); } catch { return null; }
   });
   const [brokenAt, setBrokenAt] = useState<string | null>(null);
-  const primaryProvider = getPrimaryProviderForQuality();
-  const baseModel = selectedModel || ConfigService.resolveModel('primary') || '';
-  const [compareEnabled, setCompareEnabled] = useState(false);
-  const [compareProfiles, setCompareProfiles] = useState<{ left: QualityCompareProfile; right: QualityCompareProfile }>({
-    left: { route: 'standard-api', model: baseModel },
-    right: { route: 'standard-api', model: '' },
-  });
-  const [compareRecords, setCompareRecords] = useState<Partial<Record<StepId, QualityCompareRunRecord>>>({});
-  const [activeCompareStepId, setActiveCompareStepId] = useState<StepId | null>(null);
-  const [cliStatus, setCliStatus] = useState<DevAgentCliStatus | null>(null);
-  const [openRouterModels, setOpenRouterModels] = useState<Model[]>([]);
-  const [openRouterModelsLoading, setOpenRouterModelsLoading] = useState(false);
-  const [standardProviderModels, setStandardProviderModels] = useState<Model[]>([]);
-  const [standardProviderModelsLoading, setStandardProviderModelsLoading] = useState(false);
-  const [lastRunScope, setLastRunScope] = useState<QualityRunScope | null>(null);
-  // Restore last run status from localStorage (no details — run again to see them)
+  const qualityBuildIdRef = React.useRef<string | null>(null);
+  const activeRunRef = React.useRef<ActiveRun | null>(null);
+  const runTokenRef = React.useRef(0);
+  const preflightTokenRef = React.useRef(0);
+  const runningStepRef = React.useRef<StepId | null>(null);
+
   useEffect(() => {
     const restored = makeInitStates();
     STEP_DEFS.forEach(def => {
@@ -2570,85 +1344,98 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
         restored[def.id as StepId] = {
           status: last.status,
           duration_ms: last.duration_ms,
+          updatedAt: last.timestamp,
           error: last.error,
-          // details intentionally not persisted
         };
       }
     });
     setTestStates(restored);
   }, []);
 
-  useEffect(() => {
-    if (!compareEnabled || cliStatus) return;
-    void getDevAgentCliStatus()
-      .then(setCliStatus)
-      .catch(() => {
-        setCliStatus({
-          claude: { available: false, version: null, reason: 'bridge_unreachable' },
-          codex: { available: false, version: null, reason: 'bridge_unreachable' },
-        });
-      });
-  }, [compareEnabled, cliStatus]);
+  useEffect(() => () => {
+    activeRunRef.current?.controller.abort();
+    activeRunRef.current = null;
+    preflightTokenRef.current += 1;
+  }, []);
 
-  useEffect(() => {
-    if (!compareEnabled) return;
-    if (openRouterModels.length > 0 || openRouterModelsLoading) return;
-    const openRouterKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
-    if (!openRouterKey) return;
-    setOpenRouterModelsLoading(true);
-    void fetchModelsWithCache('openrouter', openRouterKey)
-      .then(setOpenRouterModels)
-      .finally(() => setOpenRouterModelsLoading(false));
-  }, [compareEnabled, openRouterModels.length, openRouterModelsLoading]);
-
-  useEffect(() => {
-    if (!compareEnabled) return;
-    if (standardProviderModels.length > 0 || standardProviderModelsLoading) return;
-    const openRouterKey = ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey();
-    if (!openRouterKey) return;
-    setStandardProviderModelsLoading(true);
-    void fetchModelsWithCache(primaryProvider, openRouterKey)
-      .then(setStandardProviderModels)
-      .finally(() => setStandardProviderModelsLoading(false));
-  }, [compareEnabled, primaryProvider, standardProviderModels.length, standardProviderModelsLoading]);
-
-  const compareRunning = Object.values(compareRecords).some(record => record?.state === 'running');
-  const defaultQualityProfile = useMemo<QualityCompareProfile>(() => ({
-    route: 'standard-api',
-    model: baseModel,
-  }), [baseModel]);
-  const effectiveTestStates = useMemo(
-    () => buildEffectiveQualityStates(testStates, compareRecords),
-    [compareRecords, testStates],
-  );
-  const scopedStepIds = lastRunScope?.stepIds ?? ALL_STEP_IDS;
-  const anyRunning = runAllActive || compareRunning || Object.values(testStates).some(s => s.status === 'running');
-  const hasReportData = scopedStepIds.some(stepId => effectiveTestStates[stepId].status !== 'idle');
+  const qualityControls = {
+    hasRunPreflightButton: true,
+    isolatedFromRunAll: true,
+    clearsPreflightState: true,
+    reportIncludesPreflight: true,
+  } as const;
 
   const setOneState = useCallback((id: StepId, patch: Partial<TestState>) => {
     setTestStates(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
-  }, []);
-
-  const setCompareProfile = useCallback((side: 'left' | 'right', patch: Partial<QualityCompareProfile>) => {
-    setCompareProfiles(prev => ({
-      ...prev,
-      [side]: { ...prev[side], ...patch },
-    }));
   }, []);
 
   const handleToggle = useCallback((id: StepId) => {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
   }, []);
 
-  const leftCompareStatus = getQualityCompareProfileStatus(compareProfiles.left, cliStatus, primaryProvider);
-  const rightCompareStatus = getQualityCompareProfileStatus(compareProfiles.right, cliStatus, primaryProvider);
-  const compareBlockedReason =
-    !leftCompareStatus.ready ? `Profile A: ${leftCompareStatus.reason}` :
-    !rightCompareStatus.ready ? `Profile B: ${rightCompareStatus.reason}` :
-    areQualityCompareProfilesEqual(compareProfiles.left, compareProfiles.right) ? 'Choose two different compare profiles.' :
-    null;
+  const togglePreflightDetails = useCallback((id: string) => {
+    setPreflightExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+  }, []);
 
-  const runSingleTest = useCallback(async (id: StepId): Promise<TestApiResult> => {
+  const isRunCurrent = useCallback((run: ActiveRun): boolean => (
+    activeRunRef.current?.token === run.token
+      && !run.cancelled
+      && !run.controller.signal.aborted
+  ), []);
+
+  const beginRun = useCallback((mode: ActiveRun['mode']): ActiveRun => {
+    activeRunRef.current?.controller.abort();
+    const run: ActiveRun = {
+      token: runTokenRef.current + 1,
+      controller: new AbortController(),
+      cancelled: false,
+      mode,
+    };
+    runTokenRef.current = run.token;
+    activeRunRef.current = run;
+    return run;
+  }, []);
+
+  const finishRun = useCallback((run: ActiveRun): boolean => {
+    if (activeRunRef.current?.token === run.token) {
+      activeRunRef.current = null;
+      runningStepRef.current = null;
+      return true;
+    }
+    return false;
+  }, []);
+
+  const stopActiveRun = useCallback((markCurrentStep: boolean) => {
+    const run = activeRunRef.current;
+    if (!run) return;
+
+    run.cancelled = true;
+    run.controller.abort();
+    activeRunRef.current = null;
+    setRunAllActive(false);
+
+    const currentStep = runningStepRef.current;
+    runningStepRef.current = null;
+    if (markCurrentStep && currentStep) {
+      setOneState(currentStep, {
+        status: 'cancelled',
+        duration_ms: 0,
+        updatedAt: new Date().toISOString(),
+        error: CANCELLED_BY_USER,
+        summary: CANCELLED_BY_USER,
+        llm: undefined,
+        output: undefined,
+        warnings: undefined,
+        details: undefined,
+      });
+      setExpanded(prev => ({ ...prev, [currentStep]: false }));
+    }
+  }, [setOneState]);
+
+  const runSingleTest = useCallback(async (id: StepId, run: ActiveRun): Promise<TestApiResult> => {
+    if (!isRunCurrent(run)) return { ...CANCELLED_TEST_RESULT };
+    setClearSummary(null);
+    runningStepRef.current = id;
     setOneState(id, {
       status: 'running',
       duration_ms: 0,
@@ -2661,521 +1448,659 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
     });
     setExpanded(prev => ({ ...prev, [id]: false }));
     try {
-      const suite = await runQualityCompareSuite({
-        profile: defaultQualityProfile,
-        cliStatus,
-        primaryProvider,
-        openRouterModels,
-      });
-      const result = suite.suite?.tests[id] ?? {
-        status: 'fail',
-        duration_ms: 0,
-        error: `Missing real suite result for ${id}.`,
-      } satisfies TestApiResult;
+      let result: TestApiResult;
 
-      setOneState(id, buildTestStateFromApiResult(result));
-      if (result.status === 'pass' && result.details) {
+      if (id === 'architect-real') {
+        result = await runArchitectRealTest(run.controller.signal);
+      } else {
+        const chainBuildId = (id === 'compile' || id === 'preview-http' || id === 'save-ready')
+          ? (qualityBuildIdRef.current ?? undefined)
+          : undefined;
+        result = await callTestApi(id, chainBuildId, run.controller.signal);
+      }
+
+      if (!isRunCurrent(run) || result.status === 'cancelled') {
+        return { ...CANCELLED_TEST_RESULT, duration_ms: result.duration_ms };
+      }
+
+      if (id === 'code-delta' && result.status === 'pass') {
+        const bid = (result.details as Record<string, unknown> | undefined)?.buildId;
+        if (typeof bid === 'string') qualityBuildIdRef.current = bid;
+      }
+
+      const updatedAt = new Date().toISOString();
+      setOneState(id, {
+        status: result.status,
+        duration_ms: result.duration_ms,
+        updatedAt,
+        error: result.error,
+        summary: result.summary,
+        llm: result.llm,
+        output: result.output,
+        warnings: result.warnings,
+        details: result.details,
+      });
+      if ((result.status === 'pass' || result.status === 'fail') && (result.details || result.error || result.summary)) {
         setExpanded(prev => ({ ...prev, [id]: true }));
       }
       persistTestRun(id, {
-        timestamp:   new Date().toISOString(),
-        status:      result.status,
+        timestamp: updatedAt,
+        status: result.status,
         duration_ms: result.duration_ms,
-        error:       result.error,
+        error: result.error,
       });
       return result;
     } catch (err: unknown) {
+      if (isAbortError(err) || !isRunCurrent(run)) {
+        return { ...CANCELLED_TEST_RESULT };
+      }
+      const updatedAt = new Date().toISOString();
       const error = err instanceof Error ? err.message : String(err);
-      setOneState(id, { status: 'fail', duration_ms: 0, error, summary: undefined, llm: undefined, output: undefined, warnings: undefined });
-      persistTestRun(id, { timestamp: new Date().toISOString(), status: 'fail', duration_ms: 0, error });
+      setOneState(id, { status: 'fail', duration_ms: 0, updatedAt, error, summary: undefined, llm: undefined, output: undefined, warnings: undefined });
+      persistTestRun(id, { timestamp: updatedAt, status: 'fail', duration_ms: 0, error });
       return { status: 'fail', duration_ms: 0, error };
+    } finally {
+      if (runningStepRef.current === id) runningStepRef.current = null;
     }
-  }, [cliStatus, defaultQualityProfile, openRouterModels, primaryProvider, setOneState]);
+  }, [isRunCurrent, setOneState]);
 
   const handleRunOne = useCallback((id: StepId) => {
-    const now = new Date().toISOString();
-    setTestStates(makeInitStates());
-    setExpanded(makeInitExpanded());
-    setCompareRecords({});
-    setActiveCompareStepId(null);
-    setBrokenAt(null);
-    setLastRunScope(buildQualityRunScope([id], false));
-    setLastRunAt(now);
-    try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
-    void runSingleTest(id);
-  }, [runSingleTest]);
-
-  const makeCompareFailureResult = useCallback((error: string, duration_ms = 0): TestApiResult => ({
-    status: 'fail',
-    duration_ms,
-    error,
-  }), []);
-
-  const runCompareSuite = useCallback(async (profile: QualityCompareProfile): Promise<QualityCompareRunSide> => (
-    runQualityCompareSuite({
-      profile,
-      cliStatus,
-      primaryProvider,
-      openRouterModels,
-    })
-  ), [cliStatus, openRouterModels, primaryProvider]);
-
-  const handleRunCompare = useCallback(async (id: StepId) => {
-    if (compareBlockedReason) return;
-    setActiveCompareStepId(id);
-    setBrokenAt(null);
-    setLastRunScope(buildQualityRunScope([id], true));
-    setTestStates(makeInitStates());
-    setExpanded(makeInitExpanded());
-    const now = new Date().toISOString();
-    setLastRunAt(now);
-    try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
-
-    const runningRecords = {
-      [id]: { state: 'running', supported: true },
-    } satisfies Partial<Record<StepId, QualityCompareRunRecord>>;
-    setCompareRecords(runningRecords);
-
-    try {
-      const left = await runCompareSuite(compareProfiles.left);
-      const right = await runCompareSuite(compareProfiles.right);
-
-      const leftResult = left.suite?.tests[id] ?? makeCompareFailureResult('Missing compare result.');
-      const rightResult = right.suite?.tests[id] ?? makeCompareFailureResult('Missing compare result.');
-      const nextRecords = {
-        [id]: {
-          state: 'done',
-          supported: true,
-          left: {
-            ...left,
-            result: leftResult,
-            realText: leftResult.details ? buildQualityRealTextSections(id, leftResult.details) : [],
-          },
-          right: {
-            ...right,
-            result: rightResult,
-            realText: rightResult.details ? buildQualityRealTextSections(id, rightResult.details) : [],
-          },
-        } satisfies QualityCompareRunRecord,
-      } satisfies Partial<Record<StepId, QualityCompareRunRecord>>;
-
-      setCompareRecords(nextRecords);
-      const compareStates = buildEffectiveQualityStates(makeInitStates(), nextRecords);
-      const firstFailedStep = compareStates[id].status === 'fail' ? id : undefined;
-      setBrokenAt(firstFailedStep ?? null);
-      const state = compareStates[id];
-      if (state.status === 'pass' || state.status === 'fail') {
-        persistTestRun(id, {
-          timestamp: now,
-          status: state.status,
-          duration_ms: state.duration_ms,
-          error: state.error,
-        });
-      }
-    } catch (err: unknown) {
-      const error = err instanceof Error ? err.message : String(err);
-      const failedRecords = {
-        [id]: {
-          state: 'done',
-          supported: true,
-          left: {
-            profile: compareProfiles.left,
-            status: leftCompareStatus,
-            result: makeCompareFailureResult(error),
-            realText: [],
-          },
-          right: {
-            profile: compareProfiles.right,
-            status: rightCompareStatus,
-            result: makeCompareFailureResult(error),
-            realText: [],
-          },
-        } satisfies QualityCompareRunRecord,
-      } satisfies Partial<Record<StepId, QualityCompareRunRecord>>;
-      setCompareRecords(failedRecords);
-      setBrokenAt(id);
-    }
-  }, [compareBlockedReason, compareProfiles.left, compareProfiles.right, leftCompareStatus, makeCompareFailureResult, rightCompareStatus, runCompareSuite]);
-
-  const handleRunCompareAll = useCallback(async () => {
-    if (compareBlockedReason) return;
-    setRunAllActive(true);
-    setBrokenAt(null);
-    setExpanded(makeInitExpanded());
-    setActiveCompareStepId(null);
-    setLastRunScope(buildQualityRunScope(ALL_STEP_IDS, true));
-    setTestStates(makeInitStates());
-    const now = new Date().toISOString();
-    setLastRunAt(now);
-    try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
-
-    const runningRecords = Object.fromEntries(
-      ALL_STEP_IDS.map(stepId => [stepId, { state: 'running', supported: true }]),
-    ) as Partial<Record<StepId, QualityCompareRunRecord>>;
-    setCompareRecords(runningRecords);
-
-    try {
-      const left = await runCompareSuite(compareProfiles.left);
-      const right = await runCompareSuite(compareProfiles.right);
-      const nextRecords = Object.fromEntries(
-        ALL_STEP_IDS.map(stepId => {
-          const leftResult = left.suite?.tests[stepId] ?? makeCompareFailureResult('Missing compare result.');
-          const rightResult = right.suite?.tests[stepId] ?? makeCompareFailureResult('Missing compare result.');
-          return [stepId, {
-            state: 'done',
-            supported: true,
-            left: {
-              ...left,
-              result: leftResult,
-              realText: leftResult.details ? buildQualityRealTextSections(stepId, leftResult.details) : [],
-            },
-            right: {
-              ...right,
-              result: rightResult,
-              realText: rightResult.details ? buildQualityRealTextSections(stepId, rightResult.details) : [],
-            },
-          } satisfies QualityCompareRunRecord];
-        }),
-      ) as Partial<Record<StepId, QualityCompareRunRecord>>;
-      setCompareRecords(nextRecords);
-      const compareStates = buildEffectiveQualityStates(makeInitStates(), nextRecords);
-      const firstFailedStep = ALL_STEP_IDS.find(stepId => compareStates[stepId].status === 'fail');
-      setBrokenAt(firstFailedStep ?? null);
-      for (const stepId of ALL_STEP_IDS) {
-        const state = compareStates[stepId];
-        if (state.status === 'pass' || state.status === 'fail') {
-          persistTestRun(stepId, {
-            timestamp: now,
-            status: state.status,
-            duration_ms: state.duration_ms,
-            error: state.error,
-          });
-        }
-      }
-    } catch (err: unknown) {
-      const error = err instanceof Error ? err.message : String(err);
-      const failedRecords = Object.fromEntries(
-        ALL_STEP_IDS.map(stepId => [stepId, {
-          state: 'done',
-          supported: true,
-          left: {
-            profile: compareProfiles.left,
-            status: leftCompareStatus,
-            result: makeCompareFailureResult(error),
-            realText: [],
-          },
-          right: {
-            profile: compareProfiles.right,
-            status: rightCompareStatus,
-            result: makeCompareFailureResult(error),
-            realText: [],
-          },
-        } satisfies QualityCompareRunRecord]),
-      ) as Partial<Record<StepId, QualityCompareRunRecord>>;
-      setCompareRecords(failedRecords);
-      setBrokenAt(ALL_STEP_IDS[0]);
-    } finally {
-      setRunAllActive(false);
-    }
-  }, [compareBlockedReason, compareProfiles.left, compareProfiles.right, leftCompareStatus, makeCompareFailureResult, rightCompareStatus, runCompareSuite]);
+    if (activeRunRef.current || preflightRunning || preflightRunningCheckId) return;
+    const run = beginRun('single');
+    void runSingleTest(id, run).finally(() => {
+      if (finishRun(run)) setRunAllActive(false);
+    });
+  }, [beginRun, finishRun, preflightRunning, preflightRunningCheckId, runSingleTest]);
 
   const handleRunAll = useCallback(async () => {
-    if (compareEnabled) {
-      void handleRunCompareAll();
-      return;
-    }
+    if (activeRunRef.current || preflightRunning || preflightRunningCheckId) return;
+    const run = beginRun('all');
+    setClearSummary(null);
     setRunAllActive(true);
     setBrokenAt(null);
     setExpanded(makeInitExpanded());
-    setCompareRecords({});
-    setActiveCompareStepId(null);
-    setLastRunScope(buildQualityRunScope(ALL_STEP_IDS, false));
+    qualityBuildIdRef.current = null;
     const now = new Date().toISOString();
     setLastRunAt(now);
     try { localStorage.setItem(LS_LAST_RUN_KEY, now); } catch { /* quota */ }
     setTestStates(makeInitStates());
 
     try {
-      const suite = await runCompareSuite(defaultQualityProfile);
-      const nextStates = makeInitStates();
-      let firstFailedStep: StepId | null = null;
-      for (const stepId of ALL_STEP_IDS) {
-        const result = suite.suite?.tests[stepId] ?? makeCompareFailureResult(`Missing real suite result for ${stepId}.`);
-        nextStates[stepId] = buildTestStateFromApiResult(result);
-        if (!firstFailedStep && result.status === 'fail') {
-          firstFailedStep = stepId;
+      for (const def of STEP_DEFS) {
+        if (!isRunCurrent(run)) break;
+        const result = await runSingleTest(def.id as StepId, run);
+        if (!isRunCurrent(run) || result.status === 'cancelled') break;
+        if (result.status === 'fail') {
+          setBrokenAt(def.id);
+          break;
         }
-        persistTestRun(stepId, {
-          timestamp: now,
-          status: result.status,
-          duration_ms: result.duration_ms,
-          error: result.error,
-        });
       }
-      setBrokenAt(firstFailedStep);
-      setTestStates(nextStates);
     } finally {
-      setRunAllActive(false);
+      if (finishRun(run)) setRunAllActive(false);
     }
-  }, [compareEnabled, defaultQualityProfile, handleRunCompareAll, makeCompareFailureResult, runCompareSuite]);
+  }, [beginRun, finishRun, isRunCurrent, preflightRunning, preflightRunningCheckId, runSingleTest]);
 
-  const handleClear = useCallback(() => {
-    clearQualityPanelHistory();
-    setTestStates(makeInitStates());
-    setExpanded(makeInitExpanded());
-    setCompareRecords({});
-    setActiveCompareStepId(null);
-    setRunAllActive(false);
-    setLastRunScope(null);
-    setLastRunAt(null);
-    setBrokenAt(null);
+  const mergePreflightCheck = useCallback((nextCheck: LiveReadinessPreflightCheck) => {
+    setPreflight(prev => {
+      const byId = new Map((prev?.checks ?? []).map(check => [check.id, check]));
+      byId.set(nextCheck.id, nextCheck);
+      const checks = PREFLIGHT_CHECK_DEFS
+        .map(def => byId.get(def.id))
+        .filter((check): check is LiveReadinessPreflightCheck => Boolean(check));
+      const passCount = checks.filter(check => check.status === 'pass').length;
+      const failCount = checks.filter(check => check.status === 'fail').length;
+      const warningCount = checks.filter(check => check.status === 'warning').length;
+      const nextResult: LiveReadinessPreflightResult = {
+        status: failCount > 0 ? 'fail' : warningCount > 0 ? 'warning' : 'pass',
+        checkedAt: nextCheck.checkedAt ?? new Date().toISOString(),
+        passCount,
+        failCount,
+        warningCount,
+        checks,
+      };
+      persistPreflight(nextResult);
+      return nextResult;
+    });
   }, []);
 
-  // Footer verdict
-  const passCount = scopedStepIds.filter(stepId => effectiveTestStates[stepId].status === 'pass').length;
-  const failCount = scopedStepIds.filter(stepId => effectiveTestStates[stepId].status === 'fail').length;
-  const realRuntimeTestIds = scopedStepIds.filter(id => REAL_RUNTIME_TESTS.has(id));
-  const realLlmTestIds = scopedStepIds.filter(id => REAL_LLM_TESTS.has(id));
-  const blockingRealGateIds = scopedStepIds.filter(id => BLOCKING_REAL_TESTS.has(id));
-  const realRuntimeSummary = summarizeQualityBucket(effectiveTestStates, realRuntimeTestIds);
-  const realLlmSummary = summarizeQualityBucket(effectiveTestStates, realLlmTestIds);
-  const blockingRealGateSummary = summarizeQualityBucket(effectiveTestStates, blockingRealGateIds);
-  const architectureTruthIds = scopedStepIds.filter(id => id === 'architecture' || id === 'architect-real');
-  const codeDeltaTruthIds = scopedStepIds.filter(id => id === 'code-delta');
-  const architectureTruth = summarizeQualityBucket(effectiveTestStates, architectureTruthIds);
-  const codeDeltaTruth = summarizeQualityBucket(effectiveTestStates, codeDeltaTruthIds);
-  const verdict: Verdict =
-    blockingRealGateSummary.failCount > 0
-      ? (blockingRealGateSummary.passCount > 0 || realLlmSummary.passCount > 0 ? 'PARTIAL' : 'FAIL')
-      : blockingRealGateSummary.passCount === blockingRealGateIds.length && blockingRealGateIds.length > 0
-        ? 'PASS'
-        : blockingRealGateSummary.passCount > 0 || realLlmSummary.passCount > 0 || failCount > 0
-          ? 'PARTIAL'
-          : null;
+  const handleRunPreflight = useCallback(async () => {
+    if (activeRunRef.current || preflightRunning || preflightRunningCheckId) return;
+    const token = preflightTokenRef.current + 1;
+    preflightTokenRef.current = token;
+    setClearSummary(null);
+    setPreflightRunning(true);
+    try {
+      const result = await runLiveReadinessPreflight({ qualityControls });
+      if (preflightTokenRef.current !== token) return;
+      setPreflight(result);
+      persistPreflight(result);
+    } finally {
+      if (preflightTokenRef.current === token) setPreflightRunning(false);
+    }
+  }, [preflightRunning, preflightRunningCheckId]);
 
-  const lastRunStr = lastRunAt
-    ? new Date(lastRunAt).toLocaleString('ru-RU', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-      })
-    : null;
+  const handleRunPreflightCheck = useCallback(async (id: string) => {
+    if (activeRunRef.current || preflightRunning || preflightRunningCheckId) return;
+    const token = preflightTokenRef.current + 1;
+    preflightTokenRef.current = token;
+    setClearSummary(null);
+    setPreflightRunningCheckId(id);
+    try {
+      const result = await runLiveReadinessPreflight({ qualityControls, checkIds: [id] });
+      if (preflightTokenRef.current !== token) return;
+      if (result.checks[0]) mergePreflightCheck(result.checks[0]);
+      setPreflightExpanded(prev => ({ ...prev, [id]: true }));
+    } finally {
+      if (preflightTokenRef.current === token) setPreflightRunningCheckId(null);
+    }
+  }, [mergePreflightCheck, preflightRunning, preflightRunningCheckId]);
+
+  const applyClearSummary = useCallback((action: string, cleared: string[]) => {
+    setClearSummary({
+      action,
+      cleared,
+      preserved: ['auth/session/project/navigation keys'],
+    });
+  }, []);
+
+  const clearFlowChainState = useCallback(() => {
+    stopActiveRun(false);
+    runTokenRef.current += 1;
+    qualityBuildIdRef.current = null;
+    const flowCount = removeQualityKeys(key => key.startsWith('quality.test.') || key === LS_LAST_RUN_KEY);
+    setTestStates(makeInitStates());
+    setExpanded(makeInitExpanded());
+    setRunAllActive(false);
+    setLastRunAt(null);
+    setBrokenAt(null);
+    setClearMenuOpen(false);
+    applyClearSummary('Clear Flow Chain', [
+      `Flow Chain history: ${flowCount} keys`,
+      'Preflight result: preserved',
+      'Report cache: preserved',
+    ]);
+  }, [applyClearSummary, stopActiveRun]);
+
+  const clearPreflightState = useCallback(() => {
+    preflightTokenRef.current += 1;
+    const preflightCount = removeQualityKeys(key => key === LS_PREFLIGHT_KEY || key.startsWith('quality.preflight.'));
+    setPreflight(null);
+    setPreflightExpanded({});
+    setPreflightRunning(false);
+    setPreflightRunningCheckId(null);
+    setClearMenuOpen(false);
+    applyClearSummary('Clear Preflight', [
+      'Flow Chain history: preserved',
+      `Preflight result: ${preflightCount > 0 ? 'cleared' : 'already empty'}`,
+      'Report cache: preserved',
+    ]);
+  }, [applyClearSummary]);
+
+  const clearAllQualityState = useCallback(() => {
+    stopActiveRun(false);
+    runTokenRef.current += 1;
+    preflightTokenRef.current += 1;
+    qualityBuildIdRef.current = null;
+    const flowCount = removeQualityKeys(key => key.startsWith('quality.test.') || key === LS_LAST_RUN_KEY);
+    const preflightCount = removeQualityKeys(key => key === LS_PREFLIGHT_KEY || key.startsWith('quality.preflight.'));
+    const reportCacheCount = removeQualityKeys(key => QUALITY_REPORT_CACHE_PREFIXES.some(prefix => key.startsWith(prefix)));
+    setTestStates(makeInitStates());
+    setExpanded(makeInitExpanded());
+    setPreflight(null);
+    setPreflightExpanded({});
+    setPreflightRunning(false);
+    setPreflightRunningCheckId(null);
+    setRunAllActive(false);
+    setLastRunAt(null);
+    setBrokenAt(null);
+    setClearMenuOpen(false);
+    applyClearSummary('Clear All Quality State', [
+      `Flow Chain history: ${flowCount} keys`,
+      `Preflight result: ${preflightCount > 0 ? 'cleared' : 'already empty'}`,
+      `Report cache: ${reportCacheCount > 0 ? 'cleared' : 'already empty'}`,
+    ]);
+  }, [applyClearSummary, stopActiveRun]);
+
+  const handleStop = useCallback(() => {
+    stopActiveRun(true);
+  }, [stopActiveRun]);
+
+  const architectState = testStates['architect-real'];
+  const recentLiveTrace = generationTracer.getRecent(20)
+    .slice()
+    .reverse()
+    .find(trace => trace.runSummary?.path.kind === 'real' || trace.runSummary?.path.testEnvironment === false) ?? null;
+  const lastLiveStep = recentLiveTrace?.visibleReasoningTrace.steps
+    .slice()
+    .reverse()
+    .find(step => step.status === 'failed' || step.status === 'warning')
+    ?? recentLiveTrace?.visibleReasoningTrace.steps.at(-1);
+
+  const passCount = Object.values(testStates).filter(state => state.status === 'pass').length;
+  const failCount = Object.values(testStates).filter(state => state.status === 'fail').length;
+  const completedCount = Object.values(testStates).filter(state => state.status !== 'idle').length;
+  const fixturePassCount = STEP_DEFS.filter(def => getStepEvidence(def.id as StepId).fixtureBacked && testStates[def.id as StepId].status === 'pass').length;
+  const realRuntimePassCount = STEP_DEFS.filter(def => getStepEvidence(def.id as StepId).realRuntime && testStates[def.id as StepId].status === 'pass').length;
+  const realLlmPassCount = STEP_DEFS.filter(def => getStepEvidence(def.id as StepId).realLlm && testStates[def.id as StepId].status === 'pass').length;
+  const anyRunning = runAllActive || preflightRunning || preflightRunningCheckId !== null || Object.values(testStates).some(state => state.status === 'running');
+
+  const flowFailures = STEP_DEFS
+    .filter(def => testStates[def.id as StepId].status === 'fail')
+    .map(def => `${def.label}: ${testStates[def.id as StepId].error ?? testStates[def.id as StepId].summary ?? 'failed'}`);
+  const flowWarnings = STEP_DEFS
+    .filter(def => testStates[def.id as StepId].status === 'cancelled')
+    .map(def => `${def.label}: ${testStates[def.id as StepId].error ?? CANCELLED_BY_USER}`);
+  const flowChainSummary: AggregateSummary = flowFailures.length > 0
+    ? {
+        status: 'fail',
+        reason: flowFailures[0],
+        blockingFailures: flowFailures,
+        warnings: flowWarnings,
+      }
+    : passCount === STEP_DEFS.length
+      ? {
+          status: 'pass',
+          reason: 'All Flow Chain checks passed.',
+          blockingFailures: [],
+          warnings: flowWarnings,
+        }
+      : completedCount === 0
+        ? {
+            status: 'idle',
+            reason: 'Run Flow Chain checks to validate fixture, runtime, and real LLM layers.',
+            blockingFailures: [],
+            warnings: [],
+          }
+        : {
+            status: 'warning',
+            reason: 'Flow Chain is only partially verified.',
+            blockingFailures: [],
+            warnings: [
+              ...flowWarnings,
+              `${passCount}/${STEP_DEFS.length} checks completed successfully.`,
+            ],
+          };
+
+  const preflightChecksAvailable = preflight?.checks.length ?? 0;
+  const preflightFailedChecks = (preflight?.checks ?? []).filter(check => check.status === 'fail');
+  const preflightWarningChecks = (preflight?.checks ?? []).filter(check => check.status === 'warning');
+  const preflightSummary: AggregateSummary = preflightFailedChecks.length > 0
+    ? {
+        status: 'fail',
+        reason: 'Live Readiness Preflight failed. Live generation is likely to crash.',
+        blockingFailures: preflightFailedChecks.map(check => `${check.label}: ${check.summary}`),
+        warnings: preflightWarningChecks.map(check => `${check.label}: ${check.summary}`),
+      }
+    : !preflight || preflightChecksAvailable === 0
+      ? {
+          status: 'warning',
+          reason: 'Live Readiness Preflight has not been run yet.',
+          blockingFailures: [],
+          warnings: ['Fast deterministic preflight is still missing.'],
+        }
+      : preflightWarningChecks.length > 0 || preflightChecksAvailable < PREFLIGHT_CHECK_DEFS.length
+        ? {
+            status: 'warning',
+            reason: preflightChecksAvailable < PREFLIGHT_CHECK_DEFS.length
+              ? 'Preflight coverage is partial. Some checks have not run yet.'
+              : 'Live Readiness Preflight completed with warnings.',
+            blockingFailures: [],
+            warnings: [
+              ...preflightWarningChecks.map(check => `${check.label}: ${check.summary}`),
+              ...(preflightChecksAvailable < PREFLIGHT_CHECK_DEFS.length ? [`Only ${preflightChecksAvailable}/${PREFLIGHT_CHECK_DEFS.length} preflight checks have results.`] : []),
+            ],
+          }
+        : {
+            status: 'pass',
+            reason: 'All Live Readiness Preflight checks passed.',
+            blockingFailures: [],
+            warnings: [],
+          };
+
+  const realLlmSummary: AggregateSummary = architectState.status === 'pass'
+    ? {
+        status: 'pass',
+        reason: 'Architect Real passed with real LLM telemetry.',
+        blockingFailures: [],
+        warnings: [],
+      }
+    : architectState.status === 'fail'
+      ? {
+          status: 'fail',
+          reason: architectState.error ?? 'Architect Real failed.',
+          blockingFailures: [architectState.error ?? 'Architect Real failed.'],
+          warnings: [],
+        }
+      : architectState.status === 'running'
+        ? {
+            status: 'warning',
+            reason: 'Architect Real is running.',
+            blockingFailures: [],
+            warnings: [],
+          }
+        : {
+            status: 'warning',
+            reason: 'Architect Real has not been run yet.',
+            blockingFailures: [],
+            warnings: ['Real LLM path is still unverified.'],
+          };
+
+  const lastLiveSummary: AggregateSummary = recentLiveTrace
+    ? {
+        status: mapTraceOutcomeToAggregate(recentLiveTrace.visibleReasoningTrace.finalOutcome),
+        reason: recentLiveTrace.errorSummary
+          ?? lastLiveStep?.errorSummary
+          ?? recentLiveTrace.runSummary?.quality?.summary
+          ?? 'Last live generation result loaded.',
+        blockingFailures: recentLiveTrace.runSummary?.quality?.blockers ?? [],
+        warnings: recentLiveTrace.runSummary?.quality?.warnings ?? [],
+      }
+    : {
+        status: 'idle',
+        reason: 'No live generation result captured yet.',
+        blockingFailures: [],
+        warnings: [],
+      };
+
+  const overallStatus: AggregateSummary = (() => {
+    if (preflightSummary.status === 'fail') {
+      return {
+        status: 'fail',
+        reason: 'Live Readiness Preflight failed. Live generation is likely to crash.',
+        blockingFailures: [...preflightSummary.blockingFailures, ...flowChainSummary.blockingFailures],
+        warnings: [...preflightSummary.warnings, ...flowChainSummary.warnings],
+      };
+    }
+    if (flowChainSummary.status === 'fail') {
+      return {
+        status: 'fail',
+        reason: flowChainSummary.reason,
+        blockingFailures: [...flowChainSummary.blockingFailures],
+        warnings: [...preflightSummary.warnings],
+      };
+    }
+    if (realLlmSummary.status === 'fail') {
+      return {
+        status: 'fail',
+        reason: realLlmSummary.reason,
+        blockingFailures: [...realLlmSummary.blockingFailures],
+        warnings: [...preflightSummary.warnings],
+      };
+    }
+    if (flowChainSummary.status === 'pass' && preflightSummary.status === 'pass' && realLlmSummary.status === 'pass') {
+      if (lastLiveSummary.status === 'fail' || lastLiveSummary.status === 'warning') {
+        return {
+          status: 'warning',
+          reason: 'Critical checks passed, but the latest live generation still shows warnings or failures.',
+          blockingFailures: [],
+          warnings: [...lastLiveSummary.blockingFailures, ...lastLiveSummary.warnings],
+        };
+      }
+      return {
+        status: 'pass',
+        reason: 'Flow Chain, Live Readiness Preflight, and Architect Real all passed.',
+        blockingFailures: [],
+        warnings: [],
+      };
+    }
+
+    const warnings = [
+      ...flowChainSummary.warnings,
+      ...preflightSummary.warnings,
+      ...realLlmSummary.warnings,
+      ...(lastLiveSummary.status === 'fail' || lastLiveSummary.status === 'warning'
+        ? [...lastLiveSummary.blockingFailures, ...lastLiveSummary.warnings]
+        : []),
+    ];
+    return {
+      status: 'warning',
+      reason: flowChainSummary.status === 'warning'
+        ? flowChainSummary.reason
+        : preflightSummary.status === 'warning'
+          ? preflightSummary.reason
+          : realLlmSummary.reason,
+      blockingFailures: [],
+      warnings,
+    };
+  })();
+
+  const reportVerdict: ReportVerdict = overallStatus.status === 'fail' ? 'FAIL' : overallStatus.status === 'pass' ? 'PASS' : 'WARNING';
+  const lastRunStr = lastRunAt ? fmtDateTime(lastRunAt) : null;
+  const nextRecommendedAction = overallStatus.status === 'fail'
+    ? preflightSummary.status === 'fail'
+      ? 'Fix the failing Live Readiness Preflight checks and rerun the failing preflight items.'
+      : flowChainSummary.status === 'fail'
+        ? 'Rerun the failing Flow Chain step and inspect its detailed diagnostics.'
+        : 'Fix the failing real LLM path before trusting live generation.'
+    : overallStatus.status === 'warning'
+      ? preflightSummary.status !== 'pass'
+        ? 'Run or complete Live Readiness Preflight until it is fully green.'
+        : realLlmSummary.status !== 'pass'
+          ? 'Run Architect Real to verify the real LLM path.'
+          : 'Review the latest live generation warning and rerun the affected slice.'
+      : 'Run the flow-chain and live generation canaries as the final audit before commit.';
+
+  const lastLivePayload = recentLiveTrace ? {
+    status: lastLiveSummary.status,
+    stage: lastLiveStep?.kind ?? 'unknown',
+    root_cause_type: undefined,
+    raw_error_excerpt: recentLiveTrace.errorSummary ?? lastLiveStep?.errorSummary ?? null,
+    candidate_graph_summary: recentLiveTrace.runSummary?.output?.structure?.summary ?? null,
+    suggested_fix: recentLiveTrace.runSummary?.quality?.blockers?.[0] ?? recentLiveTrace.runSummary?.quality?.warnings?.[0] ?? null,
+    trace: recentLiveTrace,
+  } : null;
+
+  const reportPayload = {
+    generatedAt: new Date().toISOString(),
+    verdict: reportVerdict,
+    overallStatus: overallStatus.status,
+    flowChainStatus: flowChainSummary.status,
+    preflightStatus: !preflight ? 'skipped' : preflightSummary.status,
+    realLlmStatus: architectState.status === 'idle' ? 'skipped' : realLlmSummary.status,
+    lastLiveStatus: lastLiveSummary.status === 'idle' ? 'skipped' : lastLiveSummary.status,
+    reason: overallStatus.reason,
+    blockingFailures: overallStatus.blockingFailures,
+    warnings: overallStatus.warnings,
+    nextRecommendedAction,
+    lastRunAt,
+    brokenAt,
+    preflight,
+    lastLiveResult: lastLivePayload ? {
+      status: lastLivePayload.status,
+      stage: lastLivePayload.stage,
+      root_cause_type: lastLivePayload.root_cause_type,
+      raw_error_excerpt: lastLivePayload.raw_error_excerpt,
+      candidate_graph_summary: lastLivePayload.candidate_graph_summary,
+      suggested_fix: lastLivePayload.suggested_fix,
+    } : null,
+    tests: STEP_DEFS.map(def => {
+      const evidence = getStepEvidence(def.id as StepId);
+      return {
+        id: def.id,
+        label: def.label,
+        description: def.desc,
+        truthLevel: evidence.kind,
+        truthLabel: evidence.label,
+        fixtureBacked: evidence.fixtureBacked,
+        realRuntime: evidence.realRuntime,
+        realLlm: evidence.realLlm,
+        current: testStates[def.id as StepId],
+        history: loadTestHistory(def.id),
+      };
+    }),
+  };
+  const reportJson = JSON.stringify(reportPayload, null, 2);
+  const hasReportData = Object.values(testStates).some(state => state.status !== 'idle') || preflight !== null || lastLivePayload !== null;
 
   const handleDownloadReport = useCallback(() => {
-    const reportTestIds = scopedStepIds;
-    const report = {
-      generatedAt: new Date().toISOString(),
-      lastRunAt,
-      verdict,
-      scope: lastRunScope ? {
-        mode: lastRunScope.mode,
-        compare: lastRunScope.compare,
-        stepIds: lastRunScope.stepIds,
-      } : null,
-      verdictBreakdown: {
-        overall: verdict,
-        realRuntime: realRuntimeSummary,
-        realLlm: realLlmSummary,
-        blockingRealGates: blockingRealGateSummary,
-        architectureTruth,
-        codeDeltaTruth,
-      },
-      passCount,
-      failCount,
-      brokenAt,
-      tests: reportTestIds.map(stepId => {
-        const def = STEP_DEFS.find(entry => entry.id === stepId)!;
-        return {
-          id: def.id,
-          label: def.label,
-          description: def.desc,
-          truthClass: getTruthKind(stepId),
-          current: effectiveTestStates[stepId],
-          compare: compareRecords[stepId]?.state === 'done'
-           ? {
-               left: buildCompareReportSideSummary(compareRecords[stepId]?.left),
-               right: buildCompareReportSideSummary(compareRecords[stepId]?.right),
-             }
-           : undefined,
-          history: loadTestHistory(def.id),
-        };
-      }),
-      };
-    downloadQualityReport(report);
-  }, [architectureTruth, blockingRealGateSummary, brokenAt, codeDeltaTruth, compareRecords, effectiveTestStates, failCount, lastRunAt, lastRunScope, passCount, realLlmSummary, realRuntimeSummary, scopedStepIds, verdict]);
+    downloadQualityReport(reportPayload);
+  }, [reportJson]);
 
-  const renderCompareProfileEditor = (
-    side: 'left' | 'right',
-    title: string,
-    profile: QualityCompareProfile,
-    status: QualityCompareProfileStatus,
-  ) => (
-    <div style={{
-      flex: '1 1 280px',
-      minWidth: 0,
-      borderRadius: 10,
-      border: '1px solid rgba(168,85,247,0.18)',
-      background: 'rgba(124,58,237,0.06)',
-      padding: 12,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 8,
-    }}>
-      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-        {title}
-      </div>
-      <select
-        value={profile.route}
-        onChange={e => setCompareProfile(side, { route: e.target.value as QualityCompareRoute })}
-        style={{
-          width: '100%',
-          padding: '8px 10px',
-          borderRadius: 8,
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          color: 'rgba(255,255,255,0.82)',
-          fontSize: 12,
-          outline: 'none',
-        }}
-      >
-        <option value="standard-api">{`Standard API (${primaryProvider})`}</option>
-        <option value="openrouter">OpenRouter</option>
-        <option value="claude-cli">Claude CLI</option>
-        <option value="codex-cli">Codex CLI</option>
-      </select>
-      <input
-        list={
-          profile.route === 'openrouter'
-            ? 'quality-openrouter-models'
-            : profile.route === 'standard-api'
-              ? 'quality-standard-models'
-              : undefined
-        }
-        value={profile.model}
-        onChange={e => setCompareProfile(side, { model: e.target.value })}
-        placeholder={
-          profile.route === 'claude-cli' ? 'claude-sonnet-4-6' :
-          profile.route === 'codex-cli' ? 'gpt-5.1-codex' :
-          profile.route === 'openrouter' ? 'openrouter model id…' :
-          `${primaryProvider} model id…`
-        }
-        style={{
-          width: '100%',
-          padding: '8px 10px',
-          borderRadius: 8,
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          color: 'rgba(255,255,255,0.82)',
-          fontSize: 12,
-          outline: 'none',
-        }}
-      />
-      <div style={{ fontSize: 11, color: status.ready ? '#86efac' : '#fbbf24' }}>
-        {status.ready ? status.label : `${status.label} · ${status.reason}`}
-      </div>
-      {profile.route === 'openrouter' && (
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)' }}>
-          {openRouterModelsLoading
-            ? 'Loading OpenRouter catalog…'
-            : openRouterModels.length > 0
-              ? `${openRouterModels.length} OpenRouter models available as suggestions.`
-              : 'OpenRouter suggestions appear when an OpenRouter key is configured.'}
-        </div>
-      )}
-      {profile.route === 'standard-api' && (
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)' }}>
-          {standardProviderModelsLoading
-            ? `Loading ${primaryProvider} catalog…`
-            : standardProviderModels.length > 0
-              ? `${standardProviderModels.length} ${primaryProvider} models available as suggestions.`
-              : `${primaryProvider} models can be entered manually or suggested from the catalog when OpenRouter is configured.`}
-        </div>
-      )}
-    </div>
-  );
+  const handleCopyReport = useCallback(async () => {
+    await copyTextToClipboard(reportJson);
+  }, [reportJson]);
+
+  const preflightCards = PREFLIGHT_CHECK_DEFS.map(def => {
+    const found = preflight?.checks.find(check => check.id === def.id);
+    return {
+      check: found ?? {
+        id: def.id,
+        label: def.label,
+        status: 'warning' as const,
+        summary: 'Not run yet. Run this check to capture deterministic diagnostics.',
+      },
+      displayStatus: preflightRunningCheckId === def.id ? 'running' as const : found ? found.status : 'idle' as const,
+    };
+  });
 
   return (
     <div style={{
       background: 'rgba(255,255,255,0.03)',
       border: '1px solid rgba(255,255,255,0.07)',
-      borderRadius: 12, overflow: 'hidden',
-      display: 'flex', flexDirection: 'column',
-      flex: 1, minHeight: 0,
+      borderRadius: 18,
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+      flex: 1,
+      minHeight: 0,
     }}>
-      {/* Panel header */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '11px 16px',
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        padding: '14px 16px',
         borderBottom: '1px solid rgba(255,255,255,0.06)',
+        background: 'linear-gradient(180deg, rgba(8,10,16,0.98), rgba(8,10,16,0.92))',
+        flexShrink: 0,
       }}>
-        <span style={{
-          fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-          textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)',
-        }}>
-          Quality Tests
-        </span>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.42)' }}>
+            Quality diagnostics
+          </span>
+          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.76)' }}>
+            Flow Chain, Live Readiness Preflight, Architect Real, and the latest live result are shown as separate diagnostic layers.
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button
-            onClick={() => setCompareEnabled(prev => !prev)}
-            disabled={anyRunning}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '5px 12px', borderRadius: 7,
-              border: '1px solid rgba(168,85,247,0.28)',
-              background: compareEnabled ? 'rgba(168,85,247,0.14)' : 'rgba(255,255,255,0.04)',
-              color: compareEnabled ? '#c084fc' : 'rgba(255,255,255,0.62)',
-              fontSize: 12, fontWeight: 600,
-              cursor: anyRunning ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s',
-            }}
-          >
-            <GitCompare size={12} />
-            Compare models
-          </button>
-          <button
+            type="button"
             onClick={() => void handleRunAll()}
             disabled={anyRunning}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '5px 14px', borderRadius: 7, border: 'none',
-              background: anyRunning ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.85)',
+              padding: '7px 14px', borderRadius: 9, border: 'none',
+              background: anyRunning ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.90)',
               color: anyRunning ? 'rgba(96,165,250,0.5)' : '#fff',
-              fontSize: 12, fontWeight: 600,
+              fontSize: 12, fontWeight: 700,
               cursor: anyRunning ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s',
             }}
           >
-            {anyRunning
-              ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Running…</>
-              : <><Play size={12} /> {compareEnabled ? 'Compare All' : 'Run All'}</>
-            }
+            <Play size={12} />
+            Run All
           </button>
           <button
-            onClick={handleClear}
+            type="button"
+            onClick={() => void handleRunPreflight()}
             disabled={anyRunning}
             style={{
-              padding: '5px 12px', borderRadius: 7,
-              border: '1px solid rgba(255,255,255,0.12)',
-              background: anyRunning ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)',
-              color: anyRunning ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.65)',
-              fontSize: 12, fontWeight: 600,
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', borderRadius: 9,
+              border: '1px solid rgba(110,231,183,0.28)',
+              background: anyRunning ? 'rgba(16,185,129,0.04)' : 'rgba(16,185,129,0.10)',
+              color: anyRunning ? 'rgba(110,231,183,0.38)' : '#6ee7b7',
+              fontSize: 12, fontWeight: 700,
               cursor: anyRunning ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s',
             }}
           >
-            Clear
+            {preflightRunning ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <FlaskConical size={12} />}
+            Run Preflight
+          </button>
+          {activeRunRef.current && (
+            <button
+              type="button"
+              onClick={handleStop}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '7px 12px', borderRadius: 9,
+                border: '1px solid rgba(251,191,36,0.35)',
+                background: 'rgba(251,191,36,0.10)',
+                color: '#fbbf24',
+                fontSize: 12, fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              <X size={12} />
+              Stop
+            </button>
+          )}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setClearMenuOpen(prev => !prev)}
+              style={{
+                padding: '7px 12px',
+                borderRadius: 9,
+                border: '1px solid rgba(248,113,113,0.35)',
+                background: 'rgba(248,113,113,0.10)',
+                color: 'rgba(254,226,226,0.95)',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Clear
+            </button>
+            {clearMenuOpen && (
+              <div style={{
+                position: 'absolute',
+                right: 0,
+                top: 'calc(100% + 8px)',
+                minWidth: 240,
+                borderRadius: 12,
+                border: '1px solid rgba(255,255,255,0.10)',
+                background: 'rgba(8,10,16,0.98)',
+                boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+                padding: 8,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                zIndex: 5,
+              }}>
+                <button type="button" onClick={clearFlowChainState} style={{ padding: '9px 10px', borderRadius: 8, border: 'none', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.88)', textAlign: 'left', cursor: 'pointer' }}>Clear Flow Chain</button>
+                <button type="button" onClick={clearPreflightState} style={{ padding: '9px 10px', borderRadius: 8, border: 'none', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.88)', textAlign: 'left', cursor: 'pointer' }}>Clear Preflight</button>
+                <button type="button" onClick={clearAllQualityState} style={{ padding: '9px 10px', borderRadius: 8, border: 'none', background: 'rgba(248,113,113,0.10)', color: '#fecaca', textAlign: 'left', cursor: 'pointer' }}>Clear All Quality State</button>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleCopyReport()}
+            disabled={!hasReportData || anyRunning}
+            style={{
+              padding: '7px 12px', borderRadius: 9,
+              border: '1px solid rgba(255,255,255,0.14)',
+              background: anyRunning || !hasReportData ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.08)',
+              color: anyRunning || !hasReportData ? 'rgba(255,255,255,0.24)' : 'rgba(255,255,255,0.82)',
+              fontSize: 12, fontWeight: 700,
+              cursor: anyRunning || !hasReportData ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Copy report JSON
           </button>
           <button
+            type="button"
             onClick={handleDownloadReport}
-            disabled={anyRunning || !hasReportData}
+            disabled={!hasReportData || anyRunning}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '5px 12px', borderRadius: 7,
+              padding: '7px 12px', borderRadius: 9,
               border: '1px solid rgba(96,165,250,0.24)',
               background: anyRunning || !hasReportData ? 'rgba(255,255,255,0.03)' : 'rgba(96,165,250,0.08)',
-              color: anyRunning || !hasReportData ? 'rgba(255,255,255,0.2)' : '#93c5fd',
-              fontSize: 12, fontWeight: 600,
+              color: anyRunning || !hasReportData ? 'rgba(255,255,255,0.24)' : '#93c5fd',
+              fontSize: 12, fontWeight: 700,
               cursor: anyRunning || !hasReportData ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s',
             }}
           >
             <Download size={12} />
@@ -3184,111 +2109,146 @@ function FlowChainTab({ selectedModel = '' }: { selectedModel?: string }) {
         </div>
       </div>
 
-      {compareEnabled && (
-        <div style={{
-          padding: '12px 16px',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          background: 'rgba(124,58,237,0.04)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                LLM compare
-              </div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 4 }}>
-                Hidden by default. Enable it only when you want per-item runner comparisons without cluttering the main quality list.
-              </div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {clearSummary && (
+          <div style={{ border: '1px solid rgba(96,165,250,0.20)', borderRadius: 16, background: 'rgba(30,41,59,0.72)', padding: 16, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: 'rgba(255,255,255,0.92)' }}>{clearSummary.action}</div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.82)', whiteSpace: 'pre-line' }}>
+              Cleared:
+              {'\n'}- {clearSummary.cleared.join('\n- ')}
+              {'\n'}Preserved:
+              {'\n'}- {clearSummary.preserved.join('\n- ')}
             </div>
-            {compareBlockedReason && (
-              <div style={{ fontSize: 11, color: '#fbbf24' }}>{compareBlockedReason}</div>
-            )}
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {renderCompareProfileEditor('left', 'Profile A', compareProfiles.left, leftCompareStatus)}
-            {renderCompareProfileEditor('right', 'Profile B', compareProfiles.right, rightCompareStatus)}
+        )}
+
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, background: 'linear-gradient(180deg, rgba(14,165,233,0.10), rgba(15,23,42,0.72))', padding: 18, display: 'flex', flexDirection: 'column', gap: 14, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(191,219,254,0.82)' }}>Overall Quality Status</span>
+              <span style={{ fontSize: 22, fontWeight: 800, color: 'rgba(255,255,255,0.96)' }}>Overall: {statusLabel(overallStatus.status)}</span>
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 1.5 }}>Reason: {overallStatus.reason}</span>
+            </div>
+            <span style={statusBadgeStyle(overallStatus.status)}>{statusLabel(overallStatus.status)}</span>
           </div>
-          {openRouterModels.length > 0 && (
-            <datalist id="quality-openrouter-models">
-              {openRouterModels.slice(0, 250).map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </datalist>
-          )}
-          {standardProviderModels.length > 0 && (
-            <datalist id="quality-standard-models">
-              {standardProviderModels.slice(0, 250).map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </datalist>
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.03)' }}><KV label="Flow Chain" value={statusLabel(flowChainSummary.status)} /><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.66)' }}>{flowChainSummary.reason}</div></div>
+            <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.03)' }}><KV label="Live Readiness" value={statusLabel(preflightSummary.status)} /><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.66)' }}>{preflightSummary.reason}</div></div>
+            <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.03)' }}><KV label="Architect Real" value={statusLabel(realLlmSummary.status)} /><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.66)' }}>{realLlmSummary.reason}</div></div>
+            <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.03)' }}><KV label="Last live result" value={statusLabel(lastLiveSummary.status)} /><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.66)' }}>{lastLiveSummary.reason}</div></div>
+          </div>
+          {overallStatus.blockingFailures.length > 0 && (
+            <SelectionBlock title="Blocking failures" value={overallStatus.blockingFailures.join('\n')} copyLabel="Copy blockers" maxHeight={140} />
           )}
         </div>
-      )}
 
-      {/* Test rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {STEP_DEFS.map((def, idx) => (
-          <div
-            key={def.id}
-            style={{ borderBottom: idx < STEP_DEFS.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}
-          >
-            <TestRow
-              def={def}
-              state={effectiveTestStates[def.id as StepId]}
-              onRun={() => handleRunOne(def.id as StepId)}
-              anyRunning={anyRunning}
-              expanded={expanded[def.id as StepId]}
-              onToggle={() => handleToggle(def.id as StepId)}
-              compareEnabled={compareEnabled}
-              onCompare={() => void handleRunCompare(def.id as StepId)}
-              compareDisabledReason={compareBlockedReason}
-              compareRunning={compareRecords[def.id as StepId]?.state === 'running'}
-              hasCompareResult={compareRecords[def.id as StepId]?.state === 'done'}
-              comparePanel={compareEnabled && activeCompareStepId === def.id && compareRecords[def.id as StepId] ? (
-                <CompareResultPanel
-                  testId={def.id as StepId}
-                  record={compareRecords[def.id as StepId]!}
-                />
-              ) : null}
-            />
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, background: 'rgba(15,23,42,0.72)', display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0, flexShrink: 0 }}>
+          <div style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.52)' }}>Flow Chain</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)' }}>Fixture, real runtime, and real LLM checks remain separate and explicit. Each step keeps its own status, duration, summary, rerun button, details, and copyable payload.</span>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12, color: 'rgba(255,255,255,0.60)' }}>
+              <span>{passCount}/{STEP_DEFS.length}</span>
+              <span>Fixture PASS: {fixturePassCount}</span>
+              <span>Real runtime PASS: {realRuntimePassCount}</span>
+              <span>Real LLM PASS: {realLlmPassCount}</span>
+              {brokenAt ? <span style={{ color: '#f87171' }}>stopped at {brokenAt}</span> : null}
+            </div>
           </div>
-        ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0, minHeight: 0, paddingBottom: 2 }}>
+            {STEP_DEFS.map(def => (
+              <TestRow
+                key={def.id}
+                def={def}
+                state={testStates[def.id as StepId]}
+                onRun={() => handleRunOne(def.id as StepId)}
+                anyRunning={anyRunning}
+                expanded={expanded[def.id as StepId]}
+                onToggle={() => handleToggle(def.id as StepId)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, background: 'linear-gradient(180deg, rgba(16,185,129,0.06), rgba(15,23,42,0.74))', padding: 16, display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0, flexShrink: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(110,231,183,0.82)' }}>Live Readiness Preflight</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 1.55 }}>Fast deterministic preflight. No LLM. No Vite build. Checks contracts before live generation.</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.70)', lineHeight: 1.55 }}>Быстрая статическая проверка. Не вызывает LLM и не собирает preview. Проверяет контракты файлов, импортов, экспортов, skeleton-ов и prompt catalog.</span>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={statusBadgeStyle(preflightRunning ? 'running' : preflightSummary.status)}>{statusLabel(preflightRunning ? 'running' : preflightSummary.status)}</span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.62)' }}>{preflight ? `${preflight.passCount} pass · ${preflight.failCount} fail · ${preflight.warningCount} warning` : 'No preflight result yet'}</span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.50)' }}>{preflight ? fmtDateTime(preflight.checkedAt) : 'Not run yet'}</span>
+            </div>
+            {preflightSummary.status === 'fail' ? (
+              <div style={{ border: '1px solid rgba(248,113,113,0.24)', borderRadius: 12, background: 'rgba(248,113,113,0.08)', color: '#fecaca', padding: '10px 12px', fontSize: 12 }}>Live generation is likely to crash until these contract failures are fixed.</div>
+            ) : null}
+          </div>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {preflightCards.map(({ check, displayStatus }) => (
+              <PreflightCheckCard
+                key={check.id}
+                check={check}
+                displayStatus={displayStatus}
+                expanded={Boolean(preflightExpanded[check.id])}
+                running={preflightRunningCheckId === check.id}
+                onToggle={() => togglePreflightDetails(check.id)}
+                onRun={() => void handleRunPreflightCheck(check.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, background: 'rgba(15,23,42,0.74)', padding: 16, display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(196,181,253,0.82)' }}>Real LLM / Architect Real</span>
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)' }}>Real model telemetry is shown separately so it does not disappear into the main diagnostic stream.</span>
+            </div>
+            <span style={statusBadgeStyle(architectState.status === 'pass' ? 'pass' : architectState.status === 'fail' ? 'fail' : architectState.status === 'running' ? 'running' : 'warning')}>
+              {statusLabel(architectState.status === 'idle' ? 'warning' : architectState.status === 'cancelled' ? 'warning' : architectState.status)}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            <KV label="model" value={architectState.llm?.model ?? 'Not run yet'} />
+            <KV label="prompt tokens" value={architectState.llm ? String(architectState.llm.prompt_tokens) : '—'} />
+            <KV label="completion tokens" value={architectState.llm ? String(architectState.llm.completion_tokens) : '—'} />
+            <KV label="total tokens" value={architectState.llm ? String(architectState.llm.total_tokens) : '—'} />
+            <KV label="file count" value={architectState.output?.file_count ? String(architectState.output.file_count) : '—'} />
+            <KV label="status" value={architectState.status} />
+          </div>
+          <SelectionBlock title="Architect Real details" value={JSON.stringify(architectState.details ?? { summary: 'Architect Real has not been run yet.' }, null, 2)} copyLabel="Copy architect details" maxHeight={220} />
+          <SelectionBlock title="Architect Real raw result" value={buildStepDetailsPayload(STEP_DEFS[STEP_DEFS.length - 1], architectState)} copyLabel="Copy raw result" maxHeight={220} />
+        </div>
+
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, background: 'rgba(15,23,42,0.74)', padding: 16, display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.52)' }}>Last Live Generation Result</span>
+          {lastLivePayload ? (
+            <>
+              <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                <KV label="status" value={lastLivePayload.status} />
+                <KV label="stage" value={lastLivePayload.stage} />
+                <KV label="root_cause_type" value={lastLivePayload.root_cause_type ?? '—'} />
+                <KV label="candidate graph" value={lastLivePayload.candidate_graph_summary ?? '—'} />
+                <KV label="suggested fix" value={lastLivePayload.suggested_fix ?? '—'} />
+                <KV label="started" value={fmtDateTime(recentLiveTrace?.startedAt)} />
+              </div>
+              <SelectionBlock title="Raw error excerpt" value={lastLivePayload.raw_error_excerpt ?? 'No raw error excerpt captured.'} copyLabel="Copy raw error" maxHeight={160} />
+              <SelectionBlock title="Live trace summary" value={JSON.stringify({ runSummary: recentLiveTrace?.runSummary, visibleReasoningTrace: recentLiveTrace?.visibleReasoningTrace }, null, 2)} copyLabel="Copy live trace" maxHeight={260} />
+            </>
+          ) : (
+            <div style={{ border: '1px dashed rgba(255,255,255,0.16)', borderRadius: 12, padding: '14px 16px', fontSize: 13, color: 'rgba(255,255,255,0.66)' }}>
+              No live generation result captured yet.
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Footer */}
-      <div style={{
-        borderTop: '1px solid rgba(255,255,255,0.06)',
-        padding: '9px 16px',
-        display: 'flex', alignItems: 'center', gap: 10,
-        fontSize: 11, color: 'rgba(255,255,255,0.3)',
-        flexWrap: 'wrap',
-      }}>
+      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 11, color: 'rgba(255,255,255,0.42)' }}>
         <Clock size={11} />
-        {lastRunStr ? (
-          <>
-            <span>Last run: {lastRunStr}</span>
-            {verdict && <span style={verdictBadgeStyle(verdict)}>{verdict}</span>}
-            <span>{passCount}/{scopedStepIds.length}</span>
-            <span>real-runtime {realRuntimeSummary.passCount}/{realRuntimeSummary.total}{realRuntimeSummary.verdict ? ` ${realRuntimeSummary.verdict}` : ''}</span>
-            <span>real-llm {realLlmSummary.passCount}/{realLlmSummary.total}{realLlmSummary.verdict ? ` ${realLlmSummary.verdict}` : ''}</span>
-            <span>arch truth {architectureTruth.verdict ?? 'PENDING'}</span>
-            <span>delta truth {codeDeltaTruth.verdict ?? 'PENDING'}</span>
-            {blockingRealGateSummary.failCount > 0 && (
-              <span style={{ color: '#f87171' }}>
-                real gates failed: {blockingRealGateSummary.failedIds.join(', ')}
-              </span>
-            )}
-            {brokenAt && <span style={{ color: '#f87171' }}>stopped at {brokenAt}</span>}
-          </>
-        ) : (
-          <span>Нет прогонов. Нажмите Run или Run All.</span>
-        )}
+        <span>{lastRunStr ? `Last run: ${lastRunStr}` : 'No Flow Chain run yet.'}</span>
+        <span style={verdictBadgeStyle(reportVerdict === 'WARNING' ? 'PARTIAL' : reportVerdict)}>{reportVerdict}</span>
+        <span>{passCount}/{STEP_DEFS.length}</span>
+        {brokenAt ? <span style={{ color: '#f87171' }}>stopped at {brokenAt}</span> : null}
       </div>
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
@@ -3309,7 +2269,6 @@ export function QualityPanel({ apiKey = '', selectedModel = '' }: QualityPanelPr
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'flow-chain', label: 'Flow Chain', icon: <FlaskConical size={13} /> },
     { id: 'benchmark',  label: 'Benchmark',  icon: <BarChart2 size={13} /> },
-    { id: 'showcase',   label: 'Showcase',   icon: <Layers3 size={13} /> },
   ];
 
   return (
@@ -3322,6 +2281,7 @@ export function QualityPanel({ apiKey = '', selectedModel = '' }: QualityPanelPr
         <div style={{ display: 'flex', gap: 4, marginLeft: 16 }}>
           {tabs.map(t => (
             <button
+              type="button"
               key={t.id}
               onClick={() => setTab(t.id)}
               style={{
@@ -3340,9 +2300,8 @@ export function QualityPanel({ apiKey = '', selectedModel = '' }: QualityPanelPr
       </div>
 
       <div style={BODY_S}>
-        {tab === 'flow-chain' && <FlowChainTab selectedModel={selectedModel} />}
+        {tab === 'flow-chain' && <FlowChainTab />}
         {tab === 'benchmark'  && <BenchmarkDashboard apiKey={apiKey} selectedModel={selectedModel} />}
-        {tab === 'showcase'   && <VisualBankModule />}
       </div>
     </div>
   );

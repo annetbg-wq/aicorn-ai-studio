@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "skeletonId": "content-learning-app",
+  "routes": [
+    {
+      "id": "Home",
+      "path": "/home",
+      "filePath": "src/pages/Home.tsx",
+      "title": "Home"
+    },
+    {
+      "id": "CourseCatalog",
+      "path": "/coursecatalog",
+      "filePath": "src/pages/CourseCatalog.tsx",
+      "title": "CourseCatalog"
+    },
+    {
+      "id": "CourseDetail",
+      "path": "/coursedetail",
+      "filePath": "src/pages/CourseDetail.tsx",
+      "title": "CourseDetail"
+    },
+    {
+      "id": "LessonPlayer",
+      "path": "/lessonplayer",
+      "filePath": "src/pages/LessonPlayer.tsx",
+      "title": "LessonPlayer"
+    },
+    {
+      "id": "Quiz",
+      "path": "/quiz",
+      "filePath": "src/pages/Quiz.tsx",
+      "title": "Quiz"
+    },
+    {
+      "id": "Progress",
+      "path": "/progress",
+      "filePath": "src/pages/Progress.tsx",
+      "title": "Progress"
+    },
+    {
+      "id": "Profile",
+      "path": "/profile",
+      "filePath": "src/pages/Profile.tsx",
+      "title": "Profile"
+    }
+  ]
+}

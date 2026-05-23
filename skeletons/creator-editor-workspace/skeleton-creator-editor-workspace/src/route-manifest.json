@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "skeletonId": "creator-editor-workspace",
+  "routes": [
+    {
+      "id": "Home",
+      "path": "/home",
+      "filePath": "src/pages/Home.tsx",
+      "title": "Home"
+    },
+    {
+      "id": "Editor",
+      "path": "/editor",
+      "filePath": "src/pages/Editor.tsx",
+      "title": "Editor"
+    },
+    {
+      "id": "Media",
+      "path": "/media",
+      "filePath": "src/pages/Media.tsx",
+      "title": "Media"
+    },
+    {
+      "id": "Publications",
+      "path": "/publications",
+      "filePath": "src/pages/Publications.tsx",
+      "title": "Publications"
+    },
+    {
+      "id": "Analytics",
+      "path": "/analytics",
+      "filePath": "src/pages/Analytics.tsx",
+      "title": "Analytics"
+    },
+    {
+      "id": "Settings",
+      "path": "/settings",
+      "filePath": "src/pages/Settings.tsx",
+      "title": "Settings"
+    }
+  ]
+}

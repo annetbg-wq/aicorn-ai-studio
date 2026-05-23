@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "skeletonId": "b2b-operations-workspace",
+  "routes": [
+    {
+      "id": "Dashboard",
+      "path": "/dashboard",
+      "filePath": "src/pages/Dashboard.tsx",
+      "title": "Dashboard"
+    },
+    {
+      "id": "Records",
+      "path": "/records",
+      "filePath": "src/pages/Records.tsx",
+      "title": "Records"
+    },
+    {
+      "id": "RecordDetail",
+      "path": "/recorddetail",
+      "filePath": "src/pages/RecordDetail.tsx",
+      "title": "RecordDetail"
+    },
+    {
+      "id": "Workflow",
+      "path": "/workflow",
+      "filePath": "src/pages/Workflow.tsx",
+      "title": "Workflow"
+    },
+    {
+      "id": "Team",
+      "path": "/team",
+      "filePath": "src/pages/Team.tsx",
+      "title": "Team"
+    },
+    {
+      "id": "Reports",
+      "path": "/reports",
+      "filePath": "src/pages/Reports.tsx",
+      "title": "Reports"
+    },
+    {
+      "id": "Settings",
+      "path": "/settings",
+      "filePath": "src/pages/Settings.tsx",
+      "title": "Settings"
+    }
+  ]
+}

@@ -448,12 +448,20 @@ const SEMANTIC_KEYWORDS: Array<{ id: string; rx: RegExp }> = [
 ];
 
 const SURFACE_BY_SKELETON: Record<SkeletonId, string[]> = {
-  'mobile-app': ['mobile', 'bottom-tabs', 'feed', 'detail', 'profile', 'onboarding'],
-  'saas-dashboard': ['dashboard', 'sidebar', 'metrics', 'data-table', 'settings', 'workspace'],
-  'landing-page': ['marketing', 'hero', 'pricing', 'faq', 'cta', 'top-nav', 'social-proof'],
-  'social-community': ['mobile', 'bottom-tabs', 'feed', 'explore', 'notifications', 'profile', 'post-detail'],
-  'productivity-tool': ['workspace', 'sidebar', 'kanban', 'list', 'detail-sheet', 'command-palette'],
-  ecommerce: ['storefront', 'product-grid', 'product-detail', 'cart', 'checkout', 'account'],
+  'mobile-app':               ['mobile', 'bottom-tabs', 'feed', 'detail', 'profile', 'onboarding'],
+  'saas-dashboard':           ['dashboard', 'sidebar', 'metrics', 'data-table', 'settings', 'workspace'],
+  'landing-page':             ['marketing', 'hero', 'pricing', 'faq', 'cta', 'top-nav', 'social-proof'],
+  'social-community':         ['mobile', 'bottom-tabs', 'feed', 'explore', 'notifications', 'profile', 'post-detail'],
+  'productivity-tool':        ['workspace', 'sidebar', 'kanban', 'list', 'detail-sheet', 'command-palette'],
+  'ecommerce':                ['storefront', 'product-grid', 'product-detail', 'cart', 'checkout', 'account'],
+  'b2b-operations-workspace': ['sidebar', 'dashboard', 'records-list', 'record-detail', 'settings', 'workspace'],
+  'marketplace-platform':     ['storefront', 'listing-grid', 'product-detail', 'cart', 'checkout', 'seller-dashboard'],
+  'creator-editor-workspace': ['sidebar', 'canvas', 'properties-panel', 'asset-library', 'project-list'],
+  'dating-matching-app':      ['mobile', 'bottom-tabs', 'swipe-deck', 'matches', 'conversation', 'profile'],
+  'gaming-casino-app':        ['mobile', 'bottom-tabs', 'game-lobby', 'game-detail', 'promotions', 'account'],
+  'game-interactive-app':     ['mobile', 'bottom-tabs', 'level-select', 'game-play', 'leaderboard', 'profile'],
+  'booking-service-app':      ['mobile', 'bottom-tabs', 'service-list', 'booking-flow', 'my-bookings', 'profile'],
+  'content-learning-app':     ['mobile', 'bottom-tabs', 'course-catalog', 'course-detail', 'lesson-player', 'profile'],
 };
 
 const SURFACE_SOURCE_FILES: Record<SkeletonId, string[]> = {
@@ -488,21 +496,71 @@ const SURFACE_SOURCE_FILES: Record<SkeletonId, string[]> = {
     'prototype-bank/design-packs/surfaces/cards/metric-card.tsx',
     'prototype-bank/design-packs/surfaces/primitives/tabs.tsx',
   ],
-  ecommerce: [
+  'ecommerce': [
     'prototype-bank/design-packs/surfaces/primitives/button.tsx',
     'prototype-bank/design-packs/surfaces/primitives/card.tsx',
     'prototype-bank/design-packs/surfaces/cards/list-item.tsx',
     'prototype-bank/design-packs/surfaces/cards/profile-card.tsx',
   ],
+  'b2b-operations-workspace': [
+    'prototype-bank/design-packs/surfaces/blocks/sidebar-nav.tsx',
+    'prototype-bank/design-packs/surfaces/blocks/dashboard-header.tsx',
+    'prototype-bank/design-packs/surfaces/cards/list-item.tsx',
+    'prototype-bank/design-packs/surfaces/cards/metric-card.tsx',
+  ],
+  'marketplace-platform': [
+    'prototype-bank/design-packs/surfaces/primitives/button.tsx',
+    'prototype-bank/design-packs/surfaces/primitives/card.tsx',
+    'prototype-bank/design-packs/surfaces/cards/list-item.tsx',
+  ],
+  'creator-editor-workspace': [
+    'prototype-bank/design-packs/surfaces/blocks/sidebar-nav.tsx',
+    'prototype-bank/design-packs/surfaces/blocks/dashboard-header.tsx',
+    'prototype-bank/design-packs/surfaces/primitives/tabs.tsx',
+  ],
+  'dating-matching-app': [
+    'prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx',
+    'prototype-bank/design-packs/surfaces/cards/profile-card.tsx',
+    'prototype-bank/design-packs/surfaces/primitives/avatar.tsx',
+  ],
+  'gaming-casino-app': [
+    'prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx',
+    'prototype-bank/design-packs/surfaces/cards/list-item.tsx',
+    'prototype-bank/design-packs/surfaces/primitives/card.tsx',
+  ],
+  'game-interactive-app': [
+    'prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx',
+    'prototype-bank/design-packs/surfaces/cards/list-item.tsx',
+    'prototype-bank/design-packs/surfaces/primitives/card.tsx',
+  ],
+  'booking-service-app': [
+    'prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx',
+    'prototype-bank/design-packs/surfaces/cards/list-item.tsx',
+    'prototype-bank/design-packs/surfaces/primitives/card.tsx',
+  ],
+  'content-learning-app': [
+    'prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx',
+    'prototype-bank/design-packs/surfaces/cards/list-item.tsx',
+    'prototype-bank/design-packs/surfaces/primitives/card.tsx',
+    'prototype-bank/design-packs/surfaces/primitives/tabs.tsx',
+  ],
 };
 
 const PACK_DOMAIN_ALIASES: Record<SkeletonId, string[]> = {
-  'mobile-app': ['consumer', 'wellness', 'health', 'habit', 'lifestyle'],
-  'saas-dashboard': ['saas', 'b2b', 'admin', 'analytics', 'fintech', 'medicine', 'ai-tools'],
-  'landing-page': ['marketing', 'saas', 'ecommerce', 'creator', 'fintech', 'wellness'],
-  'social-community': ['social', 'community', 'creator', 'forum', 'network', 'medicine'],
-  'productivity-tool': ['productivity', 'workspace', 'tasks', 'notes', 'ai-tools', 'saas', 'wellness'],
-  ecommerce: ['commerce', 'storefront', 'retail', 'creator', 'marketplace'],
+  'mobile-app':               ['consumer', 'wellness', 'health', 'habit', 'lifestyle'],
+  'saas-dashboard':           ['saas', 'b2b', 'admin', 'analytics', 'fintech', 'medicine', 'ai-tools'],
+  'landing-page':             ['marketing', 'saas', 'ecommerce', 'creator', 'fintech', 'wellness'],
+  'social-community':         ['social', 'community', 'creator', 'forum', 'network', 'medicine'],
+  'productivity-tool':        ['productivity', 'workspace', 'tasks', 'notes', 'ai-tools', 'saas', 'wellness'],
+  'ecommerce':                ['commerce', 'storefront', 'retail', 'creator', 'marketplace'],
+  'b2b-operations-workspace': ['b2b', 'operations', 'workspace', 'saas', 'admin', 'analytics'],
+  'marketplace-platform':     ['commerce', 'marketplace', 'storefront', 'retail', 'multi-vendor'],
+  'creator-editor-workspace': ['creator', 'design', 'editor', 'workspace', 'productivity'],
+  'dating-matching-app':      ['dating', 'social', 'consumer', 'lifestyle', 'community'],
+  'gaming-casino-app':        ['gaming', 'casino', 'entertainment', 'consumer'],
+  'game-interactive-app':     ['gaming', 'interactive', 'entertainment', 'consumer'],
+  'booking-service-app':      ['booking', 'services', 'appointments', 'consumer', 'wellness', 'health'],
+  'content-learning-app':     ['education', 'learning', 'courses', 'consumer', 'wellness'],
 };
 
 const SEMANTIC_NEIGHBOR_VARIANTS: Record<string, string[]> = {
@@ -2392,6 +2450,14 @@ function defaultLayoutPatternsForSkeleton(skeleton: SkeletonId): string[] {
     case 'social-community': return ['bottom-tabs', 'social-feed', 'story-rail', 'profile-stack', 'comment-thread', 'composer-flow'];
     case 'productivity-tool': return ['sidebar-workspace', 'kanban-board', 'list-detail', 'split-pane', 'command-palette', 'detail-sheet'];
     case 'ecommerce': return ['product-grid', 'product-detail', 'checkout-flow', 'bottom-tabs', 'cart-stack', 'wishlist-list'];
+    case 'b2b-operations-workspace': return ['sidebar-shell', 'records-table', 'record-detail', 'kpi-grid', 'settings-tabs'];
+    case 'marketplace-platform': return ['product-grid', 'product-detail', 'checkout-flow', 'seller-dashboard', 'cart-stack'];
+    case 'creator-editor-workspace': return ['sidebar-workspace', 'canvas-editor', 'properties-panel', 'asset-library', 'project-grid'];
+    case 'dating-matching-app': return ['bottom-tabs', 'swipe-deck', 'match-list', 'chat-thread', 'profile-stack'];
+    case 'gaming-casino-app': return ['bottom-tabs', 'game-lobby-grid', 'game-detail', 'promotions-list', 'account-stack'];
+    case 'game-interactive-app': return ['bottom-tabs', 'level-grid', 'game-canvas', 'leaderboard-list', 'profile-stack'];
+    case 'booking-service-app': return ['bottom-tabs', 'service-list', 'booking-wizard', 'my-bookings-list', 'profile-stack'];
+    case 'content-learning-app': return ['bottom-tabs', 'course-grid', 'course-detail', 'lesson-player', 'progress-stack'];
   }
 }
 
@@ -2403,6 +2469,14 @@ function defaultComponentFamiliesForSkeleton(skeleton: SkeletonId): string[] {
     case 'social-community': return ['mobile-nav', 'post-card', 'comment-item', 'notification-item', 'user-avatar', 'feed-card'];
     case 'productivity-tool': return ['sidebar-nav', 'top-bar', 'kanban-card', 'list-item', 'tabs', 'command-palette', 'sheet'];
     case 'ecommerce': return ['product-card', 'product-image', 'image-gallery', 'rating-stars', 'review-item', 'filters', 'bottom-tabs'];
+    case 'b2b-operations-workspace': return ['sidebar-nav', 'dashboard-header', 'stat-card', 'data-table', 'list-item', 'tabs'];
+    case 'marketplace-platform': return ['product-card', 'product-image', 'rating-stars', 'review-item', 'filters', 'cart-item'];
+    case 'creator-editor-workspace': return ['sidebar-nav', 'toolbar', 'canvas-panel', 'property-panel', 'asset-card', 'tabs'];
+    case 'dating-matching-app': return ['mobile-nav', 'profile-card', 'swipe-card', 'match-item', 'chat-bubble', 'avatar'];
+    case 'gaming-casino-app': return ['mobile-nav', 'game-card', 'promotion-banner', 'category-chip', 'account-summary'];
+    case 'game-interactive-app': return ['mobile-nav', 'level-card', 'game-canvas', 'leaderboard-item', 'achievement-badge'];
+    case 'booking-service-app': return ['mobile-nav', 'service-card', 'time-slot-picker', 'booking-item', 'profile-card'];
+    case 'content-learning-app': return ['mobile-nav', 'course-card', 'lesson-item', 'progress-ring', 'video-player', 'tabs'];
   }
 }
 
@@ -2414,6 +2488,14 @@ function defaultSubdomainsForSkeleton(skeleton: SkeletonId): string[] {
     case 'social-community': return ['feed', 'community'];
     case 'productivity-tool': return ['task-management', 'workspace'];
     case 'ecommerce': return ['catalog', 'checkout'];
+    case 'b2b-operations-workspace': return ['operations', 'analytics', 'workspace'];
+    case 'marketplace-platform': return ['catalog', 'checkout', 'marketplace'];
+    case 'creator-editor-workspace': return ['design', 'creator', 'workspace'];
+    case 'dating-matching-app': return ['dating', 'social', 'consumer-mobile'];
+    case 'gaming-casino-app': return ['gaming', 'entertainment'];
+    case 'game-interactive-app': return ['gaming', 'entertainment'];
+    case 'booking-service-app': return ['booking', 'services', 'wellness'];
+    case 'content-learning-app': return ['education', 'learning'];
   }
 }
 
@@ -2425,6 +2507,14 @@ function defaultTrustProfileForSkeleton(skeleton: SkeletonId): string {
     case 'social-community': return 'community-trust';
     case 'productivity-tool': return 'workspace-trust';
     case 'ecommerce': return 'commerce-trust';
+    case 'b2b-operations-workspace': return 'enterprise-trust';
+    case 'marketplace-platform': return 'commerce-trust';
+    case 'creator-editor-workspace': return 'workspace-trust';
+    case 'dating-matching-app': return 'consumer-trust';
+    case 'gaming-casino-app': return 'consumer-trust';
+    case 'game-interactive-app': return 'consumer-trust';
+    case 'booking-service-app': return 'consumer-trust';
+    case 'content-learning-app': return 'consumer-trust';
   }
 }
 

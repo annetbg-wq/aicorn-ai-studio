@@ -1,0 +1,4 @@
+import { ListingCard } from '@/components/ListingCard';
+import { Input } from '@/components/ui/Input';
+import { useApp } from '@/context/AppContext';
+export default function Home(){ const app = useApp(); return <main className="page"><section className="card hero stack"><span className="badge">Marketplace discovery</span><h1 className="title">Find, book and buy from trusted sellers.</h1><p className="subtitle">Buyer discovery, seller dashboard and local cart/messages are all wired into this skeleton.</p><Input placeholder="Search listings" value={app.query} onChange={(e)=>app.setQuery(e.target.value)}/></section><div className="grid two">{app.filteredListings.slice(0,4).map((listing)=><ListingCard key={listing.id} listing={listing} onOpen={(id)=>{app.setSelectedListingId(id); app.setActiveRoute('Listing')}} onSave={app.saveListing} onCart={app.addToCart}/>)}</div></main> }

@@ -63,11 +63,22 @@
       "Bash(npx ts-node:*)",
       "Bash(echo \"EXIT=$?\")",
       "Bash(powershell -Command \"Get-Content 'c:\\\\ai_studio\\\\preview-workspace\\\\src\\\\__build_id.ts'\")",
-      "Bash(echo \"FRONTEND_EXIT=$?\")"
+      "Bash(echo \"FRONTEND_EXIT=$?\")",
+      "Bash(gh pr *)",
+      "Bash(git pull *)",
+      "Bash(dir C:\\\\ai_studio\\\\backend /b)",
+      "Bash(dir C:\\\\ai_studio /b)",
+      "Bash(findstr /v node_modules)",
+      "Bash(findstr /v \".git\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(node -e \"const {execSync}=require\\('child_process'\\); try { execSync\\('npx tsx --version', {stdio:'pipe'}\\); console.log\\('tsx ok'\\); } catch\\(e\\) { console.log\\('tsx failed:', e.message\\); }; try { execSync\\('node_modules/.bin/concurrently --version', {stdio:'pipe', cwd: process.cwd\\(\\)}\\); console.log\\('concurrently ok'\\); } catch\\(e\\) { console.log\\('concurrently failed:', e.message\\); }\")",
+      "Bash(node e2e/flow-chain-test.mjs)",
+      "Bash(git restore *)",
+      "Bash(git -C /c/ai_studio status --short)",
+      "Bash(git -C /c/ai_studio add frontend/src/services/ProductSpecificityPlanner.ts frontend/src/services/ProtoPipeline.ts frontend/src/shared/projectModel.ts \"frontend/src/services/__tests__/ProductSpecificityPlanner.test.ts\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\Pavel Kornilov\\.claude\\projects\\c--ai-studio"
     ]
   }
 }
-

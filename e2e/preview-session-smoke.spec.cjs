@@ -15,7 +15,7 @@
  *      Product code handles trailing-slash semantics and session-bound assets.
  *
  * Phase 1 — HTTP assertions via page.request (bypasses page.route entirely):
- *   Proves the session binding contract. Also primes the shadcn/ui install.
+ *   Proves the session binding contract.
  * Phase 2 — iframe mount via mountPreview() with document retry only:
  *   No LLM, no generation pipeline, no API credits spent.
  */
@@ -31,10 +31,10 @@ const BASE_URL   = process.env.STUDIO_URL || 'http://localhost:5183';
 // where __dirname = backend/. From e2e/ directory: '../builds' = C:\ai_studio\builds.
 const BUILDS_DIR = path.resolve(__dirname, '..', 'builds');
 
-// Phase 1 compile: shadcn install attempt (~60–90 s, non-fatal) + vite build (~30 s).
-const COMPILE_TIMEOUT_MS   = 150_000;
+// Phase 1 compile: vite build only (~30–60 s); primitives resolved from committed sources.
+const COMPILE_TIMEOUT_MS   = 90_000;
 // Route hold: must exceed compile time so the premature request isn't released early.
-const IFRAME_HOLD_TIMEOUT_MS = 150_000;
+const IFRAME_HOLD_TIMEOUT_MS = 90_000;
 const IFRAME_POLL_MS         = 500;
 // Flow timeout for Playwright assertions after mountPreview resolves.
 const FLOW_TIMEOUT_MS        = 70_000;
@@ -155,8 +155,8 @@ async function installPreviewDocumentRetry(page) {
 // ── test ──────────────────────────────────────────────────────────────────────
 
 test.describe('Preview session smoke — P0 regression guard', () => {
-  // Phase 1 compile ≤150 s + Phase 2 route hold+mount ≤210 s + 30 s buffer.
-  test.setTimeout(400_000);
+  // Phase 1 compile ≤90 s + Phase 2 route hold+mount ≤160 s + 30 s buffer.
+  test.setTimeout(280_000);
 
   test(
     'session binding: 200 with token, 403 without, compiled preview iframe loads',
@@ -180,8 +180,6 @@ test.describe('Preview session smoke — P0 regression guard', () => {
       // ── Phase 1: HTTP session binding assertions ─────────────────────────────
       //
       // page.request bypasses page.route; the route handler has no effect here.
-      // This compile also primes the shadcn/ui install in preview-workspace, so
-      // Phase 2 compile runs vite build only (~30 s, no npm install overhead).
 
       const testBuildId = `e2e-build-${Date.now().toString(36)}-p0smoke`;
 
@@ -227,7 +225,7 @@ test.describe('Preview session smoke — P0 regression guard', () => {
       await installPreviewDocumentRetry(page);
 
       // 8. Compile and mount deterministic preview — no LLM, no generation.
-      //    shadcn is pre-warmed from Phase 1; vite build only (~30 s).
+      //    Primitives resolved deterministically from committed sources; vite build only (~30 s).
       const mountResult = await page.evaluate(
         async (files) => window.__E2E_PREVIEW_TEST.mountPreview(files),
         PREVIEW_FILES,

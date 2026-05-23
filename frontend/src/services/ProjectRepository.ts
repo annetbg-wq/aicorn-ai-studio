@@ -373,7 +373,6 @@ export const ProjectRepository = {
             const activeBranch = branches[activeBranchId];
             record.activeBranchId = activeBranchId;
             record.branches = branches;
-            record.files = activeBranch?.files ?? record.files;
             record.chatHistory = activeBranch?.chatHistory ?? record.chatHistory;
             if (activeBranch?.revisions) (record as any).revisions = activeBranch.revisions;
             return record;
@@ -402,7 +401,6 @@ export const ProjectRepository = {
       const activeBranch = branches[activeBranchId];
       record.activeBranchId = activeBranchId;
       record.branches = branches;
-      record.files = activeBranch?.files ?? record.files;
       record.chatHistory = activeBranch?.chatHistory ?? record.chatHistory;
       if (activeBranch?.revisions) (record as any).revisions = activeBranch.revisions;
       return record;
@@ -420,14 +418,33 @@ export const ProjectRepository = {
     };
     const { activeBranchId, branches } = normalizeProjectBranches(normalizedProject);
     const activeBranch = branches[activeBranchId];
+    const mergedProjectFiles = activeBranch
+      ? { ...(normalizedProject.files ?? {}), ...(activeBranch.files ?? {}) }
+      : (normalizedProject.files ?? {});
+    const synchronizedActiveBranch = activeBranch
+      ? {
+          ...activeBranch,
+          files: activeBranch.files ?? {},
+          chatHistory: Array.isArray(normalizedProject.chatHistory)
+            ? normalizedProject.chatHistory
+            : activeBranch.chatHistory,
+          updatedAt: normalizedProject.updatedAt,
+        }
+      : activeBranch;
+    const persistedBranches = synchronizedActiveBranch
+      ? {
+          ...branches,
+          [activeBranchId]: synchronizedActiveBranch,
+        }
+      : branches;
     const snapshot: Record<string, unknown> = {
-      files:          activeBranch?.files ?? normalizedProject.files,
-      chatHistory:    activeBranch?.chatHistory ?? normalizedProject.chatHistory,
+      files:          mergedProjectFiles,
+      chatHistory:    synchronizedActiveBranch?.chatHistory ?? normalizedProject.chatHistory,
       theme:          normalizedProject.theme,
       description:    normalizedProject.description,
       createdAt:      normalizedProject.createdAt,
       activeBranchId,
-      branches,
+      branches:       persistedBranches,
       // Extended metadata (v2)
       ...((normalizedProject as any).intent         !== undefined && { intent:         (normalizedProject as any).intent }),
       ...((normalizedProject as any).source         !== undefined && { source:         (normalizedProject as any).source }),
@@ -449,12 +466,12 @@ export const ProjectRepository = {
         name:        normalizedProject.name,
         description: normalizedProject.description,
         theme:       normalizedProject.theme,
-        files:       activeBranch?.files ?? normalizedProject.files,
-        chatHistory: (activeBranch?.chatHistory ?? normalizedProject.chatHistory) as Array<{ role: string; content: string }>,
+        files:       mergedProjectFiles,
+        chatHistory: (synchronizedActiveBranch?.chatHistory ?? normalizedProject.chatHistory) as Array<{ role: string; content: string }>,
         createdAt:   normalizedProject.createdAt,
         updatedAt:   normalizedProject.updatedAt,
         activeBranchId,
-        branches,
+        branches:    persistedBranches,
       });
     };
 
@@ -665,8 +682,26 @@ export const ProjectRepository = {
 
     previewLog('repository_load_to_preview_start', { buildId: null, projectId: project.id });
 
+    // Ensure App.tsx imports visual-pack.css so CSS variables are always loaded.
+    // The import is injected by ensureVisualPackImport in ProtoPipeline during generation,
+    // but project.files persists the pre-injection version. Patch it here before compile.
+    const VISUAL_PACK_IMPORT = "import './styles/visual-pack.css';";
+    const appTsxKey = Object.keys(project.files ?? {}).find(
+      k => k === 'App.tsx' || k === 'src/App.tsx',
+    );
+    const hasVisualPackFile = Object.keys(project.files ?? {}).some(
+      k => k === 'styles/visual-pack.css' || k === 'src/styles/visual-pack.css',
+    );
+    let previewFiles = project.files ?? {};
+    if (appTsxKey && hasVisualPackFile) {
+      const appSrc = previewFiles[appTsxKey];
+      if (typeof appSrc === 'string' && !appSrc.includes(VISUAL_PACK_IMPORT)) {
+        previewFiles = { ...previewFiles, [appTsxKey]: `${VISUAL_PACK_IMPORT}\n${appSrc}` };
+      }
+    }
+
     try {
-      const buildId = await revisionManager.materializePersistedFiles(project.files ?? {}, {
+      const buildId = await revisionManager.materializePersistedFiles(previewFiles, {
         source: 'ProjectRepository.loadToPreview',
         projectId: project.id,
       });
