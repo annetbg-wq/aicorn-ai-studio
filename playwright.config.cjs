@@ -27,7 +27,12 @@ module.exports = defineConfig({
 
   webServer: {
     command: isLivePreviewCanary ? 'npm run prod:canary:all' : 'npm run dev:all',
-    url: 'http://localhost:5183',
+    // Non-canary: launcher boots backend first, then frontend — :5183 implies backend ready.
+    // Live canary: prod:canary:all uses concurrently (no ordering); probe the backend health
+    // endpoint directly so tests cannot start before the API layer is ready.
+    url: isLivePreviewCanary
+      ? 'http://127.0.0.1:3000/api/health'
+      : 'http://localhost:5183',
     reuseExistingServer: !process.env.CI,
     timeout: isLivePreviewCanary ? 240_000 : 120_000,
     env: {

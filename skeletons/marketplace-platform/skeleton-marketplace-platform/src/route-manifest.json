@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "skeletonId": "marketplace-platform",
+  "routes": [
+    {
+      "id": "Home",
+      "path": "/home",
+      "filePath": "src/pages/Home.tsx",
+      "title": "Home"
+    },
+    {
+      "id": "Browse",
+      "path": "/browse",
+      "filePath": "src/pages/Browse.tsx",
+      "title": "Browse"
+    },
+    {
+      "id": "Listing",
+      "path": "/listing",
+      "filePath": "src/pages/Listing.tsx",
+      "title": "Listing"
+    },
+    {
+      "id": "SellerDashboard",
+      "path": "/sellerdashboard",
+      "filePath": "src/pages/SellerDashboard.tsx",
+      "title": "SellerDashboard"
+    },
+    {
+      "id": "Messages",
+      "path": "/messages",
+      "filePath": "src/pages/Messages.tsx",
+      "title": "Messages"
+    },
+    {
+      "id": "Profile",
+      "path": "/profile",
+      "filePath": "src/pages/Profile.tsx",
+      "title": "Profile"
+    }
+  ]
+}

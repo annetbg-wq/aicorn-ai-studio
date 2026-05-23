@@ -1,5 +1,41 @@
 [
   {
+    "id": "2026-05-18T06:30:17.377Z",
+    "date": "2026-05-18",
+    "interest": "wellness",
+    "daily": "TermoСон, Микропауза, БиоТаймер",
+    "weekly": "Ночной компас, Минутка силы, Чистый понедельник",
+    "monthly": "ГлюкоБаланс, НейроРитм, Менопауза+",
+    "createdAt": "2026-05-18T06:30:17.377Z"
+  },
+  {
+    "id": "2026-05-18T06:29:45.759Z",
+    "date": "2026-05-18",
+    "interest": "wellness",
+    "daily": "HeatBeat, EaseScreen, ReCharge",
+    "weekly": "Vagus Pulse, ChronoFuel, SleepRoom",
+    "monthly": "СонПослеCOVID, ГраницаОтдыха, GLP-1 Питание",
+    "createdAt": "2026-05-18T06:29:45.759Z"
+  },
+  {
+    "id": "2026-05-17T16:10:03.068Z",
+    "date": "2026-05-17",
+    "interest": "wellness",
+    "daily": "CortiWake, RecoveryKey, BreatheEase",
+    "weekly": "Маршрут недели, Дыхательный фокус, Цикл-питание",
+    "monthly": "Глюкозный компас, Хронос, Нервная флора",
+    "createdAt": "2026-05-17T16:10:03.068Z"
+  },
+  {
+    "id": "2026-05-17T16:09:56.989Z",
+    "date": "2026-05-17",
+    "interest": "wellness",
+    "daily": "Осанка.онлайн, АкваРитм, Вечерний Ритуал",
+    "weekly": "ResetWave, OfflineSunday, LuxCycle",
+    "monthly": "МиоРескью, КортиХабит, СинхронныйСон",
+    "createdAt": "2026-05-17T16:09:56.989Z"
+  },
+  {
     "id": "2026-05-12T20:56:49.680Z",
     "date": "2026-05-12",
     "interest": "wellness",

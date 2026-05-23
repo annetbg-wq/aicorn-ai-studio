@@ -73,6 +73,7 @@ import {
   designContractForCoder,
   archetypeContextForArchitect,
   themeFile,
+  type MediaHint,
 } from '../DesignContract';
 import { clearFileVisualSelectionMemory } from '../FileVisualBankService';
 
@@ -154,6 +155,26 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/Before inventing UI, check selected premium component recipe/);
   });
 
+  it('includes generated import path hints for selected premium components', async () => {
+    const ctx = await resolveDesignContext('wellness mobile app with habit routine tracking', 'mobile-app');
+    const txt = designContractForCoder(ctx);
+    const component = ctx.premiumComponentSelection.selectedComponents[0];
+
+    expect(ctx.premiumComponentSelection.selectedRecipeId).toBe('health-wellness-mobile');
+    if (!component) {
+      throw new Error('Expected at least one selected premium component');
+    }
+
+    const expectedImportPath = `@/design-pack/${component.file
+      .replace(/^prototype-bank\/design-packs\//, '')
+      .replace(/\.[^.]+$/, '')}`;
+
+    expect(txt).toContain(`generatedImportPath: ${expectedImportPath}`);
+    expect(txt).toContain(`import: import ${component.name} from '${expectedImportPath}';`);
+    expect(txt).toMatch(/Prefer these imported premium components before inventing generic cards/);
+    expect(txt).toMatch(/Do not downgrade selected premium blocks to generic Card layouts/);
+  });
+
   it('marks hardcoded visual selection as fallback when file packs are unavailable', async () => {
     const ctx = await resolveDesignContext('test', 'mobile-app', { visualPacksOverride: [] });
     const txt = designContractForCoder(ctx);
@@ -162,6 +183,33 @@ describe('DesignContract — prompt fragments', () => {
     expect(ctx.visualSelection.selectedPackId).toBe('hardcoded-fallback');
     expect(txt).toMatch(/VISUAL_BANK_SELECTION/);
     expect(txt).toMatch(/fallbackVisualSelection: true/);
+  });
+
+  it('coder contract includes media asset hints and first-screen usage instruction when mediaHints provided', async () => {
+    const ctx = await resolveDesignContext('wellness mobile app', 'mobile-app');
+    const mediaHints: MediaHint[] = [
+      {
+        id: 'health-calm-calm-illustration',
+        kind: 'calm-illustration',
+        importPath: 'src/assets/generated/health-calm-calm-illustration.svg',
+        recommendedUse: 'calm-illustration on mobile-app',
+      },
+    ];
+    const txt = designContractForCoder(ctx, mediaHints);
+
+    expect(txt).toMatch(/GENERATED_MEDIA_ASSETS/);
+    expect(txt).toContain('src/assets/generated/health-calm-calm-illustration.svg');
+    expect(txt).toMatch(/calm-illustration/);
+    expect(txt).toMatch(/use at least one media/i);
+    expect(txt).toMatch(/Do not replace them with empty gray placeholders/);
+    expect(txt).toMatch(/Do not leave all media slots empty/);
+  });
+
+  it('coder contract has no media section when no mediaHints provided', async () => {
+    const ctx = await resolveDesignContext('a simple app', 'saas-dashboard');
+    const txt = designContractForCoder(ctx);
+
+    expect(txt).not.toMatch(/GENERATED_MEDIA_ASSETS/);
   });
 });
 

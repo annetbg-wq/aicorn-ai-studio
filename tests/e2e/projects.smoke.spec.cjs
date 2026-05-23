@@ -11,6 +11,7 @@ const BLUEPRINT_BETA = 'Pulse Deck Arena';
 
 const PROJECT_ONE_NAME = BLUEPRINT_ALPHA;
 const PROJECT_TWO_NAME = BLUEPRINT_BETA;
+const DEBUG_LLM_FIXTURES = process.env.SMOKE_DEBUG_LLM === '1';
 
 function inferBlueprintName(text = '') {
   if (
@@ -52,6 +53,11 @@ function sseFromText(text) {
     'data: [DONE]',
     '',
   ].join('\n');
+}
+
+function debugFixtureLog(source, details) {
+  if (!DEBUG_LLM_FIXTURES) return;
+  console.log(`[fixture:${source}] ${details}`);
 }
 
 function buildPlanResponse(appName) {
@@ -200,13 +206,7 @@ function buildAppTsx(appName) {
 }
 
 function buildCoderResponse(appName) {
-  return JSON.stringify({
-    artifact: {
-      entry: 'src/App.tsx',
-      dependencies: [],
-      files: [{ path: 'src/App.tsx', content: buildAppTsx(appName) }],
-    },
-  });
+  return buildCoderFileMarkerResponse(appName);
 }
 
 function buildArchitectureAnalysisResponse(appName) {
@@ -287,85 +287,381 @@ function buildPackagingBlueprint(appName, ideaId) {
 function buildArchitectPlanResponse(appName) {
   return JSON.stringify({
     appName,
+    skeleton: 'saas-dashboard',
     summary: `Deterministic smoke build for ${appName}`,
-    deltaFiles: [
-      { path: 'pages/Home.tsx', purpose: 'Main screen' },
-      { path: 'pages/Onboarding.tsx', purpose: 'Onboarding screen' },
-      { path: 'config/app.ts', purpose: 'App identity and storage keys' },
-    ],
+    fileTree: {
+      'src/config/app.ts': 'Workspace identity, storage keys, and SaaS tagline for the founder smoke run.',
+      'src/config/navigation.ts': 'Sidebar navigation labels and icons for the dashboard, records, and settings views.',
+      'src/data/types.ts': 'Domain types for clinic workflows, KPI cards, records, activity, and settings theme state.',
+      'src/data/seed.ts': 'Deterministic seed data for KPIs, activity, records, sparkline, and onboarding tasks.',
+      'src/pages/Dashboard.tsx': 'Primary dashboard screen with KPI cards, activity feed, onboarding checklist, and project title.',
+      'src/pages/DataView.tsx': 'Records table screen that uses the provided DataTable and useTable hook.',
+      'src/pages/Settings.tsx': 'Settings tabs for profile and workspace preferences using the provided UI primitives.',
+    },
     pages: [
-      { path: '/', name: 'Home', file: 'pages/Home.tsx', purpose: 'Entry point' },
-      { path: '/onboarding', name: 'Onboarding', file: 'pages/Onboarding.tsx', purpose: 'Initial setup' },
+      { path: '/', name: 'Dashboard', file: 'pages/Dashboard.tsx', purpose: 'Founder KPI overview and recent activity' },
+      { path: '/data', name: 'Data', file: 'pages/DataView.tsx', purpose: 'Clinic workflows and operational records table' },
+      { path: '/settings', name: 'Settings', file: 'pages/Settings.tsx', purpose: 'Workspace profile and appearance settings' },
     ],
-    notes: [],
+    contextContract: 'Use the provided AppContext and skeleton UI components. Do not recreate the app shell or router.',
+    dataModel: 'WorkflowRecord: { id, title, status, value, createdAt, owner }; KPIMetric: { id, label, value, deltaPct, trend }; ActivityEvent: { id, actor, action, target, timestamp }',
+    notes: ['Keep the dashboard deterministic and non-empty for founder smoke validation.'],
   });
 }
 
 function buildCoderFileMarkerResponse(appName) {
-  const homeTsx = [
-    "import { useState } from 'react';",
-    '',
-    'export default function Home() {',
-    '  const [n, setN] = useState(0);',
-    '  return (',
-    '    <div style={{ padding: 24, minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>',
-    `      <h1 data-testid="project-title">${appName}</h1>`,
-    '      <p>{n}</p>',
-    '      <button type="button" onClick={() => setN(v => v + 1)}>Go</button>',
-    '    </div>',
-    '  );',
-    '}',
-  ].join('\n');
-
-  const onboardingTsx = [
-    "import { useState } from 'react';",
-    '',
-    'export default function Onboarding() {',
-    '  const [done, setDone] = useState(false);',
-    '  if (done) return <p>Ready!</p>;',
-    '  return (',
-    '    <div style={{ padding: 24 }}>',
-    `      <h1>${appName} — Onboarding</h1>`,
-    '      <button type="button" onClick={() => setDone(true)}>',
-    '        Get Started',
-    '      </button>',
-    '    </div>',
-    '  );',
-    '}',
-  ].join('\n');
-
   const configAppTs = [
     'export const APP_CONFIG = {',
     `  name: '${appName}',`,
-    "  tagline: 'Deterministic smoke build.',",
+    "  tagline: 'Operational visibility for clinic founders.',",
     '  freeActionLimit: 10,',
-    "  storagePrefix: 'smoke.v1',",
+    "  storagePrefix: 'smoke.saas.v1',",
     '} as const;',
     '',
     'export const STORAGE_KEYS = {',
-    "  profile: 'smoke.v1.profile',",
-    "  theme: 'smoke.v1.theme',",
-    "  feed: 'smoke.v1.feed',",
-    "  progress: 'smoke.v1.progress',",
+    '  profile: `${APP_CONFIG.storagePrefix}.profile`,',
+    '  theme: `${APP_CONFIG.storagePrefix}.theme`,',
+    '  data: `${APP_CONFIG.storagePrefix}.data`,',
+    '  onboardingChecklist: `${APP_CONFIG.storagePrefix}.onboarding`,',
+    '  sidebarCollapsed: `${APP_CONFIG.storagePrefix}.sidebar`,',
     '} as const;',
   ].join('\n');
 
-  // Override the skeleton's App.tsx so the root route always renders Home directly.
-  // Without this, the skeleton's routing sends "/" to its own Dashboard component
-  // and our pages/Home.tsx (with data-testid="project-title") never mounts.
-  const appTsx = [
-    "import Home from './pages/Home';",
+  const navigationTs = [
+    "import { LayoutDashboard, Database, Settings, type LucideIcon } from 'lucide-react';",
     '',
-    'export default function App() {',
-    '  return <Home />;',
+    "import { ROUTES } from './routes';",
+    '',
+    'export interface NavItem {',
+    '  to: string;',
+    '  label: string;',
+    '  icon: LucideIcon;',
+    '}',
+    '',
+    'export interface NavGroup {',
+    '  label: string;',
+    '  items: readonly NavItem[];',
+    '}',
+    '',
+    'export const SIDEBAR_NAV: readonly NavGroup[] = [',
+    '  {',
+    "    label: 'Clinic Ops',",
+    '    items: [',
+    "      { to: ROUTES.dashboard, label: 'Overview', icon: LayoutDashboard },",
+    "      { to: ROUTES.data, label: 'Workflows', icon: Database },",
+    '    ],',
+    '  },',
+    '  {',
+    "    label: 'Workspace',",
+    '    items: [',
+    "      { to: ROUTES.settings, label: 'Settings', icon: Settings },",
+    '    ],',
+    '  },',
+    '] as const;',
+  ].join('\n');
+
+  const dataTypesTs = [
+    "import type { ThemeChoice } from '@/config/theme';",
+    '',
+    'export type ID = string;',
+    "export type LoadingState = 'idle' | 'loading' | 'ready' | 'error';",
+    '',
+    'export interface UserProfile {',
+    '  id: ID;',
+    '  name: string;',
+    '  email: string;',
+    "  role: 'owner' | 'admin' | 'member';",
+    '  avatarUrl?: string;',
+    '}',
+    '',
+    "export type RowStatus = 'active' | 'pending' | 'archived';",
+    '',
+    'export interface DataRow {',
+    '  id: ID;',
+    '  title: string;',
+    '  status: RowStatus;',
+    '  value: number;',
+    '  createdAt: string;',
+    '  owner: string;',
+    '}',
+    '',
+    'export interface KPIMetric {',
+    '  id: string;',
+    '  label: string;',
+    '  value: string;',
+    '  deltaPct: number;',
+    "  trend: 'up' | 'down' | 'flat';",
+    '}',
+    '',
+    'export interface ActivityEvent {',
+    '  id: ID;',
+    '  actor: string;',
+    '  action: string;',
+    '  target: string;',
+    '  timestamp: string;',
+    '}',
+    '',
+    'export interface ChecklistTask {',
+    '  id: string;',
+    '  label: string;',
+    '  done: boolean;',
+    '}',
+    '',
+    'export type { ThemeChoice };',
+  ].join('\n');
+
+  const dataSeedTs = [
+    "import type { ActivityEvent, ChecklistTask, DataRow, KPIMetric } from './types';",
+    '',
+    'export const SEED_ROWS: readonly DataRow[] = [',
+    "  { id: 'wf-1', title: 'Prior auth queue', status: 'active', value: 42, createdAt: '2026-05-19T08:15:00Z', owner: 'Maya Chen' },",
+    "  { id: 'wf-2', title: 'Claims rework', status: 'pending', value: 18, createdAt: '2026-05-19T09:05:00Z', owner: 'Rohan Patel' },",
+    "  { id: 'wf-3', title: 'Referral leakage', status: 'active', value: 27, createdAt: '2026-05-18T15:40:00Z', owner: 'Lena Voss' },",
+    "  { id: 'wf-4', title: 'Follow-up backlog', status: 'archived', value: 11, createdAt: '2026-05-17T12:20:00Z', owner: 'James Olu' },",
+    "  { id: 'wf-5', title: 'Schedule fill rate', status: 'active', value: 91, createdAt: '2026-05-18T10:10:00Z', owner: 'Maya Chen' },",
+    "  { id: 'wf-6', title: 'Denials outreach', status: 'pending', value: 14, createdAt: '2026-05-17T16:55:00Z', owner: 'Rohan Patel' },",
+    "  { id: 'wf-7', title: 'Intake QA', status: 'active', value: 33, createdAt: '2026-05-16T11:25:00Z', owner: 'Lena Voss' },",
+    "  { id: 'wf-8', title: 'Chart signing lag', status: 'active', value: 22, createdAt: '2026-05-15T13:30:00Z', owner: 'James Olu' },",
+    '];',
+    '',
+    'export const SEED_KPIS: readonly KPIMetric[] = [',
+    "  { id: 'visits', label: 'Visits booked', value: '318', deltaPct: 8.4, trend: 'up' },",
+    "  { id: 'claims', label: 'Claims cleared', value: '94%', deltaPct: 3.1, trend: 'up' },",
+    "  { id: 'denials', label: 'Denials at risk', value: '12', deltaPct: -4.2, trend: 'down' },",
+    "  { id: 'staffing', label: 'Coverage gaps', value: '3', deltaPct: 0, trend: 'flat' },",
+    '];',
+    '',
+    'export const SEED_ACTIVITY: readonly ActivityEvent[] = [',
+    "  { id: 'act-1', actor: 'Maya Chen', action: 'resolved', target: 'prior auth queue', timestamp: '2026-05-19T11:42:00Z' },",
+    "  { id: 'act-2', actor: 'Rohan Patel', action: 'flagged', target: 'claims rework', timestamp: '2026-05-19T10:18:00Z' },",
+    "  { id: 'act-3', actor: 'Lena Voss', action: 'updated', target: 'schedule fill rate', timestamp: '2026-05-19T09:51:00Z' },",
+    '];',
+    '',
+    'export const SEED_SPARKLINE: readonly number[] = [22, 24, 23, 28, 30, 29, 34, 35, 33, 37, 39, 41] as const;',
+    '',
+    'export const DEFAULT_CHECKLIST: readonly ChecklistTask[] = [',
+    "  { id: 'chk-1', label: 'Connect payer feed', done: false },",
+    "  { id: 'chk-2', label: 'Invite operations lead', done: false },",
+    "  { id: 'chk-3', label: 'Review denial hotspots', done: false },",
+    '];',
+  ].join('\n');
+
+  const dashboardTsx = [
+    "import { KPICard } from '@/components/KPICard';",
+    "import { Sparkline } from '@/components/Sparkline';",
+    "import { OnboardingChecklist } from '@/components/OnboardingChecklist';",
+    "import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';",
+    "import { Avatar, AvatarFallback } from '@/components/ui/Avatar';",
+    "import { useApp } from '@/context/AppContext';",
+    "import { SEED_ACTIVITY, SEED_KPIS, SEED_SPARKLINE } from '@/data/seed';",
+    '',
+    'const TIME_FMT = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });',
+    '',
+    'export default function Dashboard(): JSX.Element {',
+    '  const { profile } = useApp();',
+    '  const firstName = profile.name.split(" ")[0] || profile.name;',
+    '',
+    '  return (',
+    '    <div className="space-y-6 p-6">',
+    '      <header>',
+    '        <p className="text-sm text-muted-foreground">Clinic command center for {firstName}</p>',
+    `        <h1 data-testid="project-title" className="mt-1 text-2xl font-semibold tracking-tight">${appName}</h1>`,
+    '      </header>',
+    '',
+    '      <OnboardingChecklist />',
+    '',
+    '      <section aria-label="Key metrics" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">',
+    '        {SEED_KPIS.map((metric) => (',
+    '          <KPICard key={metric.id} metric={metric} />',
+    '        ))}',
+    '      </section>',
+    '',
+    '      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">',
+    '        <Card className="lg:col-span-2">',
+    '          <CardHeader>',
+    '            <CardTitle>Throughput trend</CardTitle>',
+    '            <CardDescription>Weekly operational momentum</CardDescription>',
+    '          </CardHeader>',
+    '          <CardContent>',
+    '            <Sparkline data={SEED_SPARKLINE} height={120} />',
+    '          </CardContent>',
+    '        </Card>',
+    '',
+    '        <Card>',
+    '          <CardHeader>',
+    '            <CardTitle>Recent activity</CardTitle>',
+    '            <CardDescription>Latest operator actions</CardDescription>',
+    '          </CardHeader>',
+    '          <CardContent>',
+    '            <ul className="space-y-3">',
+    '              {SEED_ACTIVITY.map((event) => (',
+    '                <li key={event.id} className="flex gap-3">',
+    '                  <Avatar className="h-8 w-8 flex-shrink-0">',
+    '                    <AvatarFallback className="text-xs">{event.actor[0].toUpperCase()}</AvatarFallback>',
+    '                  </Avatar>',
+    '                  <div className="min-w-0 flex-1">',
+    '                    <p className="text-sm leading-tight">',
+    '                      <span className="font-medium">{event.actor}</span>{" "}',
+    '                      <span className="text-muted-foreground">{event.action}</span>{" "}',
+    '                      <span className="font-medium">{event.target}</span>',
+    '                    </p>',
+    '                    <p className="mt-0.5 text-xs text-muted-foreground">{TIME_FMT.format(new Date(event.timestamp))}</p>',
+    '                  </div>',
+    '                </li>',
+    '              ))}',
+    '            </ul>',
+    '          </CardContent>',
+    '        </Card>',
+    '      </section>',
+    '    </div>',
+    '  );',
+    '}',
+  ].join('\n');
+
+  const dataViewTsx = [
+    "import { Plus } from 'lucide-react';",
+    "import { DataTable } from '@/components/DataTable';",
+    "import { Button } from '@/components/ui/Button';",
+    "import { Skeleton } from '@/components/ui/Skeleton';",
+    "import { useApp } from '@/context/AppContext';",
+    "import { SEED_ROWS } from '@/data/seed';",
+    "import { useTable } from '@/hooks/useTable';",
+    '',
+    'export default function DataView(): JSX.Element {',
+    '  const { loadingState } = useApp();',
+    '  const table = useTable({ source: SEED_ROWS });',
+    '',
+    '  return (',
+    '    <div className="space-y-6 p-6">',
+    '      <header className="flex flex-wrap items-center justify-between gap-3">',
+    '        <div>',
+    '          <h1 className="text-2xl font-semibold tracking-tight">Workflow queue</h1>',
+    '          <p className="mt-1 text-sm text-muted-foreground">Prior auth, denials, and scheduling records in one table.</p>',
+    '        </div>',
+    '        <Button>',
+    '          <Plus className="h-4 w-4" />',
+    '          New workflow',
+    '        </Button>',
+    '      </header>',
+    '',
+    '      {loadingState === "loading" ? (',
+    '        <div className="space-y-2">',
+    '          <Skeleton className="h-10 w-full" />',
+    '          <Skeleton className="h-10 w-full" />',
+    '          <Skeleton className="h-10 w-full" />',
+    '        </div>',
+    '      ) : (',
+    '        <DataTable table={table} />',
+    '      )}',
+    '    </div>',
+    '  );',
+    '}',
+  ].join('\n');
+
+  const settingsTsx = [
+    "import { useState } from 'react';",
+    '',
+    "import { Avatar, AvatarFallback } from '@/components/ui/Avatar';",
+    "import { Badge } from '@/components/ui/Badge';",
+    "import { Button } from '@/components/ui/Button';",
+    "import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';",
+    "import { Input } from '@/components/ui/Input';",
+    "import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';",
+    "import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';",
+    "import { useApp } from '@/context/AppContext';",
+    "import type { ThemeChoice } from '@/data/types';",
+    '',
+    'export default function Settings(): JSX.Element {',
+    '  const { profile, themeChoice, setTheme, updateProfile } = useApp();',
+    '  const [name, setName] = useState(profile.name);',
+    '  const [email, setEmail] = useState(profile.email);',
+    '',
+    '  function handleSaveGeneral(): void {',
+    '    updateProfile({ name, email });',
+    '  }',
+    '',
+    '  return (',
+    '    <div className="space-y-6 p-6">',
+    '      <header>',
+    '        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>',
+    '        <p className="mt-1 text-sm text-muted-foreground">Workspace profile, team, and appearance controls.</p>',
+    '      </header>',
+    '',
+    '      <Tabs defaultValue="general" className="space-y-4">',
+    '        <TabsList>',
+    '          <TabsTrigger value="general">General</TabsTrigger>',
+    '          <TabsTrigger value="team">Team</TabsTrigger>',
+    '        </TabsList>',
+    '',
+    '        <TabsContent value="general" className="space-y-4">',
+    '          <Card>',
+    '            <CardHeader>',
+    '              <CardTitle>Profile</CardTitle>',
+    '              <CardDescription>Update workspace owner details.</CardDescription>',
+    '            </CardHeader>',
+    '            <CardContent className="space-y-3">',
+    '              <label className="block space-y-1 text-sm">',
+    '                <span>Display name</span>',
+    '                <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={60} />',
+    '              </label>',
+    '              <label className="block space-y-1 text-sm">',
+    '                <span>Email</span>',
+    '                <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={120} />',
+    '              </label>',
+    '              <label className="block space-y-1 text-sm">',
+    '                <span>Theme</span>',
+    '                <Select value={themeChoice} onValueChange={(value) => setTheme(value as ThemeChoice)}>',
+    '                  <SelectTrigger>',
+    '                    <SelectValue placeholder="Select theme" />',
+    '                  </SelectTrigger>',
+    '                  <SelectContent>',
+    '                    <SelectItem value="system">Match system</SelectItem>',
+    '                    <SelectItem value="light">Light</SelectItem>',
+    '                    <SelectItem value="dark">Dark</SelectItem>',
+    '                  </SelectContent>',
+    '                </Select>',
+    '              </label>',
+    '              <Button onClick={handleSaveGeneral}>Save changes</Button>',
+    '            </CardContent>',
+    '          </Card>',
+    '        </TabsContent>',
+    '',
+    '        <TabsContent value="team">',
+    '          <Card>',
+    '            <CardHeader>',
+    '              <CardTitle>Team</CardTitle>',
+    '              <CardDescription>Current workspace operators.</CardDescription>',
+    '            </CardHeader>',
+    '            <CardContent className="space-y-3">',
+    '              <div className="flex items-center justify-between rounded-md border border-border p-4">',
+    '                <div className="flex items-center gap-3">',
+    '                  <Avatar className="h-10 w-10">',
+    '                    <AvatarFallback>{profile.name[0]?.toUpperCase() ?? "A"}</AvatarFallback>',
+    '                  </Avatar>',
+    '                  <div>',
+    '                    <p className="text-sm font-medium">{profile.name}</p>',
+    '                    <p className="text-xs text-muted-foreground">{profile.email}</p>',
+    '                  </div>',
+    '                </div>',
+    '                <Badge>Owner</Badge>',
+    '              </div>',
+    '            </CardContent>',
+    '          </Card>',
+    '        </TabsContent>',
+    '      </Tabs>',
+    '    </div>',
+    '  );',
     '}',
   ].join('\n');
 
   return [
-    '<<<FILE: App.tsx>>>\n' + appTsx + '\n<<<END>>>',
-    '<<<FILE: pages/Home.tsx>>>\n' + homeTsx + '\n<<<END>>>',
-    '<<<FILE: pages/Onboarding.tsx>>>\n' + onboardingTsx + '\n<<<END>>>',
     '<<<FILE: config/app.ts>>>\n' + configAppTs + '\n<<<END>>>',
+    '<<<FILE: config/navigation.ts>>>\n' + navigationTs + '\n<<<END>>>',
+    '<<<FILE: data/types.ts>>>\n' + dataTypesTs + '\n<<<END>>>',
+    '<<<FILE: data/seed.ts>>>\n' + dataSeedTs + '\n<<<END>>>',
+    '<<<FILE: pages/Dashboard.tsx>>>\n' + dashboardTsx + '\n<<<END>>>',
+    '<<<FILE: pages/DataView.tsx>>>\n' + dataViewTsx + '\n<<<END>>>',
+    '<<<FILE: pages/Settings.tsx>>>\n' + settingsTsx + '\n<<<END>>>',
   ].join('\n\n');
 }
 
@@ -407,7 +703,7 @@ async function installDeterministicRoutes(page) {
     });
   });
 
-  await page.route('https://openrouter.ai/api/v1/chat/completions', async (route) => {
+  const fulfillChatCompletions = async (route, sourceLabel) => {
     const raw = route.request().postData() || '{}';
     let body = {};
     try { body = JSON.parse(raw); } catch { body = {}; }
@@ -419,17 +715,23 @@ async function installDeterministicRoutes(page) {
     const ideaId = appName === BLUEPRINT_BETA ? 'trend-beta' : 'trend-alpha';
 
     let responseContent;
+    let responseKind = 'packaging-blueprint';
     if (systemText.includes('senior product architect') || systemText.includes('EXISTING SKELETON')) {
       responseContent = buildArchitectPlanResponse(appName);
+      responseKind = 'architect-plan';
     } else if (systemText.includes('senior React + TypeScript + Tailwind') || systemText.includes('completing an app')) {
       responseContent = buildCoderFileMarkerResponse(appName);
+      responseKind = 'coder-files';
     } else if (systemText.includes('fixing build errors') || systemText.includes('Re-emit the files')) {
       responseContent = buildCoderFileMarkerResponse(appName);
+      responseKind = 'repair-files';
     } else if (systemText.includes('Rewrite the user') || systemText.includes('dense paragraph')) {
       responseContent = `${appName} — a focused product app for founders.`;
+      responseKind = 'rewrite';
     } else {
       responseContent = JSON.stringify(buildPackagingBlueprint(appName, ideaId));
     }
+    debugFixtureLog(sourceLabel, `${responseKind} stream=${Boolean(body.stream)} app=${appName} system=${JSON.stringify(systemText.slice(0, 140))}`);
 
     await route.fulfill({
       status: 200,
@@ -437,6 +739,56 @@ async function installDeterministicRoutes(page) {
       body: JSON.stringify({
         choices: [{ message: { content: responseContent }, finish_reason: 'stop' }],
       }),
+    });
+  };
+
+  for (const [pattern, label] of [
+    ['https://openrouter.ai/api/v1/chat/completions', 'openrouter'],
+    ['https://api.openai.com/v1/chat/completions', 'openai'],
+    ['https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', 'google'],
+    ['https://api.deepseek.com/v1/chat/completions', 'deepseek'],
+    ['https://api.deepseek.com/chat/completions', 'deepseek-legacy'],
+    ['https://api.mistral.ai/v1/chat/completions', 'mistral'],
+    ['https://api.groq.com/openai/v1/chat/completions', 'groq'],
+  ]) {
+    await page.route(pattern, (route) => fulfillChatCompletions(route, label));
+  }
+
+  await page.route('**/api/quality/llm-run', async (route) => {
+    const raw = route.request().postData() || '{}';
+    let body = {};
+    try { body = JSON.parse(raw); } catch { body = {}; }
+    const systemText = toTextContent(body.systemPrompt);
+    const userText = toTextContent(body.userPrompt);
+    const appName = resolveBlueprintName(`${systemText}\n${userText}`, activeRunBlueprint);
+    activeRunBlueprint = appName;
+
+    let outputText = buildPlanResponse(appName);
+    let responseKind = 'plan';
+    if (systemText.includes('Lead System Architect for AI Studio')) {
+      const ideaId = appName === BLUEPRINT_BETA ? 'trend-beta' : 'trend-alpha';
+      outputText = JSON.stringify(buildPackagingBlueprint(appName, ideaId));
+      responseKind = 'packaging-blueprint';
+    } else if (systemText.includes('senior product architect') || systemText.includes('EXISTING SKELETON')) {
+      outputText = buildArchitectPlanResponse(appName);
+      responseKind = 'architect-plan';
+    } else if (
+      systemText.includes('senior React + TypeScript + Tailwind') ||
+      systemText.includes('completing an app') ||
+      systemText.includes('fixing build errors') ||
+      systemText.includes('Re-emit the files')
+    ) {
+      outputText = buildCoderFileMarkerResponse(appName);
+      responseKind = systemText.includes('fixing build errors') || systemText.includes('Re-emit the files')
+        ? 'repair-files'
+        : 'coder-files';
+    }
+    debugFixtureLog('quality-llm-run', `${responseKind} app=${appName} system=${JSON.stringify(systemText.slice(0, 140))}`);
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ output_text: outputText, finish_reason: 'stop' }),
     });
   });
 
@@ -462,26 +814,45 @@ async function installDeterministicRoutes(page) {
     const appName = inferredName || activeRunBlueprint;
 
     let text = buildPlanResponse(appName);
-    if (!stream) {
-      activeRunBlueprint = appName;
-      text = buildArchitectureAnalysisResponse(appName);
-    } else if (systemText.includes('Generate a step-by-step plan')) {
+    let responseKind = 'plan';
+    if (systemText.includes('Generate a step-by-step plan')) {
       activeRunBlueprint = appName;
       text = buildPlanResponse(appName);
+      responseKind = 'plan';
     } else if (systemText.includes('Senior Tech Lead')) {
       text = buildTechResponse();
+      responseKind = 'tech';
+    } else if (systemText.includes('senior product architect') || systemText.includes('EXISTING SKELETON')) {
+      activeRunBlueprint = appName;
+      text = buildArchitectPlanResponse(appName);
+      responseKind = 'architect-plan';
+    } else if (systemText.includes('Architecture analysis') || userText.includes('branchBriefSummary')) {
+      activeRunBlueprint = appName;
+      text = buildArchitectureAnalysisResponse(appName);
+      responseKind = 'architecture-analysis';
     } else if (
       systemText.includes('top-tier product founder') ||
       systemText.includes('web developer designing a landing page')
     ) {
       text = buildArchitectResponse(appName);
+      responseKind = 'legacy-architect';
     } else if (
+      systemText.includes('senior React + TypeScript + Tailwind') ||
+      systemText.includes('completing an app') ||
+      systemText.includes('fixing build errors') ||
+      systemText.includes('Re-emit the files') ||
       systemText.includes('React') ||
       systemText.includes('developer') ||
       userText.includes('CURRENT USER REQUEST')
     ) {
-      text = buildCoderResponse(appName);
+      text = buildCoderFileMarkerResponse(appName);
+      responseKind = 'coder-files';
+    } else if (!stream) {
+      activeRunBlueprint = appName;
+      text = buildArchitectureAnalysisResponse(appName);
+      responseKind = 'fallback-architecture-analysis';
     }
+    debugFixtureLog('llm-proxy', `${responseKind} stream=${stream} app=${appName} system=${JSON.stringify(systemText.slice(0, 140))} user=${JSON.stringify(userText.slice(0, 120))}`);
 
     if (!stream) {
       await route.fulfill({
@@ -501,11 +872,68 @@ async function installDeterministicRoutes(page) {
 }
 
 async function bootstrapStudio(page) {
-  await page.goto(`${BASE_URL}/studio`, { waitUntil: 'domcontentloaded' });
+  await page.addInitScript(({ alphaTitle, betaTitle, projectNames }) => {
+    if (window.self !== window.top) {
+      return;
+    }
 
-  await page.evaluate(({ alphaTitle, betaTitle }) => {
-    localStorage.clear();
-    sessionStorage.clear();
+    if (window.name === '__AIC_FOUNDER_SMOKE_BOOTSTRAPPED__') {
+      return;
+    }
+
+    window.name = '__AIC_FOUNDER_SMOKE_BOOTSTRAPPED__';
+    const testProjectNames = new Set(projectNames);
+    const parseArray = (key) => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
+    const testProjectIds = new Set();
+    for (const key of ['aic-project-meta', 'aic_projects_meta']) {
+      const next = parseArray(key).filter((item) => {
+        const name = String(item?.name || item?.title || '');
+        const id = String(item?.id || '');
+        const isSmokeProject = testProjectNames.has(name);
+        if (isSmokeProject && id) testProjectIds.add(id);
+        return !isSmokeProject;
+      });
+      if (next.length > 0) localStorage.setItem(key, JSON.stringify(next));
+      else localStorage.removeItem(key);
+    }
+    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith('aic-proj-')) continue;
+      const id = key.slice('aic-proj-'.length);
+      if (testProjectIds.has(id)) {
+        localStorage.removeItem(key);
+        continue;
+      }
+      try {
+        const stored = JSON.parse(localStorage.getItem(key) || 'null');
+        const name = String(stored?.name || stored?.title || '');
+        if (testProjectNames.has(name)) localStorage.removeItem(key);
+      } catch {
+        // Leave unrelated/malformed project storage untouched.
+      }
+    }
+    [
+      'AIC_DEV_AUTH_BYPASS',
+      'AIC_E2E_LIVE_GENERATION_CANARY',
+      'OPENROUTER_API_KEY',
+      'APP_LANGUAGE',
+      'superadmin_dev_agent_provider',
+      'aic_trend_niches',
+      'aic_trend_niches_interests',
+      'aic_trend_niches_bank',
+      'CURRENT_PROJECT_ID',
+      'AIC_DRAFT_SESSION_ID',
+    ].forEach((key) => localStorage.removeItem(key));
+    sessionStorage.removeItem('AIC_DRAFT_SESSION_ID');
 
     const now = new Date();
     const todayKey = now.toISOString().slice(0, 10);
@@ -583,14 +1011,49 @@ async function bootstrapStudio(page) {
   }, {
     alphaTitle: IDEA_ALPHA_TITLE,
     betaTitle: IDEA_BETA_TITLE,
+    projectNames: [PROJECT_ONE_NAME, PROJECT_TWO_NAME],
   });
 
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.goto(`${BASE_URL}/studio`, { waitUntil: 'domcontentloaded' });
+
+  const localhostLogin = page.getByRole('button', { name: /Test Login/i });
+  if (await localhostLogin.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await localhostLogin.click();
+  }
+
+  await expect(
+    page.getByRole('heading', { name: /Панель студии|Studio Dashboard/i }).first()
+  ).toBeVisible({ timeout: 30_000 });
 }
 
 async function openTrendNiches(page) {
-  await page.locator('button[title="Трендовые ниши"]').click();
-  await expect(page.getByRole('heading', { name: 'Трендовые ниши' }).first()).toBeVisible({ timeout: 20_000 });
+  const moduleHeading = page.getByRole('heading', { name: /Трендовые ниши|Trending niches/i }).first();
+  if (await moduleHeading.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    return;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const dashboardOpenButton = page.getByRole('button', { name: /^Открыть$|^Open$/i }).first();
+    if (await dashboardOpenButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await dashboardOpenButton.click();
+    } else {
+      const navButton = page.locator('button[title="Трендовые ниши"]').first();
+      await expect(navButton).toBeVisible({ timeout: 20_000 });
+      await navButton.click();
+    }
+
+    const opened = await moduleHeading.isVisible({ timeout: 15_000 }).catch(() => false);
+    if (opened) {
+      return;
+    }
+
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await expect(
+      page.getByRole('heading', { name: /Панель студии|Studio Dashboard/i }).first()
+    ).toBeVisible({ timeout: 20_000 });
+  }
+
+  await expect(moduleHeading).toBeVisible({ timeout: 30_000 });
 }
 
 async function openProjects(page) {
@@ -610,6 +1073,20 @@ function composerTextarea(page) {
   return page.locator(
     'textarea[placeholder="Что строим сегодня?"], textarea[placeholder="How can we build today?"]'
   ).first();
+}
+
+function saveProjectButton(page) {
+  return page.getByRole('button', { name: /Сохранить проект|Save project/i }).first();
+}
+
+function packagedTrendPrompt(page, blueprintName) {
+  return page.getByText(
+    new RegExp(`Package this trend idea into production-ready code:\\s*${escapeRegExp(blueprintName)}`, 'i')
+  ).first();
+}
+
+function previewReadyText(page, blueprintName) {
+  return page.getByText(new RegExp(`Превью готово\\s*${escapeRegExp(blueprintName)}`, 'i')).first();
 }
 
 async function sendInChat(page, text) {
@@ -637,6 +1114,22 @@ async function clickLatestConfirmPlan(page) {
   }
 }
 
+async function advancePlanUntilPreview(page, timeoutMs = FLOW_TIMEOUT) {
+  const confirmBtn = page.locator('[data-testid="generation-plan-card"] [data-testid="confirm-plan-btn"]').last();
+  const iframe = page.locator('[data-testid="preview-iframe"]');
+  const saveCta = page.locator('[data-testid="save-project-cta"]');
+
+  await expect(async () => {
+    if (await confirmBtn.isVisible().catch(() => false)) {
+      await clickLatestConfirmPlan(page);
+    }
+
+    const previewVisible = await iframe.isVisible().catch(() => false);
+    const saveVisible = await saveCta.isVisible().catch(() => false);
+    expect(previewVisible || saveVisible).toBe(true);
+  }).toPass({ timeout: timeoutMs, intervals: [1_000, 2_000, 3_000] });
+}
+
 async function waitForPreviewAndSaveCta(page, timeoutMs = FLOW_TIMEOUT) {
   const iframe = page.locator('[data-testid="preview-iframe"]');
   await expect(iframe).toBeVisible({ timeout: timeoutMs });
@@ -645,18 +1138,16 @@ async function waitForPreviewAndSaveCta(page, timeoutMs = FLOW_TIMEOUT) {
     const src = await iframe.getAttribute('src');
     expect(src).toBeTruthy();
     expect(src).not.toBe('about:blank');
-    expect(src).toMatch(/\/preview\/[0-9a-f-]+/i);
+    expect(src).toMatch(/\/preview\/(?:[0-9a-f-]+|rev_[^/?#]+)/i);
   }).toPass({ timeout: timeoutMs, intervals: [1_000, 2_000, 3_000] });
 
-  await expect(page.locator('[data-testid="save-project-cta"]')).toBeVisible({ timeout: timeoutMs });
+  await expect(saveProjectButton(page)).toBeVisible({ timeout: timeoutMs });
 }
 
 async function clickSaveProjectCta(page) {
-  const cta = page.locator('[data-testid="save-project-cta"]');
+  const cta = saveProjectButton(page);
   await expect(cta).toBeVisible({ timeout: FLOW_TIMEOUT });
-  // Container holds two buttons: [reject-project-cta] and the save button.
-  // Target save specifically to avoid strict-mode violation.
-  await cta.locator('button:not([data-testid="reject-project-cta"])').click();
+  await cta.click();
 }
 
 async function readPersistenceState(page) {
@@ -674,14 +1165,24 @@ async function readPersistenceState(page) {
 
     const legacyMeta = parseArray('aic-project-meta');
     const repoMeta = parseArray('aic_projects_meta');
+    const savedProjectIds = Array.from(new Set([
+      ...legacyMeta.map(item => String(item?.id || item?.name || '')).filter(Boolean),
+      ...repoMeta.map(item => String(item?.id || item?.name || '')).filter(Boolean),
+    ]));
+    const e2eProjectApi = window.__E2E_PROJECT_TEST;
+    const runtimeDraftSessionId =
+      e2eProjectApi && typeof e2eProjectApi.getDraftSessionId === 'function'
+        ? e2eProjectApi.getDraftSessionId()
+        : null;
 
     return {
+      savedProjectCount: savedProjectIds.length,
       legacyMetaCount: legacyMeta.length,
       legacyNames: legacyMeta.map(item => String(item?.name || '')).filter(Boolean),
       repoMetaCount: repoMeta.length,
       repoNames: repoMeta.map(item => String(item?.name || '')).filter(Boolean),
       currentProjectId: localStorage.getItem('CURRENT_PROJECT_ID'),
-      draftSessionId: localStorage.getItem('AIC_DRAFT_SESSION_ID'),
+      draftSessionId: runtimeDraftSessionId || sessionStorage.getItem('AIC_DRAFT_SESSION_ID') || localStorage.getItem('AIC_DRAFT_SESSION_ID'),
     };
   });
 }
@@ -733,35 +1234,27 @@ async function expectProjectCardVisible(page, projectName) {
 async function runTrendBuildToPreview(page, {
   ideaTitle,
   blueprintName,
-  sendPrompt,
   forbiddenVisibleText,
 }) {
   await openTrendNiches(page);
   await clickTrendIdeaAction(page, ideaTitle, 'В работу');
 
   await expect(composerTextarea(page)).toBeVisible({ timeout: FLOW_TIMEOUT });
-  await expect(
-    page.getByText(new RegExp(`Blueprint packaged:\\s*${escapeRegExp(blueprintName)}`, 'i')).first()
-  ).toBeVisible({ timeout: FLOW_TIMEOUT });
+  await expect(packagedTrendPrompt(page, blueprintName)).toBeVisible({ timeout: FLOW_TIMEOUT });
 
   if (forbiddenVisibleText) {
     await expect(
-      page.getByText(new RegExp(`Blueprint packaged:\\s*${escapeRegExp(forbiddenVisibleText)}`, 'i'))
+      packagedTrendPrompt(page, forbiddenVisibleText)
     ).toHaveCount(0);
   }
 
-  // Single attempt with a generous timeout — retrying by re-sending aborts the
-  // current vite build on the frontend side while the backend build keeps
-  // running, causing all retries to queue behind each other and never succeed.
-  await sendInChat(page, sendPrompt);
-  const confirmBtn = page.locator('[data-testid="generation-plan-card"] [data-testid="confirm-plan-btn"]').last();
-  const hasPlanConfirm = await confirmBtn.isVisible({ timeout: 15_000 }).catch(() => false);
-  if (hasPlanConfirm) {
-    await clickLatestConfirmPlan(page);
-  }
+  // Trend Niches -> "В работу" already auto-sends the packaged intent into the
+  // generation pipeline. Sending another prompt here aborts the active run.
+  await advancePlanUntilPreview(page, 180_000);
 
   // 3 min: 2× vite builds (~25-35 s each) + 2× iframe mount (~5 s each) + buffer
   await waitForPreviewAndSaveCta(page, 180_000);
+  await expect(previewReadyText(page, blueprintName)).toBeVisible({ timeout: FLOW_TIMEOUT });
   return readPersistenceState(page);
 }
 
@@ -931,10 +1424,10 @@ test.describe('Founder flow split-path smoke regressions', () => {
     await expect(composerTextarea(page)).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText('Founder-ready brief').first()).toBeVisible({ timeout: 45_000 });
     await expect(page.getByText(IDEA_ALPHA_TITLE).first()).toBeVisible({ timeout: 45_000 });
-    await expect(page.locator('[data-testid="save-project-cta"]')).toHaveCount(0);
+    await expect(saveProjectButton(page)).toHaveCount(0);
 
     const state = await readPersistenceState(page);
-    expect(state.legacyMetaCount).toBe(0);
+    expect(state.savedProjectCount).toBe(0);
     expect(state.currentProjectId).toBeNull();
     expect(state.draftSessionId).toBeTruthy();
   });
@@ -949,13 +1442,13 @@ test.describe('Founder flow split-path smoke regressions', () => {
       sendPrompt: `${PROJECT_ONE_NAME}: build this now`,
     });
 
-    expect(beforeSave.legacyMetaCount).toBe(0);
+    expect(beforeSave.savedProjectCount).toBe(0);
     expect(beforeSave.currentProjectId).toBeNull();
     expect(beforeSave.draftSessionId).toBeTruthy();
 
     await clickSaveProjectCta(page);
 
-    await expect.poll(async () => (await readPersistenceState(page)).legacyMetaCount).toBe(1);
+    await expect.poll(async () => (await readPersistenceState(page)).savedProjectCount).toBe(1);
     await expect.poll(async () => (await readPersistenceState(page)).currentProjectId).not.toBeNull();
     await expect.poll(async () => (await readPersistenceState(page)).draftSessionId).toBeNull();
 
@@ -968,13 +1461,13 @@ test.describe('Founder flow split-path smoke regressions', () => {
     await expect(page.getByText('Founder-ready brief').first()).toBeVisible({ timeout: 45_000 });
     await expect(page.getByText(IDEA_BETA_TITLE).first()).toBeVisible({ timeout: 45_000 });
     await expect(
-      page.getByText(new RegExp(`Blueprint packaged:\\s*${escapeRegExp(BLUEPRINT_ALPHA)}`, 'i'))
+      packagedTrendPrompt(page, BLUEPRINT_ALPHA)
     ).toHaveCount(0);
     await expect(page.getByText(PROJECT_ONE_NAME)).toHaveCount(0);
-    await expect(page.locator('[data-testid="save-project-cta"]')).toHaveCount(0);
+    await expect(saveProjectButton(page)).toHaveCount(0);
 
     const state = await readPersistenceState(page);
-    expect(state.legacyMetaCount).toBe(1);
+    expect(state.savedProjectCount).toBe(1);
     expect(state.currentProjectId).toBeNull();
     expect(state.draftSessionId).toBeTruthy();
 
@@ -993,14 +1486,14 @@ test.describe('Founder flow split-path smoke regressions', () => {
       sendPrompt: `${PROJECT_ONE_NAME}: build this now`,
     });
 
-    expect(beforeFirstSave.legacyMetaCount).toBe(0);
+    expect(beforeFirstSave.savedProjectCount).toBe(0);
     expect(beforeFirstSave.currentProjectId).toBeNull();
     expect(beforeFirstSave.draftSessionId).toBeTruthy();
 
     const firstDraftId = beforeFirstSave.draftSessionId;
     await clickSaveProjectCta(page);
 
-    await expect.poll(async () => (await readPersistenceState(page)).legacyMetaCount).toBe(1);
+    await expect.poll(async () => (await readPersistenceState(page)).savedProjectCount).toBe(1);
     await expect.poll(async () => (await readPersistenceState(page)).currentProjectId).not.toBeNull();
     await expect.poll(async () => (await readPersistenceState(page)).draftSessionId).toBeNull();
     await expect.poll(async () => readDraftChatPresence(page, firstDraftId)).toEqual({ session: false, local: false });
@@ -1012,14 +1505,14 @@ test.describe('Founder flow split-path smoke regressions', () => {
       forbiddenVisibleText: BLUEPRINT_ALPHA,
     });
 
-    expect(beforeSecondSave.legacyMetaCount).toBe(1);
+    expect(beforeSecondSave.savedProjectCount).toBe(1);
     expect(beforeSecondSave.currentProjectId).toBeNull();
     expect(beforeSecondSave.draftSessionId).toBeTruthy();
 
     const secondDraftId = beforeSecondSave.draftSessionId;
     await clickSaveProjectCta(page);
 
-    await expect.poll(async () => (await readPersistenceState(page)).legacyMetaCount).toBe(2);
+    await expect.poll(async () => (await readPersistenceState(page)).savedProjectCount).toBe(2);
     await expect.poll(async () => (await readPersistenceState(page)).currentProjectId).not.toBeNull();
     await expect.poll(async () => (await readPersistenceState(page)).draftSessionId).toBeNull();
     await expect.poll(async () => readDraftChatPresence(page, secondDraftId)).toEqual({ session: false, local: false });

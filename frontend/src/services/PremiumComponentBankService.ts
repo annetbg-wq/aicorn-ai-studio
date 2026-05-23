@@ -159,10 +159,31 @@ const recipeModules = import.meta.glob(
   { eager: true, import: 'default' },
 ) as Record<string, PremiumRecipeSchema>;
 
-const previewModules = import.meta.glob(
+// Lazy factories — not transformed at module-load time.
+// Prevents Vite from eagerly processing prototype-bank TSX files during tests
+// (those files import 'react' in a context where the alias resolver fails).
+const _previewFactories = import.meta.glob(
   '../../../prototype-bank/design-packs/premium-components/preview-adapters/*.preview.tsx',
-  { eager: true },
-) as Record<string, PremiumPreviewModule>;
+) as Record<string, () => Promise<PremiumPreviewModule>>;
+
+let _loadedPreviews: Record<string, PremiumPreviewModule> = {};
+let _previewWarmup: Promise<void> | null = null;
+
+export async function warmupPremiumPreviews(): Promise<void> {
+  if (_previewWarmup) return _previewWarmup;
+  _previewWarmup = (async () => {
+    const entries = await Promise.allSettled(
+      Object.entries(_previewFactories).map(async ([p, factory]) => {
+        const mod = await factory();
+        return [p, mod] as const;
+      }),
+    );
+    _loadedPreviews = Object.fromEntries(
+      entries.flatMap(r => (r.status === 'fulfilled' ? [r.value] : [])),
+    );
+  })();
+  return _previewWarmup;
+}
 
 let cachedBank: PremiumComponentBank | null = null;
 
@@ -185,7 +206,7 @@ export function loadPremiumComponentBank(): PremiumComponentBank {
   const previewByComponentId = new Map<string, { Preview: ComponentType; previewMeta: PremiumPreviewMeta }>();
   const errors: string[] = [];
 
-  Object.entries(previewModules).forEach(([modulePath, mod]) => {
+  Object.entries(_loadedPreviews).forEach(([modulePath, mod]) => {
     if (!mod?.previewMeta?.componentId || !mod?.Preview) {
       errors.push(`Invalid preview adapter module: ${repoPath(modulePath)}`);
       return;
@@ -260,22 +281,95 @@ export function selectPremiumRecipe(input: ResolvePremiumComponentSelectionInput
   if (input.skeletonId === 'landing-page') {
     return bank.recipes.find(recipe => recipe.id === 'landing-premium-saas') ?? null;
   }
-  if (input.skeletonId === 'saas-dashboard' || input.skeletonId === 'productivity-tool') {
+  if (
+    input.skeletonId === 'saas-dashboard' ||
+    input.skeletonId === 'productivity-tool' ||
+    input.skeletonId === 'b2b-operations-workspace' ||
+    input.skeletonId === 'creator-editor-workspace'
+  ) {
     return bank.recipes.find(recipe => recipe.id === 'dashboard-operator') ?? null;
   }
-  if (input.skeletonId === 'ecommerce') {
+  if (input.skeletonId === 'ecommerce' || input.skeletonId === 'marketplace-platform') {
     return bank.recipes.find(recipe => recipe.id === 'ecommerce-storefront') ?? null;
   }
   if (input.skeletonId === 'social-community') {
     return bank.recipes.find(recipe => recipe.id === 'social-community') ?? null;
   }
-  if (input.skeletonId === 'mobile-app') {
+  if (
+    input.skeletonId === 'mobile-app' ||
+    input.skeletonId === 'dating-matching-app' ||
+    input.skeletonId === 'gaming-casino-app' ||
+    input.skeletonId === 'game-interactive-app' ||
+    input.skeletonId === 'booking-service-app' ||
+    input.skeletonId === 'content-learning-app'
+  ) {
     if (['health', 'wellness', 'medicine'].includes(domainId) || /(health|wellness|clinic|patient|care|calm)/i.test(brief)) {
       return bank.recipes.find(recipe => recipe.id === 'health-wellness-mobile') ?? null;
     }
     return bank.recipes.find(recipe => recipe.id === 'mobile-consumer-app') ?? null;
   }
   return null;
+}
+
+export function describePremiumRecipeSelection(input: ResolvePremiumComponentSelectionInput): string {
+  const domainId = (input.domainId ?? '').toLowerCase();
+  const brief = input.brief.toLowerCase();
+
+  if (input.skeletonId === 'landing-page') {
+    return 'selected by landing-page skeleton match';
+  }
+  if (
+    input.skeletonId === 'saas-dashboard' ||
+    input.skeletonId === 'productivity-tool' ||
+    input.skeletonId === 'b2b-operations-workspace' ||
+    input.skeletonId === 'creator-editor-workspace'
+  ) {
+    return 'selected by dashboard/productivity skeleton match';
+  }
+  if (input.skeletonId === 'ecommerce' || input.skeletonId === 'marketplace-platform') {
+    return 'selected by ecommerce/marketplace skeleton match';
+  }
+  if (input.skeletonId === 'social-community') {
+    return 'selected by social-community skeleton match';
+  }
+  if (
+    input.skeletonId === 'mobile-app' ||
+    input.skeletonId === 'dating-matching-app' ||
+    input.skeletonId === 'gaming-casino-app' ||
+    input.skeletonId === 'game-interactive-app' ||
+    input.skeletonId === 'booking-service-app' ||
+    input.skeletonId === 'content-learning-app'
+  ) {
+    if (['health', 'wellness', 'medicine'].includes(domainId) || /(health|wellness|clinic|patient|care|calm)/i.test(brief)) {
+      return 'selected by mobile health/wellness domain match';
+    }
+    return 'selected by mobile-app default recipe';
+  }
+  return 'reason unavailable from current selector';
+}
+
+export function describePremiumComponentSelection(
+  selection: PremiumComponentSelection,
+  input: ResolvePremiumComponentSelectionInput,
+): string {
+  if (!selection.selectedRecipeId) return 'reason unavailable from current selector';
+  if (selection.selectedComponents.length === 0) {
+    return `selected by recipe ${selection.selectedRecipeId}, but no compatible premium components were available`;
+  }
+  return [
+    `selected by recipe ${selection.selectedRecipeId}`,
+    `compatible with ${input.skeletonId}`,
+    selection.selectedComponents.some(component => component.compatibleSkeletons.includes(input.skeletonId))
+      ? 'component compatibility match'
+      : null,
+    input.domainId && selection.selectedComponents.some(component =>
+      component.id.toLowerCase().includes(String(input.domainId).toLowerCase()) ||
+      component.category.toLowerCase().includes(String(input.domainId).toLowerCase()) ||
+      component.kind.toLowerCase().includes(String(input.domainId).toLowerCase())
+    )
+      ? 'domain-affinity match'
+      : null,
+  ].filter((value): value is string => Boolean(value)).join('; ');
 }
 
 function scoreComponent(component: PremiumComponentRecord, block: string, input: ResolvePremiumComponentSelectionInput): number {

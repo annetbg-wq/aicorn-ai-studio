@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function Analytics(){ const app = useApp(); const views = app.publications.reduce((sum,p)=>sum+p.views,0); return <main className="page"><h1 className="title">Analytics</h1><div className="grid three"><section className="kpi"><span>Views</span><strong>{views.toLocaleString()}</strong></section><section className="kpi"><span>Drafts</span><strong>{app.drafts.length}</strong></section><section className="kpi"><span>Assets</span><strong>{app.mediaAssets.length}</strong></section></div></main> }

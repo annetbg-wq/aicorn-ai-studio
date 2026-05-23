@@ -77,15 +77,31 @@ export interface DesignViolation {
   line?:   number;
 }
 
+export interface MediaHint {
+  id: string;
+  kind: string;
+  importPath?: string;
+  publicPath?: string;
+  recommendedUse: string;
+}
+
 // ─── Pack resolver ────────────────────────────────────────────────────────────
 
 const ARCHETYPE_BY_SKELETON: Record<SkeletonId, string> = {
-  'mobile-app':         'consumer-feed',
-  'saas-dashboard':     'dashboard-workspace',
-  'landing-page':       'consumer-feed',
-  'social-community':   'consumer-feed',
-  'productivity-tool':  'dashboard-workspace',
-  'ecommerce':          'consumer-feed',
+  'mobile-app':                  'consumer-feed',
+  'saas-dashboard':              'dashboard-workspace',
+  'landing-page':                'consumer-feed',
+  'social-community':            'consumer-feed',
+  'productivity-tool':           'dashboard-workspace',
+  'ecommerce':                   'consumer-feed',
+  'b2b-operations-workspace':    'dashboard-workspace',
+  'marketplace-platform':        'consumer-feed',
+  'creator-editor-workspace':    'dashboard-workspace',
+  'dating-matching-app':         'consumer-feed',
+  'gaming-casino-app':           'consumer-feed',
+  'game-interactive-app':        'consumer-feed',
+  'booking-service-app':         'consumer-feed',
+  'content-learning-app':        'consumer-feed',
 };
 
 const DOMAIN_KEYWORDS: Array<{ id: string; rx: RegExp }> = [
@@ -288,6 +304,26 @@ function visualSelectionPromptBlock(
 }
 
 function premiumSelectionPromptBlock(selection: PremiumComponentSelection): string {
+  const selectedComponentsBlock = selection.selectedComponents.length === 0
+    ? 'selectedComponents: []'
+    : `selectedComponents:\n${selection.selectedComponents.map(component => {
+        const generatedImportPath = premiumComponentGeneratedImportPath(component.file);
+        const generatedImportHint = generatedImportPath
+          ? `    import: import ${component.name} from '${generatedImportPath}';`
+          : null;
+
+        return [
+          `  - ${component.id}`,
+          `    name: ${component.name}`,
+          `    file: ${component.file}`,
+          generatedImportPath ? `    generatedImportPath: ${generatedImportPath}` : null,
+          generatedImportHint,
+          `    compatibleSkeletons: ${inlineList(component.compatibleSkeletons)}`,
+          `    mediaSlots: ${inlineList(component.mediaSlots)}`,
+          `    renderSafe: ${component.renderSafe}`,
+        ].filter((line): line is string => Boolean(line)).join('\n');
+      }).join('\n')}`;
+
   const lines = [
     '',
     'PREMIUM_COMPONENT_SELECTION:',
@@ -299,30 +335,26 @@ function premiumSelectionPromptBlock(selection: PremiumComponentSelection): stri
     arrayBlock('dependencyNotes', selection.dependencyNotes),
     arrayBlock('usageRules', selection.usageRules),
     arrayBlock('forbiddenPatterns', selection.forbiddenPatterns),
-    selection.selectedComponents.length === 0
-      ? 'selectedComponents: []'
-      : `selectedComponents:\n${selection.selectedComponents.map(component => [
-          `  - ${component.id}`,
-          `    source: ${component.source} (${component.sourceLicense} · ${component.sourceCommitOrVersion})`,
-          `    file: ${component.file}`,
-          `    previewAdapter: ${component.previewAdapter}`,
-          `    compatibleSkeletons: ${inlineList(component.compatibleSkeletons)}`,
-          `    mediaSlots: ${inlineList(component.mediaSlots)}`,
-          `    renderSafe: ${component.renderSafe}`,
-        ].join('\n')).join('\n')}`,
+    selectedComponentsBlock,
   ];
 
   lines.push(
     '',
     'CODER PREMIUM COMPONENT INSTRUCTIONS:',
     '- Before inventing UI, check selected premium component recipe.',
-    '- Use available premium blocks if compatible.',
-    '- Do not recreate low-quality generic cards if a premium component exists.',
+    '- Prefer these imported premium components before inventing generic cards.',
+    '- If a selected premium component fits a screen slot, use it directly and wrap it with product-specific copy/state.',
+    '- Do not downgrade selected premium blocks to generic Card layouts.',
     '- Do not use remote random media.',
     '- Use generated media slots or local fallback assets.',
   );
 
   return lines.join('\n');
+}
+
+function premiumComponentGeneratedImportPath(sourceFile: string): string | null {
+  if (!sourceFile.startsWith('prototype-bank/design-packs/premium-components/')) return null;
+  return `@/design-pack/${sourceFile.replace(/^prototype-bank\/design-packs\//, '').replace(/\.[^.]+$/, '')}`;
 }
 
 function inlineList(values: readonly string[]): string {
@@ -368,7 +400,7 @@ export function archetypeContextForArchitect(ctx: DesignContext): string {
   return `\nPACK CONTEXT — your plan MUST satisfy this:\n${lines.join('\n')}\n`;
 }
 
-export function designContractForCoder(ctx: DesignContext): string {
+export function designContractForCoder(ctx: DesignContext, mediaHints?: MediaHint[]): string {
   const tokenList = [
     'bg-background', 'text-foreground',
     'bg-card text-card-foreground',
@@ -392,13 +424,15 @@ export function designContractForCoder(ctx: DesignContext): string {
       ctx.domain.restrictions.slice(0, 4).map(r => `  • ${r}`).join('\n') + '\n'
     : '';
 
+  const mediaSection = buildMediaHintsSection(mediaHints);
+
   return `
 DESIGN CONTRACT — ENFORCED BY VALIDATOR (your build will fail if you break this)
 
 Theme: ${ctx.theme.name}  (mood=${ctx.intent.mood}, contrast=${ctx.intent.contrast}, radius=${ctx.intent.radius})
 ${visualSelectionPromptBlock(ctx.visualSelection, 'coder')}
 ${premiumSelectionPromptBlock(ctx.premiumComponentSelection)}
-${archetypeSection}${domainSection}
+${archetypeSection}${domainSection}${mediaSection}
 You may use ONLY these semantic Tailwind utilities for colour and surfaces:
   ${tokenList.join('  ')}
 
@@ -412,6 +446,28 @@ FORBIDDEN — any of these will fail validation:
 Use lucide-react icons; choose Tailwind radius utilities that match VISUAL_BANK_SELECTION.radius;
 respect the archetype's navigation choice (do NOT add a sidebar to a bottom-tabs app and vice versa).
 `.trim() + '\n';
+}
+
+function buildMediaHintsSection(hints?: MediaHint[]): string {
+  if (!hints || hints.length === 0) return '';
+  const assetLines = hints.map(h => [
+    `  - id: ${h.id}`,
+    `    kind: ${h.kind}`,
+    h.importPath ? `    importPath: ${h.importPath}` : null,
+    h.publicPath  ? `    publicPath: ${h.publicPath}`  : null,
+    `    recommendedUse: ${h.recommendedUse}`,
+  ].filter((line): line is string => Boolean(line)).join('\n')).join('\n');
+  return `
+GENERATED_MEDIA_ASSETS:
+${assetLines}
+
+CODER MEDIA INSTRUCTIONS:
+- Use provided generated media assets as real visual elements: hero backgrounds, decorative blobs, section backgrounds, product mockup frames, or atmospheric panels. Do not replace them with empty gray placeholders.
+- Use at least one media/background asset on the first screen.
+- Do not leave all media slots empty.
+- Prefer provided media assets over generic gray boxes/placeholders.
+- Import SVG assets with: import assetName from './relative/path/to/asset.svg'; (adjust path to your file location).
+`;
 }
 
 // ─── Theme materialisation ────────────────────────────────────────────────────

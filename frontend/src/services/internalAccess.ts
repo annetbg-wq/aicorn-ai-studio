@@ -34,17 +34,27 @@ export function canUseDevAuthBypass(
   return isLocalDevHost(hostname) && effectiveBypassValue === '1';
 }
 
+const DEFAULT_FOUNDER_ADMIN_EMAILS: string[] = [
+  'annetdenr@gmail.com',
+  'vkdevproai@gmail.com',
+];
+
 export function isFounderAdminEmail(email?: string | null): boolean {
   const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) return false;
 
-  const rawEmails = String(import.meta.env.VITE_FOUNDER_ADMIN_EMAILS ?? '');
-  const founderEmails = rawEmails
+  const rawEnvEmails = String(import.meta.env.VITE_FOUNDER_ADMIN_EMAILS ?? '');
+  const envEmails = rawEnvEmails
     .split(',')
     .map((entry) => normalizeEmail(entry))
     .filter((entry): entry is string => entry !== null);
 
-  return founderEmails.includes(normalizedEmail);
+  const allFounderEmails = new Set([
+    ...DEFAULT_FOUNDER_ADMIN_EMAILS,
+    ...envEmails,
+  ]);
+
+  return allFounderEmails.has(normalizedEmail);
 }
 
 export function isCreatorMode(): boolean {

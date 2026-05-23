@@ -1,132 +1,136 @@
-import React, { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowRight, Sparkles } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Sparkles, Target, User } from 'lucide-react';
+import { APP_CONFIG } from '@/config/app';
+import { ROUTES } from '@/config/routes';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Progress } from '@/components/ui/Progress';
 
-export default function Onboarding() {
-  const { completeOnboarding } = useApp();
+interface StepDefinition {
+  id: 'welcome' | 'name' | 'goal';
+  title: string;
+  subtitle: string;
+}
+
+const STEPS: readonly StepDefinition[] = [
+  {
+    id: 'welcome',
+    title: `Welcome to ${APP_CONFIG.name}`,
+    /* PRODUCT: replace with the value-prop sentence the founder wrote. */
+    subtitle: APP_CONFIG.tagline,
+  },
+  {
+    id: 'name',
+    title: 'What should we call you?',
+    subtitle: "We'll use this to keep things personal.",
+  },
+  {
+    id: 'goal',
+    title: 'What brings you here?',
+    /* PRODUCT: replace placeholder examples with domain-specific ones. */
+    subtitle: 'A short note in your own words is enough.',
+  },
+] as const;
+
+export default function Onboarding(): JSX.Element {
   const navigate = useNavigate();
-  const [step, setStep] = useState(0);
+  const { completeOnboarding } = useApp();
+
+  const [stepIndex, setStepIndex] = useState(0);
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
 
-  const steps = [
-    {
-      title: 'Добро пожаловать в Привычки!',
-      description: 'Отслеживайте свои ежедневные привычки, создавайте серии и достигайте целей. Начните свой путь к лучшей версии себя!',
-      icon: Sparkles,
-    },
-    {
-      title: 'Ваша первая привычка',
-      description: 'Какую привычку вы хотите выработать? Например: "Пить 2 литра воды" или "Читать 20 минут"',
-      icon: Target,
-      content: (
-        <div className="space-y-3">
-          <Input
-            placeholder="Название привычки"
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            className="text-center"
-          />
-          <p className="text-xs text-muted-foreground text-center">
-            Вы сможете добавить больше привычек позже
-          </p>
-        </div>
-      ),
-    },
-    {
-      title: 'Как к вам обращаться?',
-      description: 'Укажите ваше имя, чтобы мы могли персонализировать приложение',
-      icon: User,
-      content: (
-        <div className="space-y-3">
-          <Input
-            placeholder="Ваше имя"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="text-center"
-          />
-        </div>
-      ),
-    },
-  ];
+  const step = STEPS[stepIndex];
+  const progress = ((stepIndex + 1) / STEPS.length) * 100;
+  const canAdvance =
+    step.id === 'welcome' ||
+    (step.id === 'name' && name.trim().length >= 2) ||
+    (step.id === 'goal' && goal.trim().length >= 3);
 
-  const handleNext = () => {
-    if (step < steps.length - 1) {
-      setStep(step + 1);
-    } else {
-      completeOnboarding({
-        name: name || 'Пользователь',
-        goal: goal || 'Развиваться каждый день',
-      });
-      navigate('/', { replace: true });
+  function handleNext(event?: FormEvent): void {
+    if (event) event.preventDefault();
+    if (!canAdvance) return;
+
+    if (stepIndex < STEPS.length - 1) {
+      setStepIndex(stepIndex + 1);
+      return;
     }
-  };
-
-  const handleBack = () => {
-    if (step > 0) {
-      setStep(step - 1);
-    }
-  };
-
-  const canProceed = () => {
-    if (step === 1 && !goal.trim()) return false;
-    if (step === 2 && !name.trim()) return false;
-    return true;
-  };
-
-  const StepIcon = steps[step].icon;
+    completeOnboarding({ name, goal });
+    navigate(ROUTES.home, { replace: true });
+  }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-sm space-y-8">
-        <Progress value={((step + 1) / steps.length) * 100} className="h-1.5" />
-
-        <Card className="border-0 shadow-none bg-transparent">
-          <CardHeader className="text-center pb-4">
-            <div className="flex justify-center mb-4">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-                <StepIcon className="w-8 h-8 text-primary" />
-              </div>
-            </div>
-            <CardTitle className="text-2xl font-bold">{steps[step].title}</CardTitle>
-            <CardDescription className="text-base mt-2">{steps[step].description}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {steps[step].content}
-
-            <div className="flex gap-3 mt-8">
-              {step > 0 && (
-                <Button variant="outline" onClick={handleBack} className="flex-1">
-                  Назад
-                </Button>
-              )}
-              <Button
-                onClick={handleNext}
-                disabled={!canProceed()}
-                className="flex-1"
-              >
-                {step === steps.length - 1 ? 'Начать' : 'Далее'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-center gap-2">
-          {steps.map((_, i) => (
-            <div
-              key={i}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                i === step ? 'bg-primary' : 'bg-muted'
-              }`}
-            />
-          ))}
-        </div>
+    <div className="flex min-h-full flex-col safe-top">
+      <div className="px-6 pt-6">
+        <Progress value={progress} aria-label="Onboarding progress" />
       </div>
+
+      <form onSubmit={handleNext} className="flex flex-1 flex-col justify-between px-6 pb-8 pt-10">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={step.id}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="space-y-6"
+          >
+            <div className="space-y-3">
+              {step.id === 'welcome' && (
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Sparkles className="h-6 w-6" />
+                </div>
+              )}
+              <h1 className="text-2xl font-semibold leading-tight tracking-tight">{step.title}</h1>
+              <p className="text-base text-muted-foreground">{step.subtitle}</p>
+            </div>
+
+            {step.id === 'name' && (
+              <Input
+                autoFocus
+                placeholder="Your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                aria-label="Your name"
+                maxLength={40}
+              />
+            )}
+
+            {step.id === 'goal' && (
+              <Input
+                autoFocus
+                /* PRODUCT: replace with a domain example. */
+                placeholder="e.g. Build a calmer morning routine"
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                aria-label="Your goal"
+                maxLength={120}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+        <div className="flex flex-col gap-2">
+          <Button type="submit" size="lg" disabled={!canAdvance} className="w-full">
+            {stepIndex < STEPS.length - 1 ? 'Continue' : 'Start'}
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+          {stepIndex > 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setStepIndex(stepIndex - 1)}
+              className="w-full"
+            >
+              Back
+            </Button>
+          )}
+        </div>
+      </form>
     </div>
   );
 }

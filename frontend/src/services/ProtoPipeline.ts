@@ -41,10 +41,67 @@ import {
   validateDesignContract,
   describeViolations,
   type DesignContext,
+  type MediaHint,
 } from './DesignContract';
+import { resolveMediaIntent } from './media/MediaIntentService';
+import { LocalPlaceholderMediaProvider } from './media/MediaProvider';
+import { mergeGeneratedMediaBundles } from './media/GeneratedMediaStore';
+import type { GeneratedMediaAsset } from './media/MediaAssetManifestService';
+import {
+  describePremiumComponentSelection,
+  describePremiumRecipeSelection,
+  selectPremiumRecipe,
+} from './PremiumComponentBankService';
 import { normalizePath as normalizePreviewPath } from './PreviewWriteGateway';
 import { appendPreviewSessionToUrl, getPreviewSessionToken } from './PreviewSessionService';
 import type { FastPathTelemetry, GenerationRunTelemetry } from '../shared/projectModel';
+import {
+  buildScreenCompositionPlan,
+  buildCompositionPlanPromptBlock,
+  serializeScreenCompositionPlan,
+  type ScreenCompositionPlan,
+  type ScreenCompositionPlanTelemetry,
+} from './ScreenCompositionPlanner';
+import {
+  buildFunctionalFlowPlan,
+  buildFunctionalFlowPromptBlock,
+  buildFunctionalImplementationDiagnostics,
+  serializeFunctionalFlowPlan,
+  serializeFunctionalImplementationDiagnostics,
+  type FunctionalFlowPlan,
+  type FunctionalFlowPlanTelemetry,
+  type FunctionalImplementationDiagnosticsTelemetry,
+} from './FunctionalFlowPlanner';
+import {
+  buildArchitectureImplementationDiagnostics,
+  buildArchitectureQualityRulesBlock,
+  buildSkeletonIntegrationPlan,
+  buildSkeletonIntegrationPromptBlock,
+  serializeArchitectureImplementationDiagnostics,
+  serializeSkeletonIntegrationPlan,
+  type ArchitectureImplementationDiagnosticsTelemetry,
+  type SkeletonIntegrationPlan,
+  type SkeletonIntegrationPlanTelemetry,
+} from './SkeletonIntegrationPlanner';
+import {
+  buildProductSpecificityDiagnostics,
+  buildProductSpecificityPlan,
+  buildProductSpecificityPromptBlock,
+  serializeProductSpecificityDiagnostics,
+  serializeProductSpecificityPlan,
+  type ProductSpecificityDiagnosticsTelemetry,
+  type ProductSpecificityPlan,
+  type ProductSpecificityPlanTelemetry,
+} from './ProductSpecificityPlanner';
+import {
+  extractJsonObjectFromModelText,
+  safeModelTextSnippet,
+  validateArchitectJsonShape,
+} from './architectJson';
+import {
+  buildLiveGenerationUiPrimitiveImportCatalog,
+  filterAdvertisedUiPrimitiveNames,
+} from './LiveGenerationContractValidator';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -68,6 +125,126 @@ export interface StepLlmMetrics {
   cost_usd?: number;
 }
 
+export interface DesignSelectionDiagnostics {
+  inputBrief: string;
+  detectedProductType?: string;
+  detectedDomain?: string;
+  detectedTone?: string;
+  detectedMood?: string;
+  selectedSkeletonId?: string;
+  skeletonSelectionReason?: string;
+  selectedVisualPackId?: string;
+  selectedVisualVariantId?: string;
+  visualPackSelectionReason?: string;
+  visualPackFallbackUsed?: boolean;
+  selectedPremiumRecipeId?: string;
+  selectedPremiumRecipeReason?: string;
+  selectedPremiumComponentIds: string[];
+  premiumComponentSelectionReason?: string;
+  selectedMediaKinds: string[];
+  selectedMediaReasons: string[];
+  designDecisionNotes: string[];
+  possibleMismatchWarnings: string[];
+  compositionPlanCreated?: boolean;
+  compositionFirstScreenId?: string;
+  compositionScreenCount?: number;
+  compositionZoneCountOnFirstScreen?: number;
+  functionalFlowPlanCreated?: boolean;
+  functionalFlowCount?: number;
+  functionalEntityCount?: number;
+  skeletonIntegrationPlanCreated?: boolean;
+  skeletonFit?: 'strong' | 'partial' | 'weak';
+  skeletonBypassAllowed?: boolean;
+  customModuleCount?: number;
+  productSpecificityPlanCreated?: boolean;
+  inferredDomain?: string;
+  domainEntityCount?: number;
+  productMetricCount?: number;
+  forbiddenGenericPatternCount?: number;
+  architectureDiagnosticsChecked?: boolean;
+}
+
+export interface VisualUsageDiagnostics {
+  premiumUsageChecked: boolean;
+  premiumComponentsSelected: string[];
+  premiumComponentImportsFound: string[];
+  premiumUsageCount: number;
+  premiumUsageObserved: boolean;
+  mediaUsageChecked: boolean;
+  mediaAssetsMaterialized: string[];
+  mediaAssetReferencesFound: string[];
+  mediaUsageCount: number;
+  mediaUsageObserved: boolean;
+  firstScreenFilesChecked: string[];
+  firstScreenPremiumUsageObserved: boolean;
+  firstScreenMediaUsageObserved: boolean;
+  meaningfulScreenFiles: string[];
+  meaningfulScreenCount: number;
+  genericPlaceholderFindings: string[];
+  visualUsageNotes: string[];
+  suggestedNextAction: 'none' | 'improve_prompt' | 'improve_assets' | 'add_repair_later';
+}
+
+export interface DesignSelectionDiagnosticsTelemetry {
+  input_brief: string;
+  detected_product_type?: string;
+  detected_domain?: string;
+  detected_tone?: string;
+  detected_mood?: string;
+  selected_skeleton_id?: string;
+  skeleton_selection_reason?: string;
+  selected_visual_pack_id?: string;
+  selected_visual_variant_id?: string;
+  visual_pack_selection_reason?: string;
+  visual_pack_fallback_used?: boolean;
+  selected_premium_recipe_id?: string;
+  selected_premium_recipe_reason?: string;
+  selected_premium_component_ids: string[];
+  premium_component_selection_reason?: string;
+  selected_media_kinds: string[];
+  selected_media_reasons: string[];
+  design_decision_notes: string[];
+  possible_mismatch_warnings: string[];
+  composition_plan_created?: boolean;
+  composition_first_screen_id?: string;
+  composition_screen_count?: number;
+  composition_zone_count_on_first_screen?: number;
+  functional_flow_plan_created?: boolean;
+  functional_flow_count?: number;
+  functional_entity_count?: number;
+  skeleton_integration_plan_created?: boolean;
+  skeleton_fit?: 'strong' | 'partial' | 'weak';
+  skeleton_bypass_allowed?: boolean;
+  custom_module_count?: number;
+  product_specificity_plan_created?: boolean;
+  inferred_domain?: string;
+  domain_entity_count?: number;
+  product_metric_count?: number;
+  forbidden_generic_pattern_count?: number;
+  architecture_diagnostics_checked?: boolean;
+}
+
+export interface VisualUsageDiagnosticsTelemetry {
+  premium_usage_checked: boolean;
+  premium_components_selected: string[];
+  premium_component_imports_found: string[];
+  premium_component_usage_count: number;
+  premium_usage_observed: boolean;
+  media_usage_checked: boolean;
+  media_assets_materialized: string[];
+  media_asset_references_found: string[];
+  media_usage_count: number;
+  media_usage_observed: boolean;
+  first_screen_files_checked: string[];
+  first_screen_premium_usage_observed: boolean;
+  first_screen_media_usage_observed: boolean;
+  meaningful_screen_files: string[];
+  meaningful_screen_count: number;
+  generic_placeholder_findings: string[];
+  visual_usage_notes: string[];
+  suggested_next_action: 'none' | 'improve_prompt' | 'improve_assets' | 'add_repair_later';
+}
+
 export interface StepOutputMetrics {
   file_count?: number;
   total_bytes?: number;
@@ -87,7 +264,22 @@ export interface StepOutputMetrics {
   visual_linked_component_files?: string[];
   visual_material_files?: string[];
   materialized_visual_files?: string[];
+  materialized_premium_files?: string[];
+  selected_premium_component_ids?: string[];
+  selected_premium_recipe_id?: string | null;
   fallback_visual_selection?: boolean;
+  materialized_media_files?: string[];
+  media_manifest_path?: string;
+  selected_media_kinds?: string[];
+  design_selection_diagnostics?: DesignSelectionDiagnosticsTelemetry;
+  visual_usage_diagnostics?: VisualUsageDiagnosticsTelemetry;
+  screen_composition_plan?: ScreenCompositionPlanTelemetry;
+  functional_flow_plan?: FunctionalFlowPlanTelemetry;
+  skeleton_integration_plan?: SkeletonIntegrationPlanTelemetry;
+  product_specificity_plan?: ProductSpecificityPlanTelemetry;
+  functional_implementation_diagnostics?: FunctionalImplementationDiagnosticsTelemetry;
+  architecture_implementation_diagnostics?: ArchitectureImplementationDiagnosticsTelemetry;
+  product_specificity_diagnostics?: ProductSpecificityDiagnosticsTelemetry;
 }
 
 export interface StepExecutionMetrics {
@@ -193,7 +385,7 @@ const STEP_LABEL: Record<StepId, string> = {
 
 const STEP_BUDGET = {
   clarify:   { maxTokens:  600,  timeoutMs:  20_000 },
-  architect: { maxTokens: 4_000, timeoutMs:  60_000 },
+  architect: { maxTokens: 8_000, timeoutMs:  60_000 },
   coder:     { maxTokens: 35_000, timeoutMs: 360_000 },
   repair:    { maxTokens: 12_000, timeoutMs: 120_000 },
 } as const;
@@ -201,7 +393,10 @@ const STEP_BUDGET = {
 const MAX_REPAIR_PASSES = 2;
 
 const DESIGN_PACK_RAW_MODULES = import.meta.glob(
-  '../../../prototype-bank/design-packs/**/*',
+  [
+    '../../../prototype-bank/design-packs/**/*',
+    '!../../../prototype-bank/design-packs/**/preview-adapters/**',
+  ],
   { eager: true, query: '?raw', import: 'default' },
 ) as Record<string, string>;
 
@@ -225,6 +420,12 @@ interface MaterializedVisualPack {
   materializedFiles: string[];
 }
 
+interface MaterializedPremiumComponents {
+  files: Record<string, string>;
+  materializedFiles: string[];
+  importHints: Array<{ componentId: string; importPath: string; sourcePath: string }>;
+}
+
 function normalizeRepoAssetPath(modulePath: string): string {
   return modulePath.replace(/^(\.\.\/)+/, '').replace(/\\/g, '/');
 }
@@ -245,6 +446,10 @@ function getDesignPackRawFile(path: string | undefined): string | null {
 function outputPathForDesignPackAsset(path: string): string {
   const relative = path.replace(/^prototype-bank\/design-packs\//, '');
   return normalizePreviewPath(`design-pack/${relative}`);
+}
+
+function premiumComponentImportPath(sourcePath: string): string {
+  return `@/${outputPathForDesignPackAsset(sourcePath).replace(/\.[^.]+$/, '')}`;
 }
 
 function getSkeletonAppTemplate(skeletonId: SkeletonId): string | null {
@@ -340,6 +545,568 @@ function materializeVisualPack(ctx: DesignContext): MaterializedVisualPack {
     linkedComponentFiles,
     materialFiles: repoMaterialFiles,
     materializedFiles,
+  };
+}
+
+const PREMIUM_COMPONENT_REGISTRY_SOURCE =
+  'prototype-bank/design-packs/premium-components/_registry/premiumComponentPrimitives.tsx';
+
+export function materializePremiumComponents(ctx: DesignContext): MaterializedPremiumComponents {
+  const selection = ctx.premiumComponentSelection;
+  const componentSourceFiles = Array.from(new Set(
+    selection.componentSourceFiles.filter(path => (
+      path.startsWith('prototype-bank/design-packs/premium-components/') &&
+      path.endsWith('/component.tsx') &&
+      !path.includes('/preview-adapters/') &&
+      !/\/(?:LICENSE|license|import-notes?)\b/.test(path)
+    )),
+  ));
+
+  if (componentSourceFiles.length === 0) {
+    return { files: {}, materializedFiles: [], importHints: [] };
+  }
+
+  const repoMaterialFiles = [
+    PREMIUM_COMPONENT_REGISTRY_SOURCE,
+    ...componentSourceFiles,
+  ];
+
+  const files = Object.fromEntries(
+    repoMaterialFiles.flatMap(path => {
+      const raw = getDesignPackRawFile(path);
+      if (!raw) return [];
+      return [[outputPathForDesignPackAsset(path), raw] as const];
+    }),
+  );
+
+  const importHints = selection.selectedComponents
+    .filter(component => componentSourceFiles.includes(component.file))
+    .map(component => ({
+      componentId: component.id,
+      importPath: premiumComponentImportPath(component.file),
+      sourcePath: component.file,
+    }));
+
+  return {
+    files,
+    materializedFiles: Object.keys(files).sort((a, b) => a.localeCompare(b)),
+    importHints,
+  };
+}
+
+// ── Media materialization ─────────────────────────────────────────────────────
+
+export interface MaterializedMediaAssets {
+  files: Record<string, string>;
+  materializedFiles: string[];
+  mediaManifestPath?: string;
+  mediaHints: MediaHint[];
+  selectionReasons: string[];
+}
+
+const MEDIA_MANIFEST_PATH = 'src/assets/generated/media-manifest.json';
+
+export async function materializeMediaAssets(
+  ctx: DesignContext,
+  brief: string,
+  skeletonId: SkeletonId,
+): Promise<MaterializedMediaAssets> {
+  const recipe = selectPremiumRecipe({ brief, skeletonId, domainId: ctx.domain?.id });
+  const intentResult = resolveMediaIntent({
+    brief,
+    skeleton: skeletonId,
+    domain: ctx.domain?.id,
+    selectedComponentRecipe: recipe,
+  });
+
+  if (!intentResult.mediaNeeded || intentResult.mediaRequests.length === 0) {
+    return {
+      files: {},
+      materializedFiles: [],
+      mediaHints: [],
+      selectionReasons: intentResult.selectionReasons,
+    };
+  }
+
+  const provider = new LocalPlaceholderMediaProvider();
+  const allAssets: GeneratedMediaAsset[] = [];
+  const svgFiles: Record<string, string> = {};
+
+  for (const request of intentResult.mediaRequests) {
+    const bundle = await provider.generateImage(request);
+    allAssets.push(bundle.asset);
+    svgFiles[bundle.asset.assetPath] = bundle.files[bundle.asset.assetPath] ?? '';
+  }
+
+  const files = mergeGeneratedMediaBundles(allAssets, svgFiles);
+
+  const mediaHints: MediaHint[] = allAssets.map(asset => ({
+    id: asset.id,
+    kind: asset.type,
+    importPath: asset.assetPath,
+    recommendedUse: `${asset.targetSlot} on ${asset.targetScreen}`,
+  }));
+
+  const materializedFiles = Object.keys(files).sort((a, b) => a.localeCompare(b));
+  return {
+    files,
+    materializedFiles,
+    mediaManifestPath: MEDIA_MANIFEST_PATH,
+    mediaHints,
+    selectionReasons: intentResult.selectionReasons,
+  };
+}
+
+const FIRST_SCREEN_CANDIDATES = [
+  'App.tsx',
+  'src/App.tsx',
+  'pages/Home.tsx',
+  'pages/Dashboard.tsx',
+  'pages/Landing.tsx',
+  'pages/Index.tsx',
+  'app/page.tsx',
+  'app/home/page.tsx',
+  'app/dashboard/page.tsx',
+] as const;
+
+const GENERIC_PLACEHOLDER_PATTERNS: Array<{ label: string; rx: RegExp }> = [
+  { label: 'Lorem', rx: /\blorem\b/i },
+  { label: 'lorem ipsum', rx: /\blorem ipsum\b/i },
+  { label: 'Feature 1', rx: /\bFeature 1\b/i },
+  { label: 'Feature 2', rx: /\bFeature 2\b/i },
+  { label: 'Feature 3', rx: /\bFeature 3\b/i },
+  { label: 'AppName', rx: /\bAppName\b/i },
+  { label: 'PRODUCT', rx: /\bPRODUCT\b/i },
+  { label: 'Coming soon', rx: /\bComing soon\b/i },
+  { label: 'Untitled', rx: /\bUntitled\b/i },
+  { label: 'TODO', rx: /\bTODO\b/i },
+  { label: 'placeholder image', rx: /\bplaceholder image\b/i },
+  { label: 'gray placeholder', rx: /\bgray placeholder\b/i },
+  { label: 'generic dashboard', rx: /\bgeneric dashboard\b/i },
+  { label: 'generic app', rx: /\bgeneric app\b/i },
+];
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)));
+}
+
+function productTypeLabel(productType?: string): string {
+  switch (productType) {
+    case 'landing-page': return 'landing-page';
+    case 'mobile-app': return 'mobile-app';
+    case 'saas-dashboard': return 'saas-dashboard';
+    case 'social-community': return 'social-community';
+    case 'productivity-tool': return 'productivity-tool';
+    case 'ecommerce': return 'ecommerce';
+    default: return productType ?? 'unknown';
+  }
+}
+
+function isObviousSkeletonMismatch(detectedProductType: string | undefined, selectedSkeletonId: string): boolean {
+  if (!detectedProductType || detectedProductType === selectedSkeletonId) return false;
+  const obviousPairs = new Set([
+    'mobile-app>landing-page',
+    'mobile-app>saas-dashboard',
+    'landing-page>mobile-app',
+    'landing-page>saas-dashboard',
+    'saas-dashboard>mobile-app',
+    'saas-dashboard>landing-page',
+    'ecommerce>mobile-app',
+    'social-community>landing-page',
+  ]);
+  return obviousPairs.has(`${detectedProductType}>${selectedSkeletonId}`);
+}
+
+function buildSkeletonSelectionReason(
+  detectedProductType: string | undefined,
+  selectedSkeletonId: SkeletonId,
+): string {
+  if (detectedProductType === selectedSkeletonId) {
+    return 'selected by brief product-type match';
+  }
+  return 'selected by pipeline skeletonId input; reason unavailable from current selector';
+}
+
+function readableVisualReason(reason: string): string {
+  const code = reason.split(':')[0];
+  switch (code) {
+    case 'skeleton-compatible': return 'skeleton compatibility match';
+    case 'skeleton-exact': return 'exact skeleton match';
+    case 'skeleton-contract': return 'skeleton visual contract match';
+    case 'density-contract': return 'density contract match';
+    case 'motion-contract': return 'motion contract match';
+    case 'surface': return 'surface match';
+    case 'selected-surface': return 'selected surface match';
+    case 'layout-pattern-contract': return 'layout pattern contract match';
+    case 'component-family-contract': return 'component family contract match';
+    case 'domain-tags': return 'domain match';
+    case 'variant-domain-tags': return 'variant domain match';
+    case 'semantic-pack-bridge': return 'semantic domain bridge';
+    case 'subdomain': return 'subdomain match';
+    case 'selected-subdomain': return 'selected subdomain match';
+    case 'product-skeleton': return 'product-type skeleton match';
+    case 'preferred-variant': return 'preferred variant match';
+    case 'tone-profile': return 'tone profile match';
+    case 'tone-in-variant': return 'tone-aligned variant';
+    case 'tone-in-users': return 'target-user tone match';
+    case 'semantic-in-users': return 'semantic domain target-user match';
+    case 'semantic-neighbor': return 'semantic neighbor match';
+    case 'trust-level': return 'trust-level match';
+    case 'tone-density': return 'density match';
+    case 'tone-radius': return 'radius match';
+    case 'tone-motion': return 'motion match';
+    case 'tone-contrast': return 'contrast match';
+    case 'tone-color-family': return 'color-family match';
+    case 'pack-priority': return 'pack priority weighting';
+    case 'preferred-variant-floor': return 'preferred variant floor';
+    default: return code.replace(/-/g, ' ');
+  }
+}
+
+function buildVisualPackSelectionReason(ctx: DesignContext): string {
+  if (ctx.visualSelection.fallbackVisualSelection) {
+    return 'selected by fallback visual selection';
+  }
+  const selectedCandidate =
+    ctx.visualSelection.audit.viableCandidates.find(candidate =>
+      candidate.packId === ctx.visualSelection.selectedPackId &&
+      candidate.variantId === ctx.visualSelection.selectedVariantId
+    ) ??
+    ctx.visualSelection.audit.candidates.find(candidate =>
+      candidate.packId === ctx.visualSelection.selectedPackId &&
+      candidate.variantId === ctx.visualSelection.selectedVariantId
+    );
+  if (!selectedCandidate) return 'reason unavailable from current selector';
+  const reasons = uniqueStrings(selectedCandidate.reasons.map(readableVisualReason)).slice(0, 4);
+  return reasons.length > 0
+    ? `selected by ${reasons.join(', ')}`
+    : 'reason unavailable from current selector';
+}
+
+function normalizeOutputPath(path: string): string {
+  return normalizePreviewPath(path);
+}
+
+function isCodeFile(path: string): boolean {
+  const normalized = normalizeOutputPath(path);
+  return /\.(?:ts|tsx|css)$/.test(normalized);
+}
+
+function isSourceScanFile(path: string): boolean {
+  const normalized = normalizeOutputPath(path);
+  if (!isCodeFile(path)) return false;
+  if (normalized.startsWith('design-pack/')) return false;
+  if (normalized.startsWith('assets/generated/')) return false;
+  if (normalized.includes('__tests__/')) return false;
+  if (/\.(?:test|spec)\.tsx?$/.test(normalized)) return false;
+  return true;
+}
+
+function isMeaningfulScreenFile(path: string): boolean {
+  const normalized = normalizeOutputPath(path);
+  if (!/\.tsx$/.test(normalized)) return false;
+  if (!isSourceScanFile(path)) return false;
+  if (normalized === 'App.tsx') return true;
+  if (/^pages\/[^/]+\.tsx$/.test(normalized)) return true;
+  if (/^app(?:\/[^/]+)*\/page\.tsx$/.test(normalized)) return true;
+  if (/^screens\/[^/]+\.tsx$/.test(normalized)) return true;
+  if (/^components\/screens\/[^/]+\.tsx$/.test(normalized)) return true;
+  return false;
+}
+
+function findMatches(content: string, patterns: RegExp[]): string[] {
+  const matches: string[] = [];
+  for (const pattern of patterns) {
+    const rx = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`);
+    let match: RegExpExecArray | null;
+    while ((match = rx.exec(content)) !== null) {
+      matches.push(match[0]);
+    }
+  }
+  return matches;
+}
+
+export function buildVisualUsageDiagnostics(input: {
+  files: Record<string, string>;
+  skeletonId: SkeletonId;
+  selectedPremiumComponentIds: string[];
+  materializedMediaFiles: string[];
+  designSelectionDiagnostics?: DesignSelectionDiagnostics;
+}): VisualUsageDiagnostics {
+  const fileEntries = Object.entries(input.files).filter(([path]) => isSourceScanFile(path));
+  const premiumPatterns = [
+    /@\/design-pack\/premium-components\/[^"'`\s)]+/g,
+    /design-pack\/premium-components\/[^"'`\s)]+/g,
+  ];
+  const mediaAssetFiles = input.materializedMediaFiles
+    .filter(path => path !== MEDIA_MANIFEST_PATH)
+    .filter(path => /\.(?:svg|png|jpg|jpeg|webp|gif|avif)$/i.test(path));
+  const mediaBasenames = mediaAssetFiles.map(path => path.split('/').pop()).filter((value): value is string => Boolean(value));
+  const mediaPatterns = [
+    /src\/assets\/generated\/[^"'`\s)]+/g,
+    /\/assets\/generated\/[^"'`\s)]+/g,
+    /generated-media/gi,
+    ...mediaBasenames.map(name => new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')),
+  ];
+
+  const premiumFindings = fileEntries.flatMap(([path, content]) =>
+    findMatches(content, premiumPatterns).map(match => `${normalizeOutputPath(path)}: ${match}`),
+  );
+  const mediaFindings = fileEntries
+    .filter(([path]) => /\.(?:ts|tsx|css)$/.test(normalizeOutputPath(path)))
+    .flatMap(([path, content]) =>
+      findMatches(content, mediaPatterns).map(match => `${normalizeOutputPath(path)}: ${match}`),
+    );
+
+  const normalizedFileMap = new Map(fileEntries.map(([path]) => [normalizeOutputPath(path), normalizeOutputPath(path)]));
+  const meaningfulScreenFiles = uniqueStrings(
+    Object.keys(input.files)
+      .filter(path => isMeaningfulScreenFile(path))
+      .map(path => normalizeOutputPath(path)),
+  ).sort((a, b) => a.localeCompare(b));
+  const firstScreenFilesChecked = uniqueStrings(
+    FIRST_SCREEN_CANDIDATES
+      .map(path => normalizedFileMap.get(normalizeOutputPath(path)))
+      .concat(meaningfulScreenFiles.length > 0 ? [meaningfulScreenFiles[0]] : []),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const firstScreenSet = new Set(firstScreenFilesChecked);
+  const firstScreenPremiumUsageObserved = premiumFindings.some(entry => firstScreenSet.has(entry.split(': ')[0] ?? ''));
+  const firstScreenMediaUsageObserved = mediaFindings.some(entry => firstScreenSet.has(entry.split(': ')[0] ?? ''));
+
+  const genericPlaceholderFindings = uniqueStrings(
+    fileEntries.flatMap(([path, content]) =>
+      GENERIC_PLACEHOLDER_PATTERNS
+        .filter(pattern => pattern.rx.test(content))
+        .map(pattern => `${normalizeOutputPath(path)}: ${pattern.label}`),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const premiumUsageChecked = input.selectedPremiumComponentIds.length > 0;
+  const mediaUsageChecked = mediaAssetFiles.length > 0;
+  const premiumComponentImportsFound = uniqueStrings(premiumFindings).sort((a, b) => a.localeCompare(b));
+  const mediaAssetReferencesFound = uniqueStrings(mediaFindings).sort((a, b) => a.localeCompare(b));
+  const premiumUsageObserved = premiumComponentImportsFound.length > 0;
+  const mediaUsageObserved = mediaAssetReferencesFound.length > 0;
+
+  const visualUsageNotes: string[] = [];
+  if (premiumUsageChecked && !premiumUsageObserved) {
+    visualUsageNotes.push('Premium components were selected, but generated source did not reference premium component imports.');
+  }
+  if (mediaUsageChecked && !mediaUsageObserved) {
+    visualUsageNotes.push('Generated media assets were materialized, but generated source did not reference them.');
+  }
+  if (input.skeletonId === 'saas-dashboard' && meaningfulScreenFiles.length < 3) {
+    visualUsageNotes.push('SaaS dashboard selected but fewer than 3 meaningful screens were observed.');
+  }
+  if (genericPlaceholderFindings.length > 0) {
+    visualUsageNotes.push('Obvious generic placeholder content remains in generated source.');
+  }
+
+  const designMismatchObserved = (input.designSelectionDiagnostics?.possibleMismatchWarnings.length ?? 0) > 0;
+  const assetsExistButUnused =
+    (premiumUsageChecked && !premiumUsageObserved) ||
+    (mediaUsageChecked && !mediaUsageObserved);
+  const firstScreenVisualUsageObserved = firstScreenPremiumUsageObserved || firstScreenMediaUsageObserved;
+  const repeatedUnusedSignals =
+    (!firstScreenVisualUsageObserved && (premiumUsageObserved || mediaUsageObserved)) ||
+    (premiumUsageChecked && mediaUsageChecked && !premiumUsageObserved && !mediaUsageObserved) ||
+    genericPlaceholderFindings.length > 0;
+  const suggestedNextAction: VisualUsageDiagnostics['suggestedNextAction'] =
+    designMismatchObserved
+      ? 'improve_assets'
+      : assetsExistButUnused
+        ? 'improve_prompt'
+        : repeatedUnusedSignals
+          ? 'add_repair_later'
+          : 'none';
+
+  return {
+    premiumUsageChecked,
+    premiumComponentsSelected: [...input.selectedPremiumComponentIds].sort((a, b) => a.localeCompare(b)),
+    premiumComponentImportsFound,
+    premiumUsageCount: premiumFindings.length,
+    premiumUsageObserved,
+    mediaUsageChecked,
+    mediaAssetsMaterialized: [...mediaAssetFiles].sort((a, b) => a.localeCompare(b)),
+    mediaAssetReferencesFound,
+    mediaUsageCount: mediaFindings.length,
+    mediaUsageObserved,
+    firstScreenFilesChecked,
+    firstScreenPremiumUsageObserved,
+    firstScreenMediaUsageObserved,
+    meaningfulScreenFiles,
+    meaningfulScreenCount: meaningfulScreenFiles.length,
+    genericPlaceholderFindings,
+    visualUsageNotes,
+    suggestedNextAction,
+  };
+}
+
+export function buildDesignSelectionDiagnostics(input: {
+  inputBrief: string;
+  selectedSkeletonId: SkeletonId;
+  designCtx: DesignContext;
+  selectedMediaKinds: string[];
+  selectedMediaReasons: string[];
+  visualUsageDiagnostics?: VisualUsageDiagnostics;
+}): DesignSelectionDiagnostics {
+  const detectedProductType = input.designCtx.visualSelection.signals.productDomain || undefined;
+  const detectedDomain =
+    input.designCtx.domain?.id ??
+    input.designCtx.visualSelection.signals.semanticDomainId ??
+    undefined;
+  const detectedTone =
+    input.designCtx.visualSelection.signals.toneProfiles[0] ??
+    input.designCtx.visualSelection.toneProfile ??
+    undefined;
+  const selectedPremiumRecipeId = input.designCtx.premiumComponentSelection.selectedRecipeId ?? undefined;
+  const selectedPremiumComponentIds = input.designCtx.premiumComponentSelection.selectedComponents
+    .map(component => component.id)
+    .sort((a, b) => a.localeCompare(b));
+  const diagnostics: DesignSelectionDiagnostics = {
+    inputBrief: input.inputBrief,
+    detectedProductType,
+    detectedDomain,
+    detectedTone,
+    detectedMood: input.designCtx.intent.mood,
+    selectedSkeletonId: input.selectedSkeletonId,
+    skeletonSelectionReason: buildSkeletonSelectionReason(detectedProductType, input.selectedSkeletonId),
+    selectedVisualPackId: input.designCtx.visualSelection.selectedPackId,
+    selectedVisualVariantId: input.designCtx.visualSelection.selectedVariantId,
+    visualPackSelectionReason: buildVisualPackSelectionReason(input.designCtx),
+    visualPackFallbackUsed: input.designCtx.visualSelection.fallbackVisualSelection,
+    selectedPremiumRecipeId,
+    selectedPremiumRecipeReason: selectedPremiumRecipeId
+      ? describePremiumRecipeSelection({
+          brief: input.inputBrief,
+          skeletonId: input.selectedSkeletonId,
+          domainId: detectedDomain,
+          surfaces: input.designCtx.visualSelection.surfaces,
+        })
+      : undefined,
+    selectedPremiumComponentIds,
+    premiumComponentSelectionReason: describePremiumComponentSelection(
+      input.designCtx.premiumComponentSelection,
+      {
+        brief: input.inputBrief,
+        skeletonId: input.selectedSkeletonId,
+        domainId: detectedDomain,
+        surfaces: input.designCtx.visualSelection.surfaces,
+      },
+    ),
+    selectedMediaKinds: [...input.selectedMediaKinds].sort((a, b) => a.localeCompare(b)),
+    selectedMediaReasons: [...input.selectedMediaReasons],
+    designDecisionNotes: uniqueStrings([
+      `visual selection pipeline: ${input.designCtx.visualSelection.audit.pipelineStages.map(stage => stage.stage).join(' > ') || 'fallback'}`,
+      input.designCtx.visualSelection.audit.selectedByExactMatch ? 'visual variant matched an exact preferred signal' : null,
+      input.designCtx.visualSelection.audit.selectedAfterDiversity ? 'visual selection changed after diversity balancing' : null,
+      input.designCtx.visualSelection.audit.selectedBySeed ? 'visual selection was resolved by stable seed within the viable pool' : null,
+      input.designCtx.visualSelection.signals.recommendedDesign
+        ? `recommended design hint: ${input.designCtx.visualSelection.signals.recommendedDesign}`
+        : null,
+    ]),
+    possibleMismatchWarnings: [],
+  };
+
+  if (isObviousSkeletonMismatch(diagnostics.detectedProductType, input.selectedSkeletonId)) {
+    diagnostics.possibleMismatchWarnings.push(
+      `Brief looks like ${productTypeLabel(diagnostics.detectedProductType)}, but selected skeleton is ${input.selectedSkeletonId}.`,
+    );
+  }
+  if (diagnostics.visualPackFallbackUsed) {
+    diagnostics.possibleMismatchWarnings.push('Visual fallback was used, so design direction may be less product-specific.');
+  }
+  if (
+    input.visualUsageDiagnostics &&
+    input.selectedSkeletonId === 'saas-dashboard' &&
+    input.visualUsageDiagnostics.meaningfulScreenCount < 3
+  ) {
+    diagnostics.possibleMismatchWarnings.push('SaaS dashboard selected but fewer than 3 meaningful screens were observed.');
+  }
+  if (
+    selectedPremiumRecipeId === 'health-wellness-mobile' &&
+    input.visualUsageDiagnostics &&
+    !input.visualUsageDiagnostics.premiumUsageObserved
+  ) {
+    diagnostics.possibleMismatchWarnings.push('Premium health recipe selected, but no premium component usage was later observed.');
+  }
+  if (
+    diagnostics.selectedMediaKinds.length > 0 &&
+    input.visualUsageDiagnostics &&
+    !input.visualUsageDiagnostics.firstScreenMediaUsageObserved
+  ) {
+    diagnostics.possibleMismatchWarnings.push('Media asset selected for hero/background, but no first-screen media usage was observed.');
+  }
+
+  return diagnostics;
+}
+
+export function serializeDesignSelectionDiagnostics(
+  diagnostics: DesignSelectionDiagnostics,
+): DesignSelectionDiagnosticsTelemetry {
+  return {
+    input_brief: diagnostics.inputBrief,
+    detected_product_type: diagnostics.detectedProductType,
+    detected_domain: diagnostics.detectedDomain,
+    detected_tone: diagnostics.detectedTone,
+    detected_mood: diagnostics.detectedMood,
+    selected_skeleton_id: diagnostics.selectedSkeletonId,
+    skeleton_selection_reason: diagnostics.skeletonSelectionReason,
+    selected_visual_pack_id: diagnostics.selectedVisualPackId,
+    selected_visual_variant_id: diagnostics.selectedVisualVariantId,
+    visual_pack_selection_reason: diagnostics.visualPackSelectionReason,
+    visual_pack_fallback_used: diagnostics.visualPackFallbackUsed,
+    selected_premium_recipe_id: diagnostics.selectedPremiumRecipeId,
+    selected_premium_recipe_reason: diagnostics.selectedPremiumRecipeReason,
+    selected_premium_component_ids: diagnostics.selectedPremiumComponentIds,
+    premium_component_selection_reason: diagnostics.premiumComponentSelectionReason,
+    selected_media_kinds: diagnostics.selectedMediaKinds,
+    selected_media_reasons: diagnostics.selectedMediaReasons,
+    design_decision_notes: diagnostics.designDecisionNotes,
+    possible_mismatch_warnings: diagnostics.possibleMismatchWarnings,
+    composition_plan_created: diagnostics.compositionPlanCreated,
+    composition_first_screen_id: diagnostics.compositionFirstScreenId,
+    composition_screen_count: diagnostics.compositionScreenCount,
+    composition_zone_count_on_first_screen: diagnostics.compositionZoneCountOnFirstScreen,
+    functional_flow_plan_created: diagnostics.functionalFlowPlanCreated,
+    functional_flow_count: diagnostics.functionalFlowCount,
+    functional_entity_count: diagnostics.functionalEntityCount,
+    skeleton_integration_plan_created: diagnostics.skeletonIntegrationPlanCreated,
+    skeleton_fit: diagnostics.skeletonFit,
+    skeleton_bypass_allowed: diagnostics.skeletonBypassAllowed,
+    custom_module_count: diagnostics.customModuleCount,
+    product_specificity_plan_created: diagnostics.productSpecificityPlanCreated,
+    inferred_domain: diagnostics.inferredDomain,
+    domain_entity_count: diagnostics.domainEntityCount,
+    product_metric_count: diagnostics.productMetricCount,
+    forbidden_generic_pattern_count: diagnostics.forbiddenGenericPatternCount,
+    architecture_diagnostics_checked: diagnostics.architectureDiagnosticsChecked,
+  };
+}
+
+export function serializeVisualUsageDiagnostics(
+  diagnostics: VisualUsageDiagnostics,
+): VisualUsageDiagnosticsTelemetry {
+  return {
+    premium_usage_checked: diagnostics.premiumUsageChecked,
+    premium_components_selected: diagnostics.premiumComponentsSelected,
+    premium_component_imports_found: diagnostics.premiumComponentImportsFound,
+    premium_component_usage_count: diagnostics.premiumUsageCount,
+    premium_usage_observed: diagnostics.premiumUsageObserved,
+    media_usage_checked: diagnostics.mediaUsageChecked,
+    media_assets_materialized: diagnostics.mediaAssetsMaterialized,
+    media_asset_references_found: diagnostics.mediaAssetReferencesFound,
+    media_usage_count: diagnostics.mediaUsageCount,
+    media_usage_observed: diagnostics.mediaUsageObserved,
+    first_screen_files_checked: diagnostics.firstScreenFilesChecked,
+    first_screen_premium_usage_observed: diagnostics.firstScreenPremiumUsageObserved,
+    first_screen_media_usage_observed: diagnostics.firstScreenMediaUsageObserved,
+    meaningful_screen_files: diagnostics.meaningfulScreenFiles,
+    meaningful_screen_count: diagnostics.meaningfulScreenCount,
+    generic_placeholder_findings: diagnostics.genericPlaceholderFindings,
+    visual_usage_notes: diagnostics.visualUsageNotes,
+    suggested_next_action: diagnostics.suggestedNextAction,
   };
 }
 
@@ -608,6 +1375,59 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     }
     emit('skeleton', 'done', SKELETON_REGISTRY[config.skeletonId].label);
 
+    // ── Media materialization (deterministic, no LLM) ─────────────────────
+    const mediaMaterialization = await materializeMediaAssets(designCtx, clarifiedPrompt, config.skeletonId);
+    if (mediaMaterialization.mediaHints.length > 0) {
+      log(`[media] materialized ${mediaMaterialization.mediaHints.length} media asset(s): ${mediaMaterialization.mediaHints.map(h => h.id).join(', ')}`);
+    }
+
+    // ── Screen composition planning (deterministic, no LLM) ──────────────────
+    const compositionPlan = buildScreenCompositionPlan({
+      brief: clarifiedPrompt,
+      skeletonId: config.skeletonId,
+      designCtx,
+      premiumComponentIds: designCtx.premiumComponentSelection.selectedComponents.map(c => c.id),
+      mediaHints: mediaMaterialization.mediaHints,
+      architectPlan: plan,
+    });
+    if (compositionPlan.screens.length > 0) {
+      log(`[composition] built plan: ${compositionPlan.screens.length} screens, firstScreenId=${compositionPlan.firstScreenId}, zones=${compositionPlan.screens.find(s => s.id === compositionPlan.firstScreenId)?.zones.length ?? 0} on first screen`);
+    }
+    const functionalFlowPlan = buildFunctionalFlowPlan({
+      brief: clarifiedPrompt,
+      skeletonId: config.skeletonId,
+      screenCompositionPlan: compositionPlan,
+      architectPlan: plan,
+    });
+    if (functionalFlowPlan.flows.length > 0) {
+      log(`[functional] built plan: ${functionalFlowPlan.flows.length} flows, entities=${functionalFlowPlan.entities.length}, goal="${functionalFlowPlan.primaryUserGoal}"`);
+    }
+    const skeletonIntegrationPlan = buildSkeletonIntegrationPlan({
+      brief: clarifiedPrompt,
+      skeletonId: config.skeletonId,
+      screenCompositionPlan: compositionPlan,
+      functionalFlowPlan,
+      premiumComponentIds: designCtx.premiumComponentSelection.selectedComponents.map(c => c.id),
+      mediaHints: mediaMaterialization.mediaHints,
+      architectPlan: plan,
+    });
+    log(
+      `[skeleton-integration] fit=${skeletonIntegrationPlan.skeletonFit} bypassAllowed=${String(skeletonIntegrationPlan.skeletonBypassAllowed)} customModules=${skeletonIntegrationPlan.customModules.length}`,
+    );
+    const productSpecificityPlan = buildProductSpecificityPlan({
+      brief: clarifiedPrompt,
+      skeletonId: config.skeletonId,
+      screenCompositionPlan: compositionPlan,
+      functionalFlowPlan,
+      skeletonIntegrationPlan,
+      premiumComponentIds: designCtx.premiumComponentSelection.selectedComponents.map(c => c.id),
+      mediaHints: mediaMaterialization.mediaHints,
+      architectPlan: plan,
+    });
+    log(
+      `[product-specificity] domain="${productSpecificityPlan.inferredDomain}" entities=${productSpecificityPlan.domainEntities.length} metrics=${productSpecificityPlan.productMetrics.length}`,
+    );
+
     // ── Step 5 — Coder (one shot + at most one targeted retry) ────────────
     emit('coder', 'active');
     let deltaFiles: Record<string, string>;
@@ -624,7 +1444,12 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           onStream:   config.onCoderStream,
           onUsage:    (usage) => { coderUsage = usage; },
         designCtx,
-      });
+        mediaHints: mediaMaterialization.mediaHints,
+         compositionPlan,
+         functionalFlowPlan,
+         skeletonIntegrationPlan,
+         productSpecificityPlan,
+       });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
       return fail('coder', (err as Error).message);
@@ -647,6 +1472,9 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     deltaFiles[tf.path] = tf.content;
     const visualMaterialization = materializeVisualPack(designCtx);
     Object.assign(deltaFiles, visualMaterialization.files);
+    const premiumMaterialization = materializePremiumComponents(designCtx);
+    Object.assign(deltaFiles, premiumMaterialization.files);
+    Object.assign(deltaFiles, mediaMaterialization.files);
     const appPath = Object.keys(deltaFiles).find(path => normalizePreviewPath(path) === 'App.tsx');
     const appSource =
       (appPath ? deltaFiles[appPath] : null) ??
@@ -678,12 +1506,94 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     if (Object.keys(filteredFiles).length === 0) {
       return fail('apply', 'All produced files are skeleton-protected — nothing to write');
     }
+    const selectedPremiumComponentIds = designCtx.premiumComponentSelection.selectedComponents
+      .map(component => component.id)
+      .sort((a, b) => a.localeCompare(b));
+    const selectedMediaKinds = mediaMaterialization.mediaHints
+      .map(hint => hint.kind)
+      .sort((a, b) => a.localeCompare(b));
+    const preliminaryDesignSelectionDiagnostics = buildDesignSelectionDiagnostics({
+      inputBrief: clarifiedPrompt,
+      selectedSkeletonId: config.skeletonId,
+      designCtx,
+      selectedMediaKinds,
+      selectedMediaReasons: mediaMaterialization.selectionReasons,
+    });
+    const visualUsageDiagnostics = buildVisualUsageDiagnostics({
+      files: filteredFiles,
+      skeletonId: config.skeletonId,
+      selectedPremiumComponentIds,
+      materializedMediaFiles: mediaMaterialization.materializedFiles,
+      designSelectionDiagnostics: preliminaryDesignSelectionDiagnostics,
+    });
+    const designSelectionDiagnostics = buildDesignSelectionDiagnostics({
+      inputBrief: clarifiedPrompt,
+      selectedSkeletonId: config.skeletonId,
+      designCtx,
+      selectedMediaKinds,
+      selectedMediaReasons: mediaMaterialization.selectionReasons,
+      visualUsageDiagnostics,
+    });
+    // Enrich design selection diagnostics with composition plan info
+    const firstCompositionScreen = compositionPlan.screens.find(s => s.id === compositionPlan.firstScreenId);
+    designSelectionDiagnostics.compositionPlanCreated = true;
+    designSelectionDiagnostics.compositionFirstScreenId = compositionPlan.firstScreenId;
+    designSelectionDiagnostics.compositionScreenCount = compositionPlan.screens.length;
+    designSelectionDiagnostics.compositionZoneCountOnFirstScreen = firstCompositionScreen?.zones.length ?? 0;
+    designSelectionDiagnostics.functionalFlowPlanCreated = true;
+    designSelectionDiagnostics.functionalFlowCount = functionalFlowPlan.flows.length;
+    designSelectionDiagnostics.functionalEntityCount = functionalFlowPlan.entities.length;
+    const functionalImplementationDiagnostics = buildFunctionalImplementationDiagnostics({
+      files: filteredFiles,
+      plan: functionalFlowPlan,
+    });
+    const architectureImplementationDiagnostics = buildArchitectureImplementationDiagnostics({
+      files: filteredFiles,
+      skeletonId: config.skeletonId,
+      screenCompositionPlan: compositionPlan,
+      functionalFlowPlan,
+      skeletonIntegrationPlan,
+    });
+    const productSpecificityDiagnostics = buildProductSpecificityDiagnostics({
+      files: filteredFiles,
+      plan: productSpecificityPlan,
+    });
+    if (skeletonIntegrationPlan.skeletonFit === 'weak' && config.skeletonId !== 'landing-page') {
+      designSelectionDiagnostics.possibleMismatchWarnings.push(
+        `Skeleton integration fit is weak for ${config.skeletonId}; keep the selected skeleton as the foundation and extend it cleanly.`,
+      );
+    }
+    designSelectionDiagnostics.skeletonIntegrationPlanCreated = true;
+    designSelectionDiagnostics.skeletonFit = skeletonIntegrationPlan.skeletonFit;
+    designSelectionDiagnostics.skeletonBypassAllowed = skeletonIntegrationPlan.skeletonBypassAllowed;
+    designSelectionDiagnostics.customModuleCount = skeletonIntegrationPlan.customModules.length;
+    designSelectionDiagnostics.productSpecificityPlanCreated = true;
+    designSelectionDiagnostics.inferredDomain = productSpecificityPlan.inferredDomain;
+    designSelectionDiagnostics.domainEntityCount = productSpecificityPlan.domainEntities.length;
+    designSelectionDiagnostics.productMetricCount = productSpecificityPlan.productMetrics.length;
+    designSelectionDiagnostics.forbiddenGenericPatternCount = productSpecificityPlan.forbiddenGenericPatterns.length;
+    designSelectionDiagnostics.architectureDiagnosticsChecked = architectureImplementationDiagnostics.architectureDiagnosticsChecked;
     stepResults.apply = {
       output: {
         file_count: Object.keys(filteredFiles).length,
         total_bytes: totalFileBytes(filteredFiles),
         files: Object.keys(filteredFiles),
         materialized_visual_files: visualMaterialization.materializedFiles,
+        materialized_premium_files: premiumMaterialization.materializedFiles,
+        selected_premium_component_ids: selectedPremiumComponentIds,
+        selected_premium_recipe_id: designCtx.premiumComponentSelection.selectedRecipeId,
+        materialized_media_files: mediaMaterialization.materializedFiles,
+        media_manifest_path: mediaMaterialization.mediaManifestPath,
+        selected_media_kinds: selectedMediaKinds,
+        design_selection_diagnostics: serializeDesignSelectionDiagnostics(designSelectionDiagnostics),
+        visual_usage_diagnostics: serializeVisualUsageDiagnostics(visualUsageDiagnostics),
+        screen_composition_plan: serializeScreenCompositionPlan(compositionPlan),
+        functional_flow_plan: serializeFunctionalFlowPlan(functionalFlowPlan),
+        skeleton_integration_plan: serializeSkeletonIntegrationPlan(skeletonIntegrationPlan),
+        product_specificity_plan: serializeProductSpecificityPlan(productSpecificityPlan),
+        functional_implementation_diagnostics: serializeFunctionalImplementationDiagnostics(functionalImplementationDiagnostics),
+        architecture_implementation_diagnostics: serializeArchitectureImplementationDiagnostics(architectureImplementationDiagnostics),
+        product_specificity_diagnostics: serializeProductSpecificityDiagnostics(productSpecificityDiagnostics),
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
@@ -725,6 +1635,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
             routeOverrides: config.routeOverrides,
             onLog:       log,
             designCtx,
+            mediaHints:  mediaMaterialization.mediaHints,
           });
           currentFiles = { ...currentFiles, ...repaired };
         } catch (repairErr) {
@@ -925,6 +1836,11 @@ async function runArchitect(input: {
   designCtx?: DesignContext;
 }): Promise<ArchitectPlan> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
+  const architectRoute = resolveRouteOrSkip('primary', input.routeOverrides);
+  const architectProvider = architectRoute?.provider ?? 'unknown';
+  const architectModel = architectRoute
+    ? Orchestrator.normalizeModelId(architectRoute.modelId, architectRoute.endpoint)
+    : 'unknown';
   const installedFiles = getSkeletonInstalledFiles(input.skeletonId);
   const editableFiles = getEditableSkeletonFiles(input.skeletonId);
   const editableFileSet = new Set(editableFiles);
@@ -978,6 +1894,7 @@ async function runArchitect(input: {
     ? installedFiles.map(path => `- ${path}`).join('\n')
     : '- (none)';
   const shapeRequirement = buildArchitectShapeRequirement(input.prompt, input.skeletonId);
+  const architectureQualityRules = buildArchitectureQualityRulesBlock();
 
   const system = `You are a senior product architect. The user wants a React + Tailwind app built on top of an EXISTING SKELETON.
 
@@ -993,11 +1910,20 @@ ${editableExistingLines || '- (none)'}
 SKELETON SNAPSHOT (already on disk; use this to avoid duplicates):
 ${installedList}
 ${input.designCtx ? archetypeContextForArchitect(input.designCtx) : ''}
+${architectureQualityRules}
 YOUR TASK: Return fileTree with ONLY the delta files this specific app needs.
 The skeleton is already installed. You MAY include editable skeleton files in fileTree when they need meaningful product-specific rewrites.
 Typical delta for a mobile app: multiple routed pages, product navigation config, a real data layer, one domain hook, and at least one reusable product component.
 ${shapeRequirement}
 Each fileTree value must be one sentence saying what the file does and which data / state it uses.
+
+ARCHITECT_OUTPUT_CONTRACT:
+- Return exactly one valid JSON object.
+- Do not wrap it in markdown.
+- Do not use code fences.
+- Do not add commentary before or after JSON.
+- Do not include explanations outside JSON.
+- The JSON must match the required architect schema.
 
 Return ONLY valid JSON matching this schema:
 {
@@ -1011,6 +1937,10 @@ Return ONLY valid JSON matching this schema:
   "pages": [
     { "path": "/dashboard", "name": "Dashboard", "file": "pages/Dashboard.tsx", "purpose": "..." }
   ],
+  "skeletonFitNotes": ["optional note about why the skeleton fits or where it needs clean extension"],
+  "skeletonBypassNotes": ["optional note about preserving the selected skeleton foundation"],
+  "customModuleNotes": ["optional note about product-specific modules to add"],
+  "fileOwnershipNotes": ["optional note about which file types own screens/data/hooks/components"],
   "contextContract": "<optional: cross-file contract, e.g. which hook/context to use for shared state>",
   "dataModel": "<optional: compact entity shape, e.g. Habit: { id, name, completedDates[] }>",
   "notes": ["any cross-cutting requirement worth telling the coder"]
@@ -1037,11 +1967,29 @@ RULES
     onUsage:   input.onUsage,
   });
 
-  const parsed = safeParseJson(raw);
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Architect returned non-JSON output');
+  const extracted = extractJsonObjectFromModelText(raw, {
+    validate: value => validateArchitectJsonShape(value),
+  });
+  if (!extracted.ok) {
+    input.onLog(
+      `[architect] parse diagnostics provider=${architectProvider} model=${architectModel} raw_length=${raw.length} raw_snippet=${extracted.rawSnippet}`,
+      'error',
+    );
+    if (extracted.candidateSnippet) {
+      input.onLog(`[architect] candidate_json_snippet=${extracted.candidateSnippet}`, 'warn');
+    }
+    if (extracted.parseError) {
+      input.onLog(`[architect] parse_error=${extracted.parseError}`, 'warn');
+    }
+    if (extracted.schemaError) {
+      input.onLog(`[architect] schema_error=${extracted.schemaError}`, 'warn');
+    }
+    const message = extracted.schemaError
+      ? `Architect JSON parsed but schema validation failed: ${extracted.schemaError}`
+      : `Architect returned non-JSON output: ${extracted.error}`;
+    throw new Error(`${message}. Raw snippet: ${extracted.rawSnippet}`);
   }
-  const obj = parsed as Record<string, unknown>;
+  const obj = extracted.value as Record<string, unknown>;
   const fileTreeRaw = obj.fileTree && typeof obj.fileTree === 'object' && !Array.isArray(obj.fileTree)
     ? obj.fileTree as Record<string, unknown>
     : {};
@@ -1101,7 +2049,14 @@ RULES
     });
 
   if (deltaFiles.length === 0) {
-    throw new Error('Architect plan contains no usable delta fileTree entries');
+    const schemaError = 'plan contains no usable delta fileTree entries after path normalization and skeleton filtering';
+    input.onLog(
+      `[architect] schema diagnostics provider=${architectProvider} model=${architectModel} raw_length=${raw.length} raw_snippet=${extracted.rawSnippet}`,
+      'error',
+    );
+    input.onLog(`[architect] candidate_json_snippet=${safeModelTextSnippet(extracted.jsonText)}`, 'warn');
+    input.onLog(`[architect] schema_error=${schemaError}`, 'warn');
+    throw new Error(`Architect JSON parsed but schema validation failed: ${schemaError}. Raw snippet: ${extracted.rawSnippet}`);
   }
   const duplicateSkeletonFiles = Object.keys(planner.fileTree)
     .filter(path => {
@@ -1137,6 +2092,27 @@ RULES
 
 // ── Step 4 — Coder ───────────────────────────────────────────────────────────
 
+export function buildCoderPlanningBlocks(input: {
+  designCtx?: DesignContext;
+  mediaHints?: MediaHint[];
+  compositionPlan?: ScreenCompositionPlan;
+  functionalFlowPlan?: FunctionalFlowPlan;
+  skeletonIntegrationPlan?: SkeletonIntegrationPlan;
+  productSpecificityPlan?: ProductSpecificityPlan;
+}): string {
+  return [
+    input.designCtx ? designContractForCoder(input.designCtx, input.mediaHints) : '',
+    input.compositionPlan ? buildCompositionPlanPromptBlock(input.compositionPlan) : '',
+    input.functionalFlowPlan ? buildFunctionalFlowPromptBlock(input.functionalFlowPlan) : '',
+    input.skeletonIntegrationPlan ? buildSkeletonIntegrationPromptBlock(input.skeletonIntegrationPlan) : '',
+    input.productSpecificityPlan ? buildProductSpecificityPromptBlock(input.productSpecificityPlan) : '',
+  ].filter(Boolean).join('\n');
+}
+
+export function buildUiPrimitiveImportCatalog(uiPrimitives: readonly string[]): string {
+  return buildLiveGenerationUiPrimitiveImportCatalog(filterAdvertisedUiPrimitiveNames(uiPrimitives));
+}
+
 async function runCoder(input: {
   prompt:     string;
   plan:       ArchitectPlan;
@@ -1147,7 +2123,12 @@ async function runCoder(input: {
   onStream?:  (delta: string) => void;
   onUsage?:   (usage: StepLlmMetrics) => void;
   designCtx?: DesignContext;
-}): Promise<Record<string, string>> {
+  mediaHints?: MediaHint[];
+  compositionPlan?: ScreenCompositionPlan;
+  functionalFlowPlan?: FunctionalFlowPlan;
+  skeletonIntegrationPlan?: SkeletonIntegrationPlan;
+  productSpecificityPlan?: ProductSpecificityPlan;
+}): Promise<Record<string, string>>{
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
     plan: {
@@ -1184,14 +2165,24 @@ async function runCoder(input: {
       ? `CONTEXT CONTRACT FROM ARCHITECT — READ CAREFULLY:\n${input.plan.contextContract.trim()}`
       : '',
   ].filter(Boolean).join('\n\n');
+  const planningBlocks = buildCoderPlanningBlocks({
+    designCtx: input.designCtx,
+      mediaHints: input.mediaHints,
+      compositionPlan: input.compositionPlan,
+      functionalFlowPlan: input.functionalFlowPlan,
+      skeletonIntegrationPlan: input.skeletonIntegrationPlan,
+      productSpecificityPlan: input.productSpecificityPlan,
+    });
+  const advertisedUiPrimitives = filterAdvertisedUiPrimitiveNames(skeleton.uiPrimitives);
+  const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(advertisedUiPrimitives);
 
   const system = `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.
 
 SKELETON: ${skeleton.label} (${skeleton.id})
 PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}
 PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
-UI PRIMITIVES: ${skeleton.uiPrimitives.join(', ') || '(see registry)'}
-${contractBlock ? `\n${contractBlock}\n` : ''}${input.designCtx ? '\n' + designContractForCoder(input.designCtx) : ''}
+UI PRIMITIVES: ${advertisedUiPrimitives.join(', ') || '(see registry)'}
+${contractBlock ? `\n${contractBlock}\n` : ''}${planningBlocks ? '\n' + planningBlocks + '\n' : ''}
 ${skeletonPromptBlock}
 DELTA FILE TREE FROM ARCHITECT (source of truth):
 ${fileTreeBlock || '  - (none)'}
@@ -1214,17 +2205,8 @@ Emit each file enclosed in plain-text markers, nothing else around them:
 <<<END>>>
 
 IMPORT RULES — follow exactly, never mix paths
-From '@/components/ui' (shadcn primitives):
-  Button, Card, CardContent, CardHeader, CardTitle, CardDescription,
-  Input, Label, Badge, Avatar, AvatarImage, AvatarFallback,
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
-  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-  Tabs, TabsContent, TabsList, TabsTrigger,
-  Progress, Skeleton, Separator, Switch, Checkbox, Textarea,
-  Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
-  ScrollArea, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
+Available UI primitive import catalog (use only these exact paths):
+${uiPrimitiveImportCatalog}
 
 From '@/components/EmptyState' (NOT from ui): EmptyState
 From '@/components/BottomTabs'  (NOT from ui): BottomTabs
@@ -1241,12 +2223,17 @@ CRITICAL: config/navigation.ts MUST export BOTTOM_TABS (readonly TabDefinition[]
 RULES
 - Paths relative to preview-workspace/src/. No leading "src/" or "/".
 - Each file must be a complete, compilable .tsx/.ts file. No diffs, no patches.
-- Only import from skeleton-provided modules listed above, "@/components/ui/*", "lucide-react", "react", and files you yourself emit.
-- For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, import "useLocalStorage" from "@/hooks/useLocalStorage".
+- Do not import UI primitives that are not listed in the UI primitive import catalog or not physically present in src/components/ui.
+- If a component is needed but not available in the UI catalog, implement it as a local component under components/ instead of importing a nonexistent shadcn primitive.
+- Only import from skeleton-provided modules listed above, exact UI primitive paths listed above, "lucide-react", "react", and files you yourself emit.
+- For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, use the named import: import { useLocalStorage } from "@/hooks/useLocalStorage".
 - You are extending the installed skeleton by delta. NEVER rebuild the app shell, router, providers, or placeholder app from scratch when the selected skeleton already provides them.
 - Do not modify any skeleton-locked path.
 - No commentary outside the markers. No markdown. No code fences.
-- Quality over verbosity: real content, no lorem ipsum, no TODOs.`;
+- Quality over verbosity: real content, no lorem ipsum, no TODOs.
+- DESIGN TOKENS: ALWAYS use Tailwind design token classes — bg-background, bg-card, bg-muted, bg-primary, text-foreground, text-muted-foreground, text-primary, text-primary-foreground, border-border. NEVER use raw color utilities (bg-white, bg-black, bg-gray-100, text-gray-900, border-gray-200). Use var(--primary) / var(--foreground) in style props when tokens are needed inline.
+- REAL DATA: Write actual domain entities with real business labels, realistic numbers, and meaningful copy. Never write "Lorem ipsum", "placeholder", "TODO", or generic "Item 1 / Item 2" lists.
+- COMPLETENESS: Every emitted file must be fully functional — no partial stubs, no "// rest of implementation" comments, no empty component bodies.`;
 
   let firstReason = '';
   let body = '';
@@ -1337,6 +2324,7 @@ async function runRepair(input: {
   onLog:        (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onUsage?:     (usage: StepLlmMetrics) => void;
   designCtx?:   DesignContext;
+  mediaHints?:  MediaHint[];
 }): Promise<Record<string, string>> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   // Heuristic: pull file paths the error log references; fall back to all files.
@@ -1354,7 +2342,7 @@ async function runRepair(input: {
   const system = `You are fixing build errors. Re-emit the files below with the bugs fixed.
 Same FILE/END marker format. Only emit files you actually changed. Do not modify any skeleton-locked path.
 SKELETON: ${skeleton.label} (${skeleton.id})
-${input.designCtx ? '\n' + designContractForCoder(input.designCtx) : ''}
+${input.designCtx ? '\n' + designContractForCoder(input.designCtx, input.mediaHints) : ''}
 
 BUILD ERROR LOG (truncated):
 ${input.errorLog.slice(0, 4000)}`;

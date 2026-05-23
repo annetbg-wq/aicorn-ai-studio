@@ -87,10 +87,12 @@ import {
 import { analyzeOutputTruth } from '../shared/outputTruth';
 import { useFigmaState } from './useFigmaState';
 import { useSettingsState } from './useSettingsState';
+import { getSkeletonSaveFiles, resolveReloadCompleteSaveFiles } from './useStudioSaveFiles';
 import {
   ArchitectPlannerService,
   applyKickoffSelectionToBuildPlan,
   assertKickoffScopeApplied,
+  type ArchitectBlockingQuestion,
   type ArchitectKickoffPlan,
   type KickoffBuildScopeId,
 } from '../services/ArchitectPlannerService';
@@ -98,6 +100,8 @@ import { ChatArchitectureService } from '../services/ChatArchitectureService';
 import { refreshArchitectureAfterBuild } from '../services/BranchArchitectureOrchestrationService';
 import { resolveStandardRoute } from '../services/buildAgentRouting';
 import type { AgentExecutionRoute } from '../services/buildAgentRouting';
+import { showToast } from '../services/toastBus';
+import { autoSelectSurface, SURFACE_CHOICE_TIMEOUT_MS } from '../lib/surfaceHeuristic';
 
 export type DeviceType = 'desktop' | 'iphone' | 'pixel' | 'ipad';
 export type FileMap     = Record<string, string>;
@@ -191,6 +195,7 @@ type PackagedLaunchContext = {
 type DraftSessionSource =
   | 'new-project'
   | 'startup'
+  | 'external-chat'
   | 'trend-niche-chat'
   | 'trend-niche-build';
 
@@ -1246,6 +1251,7 @@ interface PendingProjectSave {
   projectId: string;
   projectTitle: string;
   finalFiles: FileMap;
+  skeletonId?: string | null;
   chatHistoryToSave: any[];
   userPrompt: string;
   source: GenerationSource;
@@ -1282,6 +1288,7 @@ type ProjectPersistenceState = 'none' | 'unknown' | 'exists' | 'missing' | 'draf
 
 const LEGACY_CHAT_HISTORY_KEY = 'CHAT_HISTORY';
 const DRAFT_CHAT_KEY_PREFIX = 'AIC_DRAFT_CHAT_';
+const DRAFT_SESSION_ID_KEY = 'AIC_DRAFT_SESSION_ID';
 const ACTIVE_PROJECT_PERSISTENCE_STATES: ReadonlySet<ProjectPersistenceState> = new Set(['exists', 'draft', 'preview-ready']);
 
 type ComparableScopedSettings = {
@@ -1347,6 +1354,24 @@ function getDraftChatStorageKey(draftId: string): string {
   return `${DRAFT_CHAT_KEY_PREFIX}${draftId}`;
 }
 
+function readDraftSessionId(): string | null {
+  try {
+    return sessionStorage.getItem(DRAFT_SESSION_ID_KEY) ?? localStorage.getItem(DRAFT_SESSION_ID_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeDraftSessionId(draftId: string): void {
+  try { sessionStorage.setItem(DRAFT_SESSION_ID_KEY, draftId); } catch { /* ignore */ }
+  try { localStorage.setItem(DRAFT_SESSION_ID_KEY, draftId); } catch { /* ignore */ }
+}
+
+function clearDraftSessionId(): void {
+  try { sessionStorage.removeItem(DRAFT_SESSION_ID_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(DRAFT_SESSION_ID_KEY); } catch { /* ignore */ }
+}
+
 function readDraftChatHistory(draftId: string | null): ChatMessage[] {
   if (!draftId) return [];
   const key = getDraftChatStorageKey(draftId);
@@ -1391,7 +1416,7 @@ function readInitialChatHistory(): ChatMessage[] {
       const activeProject = ProjectStorage.getProject(activeProjectId);
       return buildPersistedProjectChatHistory((activeProject?.chatHistory as any[]) ?? []);
     }
-    const activeDraftId = localStorage.getItem('AIC_DRAFT_SESSION_ID');
+    const activeDraftId = readDraftSessionId();
     return readDraftChatHistory(activeDraftId);
   } catch {
     return [];
@@ -1467,6 +1492,8 @@ export const useStudio = () => {
   // Surface choice — resolver set when surface-choice card is shown,
   // resolved when user picks a surface type via chooseSurface().
   const surfaceChoiceResolverRef = useRef<((surface: 'landing' | 'app' | 'superapp') => void) | null>(null);
+  // Timer ID for the surface-choice auto-select fallback (60 s).
+  const surfaceChoiceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Tracks whether generationMode was explicitly set by the user or plan context.
   // When false, the surface-choice dialog appears before each genesis generation.
@@ -2245,7 +2272,7 @@ export const useStudio = () => {
   const [chatThreadKey, setChatThreadKey] = useState(() => {
     const persistedProjectId = localStorage.getItem('CURRENT_PROJECT_ID');
     if (persistedProjectId) return `project:${persistedProjectId}:0`;
-    const draftId = localStorage.getItem('AIC_DRAFT_SESSION_ID');
+    const draftId = readDraftSessionId();
     return draftId ? `draft:${draftId}:0` : 'draft:none:0';
   });
 
@@ -2304,6 +2331,18 @@ export const useStudio = () => {
       _latestMsgsRef.current.length > 0 ? _latestMsgsRef.current : pending.chatHistoryToSave,
     );
 
+    const reloadCompleteSave = resolveReloadCompleteSaveFiles({
+      existingFiles: ProjectStorage.getProject(pending.projectId)?.files,
+      skeletonFiles: getSkeletonSaveFiles((pending.skeletonId ?? null) as any),
+      pendingFinalFiles: pending.finalFiles,
+    });
+    if (reloadCompleteSave.errorMessage) {
+      addLog(`[Project] ${reloadCompleteSave.errorMessage}`, 'warn');
+      showToast(reloadCompleteSave.errorMessage, 'error');
+      return false;
+    }
+    const reloadCompleteFiles = reloadCompleteSave.files;
+
     pendingProjectSaveRef.current = null;
     pendingSavePromptShownRef.current = false;
     setPendingProjectSaveMeta(null);
@@ -2330,7 +2369,7 @@ export const useStudio = () => {
     const revisionPatch = {
       prompt:     pending.userPrompt,
       source:     pending.source,
-      files:      pending.finalFiles,
+      files:      reloadCompleteFiles,
       modelId:    pending.effectiveModel,
       durationMs: Date.now() - pending.generationStartMs,
       pagesCount: pending.plan?.pages?.length ?? 0,
@@ -2368,8 +2407,7 @@ export const useStudio = () => {
     const saveNow = new Date().toISOString();
     const activeBranchId = existingActiveBranchId;
     const mergedBranchFiles = {
-      ...(existingBranch?.files ?? existing?.files ?? {}),
-      ...pending.finalFiles,
+      ...reloadCompleteFiles,
     };
     const fallbackBranch = existingBranch ?? {
       id: activeBranchId,
@@ -2524,7 +2562,7 @@ export const useStudio = () => {
       description: pending.userPrompt.slice(0, 120),
       theme:       pending.planTheme,
       files:       existingForCloud?.files
-                     ? { ...existingForCloud.files, ...pending.finalFiles }
+                     ? { ...existingForCloud.files, ...reloadCompleteFiles }
                      : mergedBranchFiles,
       chatHistory: existingForCloud?.chatHistory ?? persistedChatHistoryForSession,
       createdAt:   existingForCloud?.createdAt ?? new Date().toISOString(),
@@ -2560,7 +2598,7 @@ export const useStudio = () => {
       });
       clearDraftChatStorage(draftIdAtSave);
       _draftSessionIdRef.current = null;
-      localStorage.removeItem('AIC_DRAFT_SESSION_ID');
+      clearDraftSessionId();
     }
 
     return true;
@@ -2634,6 +2672,9 @@ export const useStudio = () => {
     // Hard isolation: never persist chat into a global key shared by projects/drafts.
     localStorage.removeItem(LEGACY_CHAT_HISTORY_KEY);
     if ((projectPersistenceState === 'draft' || projectPersistenceState === 'preview-ready') && currentProjectId) {
+      const draftSessionId = _draftSessionIdRef.current ?? currentProjectId;
+      _draftSessionIdRef.current = draftSessionId;
+      writeDraftSessionId(draftSessionId);
       const draftChatKey = getDraftChatStorageKey(currentProjectId);
       const payload = JSON.stringify(messages);
       try {
@@ -2642,6 +2683,8 @@ export const useStudio = () => {
         // Fallback still stays isolated per draft session ID.
         safeSetItem(draftChatKey, payload);
       }
+    } else {
+      clearDraftSessionId();
     }
     // Persist the derived `files` value — includes graph-derived files when graph is set.
     safeSetItem('LAST_FILES',    JSON.stringify(files));
@@ -2876,7 +2919,7 @@ export const useStudio = () => {
     pendingSavePromptShownRef.current = false;
     setPendingProjectSaveMeta(null);
     currentPlanMsgIdRef.current = null;
-    const previousDraftId = _draftSessionIdRef.current ?? localStorage.getItem('AIC_DRAFT_SESSION_ID');
+    const previousDraftId = _draftSessionIdRef.current ?? readDraftSessionId();
     clearDraftChatStorage(previousDraftId);
     // Auto-save the current project before clearing so history is not lost
     if (
@@ -2919,6 +2962,10 @@ export const useStudio = () => {
     clearComposerContextItems();
     modeSetByUserRef.current = false;
     clarificationResolverRef.current = null;
+    if (surfaceChoiceTimeoutRef.current !== null) {
+      clearTimeout(surfaceChoiceTimeoutRef.current);
+      surfaceChoiceTimeoutRef.current = null;
+    }
     surfaceChoiceResolverRef.current = null;
     setPreviewBlockedReason(null);
     setPreviewUrl('');
@@ -2940,7 +2987,7 @@ export const useStudio = () => {
     // explicit Save following a successful preview (commitPendingProjectSave).
     const draftId = draftArtifactJournal.createSession({ source: sessionSource });
     _draftSessionIdRef.current = draftId;
-    localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
+    writeDraftSessionId(draftId);
     setCurrentProjectId(draftId);
     setProjectPersistenceState('draft');
     applyEffectiveSettingsForProject(draftId);
@@ -2959,6 +3006,13 @@ export const useStudio = () => {
     await createNewProject({
       autoSaveCurrentProject: false,
       sessionSource: mode === 'chat' ? 'trend-niche-chat' : 'trend-niche-build',
+    });
+  }, [createNewProject]);
+
+  const startExternalChatDraftSession = useCallback(async () => {
+    await createNewProject({
+      autoSaveCurrentProject: false,
+      sessionSource: 'external-chat',
     });
   }, [createNewProject]);
 
@@ -2986,7 +3040,7 @@ export const useStudio = () => {
     chatLoadHistory([]);
     // Clear any active draft session — we are transitioning to a real persisted project.
     _draftSessionIdRef.current = null;
-    localStorage.removeItem('AIC_DRAFT_SESSION_ID');
+    clearDraftSessionId();
     try {
       // Supabase first, localStorage fallback
       const full = await ProjectRepository.getProject(project.id);
@@ -3373,11 +3427,11 @@ export const useStudio = () => {
 
       // No explicitly-selected saved project — start with a fresh draft session.
       // No persisted project is created until the user explicitly saves after a successful preview.
-      const existingDraftId = localStorage.getItem('AIC_DRAFT_SESSION_ID');
+      const existingDraftId = readDraftSessionId();
       const draftId = existingDraftId || draftArtifactJournal.createSession({ source: 'startup' });
       _draftSessionIdRef.current = draftId;
       localStorage.removeItem('aic-current-project');
-      localStorage.setItem('AIC_DRAFT_SESSION_ID', draftId);
+      writeDraftSessionId(draftId);
       setCurrentProjectId(draftId);
       setProjectPersistenceState('draft');
       applyEffectiveSettingsForProject(draftId);
@@ -3450,8 +3504,10 @@ export const useStudio = () => {
 
   // ── handleSend ────────────────────────────────────────────────────────────
   // overridePrompt: used by REQUEST_PLAN_REVISION to bypass the textarea state.
-  const _sendImpl = async (overridePrompt?: string) => {
-    const effectiveInput = overridePrompt ?? inputRef.current;
+  const _sendImpl = async (overridePrompt?: unknown) => {
+    const effectiveInput = typeof overridePrompt === 'string'
+      ? overridePrompt
+      : inputRef.current;
     const composerContextItemsSnapshot = composerContextItemsRef.current;
     const activeProjectContextSnapshot = activeProjectContextRef.current;
     const generationSourceSnapshot = generationSourceRef.current;
@@ -3562,7 +3618,7 @@ export const useStudio = () => {
       ?? currentProject?.id
       ?? (projectPersistenceState === 'exists' ? ProjectManager.getCurrentId() : null);
     const stableProjectId =
-      localStorage.getItem('AIC_DRAFT_SESSION_ID')
+      readDraftSessionId()
       ?? persistedProjectId
       ?? ProjectManager.getCurrentId();
     const runWorkspaceContext = resolveStudioKickoffContext(stableProjectId, currentProject);
@@ -3723,7 +3779,7 @@ export const useStudio = () => {
           content:   '',
           timestamp: Date.now(),
         });
-        const chosen = await waitForSurfaceChoice(controller.signal);
+        const chosen = await waitForSurfaceChoice(controller.signal, userPrompt);
         if (controller.signal.aborted || chosen === null) {
           finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
           setIsGenerating(false);
@@ -4124,19 +4180,25 @@ export const useStudio = () => {
           addLog(`[Kickoff] kickoff_scope_defaulted: ${architectPlan.defaultOptionId}`);
 
           if (!controller.signal.aborted) {
+            const kickoffPlanForChat = {
+              ...architectPlan,
+              selectedOptionId: architectPlan.defaultOptionId,
+            } as typeof architectPlan & { selectedOptionId: KickoffBuildScopeId };
             chatAppend({
               role:      'assistant' as const,
               type:      'text',
-              content:   ArchitectPlannerService.formatPlanForChat(architectPlan, appLanguage),
+              content:   ArchitectPlannerService.formatPlanForChat(kickoffPlanForChat, appLanguage),
               timestamp: Date.now(),
             });
           }
-          const highImpactQs = architectPlan.openQuestions.filter(q => q.impact === 'high');
-          if (highImpactQs.length > 0 && !controller.signal.aborted) {
+          const blockingQuestions = architectPlan.questions.filter(
+            (question): question is ArchitectBlockingQuestion => question.kind === 'blocking',
+          );
+          if (blockingQuestions.length > 0 && !controller.signal.aborted) {
             chatAppend({
               role:      'assistant' as const,
               type:      'clarification' as const,
-              questions: highImpactQs.map(q => q.title),
+              blockingQuestions,
               content:   '',
               timestamp: Date.now() + 2,
             });
@@ -4397,6 +4459,7 @@ export const useStudio = () => {
 
           return await new Promise<PlanApprovalDecision>((resolve) => {
             planResolverRef.current = resolve;
+              setIsGenerating(false);
             setKickoffPhase('awaiting_confirmation');
             addLog('[Kickoff] kickoff_waiting_for_confirmation');
             setPendingPlan({
@@ -4849,6 +4912,7 @@ export const useStudio = () => {
           projectId,
           projectTitle,
           finalFiles,
+          skeletonId: result.runTelemetry?.skeletonId ?? null,
           chatHistoryToSave: [
             ...history,
             { role: 'assistant' as const, content: result.message || '✅ Готово' },
@@ -5056,7 +5120,7 @@ export const useStudio = () => {
   };
   const _sendRef = useRef(_sendImpl);
   _sendRef.current = _sendImpl;
-  const handleSend = useCallback(() => _sendRef.current(), []);
+  const handleSend = useCallback((overridePrompt?: unknown) => _sendRef.current(overridePrompt), []);
   const handleRetry = useCallback(() => {
     const retryPrompt = lastGenerationPromptRef.current.trim();
     consecutiveErrors.current = 0;
@@ -5098,7 +5162,7 @@ export const useStudio = () => {
 
     addComposerContextFromPlan(plan, intent, mappedSource);
     addSystemMessage(
-      `🧩 Context added: **${plan.appName || 'Imported idea'}**. Review and press Send to generate with this context pack.`,
+      `🧩 Context ready: **${plan.appName || 'Imported idea'}**. The idea is loaded into the composer as your next chat message. Edit it if needed, then press Send to start from chat.`,
     );
   }, [addComposerContextFromPlan, addSystemMessage, createNewProject]);
 
@@ -5122,6 +5186,7 @@ export const useStudio = () => {
   const confirmPlan = useCallback(async (_plan?: object) => {
     if (confirmingRef.current) return;
     confirmingRef.current = true;
+    setIsGenerating(true);
     setKickoffPhase('build_starting');
     addLog('[Kickoff] kickoff_build_started');
     try {
@@ -5227,17 +5292,41 @@ export const useStudio = () => {
     modeSetByUserRef.current = true;
   }, []);
 
-  const waitForSurfaceChoice = useCallback((signal: AbortSignal): Promise<'landing' | 'app' | 'superapp' | null> => {
-    return new Promise((resolve) => {
-      if (signal.aborted) { resolve(null); return; }
-      const onAbort = () => { surfaceChoiceResolverRef.current = null; resolve(null); };
-      signal.addEventListener('abort', onAbort, { once: true });
-      surfaceChoiceResolverRef.current = (surface) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(surface);
-      };
-    });
-  }, []);
+  const waitForSurfaceChoice = useCallback(
+    (signal: AbortSignal, prompt: string, timeoutMs = SURFACE_CHOICE_TIMEOUT_MS): Promise<'landing' | 'app' | 'superapp' | null> => {
+      return new Promise((resolve) => {
+        if (signal.aborted) { resolve(null); return; }
+
+        const onAbort = () => {
+          if (surfaceChoiceTimeoutRef.current !== null) {
+            clearTimeout(surfaceChoiceTimeoutRef.current);
+            surfaceChoiceTimeoutRef.current = null;
+          }
+          surfaceChoiceResolverRef.current = null;
+          resolve(null);
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+
+        surfaceChoiceResolverRef.current = (surface) => {
+          if (surfaceChoiceTimeoutRef.current !== null) {
+            clearTimeout(surfaceChoiceTimeoutRef.current);
+            surfaceChoiceTimeoutRef.current = null;
+          }
+          surfaceChoiceResolverRef.current = null;
+          signal.removeEventListener('abort', onAbort);
+          resolve(surface);
+        };
+
+        surfaceChoiceTimeoutRef.current = setTimeout(() => {
+          surfaceChoiceTimeoutRef.current = null;
+          surfaceChoiceResolverRef.current = null;
+          signal.removeEventListener('abort', onAbort);
+          const autoSurface = autoSelectSurface(prompt);
+          console.log(`[surface-choice] auto-selected="${autoSurface}" after ${timeoutMs}ms (no user interaction)`);
+          resolve(autoSurface);
+        }, timeoutMs);
+      });
+    }, []);
 
   // Opens clarification flow from plan cards that do not have inline textarea.
   const onClarifyPlan = useCallback((_messageId: string) => {
@@ -5447,7 +5536,7 @@ export const useStudio = () => {
       })),
       getCurrentProjectId: () => localStorage.getItem('CURRENT_PROJECT_ID'),
       getProjectPersistenceState: () => projectPersistenceStateRef.current,
-      getDraftSessionId: () => _draftSessionIdRef.current ?? localStorage.getItem('AIC_DRAFT_SESSION_ID'),
+      getDraftSessionId: () => _draftSessionIdRef.current ?? readDraftSessionId(),
       loadProjectById: async (id: string) => {
         if (!id) throw new Error('loadProjectById requires a project id');
         await loadProjectRef.current({ id });
@@ -5463,20 +5552,6 @@ export const useStudio = () => {
       delete (window as any).__E2E_PROJECT_TEST;
     };
   }, []);
-
-  // ── Fast-start: auto-confirm genesis kickoff with default scope ─────────────
-  // When pendingPlan is set for a genesis build (architectKickoff !== null),
-  // wait a short grace window, then call confirmPlan() so the first build starts
-  // without requiring an extra "Start build" click. The grace window keeps the
-  // manual scope controls genuinely usable before the default starts.
-  //
-  // For non-genesis builds (architectKickoff === null, re-runs, edits) the user
-  // must still click "Start build" explicitly — this default is genesis-only.
-  useKickoffFastStart({
-    pendingPlan,
-    confirmPlan,
-    addLog,
-  });
 
   // Resolve the waitForConfirmation promise AFTER React has committed the
   // pendingPlan cleanup.  pendingPlan === null is the commit signal.
@@ -5514,6 +5589,10 @@ export const useStudio = () => {
         clarificationResolverRef.current('');
         clarificationResolverRef.current = null;
       }
+      if (surfaceChoiceTimeoutRef.current !== null) {
+        clearTimeout(surfaceChoiceTimeoutRef.current);
+        surfaceChoiceTimeoutRef.current = null;
+      }
       surfaceChoiceResolverRef.current = null;
     };
   }, []);
@@ -5531,7 +5610,6 @@ export const useStudio = () => {
       }),
       commandBus.subscribe('REJECT_BLUEPRINT', () => {
         planDecisionRef.current = { confirmed: false };
-        setPendingPlan(null);
         // Hide instead of remove — preserves fiber identity, avoids DOM conflicts.
         if (blueprintIdRef.current) {
           dispatch({ type: 'SET_BLUEPRINT_VISIBLE', id: blueprintIdRef.current, visible: false });
@@ -5600,6 +5678,7 @@ export const useStudio = () => {
     attachments, addAttachment, removeAttachment, clearAttachments,
     composerContextItems, activeProjectContext, addComposerContextFromPlan, setChatContext, removeComposerContextItem, clearComposerContextItems,
     startTrendIdeaDraftSession,
+    startExternalChatDraftSession,
     handleSend,
     onRetry: handleRetry,
     onSend: handleSend,

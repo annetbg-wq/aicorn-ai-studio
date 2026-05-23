@@ -1,0 +1,2 @@
+import { useApp } from '@/context/AppContext';
+export default function Publications(){ const app = useApp(); return <main className="page"><h1 className="title">Publications</h1><div className="grid two">{app.publications.map((p)=><section className="card pad" key={p.id}><h3>{p.title}</h3><p className="subtitle">{p.views.toLocaleString()} views · {p.engagement}% engagement</p></section>)}</div></main> }

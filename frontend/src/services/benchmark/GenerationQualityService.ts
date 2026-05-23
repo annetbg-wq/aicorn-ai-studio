@@ -84,6 +84,11 @@ export const GenerationQualityService = {
           n === declaredEntry ||
           n.endsWith('/App.tsx') ||
           n === 'src/App.tsx',
+        ) ||
+        (result.runTelemetry?.skeletonFiles ?? []).some(s =>
+          s === declaredEntry ||
+          s.endsWith('/App.tsx') ||
+          s === 'src/App.tsx'
         )
       );
 
@@ -142,7 +147,7 @@ export const GenerationQualityService = {
 
     if (!previewEntryPresent) {
       blockers.push(
-        `entry file absent from generation output (declared: "${declaredEntry}", not found in graph.files)`,
+        `entry file missing from final candidate graph (declared: "${declaredEntry}")`,
       );
     }
 

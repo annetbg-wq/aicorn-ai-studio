@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "skeletonId": "gaming-casino-app",
+  "routes": [
+    {
+      "id": "Lobby",
+      "path": "/lobby",
+      "filePath": "src/pages/Lobby.tsx",
+      "title": "Lobby"
+    },
+    {
+      "id": "Games",
+      "path": "/games",
+      "filePath": "src/pages/Games.tsx",
+      "title": "Games"
+    },
+    {
+      "id": "GameDetail",
+      "path": "/gamedetail",
+      "filePath": "src/pages/GameDetail.tsx",
+      "title": "GameDetail"
+    },
+    {
+      "id": "Promotions",
+      "path": "/promotions",
+      "filePath": "src/pages/Promotions.tsx",
+      "title": "Promotions"
+    },
+    {
+      "id": "Leaderboard",
+      "path": "/leaderboard",
+      "filePath": "src/pages/Leaderboard.tsx",
+      "title": "Leaderboard"
+    },
+    {
+      "id": "Account",
+      "path": "/account",
+      "filePath": "src/pages/Account.tsx",
+      "title": "Account"
+    },
+    {
+      "id": "ResponsibleGaming",
+      "path": "/responsiblegaming",
+      "filePath": "src/pages/ResponsibleGaming.tsx",
+      "title": "ResponsibleGaming"
+    }
+  ]
+}

@@ -245,7 +245,7 @@ export class ProjectStorage {
         name: canonicalName,
         activeBranchId,
         branches,
-        files: activeBranch?.files ?? parsed.files ?? {},
+        files: parsed.files ?? {},
         chatHistory: (activeBranch?.chatHistory as Array<{ role: string; content: string; type?: string }>)
           ?? parsed.chatHistory
           ?? [],
@@ -276,12 +276,15 @@ export class ProjectStorage {
       const { activeBranchId, branches } = normalizeStoredProjectBranches(project);
       const activeBranch = branches[activeBranchId];
       const canonicalName = readCanonicalName(project);
+      const mergedProjectFiles = activeBranch
+        ? { ...(project.files ?? {}), ...(activeBranch.files ?? {}) }
+        : (project.files ?? {});
       const materializedProject: StoredProject = {
         ...project,
         name: canonicalName,
         activeBranchId,
         branches,
-        files: activeBranch?.files ?? project.files ?? {},
+        files: mergedProjectFiles,
         chatHistory: (activeBranch?.chatHistory as Array<{ role: string; content: string; type?: string }>)
           ?? project.chatHistory
           ?? [],

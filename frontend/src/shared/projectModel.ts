@@ -525,10 +525,10 @@ export interface GenerationRunStepTelemetry {
     total_tokens: number;
     cost_usd?: number;
   };
-  output?: {
-    file_count?: number;
-    total_bytes?: number;
-    asset_count?: number;
+    output?: {
+      file_count?: number;
+      total_bytes?: number;
+      asset_count?: number;
     build_size_kb?: number;
     preview_url?: string;
     files?: string[];
@@ -539,10 +539,231 @@ export interface GenerationRunStepTelemetry {
     visual_source_files?: string[];
     visual_linked_style_files?: string[];
     visual_linked_component_files?: string[];
-    visual_material_files?: string[];
-    materialized_visual_files?: string[];
-    fallback_visual_selection?: boolean;
-  };
+      visual_material_files?: string[];
+      materialized_visual_files?: string[];
+      materialized_premium_files?: string[];
+      selected_premium_component_ids?: string[];
+      selected_premium_recipe_id?: string | null;
+      fallback_visual_selection?: boolean;
+      materialized_media_files?: string[];
+      media_manifest_path?: string;
+      selected_media_kinds?: string[];
+      design_selection_diagnostics?: {
+        input_brief: string;
+        detected_product_type?: string;
+        detected_domain?: string;
+        detected_tone?: string;
+        detected_mood?: string;
+        selected_skeleton_id?: string;
+        skeleton_selection_reason?: string;
+        selected_visual_pack_id?: string;
+        selected_visual_variant_id?: string;
+        visual_pack_selection_reason?: string;
+        visual_pack_fallback_used?: boolean;
+        selected_premium_recipe_id?: string;
+        selected_premium_recipe_reason?: string;
+        selected_premium_component_ids: string[];
+        premium_component_selection_reason?: string;
+        selected_media_kinds: string[];
+        selected_media_reasons: string[];
+        design_decision_notes: string[];
+        possible_mismatch_warnings: string[];
+        composition_plan_created?: boolean;
+        composition_first_screen_id?: string;
+        composition_screen_count?: number;
+        composition_zone_count_on_first_screen?: number;
+        functional_flow_plan_created?: boolean;
+        functional_flow_count?: number;
+        functional_entity_count?: number;
+        product_specificity_plan_created?: boolean;
+        inferred_domain?: string;
+        domain_entity_count?: number;
+        product_metric_count?: number;
+        forbidden_generic_pattern_count?: number;
+      };
+      visual_usage_diagnostics?: {
+        premium_usage_checked: boolean;
+        premium_components_selected: string[];
+        premium_component_imports_found: string[];
+        premium_component_usage_count: number;
+        premium_usage_observed: boolean;
+        media_usage_checked: boolean;
+        media_assets_materialized: string[];
+        media_asset_references_found: string[];
+        media_usage_count: number;
+        media_usage_observed: boolean;
+        first_screen_files_checked: string[];
+        first_screen_premium_usage_observed: boolean;
+        first_screen_media_usage_observed: boolean;
+        meaningful_screen_files: string[];
+        meaningful_screen_count: number;
+        generic_placeholder_findings: string[];
+        visual_usage_notes: string[];
+        suggested_next_action: 'none' | 'improve_prompt' | 'improve_assets' | 'add_repair_later';
+      };
+      screen_composition_plan?: {
+        product_type?: string;
+        skeleton_id: string;
+        selected_recipe_id?: string;
+        first_screen_id: string;
+        screen_count: number;
+        screens: Array<{
+          id: string;
+          title: string;
+          route_hint?: string;
+          role: string;
+          priority: string;
+          layout_intent: string;
+          zones: Array<{
+            id: string;
+            role: string;
+            priority: string;
+            intent: string;
+            suggested_components: string[];
+            suggested_media: string[];
+            interactions: string[];
+            content_rules: string[];
+          }>;
+          premium_component_targets: string[];
+          media_targets: string[];
+          required_interactions: string[];
+          state_requirements: string[];
+          content_requirements: string[];
+        }>;
+        global_layout_rules: string[];
+        avoid_patterns: string[];
+        composition_notes: string[];
+      };
+      functional_flow_plan?: {
+        product_type?: string;
+        skeleton_id: string;
+        primary_user_goal: string;
+        entity_count: number;
+        flow_count: number;
+        entities: Array<{
+          id: string;
+          label: string;
+          sample_count: number;
+          fields: Array<{
+            name: string;
+            type: 'string' | 'number' | 'boolean' | 'date' | 'enum' | 'array';
+            example: string;
+          }>;
+        }>;
+        flows: Array<{
+          id: string;
+          title: string;
+          screen_id: string;
+          user_intent: string;
+          trigger_elements: string[];
+          state_changes: string[];
+          affected_entities: string[];
+          visible_feedback: string[];
+          navigation_target?: string;
+          required_implementation: string[];
+        }>;
+        navigation_rules: Array<{
+          from: string;
+          to: string;
+          trigger: string;
+          expected_behavior: string;
+        }>;
+        non_decorative_rules: string[];
+        functional_notes: string[];
+      };
+      product_specificity_plan?: {
+        product_type?: string;
+        skeleton_id: string;
+        inferred_domain: string;
+        target_user_role: string;
+        primary_job_to_be_done: string;
+        domain_entities: Array<{
+          id: string;
+          label: string;
+          description: string;
+          fields: Array<{
+            name: string;
+            type: 'string' | 'number' | 'boolean' | 'date' | 'enum' | 'array';
+            example: string;
+          }>;
+          sample_names: string[];
+        }>;
+        product_metrics: Array<{
+          id: string;
+          label: string;
+          meaning: string;
+          example_value: string;
+          should_appear_on_screens: string[];
+        }>;
+        product_statuses: Array<{
+          id: string;
+          label: string;
+          meaning: string;
+          example_usage: string;
+        }>;
+        product_actions: Array<{
+          id: string;
+          label: string;
+          user_intent: string;
+          expected_visible_result: string;
+          should_appear_on_screens: string[];
+        }>;
+        vocabulary: {
+          preferred_terms: string[];
+          avoid_terms: string[];
+          tone_notes: string[];
+        };
+        screen_specific_content: Array<{
+          screen_id: string;
+          concrete_title_suggestions: string[];
+          required_entities: string[];
+          required_metrics: string[];
+          required_actions: string[];
+          copy_hints: string[];
+          avoid_on_this_screen: string[];
+        }>;
+        sample_data_rules: string[];
+        copywriting_rules: string[];
+        forbidden_generic_patterns: string[];
+        specificity_notes: string[];
+      };
+      functional_implementation_diagnostics?: {
+        functional_diagnostics_checked: boolean;
+        planned_flow_count: number;
+        flows_with_likely_implementation: string[];
+        flows_without_implementation_signals: string[];
+        state_hook_count: number;
+        reducer_hook_count: number;
+        handler_count: number;
+        empty_handler_count: number;
+        form_count: number;
+        controlled_input_count: number;
+        submit_handler_count: number;
+        search_or_filter_signals: string[];
+        tab_state_signals: string[];
+        navigation_signals: string[];
+        local_create_update_signals: string[];
+        derived_data_signals: string[];
+        decorative_interaction_warnings: string[];
+        implementation_coverage_ratio: number;
+        suggested_next_action: 'none' | 'improve_prompt' | 'add_repair_later';
+      };
+      product_specificity_diagnostics?: {
+        specificity_diagnostics_checked: boolean;
+        generic_placeholder_findings: string[];
+        vague_copy_findings: string[];
+        empty_metric_findings: string[];
+        domain_entity_signals: string[];
+        product_action_signals: string[];
+        product_metric_signals: string[];
+        screen_specificity_warnings: string[];
+        domain_entity_signal_count: number;
+        product_action_signal_count: number;
+        product_metric_signal_count: number;
+        specificity_score: number;
+        suggested_next_action: 'none' | 'improve_prompt' | 'improve_specificity_plan' | 'add_repair_later';
+      };
+    };
   warnings?: string[];
 }
 

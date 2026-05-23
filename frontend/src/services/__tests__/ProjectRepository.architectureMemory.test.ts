@@ -308,7 +308,7 @@ describe('ProjectRepository architecture memory helpers', () => {
       implementationSteps: [
         { id: 'step-1', title: 'Create schema', capabilityIds: ['backend'], scope: 'first_pass' },
       ],
-      openQuestions: [],
+      questions: [],
       scopeOptions: [
         { id: 'core', label: 'Build core', description: 'Core only', capabilityIds: [] },
         { id: 'core_backend', label: 'Build core + backend', description: 'With backend', capabilityIds: ['backend'] },

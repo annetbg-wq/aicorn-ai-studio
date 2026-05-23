@@ -1,12 +1,21 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
   loadPremiumComponentBank,
+  resetPremiumComponentBankCache,
   resolvePremiumComponentSelection,
   selectPremiumRecipe,
+  warmupPremiumPreviews,
 } from '../PremiumComponentBankService';
 
 describe('PremiumComponentBankService', () => {
+  beforeAll(async () => {
+    // Bucket C moved warmup to explicit call in VisualBankModule (no longer auto-runs on import).
+    // Tests must warm up preview adapters before querying renderSafeComponents.
+    await warmupPremiumPreviews();
+    resetPremiumComponentBankCache();
+  });
+
   it('loads source audits, component manifests, recipes, and previews from prototype-bank files', () => {
     const bank = loadPremiumComponentBank();
 
@@ -63,5 +72,20 @@ describe('PremiumComponentBankService', () => {
     expect(selection.previewAdapterFiles.every(path => path.includes('prototype-bank/design-packs/premium-components/preview-adapters/'))).toBe(true);
     expect(selection.usageRules).toContain('Use available premium blocks if compatible with the selected skeleton.');
     expect(selection.forbiddenPatterns).toContain('Do not use remote random media URLs.');
+  });
+
+  it('returns health component source files for the wellness mobile recipe', () => {
+    const selection = resolvePremiumComponentSelection({
+      brief: 'wellness mobile app with habit routine tracking',
+      skeletonId: 'mobile-app',
+      domainId: 'wellness',
+      surfaces: ['mobile', 'health', 'habit'],
+    });
+
+    expect(selection.selectedRecipeId).toBe('health-wellness-mobile');
+    expect(selection.componentSourceFiles.length).toBeGreaterThan(0);
+    expect(
+      selection.componentSourceFiles.some(path => path.includes('prototype-bank/design-packs/premium-components/health/')),
+    ).toBe(true);
   });
 });

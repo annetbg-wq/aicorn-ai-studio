@@ -33,7 +33,7 @@
     "prototype-bank/design-packs/assets/spacing/comfortable.json"
   ],
   "skeleton": "ecommerce",
-  "compatibleSkeletons": ["ecommerce"],
+  "compatibleSkeletons": ["ecommerce", "marketplace-platform"],
   "skeletonPath": "skeletons/ecommerce/",
   "domains": ["ecommerce", "commerce", "storefront", "retail", "creator", "marketplace"],
   "subdomains": ["catalog", "checkout", "cart", "product-detail", "creator-store", "marketplace"],

@@ -108,10 +108,17 @@ async function proxyRequestWithSessionFallback(
   signal?: AbortSignal,
 ): Promise<Response> {
   const devBypassEnabled = canUseDevAuthBypass();
+  // In Playwright e2e tests VITE_PLAYWRIGHT_TEST=1 is baked in at build time.
+  // Keep auth bypass active but route LLM calls through the proxy so that
+  // deterministic mocks (page.route('**/functions/v1/llm-proxy')) can intercept
+  // them. Without this guard, directLLMRequest sends calls straight to
+  // openrouter.ai — a URL the mock never covers — causing ProtoPipeline to
+  // abort before compile() and controller_compiling is never emitted.
+  const isPlaywrightTest = import.meta.env.VITE_PLAYWRIGHT_TEST === '1';
 
   // In dev-bypass mode go directly to the LLM — avoids Supabase edge function
   // timeouts (QUIC/150 s limit) on long generation requests.
-  if (devBypassEnabled) {
+  if (devBypassEnabled && !isPlaywrightTest) {
     return directLLMRequest(endpoint, headers, body, stream, method, signal);
   }
 
