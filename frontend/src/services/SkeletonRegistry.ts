@@ -1039,6 +1039,171 @@ export function selectSkeleton(
   return 'mobile-app'; // universal default
 }
 
+// ── Skeleton selection diagnostics ───────────────────────────────────────────
+
+export interface SkeletonSelectionDiagnostics {
+  selectedSkeletonId: SkeletonId;
+  confidence: 'high' | 'medium' | 'low';
+  bestScore: number;
+  runnerUpSkeletonId: SkeletonId | null;
+  runnerUpScore: number;
+  fallbackReason?: string;
+  mismatchWarnings: string[];
+  intentSignals: string[];
+}
+
+/** Intent keyword groups used purely for advisory signal detection. */
+const INTENT_SIGNAL_GROUPS: ReadonlyArray<{ signal: string; keywords: string[] }> = [
+  {
+    signal: 'landing-intent',
+    keywords: ['landing', 'website', 'marketing', 'promotional', 'homepage', 'waitlist', 'saas landing', 'product page', 'launch page'],
+  },
+  {
+    signal: 'dashboard-intent',
+    keywords: ['dashboard', 'analytics', 'admin', 'metrics', 'kpi', 'reports', 'charts', 'management', 'crm', 'b2b', 'enterprise'],
+  },
+  {
+    signal: 'marketplace-intent',
+    keywords: ['marketplace', 'ecommerce', 'shop', 'store', 'cart', 'checkout', 'vendor', 'listing', 'buy', 'sell', 'product catalog'],
+  },
+  {
+    signal: 'social-intent',
+    keywords: ['social', 'community', 'feed', 'posts', 'forum', 'follow', 'instagram', 'twitter', 'club', 'share', 'like', 'comment', 'network'],
+  },
+  {
+    signal: 'game-intent',
+    keywords: ['game', 'rpg', 'progression', 'levels', 'leaderboard', 'score', 'puzzle', 'arcade', 'quest', 'player', 'achievements', 'gamification'],
+  },
+];
+
+/** Skeletons that are reasonable choices for social/community intent. */
+const SOCIAL_APPROPRIATE: ReadonlySet<SkeletonId> = new Set<SkeletonId>([
+  'social-community',
+  'dating-matching-app',
+  'marketplace-platform',
+]);
+
+/** Skeletons that are appropriate for game/RPG/progression intent. */
+const GAME_APPROPRIATE: ReadonlySet<SkeletonId> = new Set<SkeletonId>([
+  'game-interactive-app',
+  'gaming-casino-app',
+]);
+
+/** Desktop/document skeletons that would be a clear mismatch for game intent. */
+const PLAIN_DESK_SKELETONS: ReadonlySet<SkeletonId> = new Set<SkeletonId>([
+  'landing-page',
+  'saas-dashboard',
+  'productivity-tool',
+  'b2b-operations-workspace',
+  'creator-editor-workspace',
+]);
+
+/**
+ * Advisory-only diagnostics for skeleton selection.
+ *
+ * Runs the same scoring algorithm as `selectSkeleton` and returns the
+ * resulting skeleton alongside confidence, runner-up data, intent signals
+ * detected from the input, and any obvious mismatch warnings.
+ *
+ * This function is PURELY diagnostic — it does not change generation
+ * behaviour. The selected skeleton is identical to what `selectSkeleton`
+ * would have returned.
+ */
+export function selectSkeletonWithDiagnostics(
+  appType: string | undefined,
+  tags: string[] = [],
+): SkeletonSelectionDiagnostics {
+  const input = [appType ?? '', ...tags]
+    .join(' ')
+    .toLowerCase()
+    .replace(/[^a-zа-яё0-9\s]/gi, ' ');
+
+  const scores: [SkeletonId, number][] = (
+    Object.values(SKELETON_REGISTRY) as SkeletonMeta[]
+  )
+    .filter(s => s.available)
+    .map(s => {
+      const score = s.tags.reduce(
+        (acc, tag) => acc + (input.includes(tag) ? 1 : 0),
+        0,
+      );
+      return [s.id, score] as [SkeletonId, number];
+    });
+
+  scores.sort((a, b) => b[1] - a[1]);
+
+  const best = scores[0];
+  const runnerUp = scores[1] ?? null;
+
+  const bestScore = best?.[1] ?? 0;
+  const runnerUpSkeletonId: SkeletonId | null = runnerUp?.[0] ?? null;
+  const runnerUpScore = runnerUp?.[1] ?? 0;
+
+  // Mirror selectSkeleton decision rule exactly — no behaviour change.
+  const selectedSkeletonId: SkeletonId =
+    best && best[1] >= 2 && best[0] !== 'mobile-app'
+      ? best[0]
+      : 'mobile-app';
+
+  // Detect intent signals from keyword groups.
+  const intentSignals: string[] = INTENT_SIGNAL_GROUPS
+    .filter(g => g.keywords.some(kw => input.includes(kw)))
+    .map(g => g.signal);
+
+  // Compute confidence.
+  let confidence: 'high' | 'medium' | 'low';
+  let fallbackReason: string | undefined;
+
+  if (selectedSkeletonId === 'mobile-app' && bestScore < 2) {
+    confidence = 'low';
+    fallbackReason = `No skeleton scored ≥2 — fell back to mobile-app (best score: ${bestScore})`;
+  } else if (bestScore >= 3 && (bestScore - runnerUpScore) >= 2) {
+    confidence = 'high';
+  } else {
+    confidence = 'medium';
+  }
+
+  // Detect obvious mismatch warnings (advisory only — do not block generation).
+  const mismatchWarnings: string[] = [];
+
+  if (intentSignals.includes('landing-intent') && selectedSkeletonId === 'mobile-app') {
+    mismatchWarnings.push(
+      `Landing/marketing intent detected but '${selectedSkeletonId}' skeleton was selected; consider landing-page`,
+    );
+  }
+  if (intentSignals.includes('dashboard-intent') && selectedSkeletonId === 'mobile-app') {
+    mismatchWarnings.push(
+      `Dashboard/analytics intent detected but '${selectedSkeletonId}' skeleton was selected; consider saas-dashboard or b2b-operations-workspace`,
+    );
+  }
+  if (intentSignals.includes('marketplace-intent') && selectedSkeletonId === 'mobile-app') {
+    mismatchWarnings.push(
+      `Marketplace/ecommerce intent detected but '${selectedSkeletonId}' skeleton was selected; consider marketplace-platform or ecommerce`,
+    );
+  }
+  if (intentSignals.includes('social-intent') && !SOCIAL_APPROPRIATE.has(selectedSkeletonId)) {
+    mismatchWarnings.push(
+      `Social/community intent detected but '${selectedSkeletonId}' skeleton was selected; consider social-community`,
+    );
+  }
+  if (intentSignals.includes('game-intent') && PLAIN_DESK_SKELETONS.has(selectedSkeletonId)) {
+    mismatchWarnings.push(
+      `Game/RPG intent detected but '${selectedSkeletonId}' skeleton was selected; consider game-interactive-app or gaming-casino-app`,
+    );
+  }
+
+  return {
+    selectedSkeletonId,
+    confidence,
+    bestScore,
+    runnerUpSkeletonId,
+    runnerUpScore,
+    ...(fallbackReason !== undefined ? { fallbackReason } : {}),
+    mismatchWarnings,
+    intentSignals,
+  };
+}
+
 function normalizeSkeletonPath(path: string): string {
   let p = String(path || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
   if (!p) return '';
