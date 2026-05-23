@@ -5,6 +5,7 @@ import os from 'os';
 import express from 'express';
 import { describe, expect, it } from 'vitest';
 import { LIVE_GENERATION_ALLOWED_UI_PRIMITIVES } from '../frontend/src/services/LiveGenerationUiPrimitives';
+import { validateImportExportContract } from '../frontend/src/services/LiveGenerationContractValidator';
 import {
   registerPreviewBuildRoute,
   registerPreviewStatusRoute,
@@ -627,5 +628,91 @@ describe('preview-manager build status', () => {
     expect(record?.error).toBe('Build failed');
     expect(record?.diagnostics).toEqual(diagnostics);
     clearPreviewBuildStatuses();
+  });
+});
+
+describe('preview-manager skeleton-only compile section preservation', () => {
+  it('source contains isSkeletonOnlyCompile guard for files={}', () => {
+    const src = fs.readFileSync(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toContain('isSkeletonOnlyCompile');
+    expect(src).toContain('Object.keys(files).length === 0');
+  });
+
+  it('template section overwrite is guarded by isSkeletonOnlyCompile (not skipped for non-empty files)', () => {
+    const src = fs.readFileSync(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    // The guard must appear before the rm(sectionsDest) call in the source.
+    expect(src).toContain('if (!isSkeletonOnlyCompile)');
+    const guardIdx = src.indexOf('if (!isSkeletonOnlyCompile)');
+    const rmIdx = src.indexOf('fsPromises.rm(sectionsDest');
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(rmIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(rmIdx);
+  });
+
+  it('validateImportExportContract passes when skeleton sections are preserved (skeleton-only compile)', () => {
+    // Mirrors what happens after step 0 skeleton install with files={}: skeleton
+    // sections exist in the candidate graph so all imports in App.tsx resolve.
+    const sectionNames = ['Hero', 'SocialProof', 'Features', 'HowItWorks', 'Pricing', 'FinalCTA'];
+    const appContent = [
+      ...sectionNames.map(n => `import ${n} from '@/components/sections/${n}';`),
+      `export default function App() { return null; }`,
+      '',
+    ].join('\n');
+
+    const candidateFiles: Record<string, string> = { 'App.tsx': appContent };
+    for (const name of sectionNames) {
+      candidateFiles[`components/sections/${name}.tsx`] = `export default function ${name}() { return null; }\n`;
+    }
+
+    const result = validateImportExportContract({
+      finalFiles: candidateFiles,
+      skeletonId: 'landing-page',
+      generatedDeltaFiles: {},
+      materializedFiles: {},
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics.filter(d => d.root_cause_type === 'missing_local_import')).toHaveLength(0);
+  });
+
+  it('validateImportExportContract fails with missing_local_import when template overwrite destroys skeleton sections', () => {
+    // Reproduces the pre-fix bug: template files replaced skeleton sections,
+    // so App.tsx imports no longer resolved. Confirms the validator is not weakened.
+    const appContent = [
+      "import Hero from '@/components/sections/Hero';",
+      "import SocialProof from '@/components/sections/SocialProof';",
+      "export default function App() { return null; }",
+      '',
+    ].join('\n');
+
+    // Template files present, but Hero/SocialProof missing — exactly what
+    // step 0.5 produced before the fix when skeleton sections were wiped.
+    const candidateFiles: Record<string, string> = {
+      'App.tsx': appContent,
+      'components/sections/PricingSection.tsx': 'export default function PricingSection() { return null; }\n',
+      'components/sections/CTA.tsx': 'export default function CTA() { return null; }\n',
+    };
+
+    const result = validateImportExportContract({
+      finalFiles: candidateFiles,
+      skeletonId: 'landing-page',
+      generatedDeltaFiles: {},
+      materializedFiles: {},
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.some(d => d.root_cause_type === 'missing_local_import')).toBe(true);
+  });
+
+  it('landing-page skeleton section files exist on disk (skeleton install would provide them)', () => {
+    const skeletonSectionsDir = path.resolve(
+      'skeletons/landing-page/skeleton-landing-page/src/components/sections',
+    );
+    expect(fs.existsSync(skeletonSectionsDir)).toBe(true);
+    const sectionNames = ['Hero', 'SocialProof', 'Features', 'HowItWorks', 'Pricing', 'FinalCTA'];
+    for (const name of sectionNames) {
+      const filePath = path.join(skeletonSectionsDir, `${name}.tsx`);
+      expect(fs.existsSync(filePath), `${name}.tsx should exist in landing-page skeleton`).toBe(true);
+    }
   });
 });
