@@ -99,7 +99,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.telemetry.design_contract_violations).toBe(2);
   });
 
-  it('fails when premium components are selected but none appear in generated source', () => {
+  it('premium-unused is advisory only — ok=true, no blocking reason', () => {
     const vud = validVisualDiagnostics();
     vud.premiumUsageObserved = false;
     vud.premiumComponentImportsFound = [];
@@ -113,13 +113,18 @@ describe('evaluatePrototypeQualityGate', () => {
       productSpecificityDiagnostics: validSpecificityDiagnostics(),
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.blockingReasons.some(r => /premium.*selected.*none.*referenced/i.test(r))).toBe(true);
-    expect(result.repairInstructions.some(r => r.includes('@/design-pack/premium-components/'))).toBe(true);
+    // Advisory only — no repair hook available; gate must not block
+    expect(result.ok).toBe(true);
+    expect(result.blockingReasons).toHaveLength(0);
+    expect(result.repairInstructions).toHaveLength(0);
+    expect(result.advisoryReasons.some(r => /premium.*selected.*none.*referenced/i.test(r))).toBe(true);
+    expect(result.advisoryInstructions.some(r => r.includes('@/design-pack/premium-components/'))).toBe(true);
     expect(result.telemetry.premium_selected_not_used).toBe(true);
+    expect(result.telemetry.advisory_reasons_count).toBe(1);
+    expect(result.telemetry.repair_hook_available).toBe(false);
   });
 
-  it('fails when media assets are materialized but none appear in generated source', () => {
+  it('media-unused is advisory only — ok=true, no blocking reason', () => {
     const vud = validVisualDiagnostics();
     vud.mediaUsageObserved = false;
     vud.mediaAssetReferencesFound = [];
@@ -133,10 +138,15 @@ describe('evaluatePrototypeQualityGate', () => {
       productSpecificityDiagnostics: validSpecificityDiagnostics(),
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.blockingReasons.some(r => /media.*materialized.*none.*referenced/i.test(r))).toBe(true);
-    expect(result.repairInstructions.some(r => /import.*media asset/i.test(r))).toBe(true);
+    // Advisory only — no repair hook available; gate must not block
+    expect(result.ok).toBe(true);
+    expect(result.blockingReasons).toHaveLength(0);
+    expect(result.repairInstructions).toHaveLength(0);
+    expect(result.advisoryReasons.some(r => /media.*materialized.*none.*referenced/i.test(r))).toBe(true);
+    expect(result.advisoryInstructions.some(r => /import.*media asset/i.test(r))).toBe(true);
     expect(result.telemetry.media_materialized_not_used).toBe(true);
+    expect(result.telemetry.advisory_reasons_count).toBe(1);
+    expect(result.telemetry.repair_hook_available).toBe(false);
   });
 
   it('fails when generic placeholder content is present (Feature 1, AppName, Lorem ipsum, Untitled)', () => {
@@ -201,7 +211,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.telemetry.generic_dashboard_card_flag).toBe(true);
   });
 
-  it('produces one repairInstruction per blocking reason (no duplicates)', () => {
+  it('produces one repairInstruction per blocking reason; advisory reasons stay separate', () => {
     const vud = validVisualDiagnostics();
     vud.premiumUsageObserved = false;
     vud.premiumComponentImportsFound = [];
@@ -216,8 +226,13 @@ describe('evaluatePrototypeQualityGate', () => {
     });
 
     expect(result.ok).toBe(false);
-    // Each blocking reason gets exactly one repair instruction
+    // 1 blocking (design token) + 1 repair instruction
     expect(result.repairInstructions.length).toBe(result.blockingReasons.length);
+    expect(result.blockingReasons).toHaveLength(1);
+    // premium + media go to advisory (repair hook not available)
+    expect(result.advisoryReasons).toHaveLength(2);
+    expect(result.advisoryInstructions).toHaveLength(2);
+    expect(result.telemetry.advisory_reasons_count).toBe(2);
     // All instructions are non-empty strings
     for (const instruction of result.repairInstructions) {
       expect(typeof instruction).toBe('string');
@@ -255,5 +270,79 @@ describe('evaluatePrototypeQualityGate', () => {
 
     expect(result.telemetry.specificity_score).toBe(42);
     expect(result.telemetry.checks_run).toContain('product_specificity');
+  });
+
+  it('hard-blocks design token violation — no repair attempt (repair_hook_available=false)', () => {
+    const violations: DesignViolation[] = [
+      { path: 'pages/Landing.tsx', rule: 'no-raw-hex', example: '#2563eb', line: 5 },
+    ];
+
+    const result = evaluatePrototypeQualityGate({
+      designContractViolations: violations,
+      visualUsageDiagnostics: validVisualDiagnostics(),
+      productSpecificityDiagnostics: validSpecificityDiagnostics(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockingReasons).toHaveLength(1);
+    expect(result.blockingReasons[0]).toMatch(/Design contract/i);
+    expect(result.repairInstructions[0]).toMatch(/semantic tokens/i);
+    expect(result.telemetry.repair_hook_available).toBe(false);
+    // Advisory arrays must be empty (no advisory issues in this fixture)
+    expect(result.advisoryReasons).toHaveLength(0);
+  });
+
+  it('hard-blocks generic placeholder — no repair attempt (repair_hook_available=false)', () => {
+    const vud = validVisualDiagnostics();
+    vud.genericPlaceholderFindings = ['App.tsx: Feature 1', 'pages/Home.tsx: AppName'];
+
+    const result = evaluatePrototypeQualityGate({
+      designContractViolations: [],
+      visualUsageDiagnostics: vud,
+      productSpecificityDiagnostics: validSpecificityDiagnostics(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockingReasons.some(r => /generic placeholder/i.test(r))).toBe(true);
+    expect(result.repairInstructions.some(r => /Feature 1/i.test(r))).toBe(true);
+    expect(result.telemetry.repair_hook_available).toBe(false);
+    expect(result.advisoryReasons).toHaveLength(0);
+  });
+
+  it('advisory premium+media together: ok=true, advisory_reasons_count=2', () => {
+    const vud = validVisualDiagnostics();
+    vud.premiumUsageObserved = false;
+    vud.premiumComponentImportsFound = [];
+    vud.mediaUsageObserved = false;
+    vud.mediaAssetReferencesFound = [];
+
+    const result = evaluatePrototypeQualityGate({
+      designContractViolations: [],
+      visualUsageDiagnostics: vud,
+      productSpecificityDiagnostics: validSpecificityDiagnostics(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.blockingReasons).toHaveLength(0);
+    expect(result.advisoryReasons).toHaveLength(2);
+    expect(result.advisoryInstructions).toHaveLength(2);
+    expect(result.telemetry.advisory_reasons_count).toBe(2);
+    expect(result.telemetry.premium_selected_not_used).toBe(true);
+    expect(result.telemetry.media_materialized_not_used).toBe(true);
+    expect(result.telemetry.repair_hook_available).toBe(false);
+  });
+
+  it('valid output has empty advisoryReasons and advisoryInstructions', () => {
+    const result = evaluatePrototypeQualityGate({
+      designContractViolations: [],
+      visualUsageDiagnostics: validVisualDiagnostics(),
+      productSpecificityDiagnostics: validSpecificityDiagnostics(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.advisoryReasons).toHaveLength(0);
+    expect(result.advisoryInstructions).toHaveLength(0);
+    expect(result.telemetry.advisory_reasons_count).toBe(0);
+    expect(result.telemetry.repair_hook_available).toBe(false);
   });
 });

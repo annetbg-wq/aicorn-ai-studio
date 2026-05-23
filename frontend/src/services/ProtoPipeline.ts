@@ -271,6 +271,14 @@ export interface PrototypeQualityGateTelemetry {
   generic_placeholder_count: number;
   generic_dashboard_card_flag: boolean;
   specificity_score: number | null;
+  /** Number of advisory (warn-only) reasons. */
+  advisory_reasons_count: number;
+  /**
+   * False: no safe repair hook available in this commit.
+   * The next commit should add runQualityRepair(designCtx, filteredFiles, qualityGate)
+   * targeting token + placeholder violations via a bounded coder patch prompt.
+   */
+  repair_hook_available: boolean;
 }
 
 /** Result returned by evaluatePrototypeQualityGate(). */
@@ -278,6 +286,9 @@ export interface PrototypeQualityGateResult {
   ok: boolean;
   blockingReasons: string[];
   repairInstructions: string[];
+  /** Advisory issues: non-blocking in this commit (premium-unused, media-unused). */
+  advisoryReasons: string[];
+  advisoryInstructions: string[];
   telemetry: PrototypeQualityGateTelemetry;
 }
 
@@ -1152,27 +1163,30 @@ export function serializeVisualUsageDiagnostics(
  * Deterministic quality gate for generated prototype output.
  *
  * Consumes pre-computed diagnostic signals (no LLM calls, no file I/O).
- * Returns ok=false with blockingReasons and repairInstructions on any
- * clearly bad case:
- *   - raw design token violations from the design contract
+ *
+ * BLOCKING (ok=false, hard-fail before build step):
+ *   - raw/forbidden design token violations from the design contract
+ *   - obvious generic placeholders (Feature 1, AppName, Lorem ipsum, Untitled, TODO)
+ *   - numbered metric placeholder slots (Item 1, KPI 1, Metric 1)
+ *   - empty/generic dashboard metric cards flagged by product specificity
+ *
+ * ADVISORY (warn-only, ok remains true — repair hook not yet available):
  *   - premium components selected but none referenced in generated source
  *   - media assets materialized but none referenced in generated source
- *   - obvious generic placeholders (Feature 1, AppName, Item 1, KPI 1, …)
- *   - empty/generic dashboard metrics flagged by product specificity
  *
- * NOT wired to block the live pipeline in this commit.
- * Safe wiring point for the next commit:
- *   frontend/src/services/ProtoPipeline.ts → ProtoPipeline.run(), after
- *   emit('apply', 'done', ...) at the end of the apply step.
- *   The verdict and visualUsageDiagnostics and productSpecificityDiagnostics
- *   are all available there — pass them to evaluatePrototypeQualityGate() and
- *   log / surface the result; add a hard block only after test coverage is green.
+ * Wired as a blocking gate in ProtoPipeline.run() after emit('apply', 'done', ...).
+ * Advisory reasons are logged as warn before the build step.
+ *
+ * Next commit should add runQualityRepair(designCtx, filteredFiles, qualityGate)
+ * targeting the blocking reasons via a bounded coder patch prompt (not LLM compile repair).
  */
 export function evaluatePrototypeQualityGate(
   input: PrototypeQualityGateInput,
 ): PrototypeQualityGateResult {
   const blockingReasons: string[] = [];
   const repairInstructions: string[] = [];
+  const advisoryReasons: string[] = [];
+  const advisoryInstructions: string[] = [];
   const checksRun: string[] = [];
 
   // ── Check 1: design contract raw token violations ─────────────────────────
@@ -1204,22 +1218,22 @@ export function evaluatePrototypeQualityGate(
 
     if (premiumSelectedNotUsed) {
       const ids = vud.premiumComponentsSelected.slice(0, 4).join(', ');
-      blockingReasons.push(
+      advisoryReasons.push(
         `Premium components selected (${ids}) but none referenced in generated source`,
       );
-      repairInstructions.push(
+      advisoryInstructions.push(
         'Import at least one premium component from ' +
         '@/design-pack/premium-components/ and render it on the first screen.',
       );
     }
 
-    // ── Check 3: media materialized but not referenced ───────────────────────
+    // ── Check 3: media materialized but not referenced (advisory) ────────────
     if (mediaNotUsed) {
       const files = vud.mediaAssetsMaterialized.slice(0, 3).join(', ');
-      blockingReasons.push(
+      advisoryReasons.push(
         `Generated media assets materialized (${files}) but none referenced in generated source`,
       );
-      repairInstructions.push(
+      advisoryInstructions.push(
         'Import and render at least one generated media asset (SVG/image) on the first screen. ' +
         'Example: import heroImg from \'./src/assets/generated/landing-hero.svg\'',
       );
@@ -1297,6 +1311,8 @@ export function evaluatePrototypeQualityGate(
     ok: blockingReasons.length === 0,
     blockingReasons,
     repairInstructions,
+    advisoryReasons,
+    advisoryInstructions,
     telemetry: {
       checks_run: checksRun,
       design_contract_violations: designContractViolationCount,
@@ -1305,6 +1321,8 @@ export function evaluatePrototypeQualityGate(
       generic_placeholder_count: totalGenericPlaceholderCount,
       generic_dashboard_card_flag: genericDashboardCardFlag,
       specificity_score: psd?.specificityScore ?? null,
+      advisory_reasons_count: advisoryReasons.length,
+      repair_hook_available: false,
     },
   };
 }
@@ -1798,21 +1816,35 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     };
     emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`, stepResults.apply);
 
-    // ── Prototype quality gate (advisory / telemetry only in this commit) ──
-    // Safe wiring point: this is where all required signals are available.
-    // Next commit can promote failing gate to a hard block before the build step.
+    // ── Prototype quality gate (blocking for design tokens + placeholders) ──
+    // Advisory for premium-unused and media-unused:
+    //   runRepair() is for TypeScript compile errors only (not quality issues).
+    //   Next commit should add runQualityRepair(designCtx, filteredFiles, qualityGate)
+    //   targeting blockingReasons via a bounded coder patch prompt.
     const qualityGate = evaluatePrototypeQualityGate({
       designContractViolations: verdict.ok ? [] : verdict.violations,
       visualUsageDiagnostics,
       productSpecificityDiagnostics,
     });
-    if (!qualityGate.ok) {
+    // Log advisory issues (warn-only: premium-unused, media-unused — repair hook pending)
+    if (qualityGate.advisoryReasons.length > 0) {
       log(
-        `[quality-gate] ${qualityGate.blockingReasons.length} issue(s) — advisory (not blocking): ` +
-          qualityGate.blockingReasons.join(' | '),
+        `[quality-gate] ${qualityGate.advisoryReasons.length} advisory issue(s) (not blocking — repair hook pending): ` +
+          qualityGate.advisoryReasons.join(' | '),
         'warn',
       );
-    } else {
+    }
+    // Hard-block on: design contract violations + generic placeholders (no repair attempt)
+    if (!qualityGate.ok) {
+      for (const instruction of qualityGate.repairInstructions) {
+        log(`[quality-gate] repair needed: ${instruction}`, 'warn');
+      }
+      return fail(
+        'apply',
+        `Quality gate failed: ${qualityGate.blockingReasons.join(' | ')}`,
+      );
+    }
+    if (qualityGate.advisoryReasons.length === 0) {
       log('[quality-gate] prototype quality gate: ok');
     }
 
