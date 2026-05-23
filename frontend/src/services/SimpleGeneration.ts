@@ -26,7 +26,7 @@
  */
 
 import { ProtoPipeline, type StepEvent, type StepId } from './ProtoPipeline';
-import { selectSkeleton, type SkeletonId } from './SkeletonRegistry';
+import { selectSkeleton, selectSkeletonWithDiagnostics, type SkeletonId } from './SkeletonRegistry';
 import { ConfigService } from './ConfigService';
 import { Orchestrator } from './Orchestrator';
 import { llmFetchStream } from './LLMProxy';
@@ -241,6 +241,21 @@ Return ONLY JSON, no markdown, matching this exact shape:
     const tags = inferTags(config);
     const skeletonId: SkeletonId = selectSkeleton(archetype, tags);
     log(`[SimpleGeneration] Skeleton selected: ${skeletonId}`);
+
+    // Advisory diagnostics — does not affect the selected skeleton.
+    try {
+      const skDiag = selectSkeletonWithDiagnostics(archetype, tags);
+      log(`[SimpleGeneration] Skeleton diagnostics: confidence=${skDiag.confidence} bestScore=${skDiag.bestScore} runnerUp=${skDiag.runnerUpSkeletonId ?? 'none'}(${skDiag.runnerUpScore})`);
+      if (skDiag.intentSignals.length > 0) {
+        log(`[SimpleGeneration] Skeleton intent signals: ${skDiag.intentSignals.join(', ')}`);
+      }
+      for (const warning of skDiag.mismatchWarnings) {
+        log(`[SimpleGeneration] ⚠ Skeleton mismatch: ${warning}`);
+      }
+      if (skDiag.fallbackReason) {
+        log(`[SimpleGeneration] Skeleton fallback reason: ${skDiag.fallbackReason}`);
+      }
+    } catch { /* diagnostics are best-effort */ }
 
     // Surface the architect "pages" plan to the UI as soon as we have one.
     const planFromConfig = config.prebuiltPlan;
