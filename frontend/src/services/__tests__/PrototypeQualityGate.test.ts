@@ -101,7 +101,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.telemetry.design_contract_violations).toBe(2);
   });
 
-  it('premium-unused is advisory only — ok=true, no blocking reason', () => {
+  it('premium-unused now fails gate (blocking) with repairInstruction', () => {
     const vud = validVisualDiagnostics();
     vud.premiumUsageObserved = false;
     vud.premiumComponentImportsFound = [];
@@ -115,18 +115,17 @@ describe('evaluatePrototypeQualityGate', () => {
       productSpecificityDiagnostics: validSpecificityDiagnostics(),
     });
 
-    // Advisory only — no repair hook available; gate must not block
-    expect(result.ok).toBe(true);
-    expect(result.blockingReasons).toHaveLength(0);
-    expect(result.repairInstructions).toHaveLength(0);
-    expect(result.advisoryReasons.some(r => /premium.*selected.*none.*referenced/i.test(r))).toBe(true);
-    expect(result.advisoryInstructions.some(r => r.includes('@/design-pack/premium-components/'))).toBe(true);
+    // Now blocking — gate must fail
+    expect(result.ok).toBe(false);
+    expect(result.blockingReasons.some(r => /premium.*selected.*none.*referenced/i.test(r))).toBe(true);
+    expect(result.repairInstructions.some(r => r.includes('@/design-pack/premium-components/'))).toBe(true);
     expect(result.telemetry.premium_selected_not_used).toBe(true);
-    expect(result.telemetry.advisory_reasons_count).toBe(1);
+    expect(result.advisoryReasons).toHaveLength(0);
+    expect(result.telemetry.advisory_reasons_count).toBe(0);
     expect(result.telemetry.repair_hook_available).toBe(true);
   });
 
-  it('media-unused is advisory only — ok=true, no blocking reason', () => {
+  it('media-unused now fails gate (blocking) with repairInstruction', () => {
     const vud = validVisualDiagnostics();
     vud.mediaUsageObserved = false;
     vud.mediaAssetReferencesFound = [];
@@ -140,14 +139,13 @@ describe('evaluatePrototypeQualityGate', () => {
       productSpecificityDiagnostics: validSpecificityDiagnostics(),
     });
 
-    // Advisory only — no repair hook available; gate must not block
-    expect(result.ok).toBe(true);
-    expect(result.blockingReasons).toHaveLength(0);
-    expect(result.repairInstructions).toHaveLength(0);
-    expect(result.advisoryReasons.some(r => /media.*materialized.*none.*referenced/i.test(r))).toBe(true);
-    expect(result.advisoryInstructions.some(r => /import.*media asset/i.test(r))).toBe(true);
+    // Now blocking — gate must fail
+    expect(result.ok).toBe(false);
+    expect(result.blockingReasons.some(r => /media.*materialized.*none.*referenced/i.test(r))).toBe(true);
+    expect(result.repairInstructions.some(r => /hero|feature|empty.state/i.test(r))).toBe(true);
     expect(result.telemetry.media_materialized_not_used).toBe(true);
-    expect(result.telemetry.advisory_reasons_count).toBe(1);
+    expect(result.advisoryReasons).toHaveLength(0);
+    expect(result.telemetry.advisory_reasons_count).toBe(0);
     expect(result.telemetry.repair_hook_available).toBe(true);
   });
 
@@ -213,7 +211,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.telemetry.generic_dashboard_card_flag).toBe(true);
   });
 
-  it('produces one repairInstruction per blocking reason; advisory reasons stay separate', () => {
+  it('produces repairInstructions for every blocking reason including premium+media', () => {
     const vud = validVisualDiagnostics();
     vud.premiumUsageObserved = false;
     vud.premiumComponentImportsFound = [];
@@ -228,13 +226,13 @@ describe('evaluatePrototypeQualityGate', () => {
     });
 
     expect(result.ok).toBe(false);
-    // 1 blocking (design token) + 1 repair instruction
+    // 3 blocking reasons: design token + premium-unused + media-unused
+    expect(result.blockingReasons).toHaveLength(3);
     expect(result.repairInstructions.length).toBe(result.blockingReasons.length);
-    expect(result.blockingReasons).toHaveLength(1);
-    // premium + media go to advisory (repair hook not available)
-    expect(result.advisoryReasons).toHaveLength(2);
-    expect(result.advisoryInstructions).toHaveLength(2);
-    expect(result.telemetry.advisory_reasons_count).toBe(2);
+    // No advisory since premium+media are now blocking
+    expect(result.advisoryReasons).toHaveLength(0);
+    expect(result.advisoryInstructions).toHaveLength(0);
+    expect(result.telemetry.advisory_reasons_count).toBe(0);
     // All instructions are non-empty strings
     for (const instruction of result.repairInstructions) {
       expect(typeof instruction).toBe('string');
@@ -311,7 +309,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.advisoryReasons).toHaveLength(0);
   });
 
-  it('advisory premium+media together: ok=true, advisory_reasons_count=2', () => {
+  it('premium+media both unused: ok=false, 2 blocking reasons, 0 advisory', () => {
     const vud = validVisualDiagnostics();
     vud.premiumUsageObserved = false;
     vud.premiumComponentImportsFound = [];
@@ -324,11 +322,12 @@ describe('evaluatePrototypeQualityGate', () => {
       productSpecificityDiagnostics: validSpecificityDiagnostics(),
     });
 
-    expect(result.ok).toBe(true);
-    expect(result.blockingReasons).toHaveLength(0);
-    expect(result.advisoryReasons).toHaveLength(2);
-    expect(result.advisoryInstructions).toHaveLength(2);
-    expect(result.telemetry.advisory_reasons_count).toBe(2);
+    expect(result.ok).toBe(false);
+    expect(result.blockingReasons).toHaveLength(2);
+    expect(result.repairInstructions).toHaveLength(2);
+    expect(result.advisoryReasons).toHaveLength(0);
+    expect(result.advisoryInstructions).toHaveLength(0);
+    expect(result.telemetry.advisory_reasons_count).toBe(0);
     expect(result.telemetry.premium_selected_not_used).toBe(true);
     expect(result.telemetry.media_materialized_not_used).toBe(true);
     expect(result.telemetry.repair_hook_available).toBe(true);
@@ -501,27 +500,27 @@ describe('runQualityRepair', () => {
     expect(result[injectedPath]).toBeUndefined();
   });
 
-  it('advisory-only gate (ok=true) means no repair is needed — fetch not called', () => {
-    // premium-unused and media-unused are advisory only → ok=true → runQualityRepair would not be called
+  it('gate ok=true (valid output, no issues) means no repair is needed — fetch not called', () => {
+    // All checks pass → ok=true → runQualityRepair would not be called
     const vud: VisualUsageDiagnostics = {
       premiumUsageChecked:             true,
       premiumComponentsSelected:       ['wellness-hero'],
-      premiumComponentImportsFound:    [],
-      premiumUsageCount:               0,
-      premiumUsageObserved:            false,
+      premiumComponentImportsFound:    ['WellnessHero'],
+      premiumUsageCount:               1,
+      premiumUsageObserved:            true,
       mediaUsageChecked:               true,
       mediaAssetsMaterialized:         ['src/assets/generated/hero.svg'],
-      mediaAssetReferencesFound:       [],
-      mediaUsageCount:                 0,
-      mediaUsageObserved:              false,
-      firstScreenFilesChecked:         [],
-      firstScreenPremiumUsageObserved: false,
-      firstScreenMediaUsageObserved:   false,
-      meaningfulScreenFiles:           [],
-      meaningfulScreenCount:           0,
+      mediaAssetReferencesFound:       ['src/assets/generated/hero.svg'],
+      mediaUsageCount:                 1,
+      mediaUsageObserved:              true,
+      firstScreenFilesChecked:         ['pages/App.tsx'],
+      firstScreenPremiumUsageObserved: true,
+      firstScreenMediaUsageObserved:   true,
+      meaningfulScreenFiles:           ['pages/App.tsx'],
+      meaningfulScreenCount:           1,
       genericPlaceholderFindings:      [],
       visualUsageNotes:                [],
-      suggestedNextAction:             'improve_prompt',
+      suggestedNextAction:             'none',
     };
 
     const gate = evaluatePrototypeQualityGate({
@@ -532,7 +531,7 @@ describe('runQualityRepair', () => {
     // Gate is ok — runQualityRepair must NOT be called
     expect(gate.ok).toBe(true);
     expect(gate.blockingReasons).toHaveLength(0);
-    expect(gate.advisoryReasons).toHaveLength(2);
+    expect(gate.advisoryReasons).toHaveLength(0);
     // fetch was stubbed in beforeEach but never invoked — confirms no LLM call
     expect(mockFetch).not.toHaveBeenCalled();
   });

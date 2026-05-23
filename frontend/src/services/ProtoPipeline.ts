@@ -274,9 +274,9 @@ export interface PrototypeQualityGateTelemetry {
   /** Number of advisory (warn-only) reasons. */
   advisory_reasons_count: number;
   /**
-   * True: runQualityRepair() is wired and will be called for blocking reasons.
-   * Repair hook is available for design token + placeholder violations.
-   * Advisory reasons (premium-unused, media-unused) do not trigger repair yet.
+   * True: runQualityRepair() is wired and will be called for all blocking reasons.
+   * Blocking: design token violations, generic placeholders, premium-unused, media-unused.
+   * Advisory reasons: none currently (all checks are either blocking or not run).
    */
   repair_hook_available: boolean;
 }
@@ -286,7 +286,7 @@ export interface PrototypeQualityGateResult {
   ok: boolean;
   blockingReasons: string[];
   repairInstructions: string[];
-  /** Advisory issues: non-blocking in this commit (premium-unused, media-unused). */
+  /** Advisory issues (non-blocking). Currently empty — all checks are blocking. */
   advisoryReasons: string[];
   advisoryInstructions: string[];
   telemetry: PrototypeQualityGateTelemetry;
@@ -1219,24 +1219,26 @@ export function evaluatePrototypeQualityGate(
 
     if (premiumSelectedNotUsed) {
       const ids = vud.premiumComponentsSelected.slice(0, 4).join(', ');
-      advisoryReasons.push(
+      blockingReasons.push(
         `Premium components selected (${ids}) but none referenced in generated source`,
       );
-      advisoryInstructions.push(
-        'Import at least one premium component from ' +
-        '@/design-pack/premium-components/ and render it on the first screen.',
+      repairInstructions.push(
+        'Import at least one premium component from @/design-pack/premium-components/ ' +
+        'and visibly render it in a meaningful section or screen (e.g. hero, feature card, dashboard widget). ' +
+        `Selected component IDs: ${ids}`,
       );
     }
 
-    // ── Check 3: media materialized but not referenced (advisory) ────────────
+    // ── Check 3: media materialized but not referenced ────────────────────────
     if (mediaNotUsed) {
       const files = vud.mediaAssetsMaterialized.slice(0, 3).join(', ');
-      advisoryReasons.push(
+      blockingReasons.push(
         `Generated media assets materialized (${files}) but none referenced in generated source`,
       );
-      advisoryInstructions.push(
-        'Import and render at least one generated media asset (SVG/image) on the first screen. ' +
-        'Example: import heroImg from \'./src/assets/generated/landing-hero.svg\'',
+      repairInstructions.push(
+        'Reference at least one generated media asset in a visible UI area. ' +
+        'Prefer hero section, feature highlight, or empty-state illustration depending on existing layout. ' +
+        `Materialized assets: ${files}`,
       );
     }
 
@@ -1818,14 +1820,15 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`, stepResults.apply);
 
     // ── Prototype quality gate — one bounded repair pass, then hard-block ───
-    // Advisory: premium-unused / media-unused are warn-only (no targeted repair yet).
-    // Blocking: design token violations + generic placeholders → runQualityRepair() once.
+    // Blocking: design token violations, generic placeholders, empty dashboard cards,
+    //           premium components selected-but-unused, media materialized-but-unused.
+    // Advisory: none currently — all checks are blocking with one repair attempt.
     const qualityGate = evaluatePrototypeQualityGate({
       designContractViolations: verdict.ok ? [] : verdict.violations,
       visualUsageDiagnostics,
       productSpecificityDiagnostics,
     });
-    // Log advisory issues (warn-only: premium-unused, media-unused)
+    // Log advisory issues (none currently; kept for future advisory checks)
     if (qualityGate.advisoryReasons.length > 0) {
       log(
         `[quality-gate] ${qualityGate.advisoryReasons.length} advisory issue(s) (not blocking): ` +
