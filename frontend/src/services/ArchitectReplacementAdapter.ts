@@ -185,6 +185,46 @@ function buildAdapterNotes(brief: MarketAwareBuilderBrief): string[] {
   ];
 }
 
+// ── Shadow telemetry types ────────────────────────────────────────────────────
+
+export interface CompareArchitectPlanWithAdapterInput {
+  /** The real ArchitectPlan produced by runArchitect. */
+  realPlan: ArchitectPlan;
+  /** The adapter-built ArchitectPlan produced by buildMinimalArchitectPlanAdapter. */
+  adapterPlan: ArchitectPlan;
+  /** Readiness evaluation for the adapter output. */
+  adapterReadiness: ArchitectReplacementAdapterReadiness;
+}
+
+/** Flat telemetry object for the [architect-adapter-shadow] log line. */
+export interface ArchitectAdapterShadowTelemetry {
+  architect_adapter_shadow_enabled: true;
+  adapter_compatible: boolean;
+  adapter_compatibility_score: number;
+  adapter_missing_fields_count: number;
+  adapter_file_overlap_count: number;
+  adapter_page_overlap_count: number;
+  adapter_readiness_ok: boolean;
+  adapter_replacement_safe_candidate: boolean;
+}
+
+export interface ArchitectAdapterComparisonResult {
+  /** True when adapter plan is structurally compatible with the real plan (score ≥ threshold). */
+  compatible: boolean;
+  /** Normalised compatibility score: 0–1, weighted average of 8 comparison checks. */
+  compatibilityScore: number;
+  /** Items present in realPlan but absent from adapterPlan (paths, field names). */
+  missingInAdapter: string[];
+  /** Items present in adapterPlan but absent from realPlan (paths, field names). */
+  extraInAdapter: string[];
+  /** Value incompatibilities between real and adapter (e.g. skeleton, appName mismatch). */
+  mismatches: string[];
+  /** Flat telemetry for logging. */
+  telemetry: ArchitectAdapterShadowTelemetry;
+}
+
+const COMPATIBILITY_THRESHOLD = 0.75;
+
 // ── Public helpers ────────────────────────────────────────────────────────────
 
 /**
@@ -393,5 +433,191 @@ export function evaluateArchitectReplacementAdapterReadiness(
     presentRequiredFields: presentRequired,
     missingRequiredFields: missingRequired,
     issues,
+  };
+}
+
+/**
+ * Compare a real runArchitect plan against an adapter-built plan and return
+ * advisory shadow telemetry.
+ *
+ * Advisory / helper-only — does NOT affect generation, planners, coder input,
+ * compile behavior, quality gate, or any production output.
+ * Does NOT mutate realPlan or adapterPlan.
+ * Does NOT call any LLM.
+ *
+ * Scoring: 8 deterministic checks, each contributes an equal 1/8 share.
+ *   1. deltaFiles path overlap fraction
+ *   2. fileTree key overlap fraction
+ *   3. pages path overlap fraction
+ *   4. appName presence in both plans
+ *   5. skeleton compatibility
+ *   6. dataModel presence in both plans
+ *   7. contextContract presence in both plans
+ *   8. required pipeline fields present in adapter
+ *
+ * compatible = true when compatibilityScore ≥ 0.75.
+ */
+export function compareArchitectPlanWithAdapter(
+  input: CompareArchitectPlanWithAdapterInput,
+): ArchitectAdapterComparisonResult {
+  const { realPlan, adapterPlan, adapterReadiness } = input;
+
+  const missingInAdapter: string[] = [];
+  const extraInAdapter: string[] = [];
+  const mismatches: string[] = [];
+
+  // ── 1. deltaFiles overlap ─────────────────────────────────────────────────
+  const realDeltaPaths = new Set((realPlan.deltaFiles ?? []).map(f => f.path));
+  const adapterDeltaPaths = new Set((adapterPlan.deltaFiles ?? []).map(f => f.path));
+  const deltaOverlapItems = [...realDeltaPaths].filter(p => adapterDeltaPaths.has(p));
+  for (const p of [...realDeltaPaths].filter(p => !adapterDeltaPaths.has(p))) {
+    missingInAdapter.push(`deltaFile:${p}`);
+  }
+  for (const p of [...adapterDeltaPaths].filter(p => !realDeltaPaths.has(p))) {
+    extraInAdapter.push(`deltaFile:${p}`);
+  }
+  const deltaFraction =
+    Math.max(realDeltaPaths.size, adapterDeltaPaths.size) > 0
+      ? deltaOverlapItems.length / Math.max(realDeltaPaths.size, adapterDeltaPaths.size)
+      : 1;
+
+  // ── 2. fileTree overlap ───────────────────────────────────────────────────
+  const realTreeKeys = new Set(Object.keys(realPlan.fileTree ?? {}));
+  const adapterTreeKeys = new Set(Object.keys(adapterPlan.fileTree ?? {}));
+  const treeOverlapItems = [...realTreeKeys].filter(k => adapterTreeKeys.has(k));
+  for (const k of [...realTreeKeys].filter(k => !adapterTreeKeys.has(k))) {
+    missingInAdapter.push(`fileTree:${k}`);
+  }
+  for (const k of [...adapterTreeKeys].filter(k => !realTreeKeys.has(k))) {
+    extraInAdapter.push(`fileTree:${k}`);
+  }
+  const treeFraction =
+    Math.max(realTreeKeys.size, adapterTreeKeys.size) > 0
+      ? treeOverlapItems.length / Math.max(realTreeKeys.size, adapterTreeKeys.size)
+      : 1;
+
+  // ── 3. pages overlap ──────────────────────────────────────────────────────
+  const realPagePaths = new Set((realPlan.pages ?? []).map(p => p.path));
+  const adapterPagePaths = new Set((adapterPlan.pages ?? []).map(p => p.path));
+  const pageOverlapItems = [...realPagePaths].filter(p => adapterPagePaths.has(p));
+  for (const p of [...realPagePaths].filter(p => !adapterPagePaths.has(p))) {
+    missingInAdapter.push(`page:${p}`);
+  }
+  for (const p of [...adapterPagePaths].filter(p => !realPagePaths.has(p))) {
+    extraInAdapter.push(`page:${p}`);
+  }
+  // Both empty → neutral (no pages declared in either plan)
+  const pagesFraction =
+    realPagePaths.size === 0 && adapterPagePaths.size === 0
+      ? 1
+      : pageOverlapItems.length / Math.max(realPagePaths.size, adapterPagePaths.size);
+
+  // ── 4. appName compatibility ──────────────────────────────────────────────
+  const realName = realPlan.appName?.trim() ?? '';
+  const adapterName = adapterPlan.appName?.trim() ?? '';
+  let appNameFraction: number;
+  if (realName && adapterName) {
+    appNameFraction = 1;
+    if (realName.toLowerCase() !== adapterName.toLowerCase()) {
+      mismatches.push(`appName: real="${realName}" adapter="${adapterName}"`);
+    }
+  } else if (!realName && !adapterName) {
+    appNameFraction = 0.5; // neutral — neither plan has an app name
+  } else {
+    appNameFraction = 0;
+    if (realName && !adapterName) missingInAdapter.push('appName');
+  }
+
+  // ── 5. skeleton compatibility ─────────────────────────────────────────────
+  const realSkeleton = (realPlan.skeleton ?? '') as string;
+  const adapterSkeleton = (adapterPlan.skeleton ?? '') as string;
+  let skeletonFraction: number;
+  if (realSkeleton && adapterSkeleton) {
+    if (realSkeleton === adapterSkeleton) {
+      skeletonFraction = 1;
+    } else {
+      skeletonFraction = 0;
+      mismatches.push(`skeleton: real="${realSkeleton}" adapter="${adapterSkeleton}"`);
+    }
+  } else {
+    skeletonFraction = 0.5; // neutral — skeleton is optional in ArchitectPlan
+  }
+
+  // ── 6. dataModel compatibility ────────────────────────────────────────────
+  const realDataModel = realPlan.dataModel?.trim() ?? '';
+  const adapterDataModel = adapterPlan.dataModel?.trim() ?? '';
+  let dataModelFraction: number;
+  if (realDataModel && adapterDataModel) {
+    dataModelFraction = 1;
+  } else if (realDataModel && !adapterDataModel) {
+    dataModelFraction = 0;
+    missingInAdapter.push('dataModel');
+  } else {
+    dataModelFraction = 0.5; // adapter may have extra dataModel or neither — neutral
+  }
+
+  // ── 7. contextContract presence ──────────────────────────────────────────
+  const realCC = realPlan.contextContract?.trim() ?? '';
+  const adapterCC = adapterPlan.contextContract?.trim() ?? '';
+  let contextContractFraction: number;
+  if (realCC && adapterCC) {
+    contextContractFraction = 1;
+  } else if (realCC && !adapterCC) {
+    contextContractFraction = 0;
+    missingInAdapter.push('contextContract');
+  } else {
+    contextContractFraction = 0.5; // neutral
+  }
+
+  // ── 8. Required pipeline fields present in adapter ────────────────────────
+  const realDepMap = buildArchitectDependencyMap(realPlan);
+  const requiredFields = [
+    ...new Set([...realDepMap.required_for_pipeline, ...realDepMap.required_for_compile_or_files]),
+  ];
+  const adapterDepMap = buildArchitectDependencyMap(adapterPlan);
+  const adapterPresentFields = new Set(
+    adapterDepMap.fields.filter(f => f.presentInPlan).map(f => f.field as string),
+  );
+  const requiredMissingInAdapter = requiredFields.filter(f => !adapterPresentFields.has(f));
+  for (const f of requiredMissingInAdapter) {
+    missingInAdapter.push(`requiredField:${f}`);
+  }
+  const requiredFraction =
+    requiredFields.length > 0
+      ? (requiredFields.length - requiredMissingInAdapter.length) / requiredFields.length
+      : 1;
+
+  // ── Final score ───────────────────────────────────────────────────────────
+  const checks = [
+    deltaFraction,
+    treeFraction,
+    pagesFraction,
+    appNameFraction,
+    skeletonFraction,
+    dataModelFraction,
+    contextContractFraction,
+    requiredFraction,
+  ];
+  const compatibilityScore = checks.reduce((sum, c) => sum + c, 0) / checks.length;
+  const compatible = compatibilityScore >= COMPATIBILITY_THRESHOLD;
+
+  const telemetry: ArchitectAdapterShadowTelemetry = {
+    architect_adapter_shadow_enabled: true,
+    adapter_compatible: compatible,
+    adapter_compatibility_score: compatibilityScore,
+    adapter_missing_fields_count: missingInAdapter.length,
+    adapter_file_overlap_count: deltaOverlapItems.length,
+    adapter_page_overlap_count: pageOverlapItems.length,
+    adapter_readiness_ok: adapterReadiness.ready,
+    adapter_replacement_safe_candidate: compatible && adapterReadiness.ready,
+  };
+
+  return {
+    compatible,
+    compatibilityScore,
+    missingInAdapter,
+    extraInAdapter,
+    mismatches,
+    telemetry,
   };
 }
