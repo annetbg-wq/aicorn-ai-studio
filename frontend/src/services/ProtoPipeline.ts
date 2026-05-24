@@ -3353,6 +3353,7 @@ export interface AugmentArchitectPlanInput {
 export function buildArchitectProductStrategistRole(): string {
   return [
     'You are a market/product strategist, not the final technical architect.',
+    'Unlike the traditional senior product architect role, your focus is product strategy and minimal pipeline contracts only.',
     'Your role is to provide product strategy, user journey, required product moments, and a minimal pipeline contract.',
     'Do not over-own implementation architecture.',
     'Do not create detailed component architecture.',
