@@ -114,6 +114,11 @@ import {
   serializeMarketAwareBuilderBriefForCoder,
   type MarketAwareBuilderBrief,
 } from './MarketAwareBuilderBrief';
+import {
+  buildArchitectDependencyMap,
+  evaluateArchitectRoleDiagnostics,
+  serializeArchitectDependencyTelemetry,
+} from './ArchitectDependencyMap';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -1586,6 +1591,32 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     };
     emit('architect', 'done', `${plan.deltaFiles.length} файлов`, stepResults.architect);
     fastPathTelemetry.steps.architectureMs = Date.now() - architectStartedAt;
+
+    // ── Architect dependency map diagnostics (advisory only) ──────────────
+    // Wired after runArchitect normalization, before deterministic planners.
+    // Does not affect plan, planners, coder input, or compile behavior.
+    // Does not remove runArchitect. Does not block generation.
+    {
+      const architectDependencyMap = buildArchitectDependencyMap(plan);
+      const architectRoleDiagnostics = evaluateArchitectRoleDiagnostics(plan, {
+        marketAwareBriefInjected: true,       // market brief is injected (PR #12)
+        builderOwnedSelfPlanInjected: true,   // builder self-plan is injected (PR #13)
+      });
+      const architectDependencyTelemetry = serializeArchitectDependencyTelemetry(
+        architectDependencyMap,
+        architectRoleDiagnostics,
+      );
+      log(
+        `[architect-dependency] required=${architectDependencyTelemetry.architect_dependency_required_count}` +
+        ` advisory=${architectDependencyTelemetry.architect_dependency_advisory_count}` +
+        ` candidate_downscope=${architectDependencyTelemetry.architect_fields_candidate_for_downscope_count}` +
+        ` technical_ownership=${String(architectDependencyTelemetry.architect_technical_ownership_detected)}` +
+        ` replacement_adapter_needed=${String(architectDependencyTelemetry.replacement_adapter_needed)}`,
+      );
+      for (const issue of architectRoleDiagnostics.issues) {
+        log(`[architect-dependency] advisory ${issue.severity}: [${issue.code}] ${issue.message}`, 'warn');
+      }
+    }
 
     // ── Step 4 — Skeleton install (validates the selected base) ───────────
     emit('skeleton', 'active');
