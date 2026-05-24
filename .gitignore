@@ -23,3 +23,8 @@ repomix-output.xml
 backend/.env
 
 backend/.codex-home/
+
+# Claude local settings (personal paths/permissions — never commit)
+.claude/settings.local.json
+.claude/*.local.json
+!.claude/settings.local.example.json
