@@ -108,6 +108,7 @@ import {
 } from './LiveGenerationContractValidator';
 import {
   buildMarketAwareBuilderBrief,
+  buildBuilderOwnedSelfPlanInstructions,
   evaluateMarketAwareBuilderBriefDiagnostics,
   serializeMarketAwareBriefDiagnosticsTelemetry,
   serializeMarketAwareBuilderBriefForCoder,
@@ -1672,6 +1673,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       marketBrief,
       marketBriefDiagnostics,
       true, // coder_prompt_contains_market_brief — injected into coder planning blocks
+      true, // builder_owned_self_plan_injected — self-plan block appended after market brief
     );
     const serializedBriefLength = serializeMarketAwareBuilderBriefForCoder(marketBrief).length;
     const mustItemCount = marketBrief.selfTestChecklist.filter(i => i.severity === 'must').length;
@@ -1680,6 +1682,9 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     );
     log(
       `[market-brief] injected=true serialized_length=${serializedBriefLength} required_moments=${marketBriefTelemetry.required_screen_count} self_test_must_count=${mustItemCount}`,
+    );
+    log(
+      `[builder-self-plan] injected=${String(marketBriefTelemetry.builder_owned_self_plan_injected)} instruction_length=${marketBriefTelemetry.self_plan_instruction_length} self_test_items=${marketBriefTelemetry.self_test_items_count}`,
     );
     if (marketBriefDiagnostics.issues.length > 0) {
       for (const issue of marketBriefDiagnostics.issues) {
@@ -2488,6 +2493,7 @@ export function buildCoderPlanningBlocks(input: {
     input.skeletonIntegrationPlan ? buildSkeletonIntegrationPromptBlock(input.skeletonIntegrationPlan) : '',
     input.productSpecificityPlan ? buildProductSpecificityPromptBlock(input.productSpecificityPlan) : '',
     input.marketAwareBuilderBrief ? serializeMarketAwareBuilderBriefForCoder(input.marketAwareBuilderBrief) : '',
+    input.marketAwareBuilderBrief ? buildBuilderOwnedSelfPlanInstructions(input.marketAwareBuilderBrief) : '',
   ].filter(Boolean).join('\n');
 }
 
