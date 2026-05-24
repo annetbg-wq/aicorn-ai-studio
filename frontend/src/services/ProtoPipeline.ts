@@ -119,6 +119,12 @@ import {
   evaluateArchitectRoleDiagnostics,
   serializeArchitectDependencyTelemetry,
 } from './ArchitectDependencyMap';
+import {
+  buildMinimalArchitectPlanAdapter,
+  evaluateArchitectReplacementAdapterReadiness,
+  compareArchitectPlanWithAdapter,
+  type BuildMinimalArchitectPlanAdapterInput,
+} from './ArchitectReplacementAdapter';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -1720,6 +1726,53 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     if (marketBriefDiagnostics.issues.length > 0) {
       for (const issue of marketBriefDiagnostics.issues) {
         log(`[market-brief] advisory ${issue.severity}: [${issue.code}] ${issue.message}`, 'warn');
+      }
+    }
+
+    // ── Architect adapter shadow telemetry (advisory only, no blocking) ───────
+    // Wired after runArchitect normalization and after market-aware brief, screen
+    // composition, and product specificity plans are all available.
+    // Uses real plan.deltaFiles as expectedFiles so the adapter reconstructs from
+    // the same file list the architect produced — isolating brief/skeleton fidelity.
+    // Does NOT mutate realPlan. Does NOT fail generation. Does NOT trigger repair.
+    // Does NOT change output, planners, coder input, or any production behavior.
+    {
+      const adapterInput: BuildMinimalArchitectPlanAdapterInput = {
+        brief: marketBrief,
+        skeletonId: config.skeletonId,
+        expectedFiles: plan.deltaFiles,
+        screenCompositionPlan: compositionPlan,
+        productSpecificityPlan,
+      };
+      const adapterPlan = buildMinimalArchitectPlanAdapter(adapterInput);
+      const adapterReadiness = evaluateArchitectReplacementAdapterReadiness(adapterInput, adapterPlan);
+      const comparison = compareArchitectPlanWithAdapter({
+        realPlan: plan,
+        adapterPlan,
+        adapterReadiness,
+      });
+      const t = comparison.telemetry;
+      log(
+        `[architect-adapter-shadow] enabled=${String(t.architect_adapter_shadow_enabled)}` +
+        ` compatible=${String(t.adapter_compatible)}` +
+        ` score=${t.adapter_compatibility_score.toFixed(3)}` +
+        ` missing=${t.adapter_missing_fields_count}` +
+        ` file_overlap=${t.adapter_file_overlap_count}` +
+        ` page_overlap=${t.adapter_page_overlap_count}` +
+        ` readiness_ok=${String(t.adapter_readiness_ok)}` +
+        ` replacement_safe_candidate=${String(t.adapter_replacement_safe_candidate)}`,
+      );
+      if (comparison.mismatches.length > 0) {
+        log(
+          `[architect-adapter-shadow] mismatches: ${comparison.mismatches.join(' | ')}`,
+          'warn',
+        );
+      }
+      if (comparison.missingInAdapter.length > 0) {
+        log(
+          `[architect-adapter-shadow] missing_in_adapter: ${comparison.missingInAdapter.slice(0, 5).join(', ')}`,
+          'warn',
+        );
       }
     }
 
