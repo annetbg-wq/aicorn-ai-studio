@@ -109,6 +109,9 @@ export type MarketAwareBriefDiagnosticsTelemetry = {
   suspiciously_generic: boolean;
   tries_to_own_technical_architecture: boolean;
   coder_prompt_contains_market_brief: boolean;
+  builder_owned_self_plan_injected: boolean;
+  self_plan_instruction_length: number;
+  self_test_items_count: number;
 };
 
 // ── Input shapes ──────────────────────────────────────────────────────────────
@@ -1142,13 +1145,78 @@ export function serializeMarketAwareBuilderBriefForCoder(
   return lines.join('\n');
 }
 
+// ── Builder-owned self-plan instructions ─────────────────────────────────────
+
+/** Number of explicit self-test checkpoints in the self-plan block (fixed). */
+export const SELF_PLAN_SELF_TEST_ITEMS = 8;
+
+/**
+ * Produces a concise, mandatory builder-facing block that directs the coder
+ * to own its own architecture plan, implement from that plan, and run an
+ * explicit self-test before returning files.
+ *
+ * Complement to serializeMarketAwareBuilderBriefForCoder — injected immediately
+ * after the market-aware brief in the coder planning context.
+ * No LLM calls. Deterministic given a brief.
+ */
+export function buildBuilderOwnedSelfPlanInstructions(
+  brief: MarketAwareBuilderBrief,
+): string {
+  const differentiatorHint = brief.builderBrief.marketAwareDifferentiator.length > 60
+    ? brief.builderBrief.marketAwareDifferentiator.slice(0, 57) + '...'
+    : brief.builderBrief.marketAwareDifferentiator;
+
+  const lines: string[] = [
+    '═══════════════════════════════════════════════════════════════',
+    'BUILDER-OWNED ARCHITECTURE & SELF-TEST — MANDATORY',
+    '═══════════════════════════════════════════════════════════════',
+    '',
+    'You are NOT a passive implementer of the architect plan.',
+    'You own architecture, implementation, and self-test for this prototype.',
+    '',
+    'BEFORE WRITING CODE — synthesize internally:',
+    '  1. Screen / component architecture (screens, layouts, shared components)',
+    '  2. State / data model (entities, relationships, local vs persisted)',
+    '  3. Core user journey (step-by-step from entry to primary outcome)',
+    '  4. Interaction flow (what happens on each key user action)',
+    '  5. File responsibility map (which file owns which concern)',
+    `  6. Visible differentiator placement — where "${differentiatorHint}" appears in the UI`,
+    '',
+    'DURING IMPLEMENTATION:',
+    '  • Preserve the expected file list exactly — no additions or omissions',
+    '  • Use the selected skeleton correctly — extend it, never rebuild it',
+    '  • Implement required product moments from the market-aware brief above',
+    '  • Use premium / media assets when provided — never leave them unused',
+    '  • Never produce generic placeholder text (see FORBIDDEN list above)',
+    '  • Make the first screen immediately meaningful and product-specific',
+    '  • Keep UI coherent and product-specific across all screens',
+    '',
+    `SELF-TEST BEFORE FINAL ANSWER (${brief.selfTestChecklist.length} checklist items — all must pass):`,
+    '  ✓ Generated files match the expected file list',
+    '  ✓ All imports in generated files resolve correctly',
+    '  ✓ Every screen contains product-specific, meaningful content',
+    '  ✓ Primary CTA exists on the first screen and is product-specific',
+    '  ✓ Product-specific workflow is visible and navigable',
+    '  ✓ Visible differentiator is present in the UI',
+    '  ✓ Zero forbidden placeholder text in any file',
+    '  ✓ Premium / media assets are used if they were provided',
+    '═══════════════════════════════════════════════════════════════',
+  ];
+
+  return lines.join('\n');
+}
+
 // ── Telemetry serializer ──────────────────────────────────────────────────────
 
 export function serializeMarketAwareBriefDiagnosticsTelemetry(
   brief: MarketAwareBuilderBrief,
   diagnostics: MarketAwareBriefDiagnostics,
   coderPromptContainsMarketBrief: boolean,
+  builderOwnedSelfPlanInjected: boolean = false,
 ): MarketAwareBriefDiagnosticsTelemetry {
+  const selfPlanInstructionLength = builderOwnedSelfPlanInjected
+    ? buildBuilderOwnedSelfPlanInstructions(brief).length
+    : 0;
   return {
     market_brief_ok: diagnostics.ok,
     product_category: brief.marketInsight.productCategory,
@@ -1162,5 +1230,8 @@ export function serializeMarketAwareBriefDiagnosticsTelemetry(
     suspiciously_generic: diagnostics.suspiciouslyGeneric,
     tries_to_own_technical_architecture: diagnostics.triesToOwnTechnicalArchitecture,
     coder_prompt_contains_market_brief: coderPromptContainsMarketBrief,
+    builder_owned_self_plan_injected: builderOwnedSelfPlanInjected,
+    self_plan_instruction_length: selfPlanInstructionLength,
+    self_test_items_count: SELF_PLAN_SELF_TEST_ITEMS,
   };
 }
