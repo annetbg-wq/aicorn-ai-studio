@@ -2407,7 +2407,10 @@ async function runArchitect(input: {
   const shapeRequirement = buildArchitectShapeRequirement(input.prompt, input.skeletonId);
   const architectureQualityRules = buildArchitectureQualityRulesBlock();
 
-  const system = `You are a senior product architect. The user wants a React + Tailwind app built on top of an EXISTING SKELETON.
+  const architectRole = buildArchitectProductStrategistRole();
+  const system = `${architectRole}
+
+The user wants a React + Tailwind app built on top of an EXISTING SKELETON.
 
 SKELETON: ${skeleton.label} (${skeleton.id})
 NAVIGATION: ${skeleton.navigation}
@@ -2452,12 +2455,15 @@ Return ONLY valid JSON matching this schema:
   "skeletonBypassNotes": ["optional note about preserving the selected skeleton foundation"],
   "customModuleNotes": ["optional note about product-specific modules to add"],
   "fileOwnershipNotes": ["optional note about which file types own screens/data/hooks/components"],
-  "contextContract": "<optional: cross-file contract, e.g. which hook/context to use for shared state>",
+  "contextContract": "<[product-strategy-source][builder-owned][pipeline-scaffolding] cross-file contract — e.g. which hook/context to use for shared state. Coder must follow market-aware brief + builder-owned self-plan. Architect must not override builder-owned architecture responsibility.>",
   "dataModel": "<optional: compact entity shape, e.g. Habit: { id, name, completedDates[] }>",
   "notes": ["any cross-cutting requirement worth telling the coder"]
 }
 
 RULES
+- You are a product strategist, not the final technical architect. The builder/coder owns architecture, implementation, and self-test.
+- Do not create detailed component architecture — fileTree and deltaFiles are pipeline scaffolding, not final architecture authority.
+- Do not conflict with the builder-owned self-plan.
 - fileTree keys may be returned as "src/..." paths, but they must describe ONLY delta files the coder should create.
 - NEVER include App.tsx, main.tsx, AppContext, theme.ts, UI primitives, or any file listed under PROTECTED / PROVIDED FILES.
 - Prefer product-specific pages/hooks/components/config/data files over infrastructure files.
@@ -3334,6 +3340,45 @@ export interface AugmentArchitectPlanInput {
   notes: string[];
   contextContract?: string;
   dataModel?: string;
+}
+
+/**
+ * Returns the static role description that heads the runArchitect system prompt.
+ * Exported for deterministic unit testing only.
+ *
+ * Both the chat/founder flow and the trending-niche/direct-launch flow converge
+ * into ProtoPipeline.run → runArchitect, which uses this role instruction.
+ * Changing it here downscopes the architect for every entry path simultaneously.
+ */
+export function buildArchitectProductStrategistRole(): string {
+  return [
+    'You are a market/product strategist, not the final technical architect.',
+    'Unlike the traditional senior product architect role, your focus is product strategy and minimal pipeline contracts only.',
+    'Your role is to provide product strategy, user journey, required product moments, and a minimal pipeline contract.',
+    'Do not over-own implementation architecture.',
+    'Do not create detailed component architecture.',
+    'Do not conflict with the builder-owned self-plan.',
+    'The builder/coder owns architecture, implementation, and self-test.',
+    'fileTree and deltaFiles are pipeline scaffolding that guides the coder — they are not final architecture authority.',
+  ].join('\n');
+}
+
+/**
+ * Returns the canonical list of required ArchitectPlan output field names.
+ * deltaFiles is derived from fileTree internally and is not a separate LLM output field.
+ * Exported for deterministic unit testing only.
+ */
+export function getArchitectRequiredOutputFields(): readonly string[] {
+  return [
+    'appName',
+    'summary',
+    'skeleton',
+    'pages',
+    'fileTree',
+    'dataModel',
+    'contextContract',
+    'notes',
+  ] as const;
 }
 
 export function buildArchitectShapeRequirement(prompt: string, skeletonId: SkeletonId): string {
