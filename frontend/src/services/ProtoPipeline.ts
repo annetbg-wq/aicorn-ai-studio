@@ -106,6 +106,11 @@ import {
   buildLiveGenerationUiPrimitiveImportCatalog,
   filterAdvertisedUiPrimitiveNames,
 } from './LiveGenerationContractValidator';
+import {
+  buildMarketAwareBuilderBrief,
+  evaluateMarketAwareBuilderBriefDiagnostics,
+  serializeMarketAwareBriefDiagnosticsTelemetry,
+} from './MarketAwareBuilderBrief';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -1650,6 +1655,30 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     log(
       `[product-specificity] domain="${productSpecificityPlan.inferredDomain}" entities=${productSpecificityPlan.domainEntities.length} metrics=${productSpecificityPlan.productMetrics.length}`,
     );
+
+    // ── Market-aware builder brief diagnostics (advisory only, no blocking) ──
+    // Wired before runCoder to provide visibility into market context coverage.
+    // Does not change final generated files, compile behavior, or quality gate.
+    const marketBrief = buildMarketAwareBuilderBrief({
+      brief: clarifiedPrompt,
+      skeletonId: config.skeletonId,
+      premiumComponentIds: designCtx.premiumComponentSelection.selectedComponents.map(c => c.id),
+      mediaHints: mediaMaterialization.mediaHints,
+    });
+    const marketBriefDiagnostics = evaluateMarketAwareBuilderBriefDiagnostics(marketBrief);
+    const marketBriefTelemetry = serializeMarketAwareBriefDiagnosticsTelemetry(
+      marketBrief,
+      marketBriefDiagnostics,
+      false, // coder_prompt_contains_market_brief — not yet injected into coder prompt
+    );
+    log(
+      `[market-brief] ok=${String(marketBriefTelemetry.market_brief_ok)} category=${marketBriefTelemetry.product_category} insights=${marketBriefTelemetry.market_insight_count} screens=${marketBriefTelemetry.required_screen_count} checklist=${marketBriefTelemetry.self_test_item_count} differentiator=${String(marketBriefTelemetry.differentiator_present)} generic=${String(marketBriefTelemetry.suspiciously_generic)} techArch=${String(marketBriefTelemetry.tries_to_own_technical_architecture)}`,
+    );
+    if (marketBriefDiagnostics.issues.length > 0) {
+      for (const issue of marketBriefDiagnostics.issues) {
+        log(`[market-brief] advisory ${issue.severity}: [${issue.code}] ${issue.message}`, 'warn');
+      }
+    }
 
     // ── Step 5 — Coder (one shot + at most one targeted retry) ────────────
     emit('coder', 'active');
