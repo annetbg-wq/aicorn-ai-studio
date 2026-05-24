@@ -577,6 +577,91 @@ describe('controlled adapter fallback — unchanged by architect downscope', () 
   });
 });
 
+// ── Canary phrase preservation ────────────────────────────────────────────────
+
+describe('buildArchitectProductStrategistRole — canary phrase preservation', () => {
+  it('role text still contains the substring "senior product architect" (canary mock dependency)', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role).toContain('senior product architect');
+  });
+
+  it('role says focus is product strategy and minimal pipeline contracts', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('product strategy and minimal pipeline contracts');
+  });
+});
+
+// ── Minimized output authority — field framing ─────────────────────────────────
+
+describe('buildArchitectProductStrategistRole — minimized output authority', () => {
+  it('frames fileTree as a minimal pipeline scaffold', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('minimal pipeline scaffold');
+  });
+
+  it('frames deltaFiles as expected generated files for the pipeline contract', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('expected generated files');
+  });
+
+  it('frames pages as product moments and screens, not component architecture', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('product moments and screens');
+    expect(role.toLowerCase()).toContain('not component architecture');
+  });
+
+  it('states dataModel is product-level information only', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('product-level information only');
+  });
+
+  it('states notes must be strategic constraints only, not implementation instructions', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('strategic constraints only');
+    expect(role.toLowerCase()).toContain('not implementation instructions');
+  });
+
+  it('states contextContract must declare builder/coder ownership', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('contextcontract must declare');
+    expect(role.toLowerCase()).toContain('builder/coder owns architecture');
+  });
+});
+
+// ── Forbidden architect behaviors ─────────────────────────────────────────────
+
+describe('buildArchitectProductStrategistRole — forbidden behaviors', () => {
+  it('forbids designing detailed component hierarchy', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('do not design detailed component hierarchy');
+  });
+
+  it('forbids prescribing internal React state architecture', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('do not prescribe internal react state architecture');
+  });
+
+  it('forbids prescribing final component boundaries', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('do not prescribe final component boundaries');
+  });
+
+  it('forbids creating a detailed implementation plan', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('do not create a detailed implementation plan');
+  });
+
+  it('forbids overriding the builder-owned self-plan', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('do not override builder-owned self-plan');
+  });
+
+  it('forbids conflicting with the market-aware builder brief', () => {
+    const role = buildArchitectProductStrategistRole();
+    expect(role.toLowerCase()).toContain('do not conflict with the market-aware builder brief');
+  });
+});
+
 // ── No real LLM calls ─────────────────────────────────────────────────────────
 
 describe('no real LLM calls', () => {
