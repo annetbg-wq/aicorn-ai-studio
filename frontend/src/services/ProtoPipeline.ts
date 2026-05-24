@@ -127,6 +127,7 @@ import {
   maybeApplyArchitectAdapterFallback,
   type BuildMinimalArchitectPlanAdapterInput,
 } from './ArchitectReplacementAdapter';
+import { validateDownscopedArchitectOutput } from './ArchitectOutputValidator';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -1663,6 +1664,27 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       );
       for (const issue of architectRoleDiagnostics.issues) {
         log(`[architect-dependency] advisory ${issue.severity}: [${issue.code}] ${issue.message}`, 'warn');
+      }
+    }
+
+    // ── Architect output downscope validator (advisory only) ─────────────
+    // Wired after runArchitect and after controlled adapter fallback so it
+    // validates the final plan used by the pipeline, whether real architect
+    // output or adapter rescue plan.
+    // Does not block generation. Does not mutate plan. Does not trigger repair.
+    // Does not alter fallback behavior.
+    {
+      const outputValidation = validateDownscopedArchitectOutput(plan);
+      log(
+        `[architect-output-validator]` +
+        ` ok=${String(outputValidation.telemetry.architect_output_validator_ok)}` +
+        ` technical_signals=${outputValidation.telemetry.architect_output_technical_signal_count}` +
+        ` violations=${outputValidation.telemetry.architect_output_downscope_violation_count}` +
+        ` scaffold_signals=${outputValidation.telemetry.architect_output_scaffold_signal_count}` +
+        ` is_adapter_generated=${String(outputValidation.telemetry.architect_output_is_adapter_generated)}`,
+      );
+      for (const violation of outputValidation.downscopeViolations) {
+        log(`[architect-output-validator] violation: ${violation}`, 'warn');
       }
     }
 
