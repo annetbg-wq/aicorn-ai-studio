@@ -2445,32 +2445,37 @@ Return ONLY valid JSON matching this schema:
   "skeleton": "${skeleton.id}",
   "summary":  "<one-sentence elevator pitch>",
   "fileTree": {
-    "src/pages/Home.tsx": "Main screen: what it shows and which state/data it uses",
-    "src/hooks/useSomething.ts": "Hook: what it owns and which data it persists"
+    "src/pages/Home.tsx": "Minimal pipeline scaffold — expected delta file: main screen, what it shows and which state/data it uses",
+    "src/hooks/useSomething.ts": "Minimal pipeline scaffold — expected delta file: hook, what it owns and which data it persists"
   },
   "pages": [
-    { "path": "/dashboard", "name": "Dashboard", "file": "pages/Dashboard.tsx", "purpose": "..." }
+    { "path": "/dashboard", "name": "Dashboard", "file": "pages/Dashboard.tsx", "purpose": "Product moment: what the user experiences on this screen" }
   ],
   "skeletonFitNotes": ["optional note about why the skeleton fits or where it needs clean extension"],
   "skeletonBypassNotes": ["optional note about preserving the selected skeleton foundation"],
   "customModuleNotes": ["optional note about product-specific modules to add"],
   "fileOwnershipNotes": ["optional note about which file types own screens/data/hooks/components"],
-  "contextContract": "<[product-strategy-source][builder-owned][pipeline-scaffolding] cross-file contract — e.g. which hook/context to use for shared state. Coder must follow market-aware brief + builder-owned self-plan. Architect must not override builder-owned architecture responsibility.>",
-  "dataModel": "<optional: compact entity shape, e.g. Habit: { id, name, completedDates[] }>",
-  "notes": ["any cross-cutting requirement worth telling the coder"]
+  "contextContract": "<[product-strategy-source][builder-owned][pipeline-scaffolding] builder/coder owns final architecture, implementation, and self-test — e.g. which hook/context to use for shared state. Coder must follow market-aware brief + builder-owned self-plan. Architect must not override builder-owned architecture responsibility.>",
+  "dataModel": "<optional: product-level information only — compact entity shape, e.g. Habit: { id, name, completedDates[] }. Not final schema design.>",
+  "notes": ["Strategic constraints only — not implementation instructions. Cross-cutting product requirements."]
 }
 
 RULES
 - You are a product strategist, not the final technical architect. The builder/coder owns architecture, implementation, and self-test.
-- Do not create detailed component architecture — fileTree and deltaFiles are pipeline scaffolding, not final architecture authority.
+- Do not create detailed component architecture — fileTree and deltaFiles are minimal pipeline scaffolding, not final architecture authority.
+- Do not design detailed component hierarchy.
+- Do not prescribe internal React state architecture.
+- Do not prescribe final component boundaries.
 - Do not conflict with the builder-owned self-plan.
-- fileTree keys may be returned as "src/..." paths, but they must describe ONLY delta files the coder should create.
+- Do not conflict with the market-aware builder brief.
+- fileTree keys may be returned as "src/..." paths, but they must describe ONLY the minimal expected delta files the coder should create.
 - NEVER include App.tsx, main.tsx, AppContext, theme.ts, UI primitives, or any file listed under PROTECTED / PROVIDED FILES.
 - Prefer product-specific pages/hooks/components/config/data files over infrastructure files.
 - For editable skeleton pages/config/data files, include them in fileTree when they must be meaningfully rewritten for the product.
-- Use contextContract to describe shared state contracts (e.g. "use useApp() from AppContext, NOT useLocalStorage directly") whenever multiple files share state.
-- Use dataModel for the canonical domain entity / collection shape.
-- Keep pages[] optional; include it only if route labels / route mapping help the coder.
+- Use contextContract to declare that builder/coder owns final architecture, implementation, and self-test. Describe shared state contracts (e.g. "use useApp() from AppContext, NOT useLocalStorage directly") whenever multiple files share state.
+- Use dataModel for product-level information only — canonical domain entity shape. Not final schema design.
+- Use notes for strategic constraints only — not implementation instructions.
+- pages[] describes product moments and screens — do not use it to describe component architecture.
 - Output JSON only. No markdown fences. No prose.`;
 
   const raw = await callOnce({
@@ -3357,9 +3362,21 @@ export function buildArchitectProductStrategistRole(): string {
     'Your role is to provide product strategy, user journey, required product moments, and a minimal pipeline contract.',
     'Do not over-own implementation architecture.',
     'Do not create detailed component architecture.',
+    'Do not design detailed component hierarchy.',
+    'Do not prescribe internal React state architecture.',
+    'Do not prescribe final component boundaries.',
+    'Do not create a detailed implementation plan.',
+    'Do not override builder-owned self-plan.',
     'Do not conflict with the builder-owned self-plan.',
+    'Do not conflict with the market-aware builder brief.',
     'The builder/coder owns architecture, implementation, and self-test.',
     'fileTree and deltaFiles are pipeline scaffolding that guides the coder — they are not final architecture authority.',
+    'fileTree must be a minimal pipeline scaffold, not final architecture ownership.',
+    'deltaFiles are expected generated files for the pipeline contract, not final implementation ownership.',
+    'pages must describe product moments and screens, not component architecture.',
+    'dataModel must be product-level information only, not final schema design.',
+    'notes must be strategic constraints only, not implementation instructions.',
+    'contextContract must declare that builder/coder owns architecture, implementation, and self-test.',
   ].join('\n');
 }
 
