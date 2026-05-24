@@ -1088,6 +1088,60 @@ export function evaluateMarketAwareBuilderBriefDiagnostics(
   };
 }
 
+// ── Coder-facing serializer ───────────────────────────────────────────────────
+
+/**
+ * Produces a concise, mandatory-guidance block for the coder/builder agent.
+ * Not a full essay — only the fields the builder needs to make the right decisions.
+ * Kept intentionally tight to avoid token waste while covering all key signals.
+ */
+export function serializeMarketAwareBuilderBriefForCoder(
+  brief: MarketAwareBuilderBrief,
+): string {
+  const { marketInsight, productVision, builderBrief, selfTestChecklist } = brief;
+
+  const mustItems = selfTestChecklist.filter(i => i.severity === 'must');
+  const topExpectations = marketInsight.popularFeatures.slice(0, 3);
+  const topPainPoints = marketInsight.userPainPoints.slice(0, 3);
+  const requiredScreens = builderBrief.requiredScreens;
+
+  const lines: string[] = [
+    '═══════════════════════════════════════════════════════════════',
+    'MARKET-AWARE BUILDER BRIEF — MANDATORY BUILDER GUIDANCE',
+    '═══════════════════════════════════════════════════════════════',
+    '',
+    'You own the architecture, implementation, and self-test for this prototype.',
+    'You MUST implement at least one visible differentiator from this brief.',
+    'Do NOT produce generic placeholder text anywhere in the output.',
+    '',
+    `PRODUCT CATEGORY: ${marketInsight.productCategory}`,
+    `PRODUCT PROMISE: ${productVision.productPromise}`,
+    `TARGET USER: ${productVision.targetUser}`,
+    `CORE USER JOURNEY: ${productVision.coreUserJourney}`,
+    '',
+    'TOP USER EXPECTATIONS:',
+    ...topExpectations.map(e => `  • ${e}`),
+    '',
+    'TOP PAIN POINTS / GAPS TO ADDRESS:',
+    ...topPainPoints.map(p => `  • ${p}`),
+    '',
+    'REQUIRED PRODUCT MOMENTS (screens you MUST implement):',
+    ...requiredScreens.map((s, i) => `  ${i + 1}. ${s}`),
+    '',
+    'VISIBLE DIFFERENTIATOR (must appear in the prototype):',
+    `  ${builderBrief.marketAwareDifferentiator}`,
+    '',
+    'SELF-TEST CHECKLIST — must items (run before declaring done):',
+    ...mustItems.map(item => `  [must] ${item.id}: ${item.label}`),
+    '',
+    'FORBIDDEN PLACEHOLDER TEXT (strictly banned, zero tolerance):',
+    ...builderBrief.forbiddenGenericPlaceholders.map(p => `  ✗ ${p}`),
+    '═══════════════════════════════════════════════════════════════',
+  ];
+
+  return lines.join('\n');
+}
+
 // ── Telemetry serializer ──────────────────────────────────────────────────────
 
 export function serializeMarketAwareBriefDiagnosticsTelemetry(

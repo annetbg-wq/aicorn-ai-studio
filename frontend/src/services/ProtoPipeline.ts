@@ -110,6 +110,8 @@ import {
   buildMarketAwareBuilderBrief,
   evaluateMarketAwareBuilderBriefDiagnostics,
   serializeMarketAwareBriefDiagnosticsTelemetry,
+  serializeMarketAwareBuilderBriefForCoder,
+  type MarketAwareBuilderBrief,
 } from './MarketAwareBuilderBrief';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -1669,10 +1671,15 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     const marketBriefTelemetry = serializeMarketAwareBriefDiagnosticsTelemetry(
       marketBrief,
       marketBriefDiagnostics,
-      false, // coder_prompt_contains_market_brief — not yet injected into coder prompt
+      true, // coder_prompt_contains_market_brief — injected into coder planning blocks
     );
+    const serializedBriefLength = serializeMarketAwareBuilderBriefForCoder(marketBrief).length;
+    const mustItemCount = marketBrief.selfTestChecklist.filter(i => i.severity === 'must').length;
     log(
       `[market-brief] ok=${String(marketBriefTelemetry.market_brief_ok)} category=${marketBriefTelemetry.product_category} insights=${marketBriefTelemetry.market_insight_count} screens=${marketBriefTelemetry.required_screen_count} checklist=${marketBriefTelemetry.self_test_item_count} differentiator=${String(marketBriefTelemetry.differentiator_present)} generic=${String(marketBriefTelemetry.suspiciously_generic)} techArch=${String(marketBriefTelemetry.tries_to_own_technical_architecture)}`,
+    );
+    log(
+      `[market-brief] injected=true serialized_length=${serializedBriefLength} required_moments=${marketBriefTelemetry.required_screen_count} self_test_must_count=${mustItemCount}`,
     );
     if (marketBriefDiagnostics.issues.length > 0) {
       for (const issue of marketBriefDiagnostics.issues) {
@@ -1701,6 +1708,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
          functionalFlowPlan,
          skeletonIntegrationPlan,
          productSpecificityPlan,
+         marketAwareBuilderBrief: marketBrief,
        });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
@@ -2471,6 +2479,7 @@ export function buildCoderPlanningBlocks(input: {
   functionalFlowPlan?: FunctionalFlowPlan;
   skeletonIntegrationPlan?: SkeletonIntegrationPlan;
   productSpecificityPlan?: ProductSpecificityPlan;
+  marketAwareBuilderBrief?: MarketAwareBuilderBrief;
 }): string {
   return [
     input.designCtx ? designContractForCoder(input.designCtx, input.mediaHints) : '',
@@ -2478,6 +2487,7 @@ export function buildCoderPlanningBlocks(input: {
     input.functionalFlowPlan ? buildFunctionalFlowPromptBlock(input.functionalFlowPlan) : '',
     input.skeletonIntegrationPlan ? buildSkeletonIntegrationPromptBlock(input.skeletonIntegrationPlan) : '',
     input.productSpecificityPlan ? buildProductSpecificityPromptBlock(input.productSpecificityPlan) : '',
+    input.marketAwareBuilderBrief ? serializeMarketAwareBuilderBriefForCoder(input.marketAwareBuilderBrief) : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -2500,6 +2510,7 @@ async function runCoder(input: {
   functionalFlowPlan?: FunctionalFlowPlan;
   skeletonIntegrationPlan?: SkeletonIntegrationPlan;
   productSpecificityPlan?: ProductSpecificityPlan;
+  marketAwareBuilderBrief?: MarketAwareBuilderBrief;
 }): Promise<Record<string, string>>{
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
@@ -2544,6 +2555,7 @@ async function runCoder(input: {
       functionalFlowPlan: input.functionalFlowPlan,
       skeletonIntegrationPlan: input.skeletonIntegrationPlan,
       productSpecificityPlan: input.productSpecificityPlan,
+      marketAwareBuilderBrief: input.marketAwareBuilderBrief,
     });
   const advertisedUiPrimitives = filterAdvertisedUiPrimitiveNames(skeleton.uiPrimitives);
   const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(advertisedUiPrimitives);
