@@ -123,6 +123,8 @@ import {
   buildMinimalArchitectPlanAdapter,
   evaluateArchitectReplacementAdapterReadiness,
   compareArchitectPlanWithAdapter,
+  isArchitectPlanUsableForPipeline,
+  maybeApplyArchitectAdapterFallback,
   type BuildMinimalArchitectPlanAdapterInput,
 } from './ArchitectReplacementAdapter';
 
@@ -1585,6 +1587,46 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       if (isAbort(err)) return fail('architect', 'aborted');
       return fail('architect', (err as Error).message);
     }
+
+    // ── Controlled adapter fallback (rescue before pipeline guard) ────────────
+    // Fires only when runArchitect output fails isArchitectPlanUsableForPipeline.
+    // Does NOT add LLM calls. Does NOT fire for valid plans (fast path exits immediately).
+    // When adapter readiness passes, plan is replaced with the adapter rescue plan.
+    // When adapter readiness fails, plan is left unchanged and the existing guard
+    // below fires exactly as before.
+    {
+      const fallbackMarketBrief = buildMarketAwareBuilderBrief({
+        brief: clarifiedPrompt,
+        skeletonId: config.skeletonId,
+        premiumComponentIds: designCtx.premiumComponentSelection.selectedComponents.map(c => c.id),
+        // mediaHints intentionally omitted — not yet materialized at this pipeline point.
+        // mediaHints defaults to [] inside buildMarketAwareBuilderBrief; safe for fallback.
+      });
+      const fallbackResult = maybeApplyArchitectAdapterFallback({
+        realPlan: plan,
+        brief: fallbackMarketBrief,
+        skeletonId: config.skeletonId,
+        expectedFiles: plan.deltaFiles,
+      });
+      if (fallbackResult.fallbackApplied) {
+        plan = fallbackResult.plan;
+        log(
+          `[architect-adapter-fallback] applied` +
+          ` reason="${fallbackResult.fallbackReason ?? ''}"` +
+          ` adapter_readiness_ok=${String(fallbackResult.adapterReadinessOk)}` +
+          ` issue_count=${fallbackResult.telemetry.adapter_issue_count}`,
+          'warn',
+        );
+      } else if (fallbackResult.telemetry.fallback_triggered) {
+        log(
+          `[architect-adapter-fallback] triggered but adapter not ready` +
+          ` reason="${fallbackResult.fallbackReason ?? ''}"` +
+          ` diagnostics: ${fallbackResult.diagnostics.slice(0, 3).join(' | ')}`,
+          'warn',
+        );
+      }
+    }
+
     if (plan.deltaFiles.length === 0) {
       return fail('architect', 'Architect returned an empty delta plan');
     }
