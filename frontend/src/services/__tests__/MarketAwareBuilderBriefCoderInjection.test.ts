@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildMarketAwareBuilderBrief,
+  buildBuilderOwnedSelfPlanInstructions,
   serializeMarketAwareBuilderBriefForCoder,
   type MarketAwareBuilderBrief,
 } from '../MarketAwareBuilderBrief';
@@ -181,12 +182,14 @@ describe('buildCoderPlanningBlocks — market brief injection', () => {
     expect(result).not.toContain('MARKET-AWARE BUILDER BRIEF');
   });
 
-  it('with only marketAwareBuilderBrief, output equals serialized brief', () => {
-    const expected = serializeMarketAwareBuilderBriefForCoder(HEALTH_BRIEF);
+  it('with only marketAwareBuilderBrief, output contains serialized brief and self-plan instructions', () => {
+    const briefBlock = serializeMarketAwareBuilderBriefForCoder(HEALTH_BRIEF);
+    const selfPlanBlock = buildBuilderOwnedSelfPlanInstructions(HEALTH_BRIEF);
     const result = buildCoderPlanningBlocks({
       marketAwareBuilderBrief: HEALTH_BRIEF,
     });
-    expect(result).toBe(expected);
+    expect(result).toContain(briefBlock);
+    expect(result).toContain(selfPlanBlock);
   });
 
   it('market brief block does not replace other blocks — no-brief output is subset of with-brief output', () => {
