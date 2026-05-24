@@ -247,13 +247,15 @@ export function buildMinimalArchitectPlanAdapter(
   const { brief, skeletonId, expectedFiles, screenCompositionPlan, productSpecificityPlan, appName } =
     input;
 
-  const fileTree = buildFileTree(expectedFiles);
-
-  // Guarantee non-empty deltaFiles; insert a safe default only if nothing provided.
-  const deltaFiles =
+  // Guarantee non-empty delta files and a matching file tree.
+  // When no expectedFiles are provided, both use the same safe default so the
+  // adapter output satisfies pipeline requirements (non-empty deltaFiles AND fileTree).
+  const effectiveDeltaFiles =
     expectedFiles.length > 0
       ? expectedFiles
       : [{ path: 'pages/Home.tsx', purpose: 'Main application screen (safe default)' }];
+  const fileTree = buildFileTree(effectiveDeltaFiles);
+  const deltaFiles = effectiveDeltaFiles;
 
   return {
     appName: deriveAppName(brief, appName),
@@ -618,6 +620,192 @@ export function compareArchitectPlanWithAdapter(
     missingInAdapter,
     extraInAdapter,
     mismatches,
+    telemetry,
+  };
+}
+
+// ── Plan usability guard ──────────────────────────────────────────────────────
+
+/**
+ * Deterministic validity check: is this ArchitectPlan usable by the existing pipeline?
+ *
+ * Requires at minimum:
+ *   - appName present and non-empty
+ *   - deltaFiles non-empty  (hard pipeline guard at ProtoPipeline.ts)
+ *   - fileTree non-empty    (coder "source of truth"; SkeletonIntegrationPlanner input)
+ *   - pages non-empty       (router wiring in the coder prompt)
+ *
+ * Does NOT call any LLM. Does NOT change pipeline behavior.
+ * Used by maybeApplyArchitectAdapterFallback as the trigger condition.
+ */
+export function isArchitectPlanUsableForPipeline(plan: ArchitectPlan): boolean {
+  if (!plan.appName || !plan.appName.trim()) return false;
+  if (!plan.deltaFiles || plan.deltaFiles.length === 0) return false;
+  if (!plan.fileTree || Object.keys(plan.fileTree).length === 0) return false;
+  if (!plan.pages || plan.pages.length === 0) return false;
+  return true;
+}
+
+// ── Controlled fallback types ─────────────────────────────────────────────────
+
+export interface ArchitectAdapterFallbackInput {
+  /** The real ArchitectPlan returned by runArchitect (possibly invalid). */
+  realPlan: ArchitectPlan;
+  /** Market-aware builder brief (must be non-null). */
+  brief: MarketAwareBuilderBrief;
+  /** Selected skeleton ID (from ProtoPipeline config). */
+  skeletonId: string;
+  /**
+   * Expected / delta files to pass into the adapter.
+   * Pass the real plan's deltaFiles when available; pass [] when they are absent.
+   */
+  expectedFiles?: Array<{ path: string; purpose: string }>;
+}
+
+export interface ArchitectAdapterFallbackTelemetry {
+  architect_adapter_fallback_evaluated: boolean;
+  fallback_triggered: boolean;
+  fallback_applied: boolean;
+  fallback_reason?: string;
+  adapter_readiness_ok: boolean;
+  adapter_issue_count: number;
+  adapter_missing_required_fields_count: number;
+  adapter_source: string;
+}
+
+export interface ArchitectAdapterFallbackResult {
+  /** The plan to use — either the original real plan or the adapter rescue plan. */
+  plan: ArchitectPlan;
+  /** True when the adapter plan was substituted for the real plan. */
+  fallbackApplied: boolean;
+  /** Human-readable reason the fallback was triggered. Absent when not triggered. */
+  fallbackReason?: string;
+  /** True when the adapter readiness evaluation passed (no error-severity issues). */
+  adapterReadinessOk: boolean;
+  /** Diagnostic messages from the adapter readiness evaluation. */
+  diagnostics: string[];
+  /** Flat telemetry for logging. */
+  telemetry: ArchitectAdapterFallbackTelemetry;
+}
+
+// ── Controlled fallback helper ────────────────────────────────────────────────
+
+/**
+ * Controlled fallback: if runArchitect returned an invalid plan, attempt to
+ * build a minimal adapter rescue plan.
+ *
+ * Safety rules:
+ *   - If real plan is usable (isArchitectPlanUsableForPipeline): returns it unchanged,
+ *     fallbackApplied: false. Adapter is never invoked.
+ *   - If real plan is unusable and adapter readiness passes: returns adapter plan,
+ *     fallbackApplied: true. Adapter plan is clearly marked (rawResponse, notes).
+ *   - If real plan is unusable and adapter readiness fails (or adapter build throws):
+ *     returns original invalid plan unchanged, fallbackApplied: false, so downstream
+ *     guards (e.g. deltaFiles.length === 0) can fail exactly as before.
+ *
+ * Does NOT add LLM calls. Does NOT modify coder prompt behavior.
+ * Does NOT change quality gate or skeleton selection behavior.
+ */
+export function maybeApplyArchitectAdapterFallback(
+  input: ArchitectAdapterFallbackInput,
+): ArchitectAdapterFallbackResult {
+  const { realPlan, brief, skeletonId, expectedFiles = [] } = input;
+
+  // Fast path: real plan is valid — do nothing.
+  if (isArchitectPlanUsableForPipeline(realPlan)) {
+    return {
+      plan: realPlan,
+      fallbackApplied: false,
+      adapterReadinessOk: true,
+      diagnostics: [],
+      telemetry: {
+        architect_adapter_fallback_evaluated: false,
+        fallback_triggered: false,
+        fallback_applied: false,
+        adapter_readiness_ok: true,
+        adapter_issue_count: 0,
+        adapter_missing_required_fields_count: 0,
+        adapter_source: 'none',
+      },
+    };
+  }
+
+  // Collect the specific invalidity reasons for telemetry.
+  const reasons: string[] = [];
+  if (!realPlan.appName || !realPlan.appName.trim()) reasons.push('appName_missing');
+  if (!realPlan.deltaFiles || realPlan.deltaFiles.length === 0) reasons.push('deltaFiles_empty');
+  if (!realPlan.fileTree || Object.keys(realPlan.fileTree).length === 0) reasons.push('fileTree_empty');
+  if (!realPlan.pages || realPlan.pages.length === 0) reasons.push('pages_empty');
+  const fallbackReason = reasons.join(', ');
+
+  // Build adapter plan from the best available inputs.
+  const effectiveFiles =
+    expectedFiles.length > 0 ? expectedFiles : (realPlan.deltaFiles ?? []);
+  const adapterInput: BuildMinimalArchitectPlanAdapterInput = {
+    brief,
+    skeletonId,
+    expectedFiles: effectiveFiles,
+  };
+
+  let adapterPlan: ArchitectPlan;
+  let readiness: ArchitectReplacementAdapterReadiness;
+  try {
+    adapterPlan = buildMinimalArchitectPlanAdapter(adapterInput);
+    readiness = evaluateArchitectReplacementAdapterReadiness(adapterInput, adapterPlan);
+  } catch (buildErr) {
+    // Adapter build failed (e.g., malformed brief). Return original plan so
+    // existing downstream guards handle the failure exactly as before.
+    return {
+      plan: realPlan,
+      fallbackApplied: false,
+      fallbackReason,
+      adapterReadinessOk: false,
+      diagnostics: [`[ERROR:ADAPTER_BUILD_FAILED] ${(buildErr as Error).message}`],
+      telemetry: {
+        architect_adapter_fallback_evaluated: true,
+        fallback_triggered: true,
+        fallback_applied: false,
+        fallback_reason: fallbackReason,
+        adapter_readiness_ok: false,
+        adapter_issue_count: 1,
+        adapter_missing_required_fields_count: 0,
+        adapter_source: 'controlled-fallback',
+      },
+    };
+  }
+
+  const diagnostics = readiness.issues.map(
+    i => `[${i.severity.toUpperCase()}:${i.code}] ${i.message}`,
+  );
+  const telemetry: ArchitectAdapterFallbackTelemetry = {
+    architect_adapter_fallback_evaluated: true,
+    fallback_triggered: true,
+    fallback_applied: readiness.ready,
+    fallback_reason: fallbackReason,
+    adapter_readiness_ok: readiness.ready,
+    adapter_issue_count: readiness.issues.length,
+    adapter_missing_required_fields_count: readiness.missingRequiredFields.length,
+    adapter_source: 'controlled-fallback',
+  };
+
+  if (readiness.ready) {
+    return {
+      plan: adapterPlan,
+      fallbackApplied: true,
+      fallbackReason,
+      adapterReadinessOk: true,
+      diagnostics,
+      telemetry,
+    };
+  }
+
+  // Adapter not ready — return original (invalid) plan so existing guards handle it.
+  return {
+    plan: realPlan,
+    fallbackApplied: false,
+    fallbackReason,
+    adapterReadinessOk: false,
+    diagnostics,
     telemetry,
   };
 }
