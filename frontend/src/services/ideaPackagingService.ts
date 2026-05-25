@@ -7,6 +7,112 @@ import {
   type ProductIdea,
 } from './ideaFeedService';
 
+// ── Blueprint packaging error ─────────────────────────────────────────────────
+
+export class BlueprintPackagingError extends Error {
+  readonly validationReason: string;
+
+  constructor(message: string, validationReason: string) {
+    super(message);
+    this.name = 'BlueprintPackagingError';
+    this.validationReason = validationReason;
+  }
+}
+
+// ── Blueprint shape validator ─────────────────────────────────────────────────
+
+/**
+ * Returns null when the raw model payload satisfies the minimum required shape,
+ * or a short diagnostic string describing the first violation found.
+ *
+ * Intentionally minimal: only required fields are checked. Optional fields are
+ * not constrained so we do not over-reject partially-valid payloads.
+ */
+export function validateBlueprintShape(raw: Record<string, unknown>): string | null {
+  if (!raw || typeof raw !== 'object') return 'payload is not an object';
+  if (!raw.appName || typeof raw.appName !== 'string' || !(raw.appName as string).trim()) {
+    return 'missing or empty appName';
+  }
+  if (!raw.description || typeof raw.description !== 'string' || !(raw.description as string).trim()) {
+    return 'missing or empty description';
+  }
+  if (!Array.isArray(raw.pages) || (raw.pages as unknown[]).length === 0) {
+    return 'pages must be a non-empty array';
+  }
+  const firstPage = (raw.pages as unknown[])[0] as Record<string, unknown> | undefined;
+  if (!firstPage?.path || !firstPage?.name) {
+    return 'first page entry must have path and name';
+  }
+  const layout = raw.layout as Record<string, unknown> | undefined;
+  if (!layout || typeof layout !== 'object' || !layout.type) {
+    return 'layout must be an object with a type property';
+  }
+  return null;
+}
+
+// ── Telemetry ─────────────────────────────────────────────────────────────────
+
+function recordBlueprintPackagingTelemetry(data: {
+  firstAttemptValid: boolean;
+  retryUsed: boolean;
+  retryValid?: boolean;
+  validationError?: string;
+  finalStatus: 'success' | 'retry_success' | 'failed';
+}): void {
+  console.log('[blueprint_packaging]', {
+    blueprint_packaging_first_attempt_valid: data.firstAttemptValid,
+    blueprint_packaging_retry_used: data.retryUsed,
+    ...(data.retryUsed ? { blueprint_packaging_retry_valid: data.retryValid } : {}),
+    ...(data.validationError ? { blueprint_packaging_validation_error: data.validationError } : {}),
+    blueprint_packaging_final_status: data.finalStatus,
+  });
+}
+
+// ── Fallback (retry) prompt ───────────────────────────────────────────────────
+
+const MINIMAL_BLUEPRINT_SCHEMA = `{
+  "appName": "string — required, specific product name",
+  "description": "string — one sentence core value proposition",
+  "theme": "dark-slate|trust|warm|neon|bloom",
+  "targetUser": "string",
+  "layout": { "type": "single|tabs|sidebar|dashboard|wizard", "navigation": "none|top-nav|bottom-tabs|sidebar|stepper" },
+  "pages": [{ "path": "/", "name": "string", "file": "pages/Home.tsx", "purpose": "string", "isMainScreen": true, "showInNav": true, "uiSpec": "string" }],
+  "dataModel": { "entities": [], "sharedState": "string" },
+  "criticalUiRules": [],
+  "shadcnComponents": [],
+  "icons": [],
+  "packageSummary": "string",
+  "visualTag": "string",
+  "authFlow": { "type": "supabase", "onboardingSteps": [] },
+  "monetization": { "model": "freemium", "paywall": { "trigger": "string", "limits": [], "upgradeMessage": "string" } },
+  "databaseSchema": { "sql": "", "tables": [] },
+  "aiLogic": { "features": [] },
+  "fileArchitecture": [{ "path": "src/pages/Home.tsx", "role": "page", "purpose": "string" }],
+  "premiumUiDirectives": []
+}`;
+
+export function buildFallbackBlueprintPrompt(
+  idea: ProductIdea,
+  validationReason: string,
+  language = 'ru',
+): string {
+  return `You are a system architect. Output ONE valid JSON object for the product below.
+
+PRODUCT TITLE: ${idea.title}
+PRODUCT PITCH: ${idea.pitch}
+PRIOR ATTEMPT FAILED VALIDATION: ${validationReason}
+
+STRICT RULES — you must follow all of them:
+- Output ONLY a raw JSON object. The response must start with { and end with }
+- No markdown fences, no \`\`\`json, no prose before or after the JSON
+- No explanation, no comments inside the JSON
+- All human-readable strings in ${language === 'ru' ? 'Russian' : 'English'}
+- Maximum output: 4000 tokens
+
+Use this exact schema shape (fill in all required string fields):
+${MINIMAL_BLUEPRINT_SCHEMA}`;
+}
+
 export const PACKAGING_PROGRESS_STEPS = [
   'Анализируем рыночный wedge...',
   'Проектируем путь к aha-moment...',
@@ -206,12 +312,62 @@ export async function packageSelectedIdea(
     language?: string;
   },
 ): Promise<ProductBlueprint> {
-  const prompt = buildPackageIdeaPrompt(idea, options?.language ?? 'ru');
+  const language = options?.language ?? 'ru';
+  const prompt = buildPackageIdeaPrompt(idea, language);
   const text = await runIdeaModelPrompt(prompt, options?.googleAccessToken);
   const parsed = safeParseJSONArray(text);
-  if (parsed.length === 0) {
-    throw new Error('Model returned an invalid blueprint payload');
+
+  const firstValidationError =
+    parsed.length === 0
+      ? 'model returned no parseable JSON object'
+      : validateBlueprintShape(parsed[0]);
+
+  if (firstValidationError === null) {
+    recordBlueprintPackagingTelemetry({
+      firstAttemptValid: true,
+      retryUsed: false,
+      finalStatus: 'success',
+    });
+    return normalizeBlueprint(parsed[0], idea);
   }
 
-  return normalizeBlueprint(parsed[0], idea);
+  // First attempt invalid — retry exactly once with a stricter fallback prompt.
+  console.warn(
+    `[blueprint_packaging] First attempt invalid (${firstValidationError}). Retrying once with fallback prompt.`,
+  );
+
+  const fallbackPrompt = buildFallbackBlueprintPrompt(idea, firstValidationError, language);
+  const retryText = await runIdeaModelPrompt(fallbackPrompt, options?.googleAccessToken);
+  const retryParsed = safeParseJSONArray(retryText);
+
+  const retryValidationError =
+    retryParsed.length === 0
+      ? 'retry: model returned no parseable JSON object'
+      : validateBlueprintShape(retryParsed[0]);
+
+  if (retryValidationError === null) {
+    recordBlueprintPackagingTelemetry({
+      firstAttemptValid: false,
+      retryUsed: true,
+      retryValid: true,
+      validationError: firstValidationError,
+      finalStatus: 'retry_success',
+    });
+    return normalizeBlueprint(retryParsed[0], idea);
+  }
+
+  const finalValidationReason = retryValidationError ?? firstValidationError;
+
+  recordBlueprintPackagingTelemetry({
+    firstAttemptValid: false,
+    retryUsed: true,
+    retryValid: false,
+    validationError: finalValidationReason,
+    finalStatus: 'failed',
+  });
+
+  throw new BlueprintPackagingError(
+    `Blueprint packaging failed after one retry. Reason: ${finalValidationReason}`,
+    finalValidationReason,
+  );
 }
