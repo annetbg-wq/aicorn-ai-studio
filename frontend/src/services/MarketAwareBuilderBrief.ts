@@ -1151,9 +1151,27 @@ export function serializeMarketAwareBuilderBriefForCoder(
 export const SELF_PLAN_SELF_TEST_ITEMS = 8;
 
 /**
- * Produces a concise, mandatory builder-facing block that directs the coder
- * to own its own architecture plan, implement from that plan, and run an
- * explicit self-test before returning files.
+ * Produces a mandatory builder-facing block that requires the coder to write
+ * an explicit Product Assembly Plan before coding, implement from that plan,
+ * and run a self-test before returning files.
+ *
+ * Key change from earlier versions: the planning step is no longer "synthesize
+ * internally" — the coder must commit to a written Product Assembly Plan that
+ * maps the market-aware brief to concrete screen/section roles and component
+ * choices. This makes the plan visible and forces it to actually affect the
+ * generated UI.
+ *
+ * Architecture ownership is explicit:
+ *   - runArchitect provides product strategy and pipeline scaffolding only.
+ *   - Coder owns final app architecture, screen composition, component choices,
+ *     and implementation. Coder must not wait for architect to provide
+ *     component hierarchy.
+ *
+ * Component/material rules:
+ *   - If skeleton provides a UI primitive catalog → choose from it.
+ *   - If design tokens or premium components were provided → use them.
+ *   - If no inventory exists → define block roles and implement coherently.
+ *   - Never reference a component absent from the catalog and not self-implemented.
  *
  * Complement to serializeMarketAwareBuilderBriefForCoder — injected immediately
  * after the market-aware brief in the coder planning context.
@@ -1168,32 +1186,48 @@ export function buildBuilderOwnedSelfPlanInstructions(
 
   const lines: string[] = [
     '═══════════════════════════════════════════════════════════════',
-    'BUILDER-OWNED ARCHITECTURE & SELF-TEST — MANDATORY',
+    'BUILDER-OWNED PRODUCT ASSEMBLY PLAN & SELF-TEST — MANDATORY',
     '═══════════════════════════════════════════════════════════════',
     '',
-    'You are NOT a passive implementer of the architect plan.',
-    'You own architecture, implementation, and self-test for this prototype.',
+    'ARCHITECTURE OWNERSHIP',
+    '  runArchitect has provided product strategy and pipeline scaffolding only.',
+    '  YOU own: final app architecture, screen composition, component choices,',
+    '  and implementation. Do NOT wait for architect to define component hierarchy.',
+    '  The deltaFiles list is a scaffold — you decide how to implement each file.',
     '',
-    'BEFORE WRITING CODE — synthesize internally:',
-    '  1. Screen / component architecture (screens, layouts, shared components)',
-    '  2. State / data model (entities, relationships, local vs persisted)',
-    '  3. Core user journey (step-by-step from entry to primary outcome)',
-    '  4. Interaction flow (what happens on each key user action)',
-    '  5. File responsibility map (which file owns which concern)',
-    `  6. Visible differentiator placement — where "${differentiatorHint}" appears in the UI`,
+    'BEFORE WRITING ANY CODE — write your PRODUCT ASSEMBLY PLAN first:',
     '',
-    'DURING IMPLEMENTATION:',
-    '  • Preserve the expected file list exactly — no additions or omissions',
-    '  • Use the selected skeleton correctly — extend it, never rebuild it',
-    '  • Implement required product moments from the market-aware brief above',
-    '  • Use premium / media assets when provided — never leave them unused',
-    '  • Never produce generic placeholder text (see FORBIDDEN list above)',
-    '  • Make the first screen immediately meaningful and product-specific',
-    '  • Keep UI coherent and product-specific across all screens',
+    '  1. Product promise — one sentence describing what this product does for the user',
+    '  2. Primary user action — the single most important thing the user does',
+    '  3. First screen role — what the user sees and does immediately on launch',
+    '  4. 3–6 screen/section roles (your choice — not prescribed externally):',
+    '     For each screen/section define:',
+    '       a) product-specific purpose (tied to the market brief above)',
+    '       b) primary user action on that screen',
+    '       c) data/content needed to make it real',
+    '       d) UI block/component role to use (chosen from available inventory below)',
+    `  5. Visible differentiator — which screen/section shows: "${differentiatorHint}"`,
+    '  6. First viewport clarity check — state exactly what is visible before any scroll',
+    '',
+    'COMPONENT/MATERIAL INVENTORY RULES',
+    '  • If skeleton lists UI primitives/provided components above → choose ONLY from those.',
+    '  • If design tokens or premium components were provided → use them; never leave unused.',
+    '  • If no inventory exists → define your own block roles and implement them as local components.',
+    '  • NEVER reference a component absent from the UI primitive catalog above',
+    '    unless you implement it yourself in a file you emit.',
+    '',
+    'DURING IMPLEMENTATION',
+    '  • Implement every screen/section role you declared in your Product Assembly Plan.',
+    '  • Preserve the expected file list exactly — no additions or omissions.',
+    '  • Use the selected skeleton correctly — extend it, never rebuild it.',
+    '  • Implement required product moments from the market-aware brief above.',
+    '  • Make the first screen immediately meaningful and product-specific.',
+    '  • Keep UI coherent and product-specific across all screens.',
+    '  • Never produce generic placeholder text (see FORBIDDEN list above).',
     '',
     `SELF-TEST BEFORE FINAL ANSWER (${brief.selfTestChecklist.length} checklist items — all must pass):`,
-    '  ✓ Generated files match the expected file list',
-    '  ✓ All imports in generated files resolve correctly',
+    '  ✓ Product Assembly Plan was written and all declared screens/sections are implemented',
+    '  ✓ All imports in generated files resolve correctly (only catalog primitives or self-implemented)',
     '  ✓ Every screen contains product-specific, meaningful content',
     '  ✓ Primary CTA exists on the first screen and is product-specific',
     '  ✓ Product-specific workflow is visible and navigable',
