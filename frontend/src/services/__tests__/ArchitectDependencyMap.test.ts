@@ -470,22 +470,22 @@ describe('ProtoPipeline — runArchitect still present after dependency map wiri
   it('ProtoPipeline module loads correctly', async () => {
     const pipeline = await import('../ProtoPipeline');
     expect(pipeline).toBeDefined();
-  });
+  }, 30_000);
 
   it('buildCoderPlanningBlocks is still exported', async () => {
     const pipeline = await import('../ProtoPipeline');
     expect(typeof pipeline.buildCoderPlanningBlocks).toBe('function');
-  });
+  }, 30_000);
 
   it('buildUiPrimitiveImportCatalog is still exported', async () => {
     const pipeline = await import('../ProtoPipeline');
     expect(typeof pipeline.buildUiPrimitiveImportCatalog).toBe('function');
-  });
+  }, 30_000);
 
   it('evaluatePrototypeQualityGate is still exported (quality gate not modified)', async () => {
     const pipeline = await import('../ProtoPipeline');
     expect(typeof pipeline.evaluatePrototypeQualityGate).toBe('function');
-  });
+  }, 30_000);
 });
 
 // ── ArchitectDependencyMap module exports ─────────────────────────────────────

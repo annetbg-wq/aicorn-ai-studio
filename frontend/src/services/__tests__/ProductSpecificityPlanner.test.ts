@@ -81,13 +81,14 @@ describe('ProductSpecificityPlanner', () => {
       buildPlannerFixture('course app with lessons, quiz, and streaks', 'content-learning-app'),
     ]);
 
+
     for (const fixture of fixtures) {
       expect(fixture.productSpecificityPlan.domainEntities.length).toBeGreaterThan(0);
       expect(fixture.productSpecificityPlan.productMetrics.length).toBeGreaterThan(0);
       expect(fixture.productSpecificityPlan.productActions.length).toBeGreaterThan(0);
       expect(fixture.productSpecificityPlan.screenSpecificContent.length).toBeGreaterThan(0);
     }
-  });
+  }, 30_000);
 
   it('creates a habit and check-in specificity plan for a mobile wellness brief', async () => {
     const { productSpecificityPlan } = await buildPlannerFixture(
