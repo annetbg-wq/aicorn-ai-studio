@@ -7,6 +7,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   evaluatePrototypeQualityGate,
   runQualityRepair,
+  buildRepairPrompt,
   type PrototypeQualityGateInput,
   type VisualUsageDiagnostics,
 } from '../ProtoPipeline';
@@ -606,5 +607,103 @@ describe('soft vs hard blocking classification', () => {
     // Should NOT match either soft prefix
     expect(gate.blockingReasons[0].startsWith('Premium components selected')).toBe(false);
     expect(gate.blockingReasons[0].startsWith('Generated media assets materialized')).toBe(false);
+  });
+});
+
+// ── buildRepairPrompt tests ───────────────────────────────────────────────────
+//
+// Deterministic tests — no LLM calls, no fetch mock needed.
+// Tests verify that the system prompt built by buildRepairPrompt contains the
+// exact rules required for PRODUCT-token replacement, empty-array filling,
+// self-check, and the existing missing-component guard.
+
+describe('buildRepairPrompt', () => {
+  const baseInput = {
+    prompt:             'Trending niche: TrendFit – AI workout planner for remote workers',
+    blockingReasons:    ['Generic placeholder content: PRODUCT'],
+    repairInstructions: ['Replace PRODUCT placeholder with product-specific name'],
+    currentFiles: {
+      'pages/Dashboard.tsx':
+        'export default function D() { return <h1>PRODUCT</h1>; }',
+      'hooks/useTrends.ts':
+        'export const useTrends = () => ({ data: [] as string[] });',
+    },
+  };
+
+  it('repair prompt includes standalone PRODUCT replacement rule', () => {
+    const { system } = buildRepairPrompt(baseInput);
+    expect(system).toMatch(/Bare PRODUCT token/i);
+    expect(system).toMatch(/standalone placeholder token/i);
+  });
+
+  it('rule instructs using actual product/app/trend name from original task prompt', () => {
+    const { system } = buildRepairPrompt(baseInput);
+    expect(system).toMatch(/actual\s+product name, app name, or trend niche name/i);
+    expect(system).toMatch(/derived from the original task prompt/i);
+  });
+
+  it('rule explicitly forbids substring replacement of PRODUCT inside normal words', () => {
+    const { system } = buildRepairPrompt(baseInput);
+    expect(system).toMatch(/Do not replace PRODUCT where it appears as a substring inside a normal word/i);
+  });
+
+  it('repair prompt includes empty [] data array fill rule', () => {
+    const { system } = buildRepairPrompt(baseInput);
+    expect(system).toMatch(/Empty data arrays/i);
+    expect(system).toMatch(/exports or returns an empty \[\]/i);
+  });
+
+  it('empty-array rule requires 3–5 realistic domain-specific sample entries', () => {
+    const { system } = buildRepairPrompt(baseInput);
+    expect(system).toMatch(/3.{1,3}5 realistic domain-specific sample entries/i);
+  });
+
+  it('empty-array rule forbids leaving visible UI content backed by empty arrays', () => {
+    const { system } = buildRepairPrompt(baseInput);
+    expect(system).toMatch(/Do not leave visible dashboards.*hooks backed by empty arrays/i);
+  });
+
+  it('repair self-check verifies no standalone PRODUCT token remains', () => {
+    const { system } = buildRepairPrompt(baseInput);
+    expect(system).toMatch(/Self-check before returning repaired files/i);
+    expect(system).toMatch(/no standalone PRODUCT token remains/i);
+  });
+
+  it('repair self-check verifies no visible-content data hook returns []', () => {
+    const { system } = buildRepairPrompt(baseInput);
+    expect(system).toMatch(/no visible-content data hook returns or exports \[\]/i);
+  });
+
+  it('missing component rule — self-check forbids importing absent catalog components', () => {
+    const { system } = buildRepairPrompt(baseInput);
+    expect(system).toMatch(/do not import absent catalog components/i);
+  });
+
+  it('existing generic-placeholder rule is still present (non-regression)', () => {
+    const { system } = buildRepairPrompt(baseInput);
+    expect(system).toMatch(/Feature 1.*AppName.*Lorem ipsum/i);
+    expect(system).toMatch(/product-specific copy/i);
+  });
+
+  it('user message starts with "Original task:" and contains the prompt', () => {
+    const { user } = buildRepairPrompt(baseInput);
+    expect(user).toMatch(/^Original task:/);
+    expect(user).toContain(baseInput.prompt);
+  });
+
+  it('user message embeds each current file with FILE/END markers', () => {
+    const { user } = buildRepairPrompt(baseInput);
+    expect(user).toContain('<<<FILE: pages/Dashboard.tsx>>>');
+    expect(user).toContain('<<<FILE: hooks/useTrends.ts>>>');
+    expect(user).toContain('<<<END>>>');
+  });
+
+  it('one-shot: buildRepairPrompt produces a single system+user pair with no loops', () => {
+    // buildRepairPrompt is a pure function — calling it once produces one prompt.
+    // Calling it twice produces two independent prompts (no shared mutable state).
+    const first  = buildRepairPrompt(baseInput);
+    const second = buildRepairPrompt(baseInput);
+    expect(first.system).toBe(second.system);
+    expect(first.user).toBe(second.user);
   });
 });
