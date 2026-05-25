@@ -1,0 +1,123 @@
+{
+  "capturedAt": "2026-05-25T16:17:16.116Z",
+  "branch": "p2/trending-niche-quality-after-repair-resnapshot",
+  "prFixed": "PR #26",
+  "runs": [
+    {
+      "runId": "run1",
+      "ideaTitle": "Daily ideas",
+      "ideaIndex": 0,
+      "directLaunchConfirmed": true,
+      "packagingCompleted": true,
+      "skeletonObserved": "saas-dashboard",
+      "repairDetected": false,
+      "productTokenFixed": false,
+      "emptyArrayFixed": false,
+      "productTokenFiles": [
+        "components/ErrorBoundary.tsx",
+        "components/LoadingScreen.tsx",
+        "components/OnboardingChecklist.tsx",
+        "components/Sparkline.tsx",
+        "components/TopBar.tsx",
+        "config/app.ts",
+        "context/AppContext.tsx",
+        "data/types.ts",
+        "pages/Dashboard.tsx",
+        "pages/DataView.tsx",
+        "pages/Settings.tsx"
+      ],
+      "emptyArrayFiles": [
+        "components/sections/FAQ.tsx",
+        "components/sections/Marquee.tsx",
+        "components/ui/accordion.tsx"
+      ],
+      "scannedFiles": 54,
+      "previewStatus": "fail",
+      "finalResult": "fail",
+      "screenshots": [
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run1-01-trend-panel.png",
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run1-02-packaging.png",
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run1-03-gen-started.png",
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run1-04-fail.png"
+      ],
+      "error": "Live generation contract failed: root_cause_type=missing_named_export file=src/components/BottomTabs.tsx import=@/config/navigation\n{\n  \"root_cause_type\": \"missing_named_export\",\n  \"file\": \"src/components/BottomTabs.tsx\",\n  \"import_path\": \"@/config/navigation\",\n  \"expected\": \"named export BOTTOM_TABS\",\n  \"actual\": \"available exports: NavGroup, NavItem, SIDEBAR_NAV\",\n  \"suggested_fix\": \"Export BOTTOM_TABS from src/config/navigation.ts or change the import in src/components/BottomTabs.tsx.\",\n  \"candidate_graph_summary\": {\n    \"totalFiles\": 56,\n    \"sourceModuleCount\": 54,\n    \"pageFileCount\": 3,\n    \"meaningfulSourceCount\": 38,\n    \"generatedDeltaCount\": 1,\n    \"materializedFileCount\": 0,\n    \"skeletonFileCount\": 0,\n    \"hasMain\": true,\n    \"hasApp\": true,\n    \"hasRouteManifest\": true,\n    \"shellOwnerFiles\": [\n      \"src/App.tsx\",\n      \"src/components/BottomTabs.tsx\",\n      \"src/components/Sidebar.tsx\",\n      \"src/components/TopBar.tsx\"\n    ]\n  },\n  \"raw_error_excerpt\": null\n}\n{\n  \"root_cause_type\": \"missing_named_export\",\n  \"file\": \"src/components/BottomTabs.tsx\",\n  \"import_path\": \"@/config/navigation\",\n  \"expected\": \"named export BOTTOM_TABS\",\n  \"actual\": \"available exports: NavGroup, NavItem, SIDEBAR_NAV\",\n  \"suggested_fix\": \"Export BOTTOM_TABS from src/config/navigation.ts or change the import in src/components/BottomTabs.tsx.\",\n  \"candidate_graph_summary\": {\n    \"totalFiles\": 56,\n    \"sourceModuleCount\": 54,\n    \"pageFileCount\": 3,\n    \"meaningfulSourceCount\": 38,\n    \"generatedDeltaCount\": 1,\n    \"materializedFileCount\": 0,\n    \"skeletonFileCount\": 0,\n    \"hasMain\": true,\n    \"hasApp\": true,\n    \"hasRouteManifest\": true,\n    \"shellOwnerFiles\": [\n      \"src/App.tsx\",\n      \"src/components/BottomTabs.tsx\",\n      \"src/components/Sidebar.tsx\",\n      \"src/components/TopBar.tsx\"\n    ]\n  },\n  \"raw_error_excerpt\": null\n}",
+      "elapsedSec": 8,
+      "steps": [
+        {
+          "status": "failed",
+          "elapsedSec": 8
+        }
+      ]
+    },
+    {
+      "runId": "run2",
+      "ideaTitle": "Daily ideas",
+      "ideaIndex": 1,
+      "directLaunchConfirmed": true,
+      "packagingCompleted": true,
+      "skeletonObserved": "saas-dashboard",
+      "repairDetected": false,
+      "productTokenFixed": false,
+      "emptyArrayFixed": false,
+      "productTokenFiles": [
+        "components/ErrorBoundary.tsx",
+        "components/LoadingScreen.tsx",
+        "components/OnboardingChecklist.tsx",
+        "components/Sparkline.tsx",
+        "components/TopBar.tsx",
+        "config/app.ts",
+        "context/AppContext.tsx",
+        "data/types.ts",
+        "pages/Dashboard.tsx",
+        "pages/DataView.tsx",
+        "pages/Settings.tsx"
+      ],
+      "emptyArrayFiles": [
+        "components/sections/FAQ.tsx",
+        "components/sections/Marquee.tsx",
+        "components/ui/accordion.tsx"
+      ],
+      "scannedFiles": 54,
+      "previewStatus": "fail",
+      "finalResult": "fail",
+      "screenshots": [
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run2-01-trend-panel.png",
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run2-02-packaging.png",
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run2-03-gen-started.png",
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run2-04-fail.png"
+      ],
+      "error": "Live generation contract failed: root_cause_type=missing_named_export file=src/components/BottomTabs.tsx import=@/config/navigation\n{\n  \"root_cause_type\": \"missing_named_export\",\n  \"file\": \"src/components/BottomTabs.tsx\",\n  \"import_path\": \"@/config/navigation\",\n  \"expected\": \"named export BOTTOM_TABS\",\n  \"actual\": \"available exports: NavGroup, NavItem, SIDEBAR_NAV\",\n  \"suggested_fix\": \"Export BOTTOM_TABS from src/config/navigation.ts or change the import in src/components/BottomTabs.tsx.\",\n  \"candidate_graph_summary\": {\n    \"totalFiles\": 56,\n    \"sourceModuleCount\": 54,\n    \"pageFileCount\": 3,\n    \"meaningfulSourceCount\": 38,\n    \"generatedDeltaCount\": 1,\n    \"materializedFileCount\": 0,\n    \"skeletonFileCount\": 0,\n    \"hasMain\": true,\n    \"hasApp\": true,\n    \"hasRouteManifest\": true,\n    \"shellOwnerFiles\": [\n      \"src/App.tsx\",\n      \"src/components/BottomTabs.tsx\",\n      \"src/components/Sidebar.tsx\",\n      \"src/components/TopBar.tsx\"\n    ]\n  },\n  \"raw_error_excerpt\": null\n}\n{\n  \"root_cause_type\": \"missing_named_export\",\n  \"file\": \"src/components/BottomTabs.tsx\",\n  \"import_path\": \"@/config/navigation\",\n  \"expected\": \"named export BOTTOM_TABS\",\n  \"actual\": \"available exports: NavGroup, NavItem, SIDEBAR_NAV\",\n  \"suggested_fix\": \"Export BOTTOM_TABS from src/config/navigation.ts or change the import in src/components/BottomTabs.tsx.\",\n  \"candidate_graph_summary\": {\n    \"totalFiles\": 56,\n    \"sourceModuleCount\": 54,\n    \"pageFileCount\": 3,\n    \"meaningfulSourceCount\": 38,\n    \"generatedDeltaCount\": 1,\n    \"materializedFileCount\": 0,\n    \"skeletonFileCount\": 0,\n    \"hasMain\": true,\n    \"hasApp\": true,\n    \"hasRouteManifest\": true,\n    \"shellOwnerFiles\": [\n      \"src/App.tsx\",\n      \"src/components/BottomTabs.tsx\",\n      \"src/components/Sidebar.tsx\",\n      \"src/components/TopBar.tsx\"\n    ]\n  },\n  \"raw_error_excerpt\": null\n}",
+      "elapsedSec": 8,
+      "steps": [
+        {
+          "status": "failed",
+          "elapsedSec": 8
+        }
+      ]
+    },
+    {
+      "runId": "run3",
+      "ideaTitle": "Daily ideas",
+      "ideaIndex": 2,
+      "directLaunchConfirmed": true,
+      "packagingCompleted": false,
+      "skeletonObserved": null,
+      "repairDetected": false,
+      "productTokenFixed": null,
+      "emptyArrayFixed": null,
+      "productTokenFiles": [],
+      "emptyArrayFiles": [],
+      "scannedFiles": 0,
+      "previewStatus": "unknown",
+      "finalResult": "timeout",
+      "screenshots": [
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run3-01-trend-panel.png",
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run3-02-packaging.png",
+        "artifacts/quality-snapshots/screenshots/after-repair-resnapshot/run3-timeout-packaging.png"
+      ],
+      "error": "Packaging timed out",
+      "elapsedSec": 0,
+      "steps": []
+    }
+  ]
+}
