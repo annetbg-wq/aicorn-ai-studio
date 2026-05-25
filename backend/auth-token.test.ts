@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
+import path from 'path';
 import { PassThrough } from 'stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -16,6 +17,8 @@ import {
   resolveClaudeModel,
   runClaudePrompt,
   startServer,
+  AGENT_CONFIG_FILE,
+  AGENT_CONFIG_RUNTIME_FILE,
 } from './auth-token';
 
 let activeServer: Server | null = null;
@@ -380,5 +383,94 @@ describe('auth-token provider key routes', () => {
       if (originalGoogleKey === undefined) delete process.env.GOOGLE_API_KEY;
       else process.env.GOOGLE_API_KEY = originalGoogleKey;
     }
+  });
+});
+
+describe('agent-config — drift-prevention path contract', () => {
+  it('AGENT_CONFIG_RUNTIME_FILE is distinct from the committed factory defaults file', () => {
+    expect(AGENT_CONFIG_RUNTIME_FILE).not.toBe(AGENT_CONFIG_FILE);
+    expect(path.basename(AGENT_CONFIG_RUNTIME_FILE)).toBe('agent-config.runtime.json');
+    expect(path.dirname(AGENT_CONFIG_RUNTIME_FILE)).toBe(path.dirname(AGENT_CONFIG_FILE));
+  });
+
+  it('committed config filename is agent-config.json', () => {
+    expect(path.basename(AGENT_CONFIG_FILE)).toBe('agent-config.json');
+  });
+
+  it('POST /agent-config writes to runtime file, leaving committed config untouched', async () => {
+    const fs = await import('fs');
+    const { baseUrl } = await startTestServer();
+
+    // Remove any leftover runtime file before the test
+    if (fs.existsSync(AGENT_CONFIG_RUNTIME_FILE)) {
+      fs.unlinkSync(AGENT_CONFIG_RUNTIME_FILE);
+    }
+    const committedBefore = fs.existsSync(AGENT_CONFIG_FILE)
+      ? fs.readFileSync(AGENT_CONFIG_FILE, 'utf8')
+      : null;
+
+    try {
+      const res = await fetch(`${baseUrl}/agent-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: 'agent_primary', config: { provider: 'test-provider', modelId: 'test-model' } }),
+      });
+      expect(res.status).toBe(200);
+
+      // Runtime file must now exist
+      expect(fs.existsSync(AGENT_CONFIG_RUNTIME_FILE)).toBe(true);
+
+      // Committed factory defaults must be unchanged
+      if (committedBefore !== null) {
+        expect(fs.readFileSync(AGENT_CONFIG_FILE, 'utf8')).toBe(committedBefore);
+      }
+    } finally {
+      if (fs.existsSync(AGENT_CONFIG_RUNTIME_FILE)) {
+        fs.unlinkSync(AGENT_CONFIG_RUNTIME_FILE);
+      }
+    }
+  });
+
+  it('PUT /agent-config/reset writes defaults to runtime file, not committed config', async () => {
+    const fs = await import('fs');
+    const { baseUrl } = await startTestServer();
+
+    if (fs.existsSync(AGENT_CONFIG_RUNTIME_FILE)) {
+      fs.unlinkSync(AGENT_CONFIG_RUNTIME_FILE);
+    }
+    const committedBefore = fs.existsSync(AGENT_CONFIG_FILE)
+      ? fs.readFileSync(AGENT_CONFIG_FILE, 'utf8')
+      : null;
+
+    try {
+      const res = await fetch(`${baseUrl}/agent-config/reset`, { method: 'PUT' });
+      expect(res.status).toBe(200);
+
+      expect(fs.existsSync(AGENT_CONFIG_RUNTIME_FILE)).toBe(true);
+
+      if (committedBefore !== null) {
+        expect(fs.readFileSync(AGENT_CONFIG_FILE, 'utf8')).toBe(committedBefore);
+      }
+    } finally {
+      if (fs.existsSync(AGENT_CONFIG_RUNTIME_FILE)) {
+        fs.unlinkSync(AGENT_CONFIG_RUNTIME_FILE);
+      }
+    }
+  });
+
+  it('GET /agent-config falls back to committed defaults when no runtime file exists', async () => {
+    const fs = await import('fs');
+    const { baseUrl } = await startTestServer();
+
+    if (fs.existsSync(AGENT_CONFIG_RUNTIME_FILE)) {
+      fs.unlinkSync(AGENT_CONFIG_RUNTIME_FILE);
+    }
+
+    if (!fs.existsSync(AGENT_CONFIG_FILE)) return; // skip if no defaults in env
+
+    const res = await fetch(`${baseUrl}/agent-config`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(typeof body).toBe('object');
   });
 });
