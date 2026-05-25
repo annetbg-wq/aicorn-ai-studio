@@ -1310,16 +1310,25 @@ app.get('/provider-key/:provider', (_req, res) => {
   res.status(410).json({ error: 'Provider key retrieval is disabled' });
 });
 
-// ── Agent config file path ────────────────────────────────────────────────────
-const AGENT_CONFIG_FILE = path.join(process.cwd(), 'backend', 'agent-config.json');
+// ── Agent config file paths ───────────────────────────────────────────────────
+// The committed file holds factory defaults and must never be mutated at runtime.
+// All runtime writes (POST /agent-config, PUT /agent-config/reset) go to the
+// .gitignored runtime file instead; GET falls back to the committed defaults
+// when no runtime file exists yet.
+export const AGENT_CONFIG_FILE = path.join(process.cwd(), 'backend', 'agent-config.json');
+export const AGENT_CONFIG_RUNTIME_FILE = path.join(process.cwd(), 'backend', 'agent-config.runtime.json');
 
 // ── GET /agent-config ─────────────────────────────────────────────────────────
 app.get('/agent-config', (_req, res) => {
   try {
-    if (!fs.existsSync(AGENT_CONFIG_FILE)) {
+    // Prefer runtime overrides; fall back to committed factory defaults.
+    const filePath = fs.existsSync(AGENT_CONFIG_RUNTIME_FILE)
+      ? AGENT_CONFIG_RUNTIME_FILE
+      : AGENT_CONFIG_FILE;
+    if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'agent-config.json not found' });
     }
-    const raw = fs.readFileSync(AGENT_CONFIG_FILE, 'utf8');
+    const raw = fs.readFileSync(filePath, 'utf8');
     res.json(JSON.parse(raw));
   } catch (err) {
     res.status(500).json({ error: String(err) });
@@ -1334,9 +1343,14 @@ app.post('/agent-config', (req, res) => {
       return res.status(400).json({ error: 'Body must contain { agentId: string, config: object }' });
     }
 
+    // Seed from runtime file; if none yet, seed from committed defaults so
+    // fields like maxTokens (set only in agent-config.json) are preserved.
     let current: Record<string, unknown> = {};
-    if (fs.existsSync(AGENT_CONFIG_FILE)) {
-      try { current = JSON.parse(fs.readFileSync(AGENT_CONFIG_FILE, 'utf8')) as Record<string, unknown>; } catch { /* start fresh */ }
+    const sourceFile = fs.existsSync(AGENT_CONFIG_RUNTIME_FILE)
+      ? AGENT_CONFIG_RUNTIME_FILE
+      : AGENT_CONFIG_FILE;
+    if (fs.existsSync(sourceFile)) {
+      try { current = JSON.parse(fs.readFileSync(sourceFile, 'utf8')) as Record<string, unknown>; } catch { /* start fresh */ }
     }
 
     // Merge with existing entry so fields like maxTokens (edited directly in the
@@ -1345,7 +1359,7 @@ app.post('/agent-config', (req, res) => {
       ? (current[agentId] as Record<string, unknown>)
       : {};
     current[agentId] = { ...existing, ...config };
-    fs.writeFileSync(AGENT_CONFIG_FILE, JSON.stringify(current, null, 2), 'utf8');
+    fs.writeFileSync(AGENT_CONFIG_RUNTIME_FILE, JSON.stringify(current, null, 2), 'utf8');
     console.log(`[agent-config] Updated ${agentId}`);
     res.json({ ok: true, agentId });
   } catch (err) {
@@ -1364,7 +1378,7 @@ const AGENT_CONFIG_DEFAULTS = {
 
 app.put('/agent-config/reset', (_req, res) => {
   try {
-    fs.writeFileSync(AGENT_CONFIG_FILE, JSON.stringify(AGENT_CONFIG_DEFAULTS, null, 2), 'utf8');
+    fs.writeFileSync(AGENT_CONFIG_RUNTIME_FILE, JSON.stringify(AGENT_CONFIG_DEFAULTS, null, 2), 'utf8');
     console.log('[agent-config] Reset to defaults');
     res.json({ ok: true, defaults: AGENT_CONFIG_DEFAULTS });
   } catch (err) {

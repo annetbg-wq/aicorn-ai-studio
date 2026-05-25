@@ -28,3 +28,25 @@ backend/.codex-home/
 .claude/settings.local.json
 .claude/*.local.json
 !.claude/settings.local.example.json
+
+# ── Runtime drift prevention ──────────────────────────────────────────────────
+# Generated on every Vite dev/build start — not a committed source
+frontend/public/PROJECT_MANIFEST.json
+
+# Agent config runtime overrides written by POST /agent-config — local user
+# settings only; the factory defaults stay in backend/agent-config.json
+backend/agent-config.runtime.json
+
+# Preview workspace runtime content — written fresh by compileBuild each build.
+# Only the static infra shims (lib/cn.ts, components/ui/, hooks/, index.css)
+# are tracked as stable templates; everything below is generated at runtime.
+preview-workspace/src/__build_id.ts
+preview-workspace/src/App.tsx
+preview-workspace/src/main.tsx
+preview-workspace/src/route-manifest.json
+preview-workspace/src/pages/
+preview-workspace/src/config/
+preview-workspace/src/context/
+preview-workspace/src/data/
+preview-workspace/src/themes/
+preview-workspace/src/components/sections/
