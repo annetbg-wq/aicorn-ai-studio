@@ -2918,28 +2918,20 @@ ${input.errorLog.slice(0, 4000)}`;
 // ── Quality repair pass ───────────────────────────────────────────────────────
 
 /**
- * Bounded one-shot quality repair — separate from compile repair (runRepair).
+ * Builds the system + user prompt pair for one-shot quality repair.
  *
- * Called only when evaluatePrototypeQualityGate() returns blockingReasons.length > 0.
- * Makes exactly ONE LLM call via the 'fix' slot with a quality-focused prompt.
- * Parses output using parseFileMarkers; only accepts paths already in currentFiles
- * (safety filter — prevents injecting new skeleton-protected files).
- *
- * No loops, no retry. At most one repair attempt per pipeline run.
+ * Exported for unit tests so prompt content can be verified without making
+ * real LLM calls.  runQualityRepair delegates to this helper; behaviour is
+ * identical to the inline prompt that existed before extraction.
  */
-export async function runQualityRepair(input: {
+export function buildRepairPrompt(input: {
   prompt:                       string;
-  skeletonId:                   SkeletonId;
-  currentFiles:                 Record<string, string>;
   blockingReasons:              string[];
   repairInstructions:           string[];
   designCtx?:                   DesignContext;
   productSpecificityDiagnostics?: ProductSpecificityDiagnostics | null;
-  signal?:                      AbortSignal;
-  routeOverrides?:              RouteOverrideMap;
-  onLog:                        (msg: string, level?: 'info' | 'warn' | 'error') => void;
-  onUsage?:                     (usage: StepLlmMetrics) => void;
-}): Promise<Record<string, string>> {
+  currentFiles:                 Record<string, string>;
+}): { system: string; user: string } {
   const reasonsList = input.blockingReasons
     .map((r, i) => `  ${i + 1}. ${r}`)
     .join('\n');
@@ -2971,7 +2963,50 @@ export async function runQualityRepair(input: {
     `- Replace raw hex colours (#xxxxxx), raw colour functions (rgb/hsl), and Tailwind palette classes (bg-blue-500) ` +
     `with semantic design tokens: bg-primary, bg-background, bg-card, text-foreground, text-muted-foreground, etc.\n` +
     `- Fill empty dashboard metric cards with real domain-specific labels and realistic sample values.\n` +
+    `- Bare PRODUCT token: if the output contains PRODUCT as a standalone placeholder token ` +
+    `(e.g. <h1>PRODUCT</h1>, const name = "PRODUCT", "Welcome to PRODUCT"), replace it with the actual ` +
+    `product name, app name, or trend niche name derived from the original task prompt. ` +
+    `Do not leave PRODUCT in visible text, labels, headings, mock data, constants, or route/page copy. ` +
+    `Do not replace PRODUCT where it appears as a substring inside a normal word.\n` +
+    `- Empty data arrays: if a hook or module exports or returns an empty [] for visible UI content ` +
+    `(feeds, cards, charts, lists, dashboards), replace it with 3–5 realistic domain-specific sample entries. ` +
+    `Entries must match the product idea and the surrounding TypeScript type shape. ` +
+    `Do not leave visible dashboards, feeds, cards, charts, lists, or hooks backed by empty arrays.\n` +
+    `- Self-check before returning repaired files: verify (a) no standalone PRODUCT token remains in ` +
+    `any emitted file, (b) no visible-content data hook returns or exports [], ` +
+    `(c) every import references either a real installed package, a skeleton-provided path, or a component ` +
+    `implemented in the same output — do not import absent catalog components, ` +
+    `(d) each emitted file is syntactically complete and compilable.\n` +
     `- Emit only files you actually changed. Each emitted file must be complete and compilable.`;
+
+  const user = `Original task: ${input.prompt}\n\nFiles to repair:\n\n${targets}`;
+  return { system, user };
+}
+
+/**
+ * Bounded one-shot quality repair — separate from compile repair (runRepair).
+ *
+ * Called only when evaluatePrototypeQualityGate() returns blockingReasons.length > 0.
+ * Makes exactly ONE LLM call via the 'fix' slot with a quality-focused prompt.
+ * Parses output using parseFileMarkers; only accepts paths already in currentFiles
+ * (safety filter — prevents injecting new skeleton-protected files).
+ *
+ * No loops, no retry. At most one repair attempt per pipeline run.
+ */
+export async function runQualityRepair(input: {
+  prompt:                       string;
+  skeletonId:                   SkeletonId;
+  currentFiles:                 Record<string, string>;
+  blockingReasons:              string[];
+  repairInstructions:           string[];
+  designCtx?:                   DesignContext;
+  productSpecificityDiagnostics?: ProductSpecificityDiagnostics | null;
+  signal?:                      AbortSignal;
+  routeOverrides?:              RouteOverrideMap;
+  onLog:                        (msg: string, level?: 'info' | 'warn' | 'error') => void;
+  onUsage?:                     (usage: StepLlmMetrics) => void;
+}): Promise<Record<string, string>> {
+  const { system, user } = buildRepairPrompt(input);
 
   input.onLog(
     `[quality-repair] attempting repair of ${input.blockingReasons.length} issue(s) across ` +
@@ -2982,7 +3017,7 @@ export async function runQualityRepair(input: {
   await streamCall({
     slot:           'fix',
     system,
-    user:           `Original task: ${input.prompt}\n\nFiles to repair:\n\n${targets}`,
+    user,
     maxTokens:      STEP_BUDGET.qualityRepair.maxTokens,
     timeoutMs:      STEP_BUDGET.qualityRepair.timeoutMs,
     signal:         input.signal,
