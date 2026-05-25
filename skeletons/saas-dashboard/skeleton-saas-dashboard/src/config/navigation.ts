@@ -29,3 +29,16 @@ export const SIDEBAR_NAV: readonly NavGroup[] = [
     items: [{ to: ROUTES.settings, label: 'Settings', icon: Settings }],
   },
 ] as const;
+
+/**
+ * Bottom tab navigation for mobile/compact viewports.
+ * Each entry maps to a real registered route — same source of truth as SIDEBAR_NAV.
+ * BottomTabs.tsx imports this array; adding a tab requires updating ROUTES and App.tsx.
+ *
+ * PRODUCT: agent may rebind labels/icons to match the product domain.
+ */
+export const BOTTOM_TABS: readonly NavItem[] = [
+  { to: ROUTES.dashboard, label: 'Dashboard', icon: LayoutDashboard },
+  { to: ROUTES.data, label: 'Data', icon: Database },
+  { to: ROUTES.settings, label: 'Settings', icon: Settings },
+] as const;
