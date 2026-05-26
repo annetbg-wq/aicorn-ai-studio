@@ -472,6 +472,10 @@ function buildTraceRouteRecord(role: string, route: AgentExecutionRoute): TraceR
     route: `${route.provider}:${route.slot}`,
     fallbackReason: route.fallbackReason,
     reason: route.reason,
+    sourceAuthority: route.sourceAuthority,
+    isUserSelected:  route.isUserSelected,
+    isRuntimeConfig: route.isRuntimeConfig,
+    isProxyFallback: route.isProxyFallback,
   };
 }
 
@@ -4018,13 +4022,28 @@ export const useStudio = () => {
 
     addLog(
       `[Route] primary: slot=${primaryRoute.slot} provider=${primaryRoute.provider} model=${primaryRoute.modelId}` +
+      ` [authority=${primaryRoute.sourceAuthority}]` +
       (primaryRoute.fallbackReason ? ` [fallback: ${primaryRoute.fallbackReason}]` : ''),
     );
     addLog(
       `[Route] build:   slot=${buildRoute.slot} provider=${buildRoute.provider} model=${buildRoute.modelId}` +
+      ` [authority=${buildRoute.sourceAuthority}${buildRoute.isUserSelected ? ' user-selected' : ''}${buildRoute.isRuntimeConfig ? ' runtime-config' : ''}]` +
       (buildRoute.fallbackReason ? ` [fallback: ${buildRoute.fallbackReason}]` : ''),
     );
     console.log('[useStudio] routes resolved — primary:', primaryRoute.modelId, 'build:', buildRoute.modelId);
+    // Structured route authority telemetry for the build/coder slot.
+    // Fields: generation_route_* (diagnostic — does not affect routing behaviour).
+    console.log('[RouteAuthority] build slot', {
+      generation_route_slot:              buildRoute.slot,
+      generation_route_provider:          buildRoute.provider,
+      generation_route_model_id:          buildRoute.modelId,
+      generation_route_key_source:        buildRoute.keySource,
+      generation_route_source_authority:  buildRoute.sourceAuthority,
+      generation_route_fallback_reason:   buildRoute.fallbackReason ?? null,
+      generation_route_is_user_selected:  buildRoute.isUserSelected,
+      generation_route_is_runtime_config: buildRoute.isRuntimeConfig,
+      generation_route_is_proxy_fallback: buildRoute.isProxyFallback,
+    });
 
     const traceHandle = generationTracer.start({
       intent: userPrompt || 'Use selected context pack.',

@@ -1392,6 +1392,14 @@ export interface TraceRouteRecord extends TraceSafeModelLabel {
   keySource?:      string;
   fallbackReason?: string;
   reason?:         string;
+  /** Diagnostic: where the resolved model ID came from (see AgentConfigAuthority). */
+  sourceAuthority?: string;
+  /** Diagnostic: true only when the user explicitly saved this slot in Settings. */
+  isUserSelected?:  boolean;
+  /** Diagnostic: true when config was seeded from backend/agent-config.json at startup. */
+  isRuntimeConfig?: boolean;
+  /** Diagnostic: true when a routing fallback rule was applied. */
+  isProxyFallback?: boolean;
 }
 
 export type TraceRunTruthKind = 'real' | 'fixture' | 'test';
