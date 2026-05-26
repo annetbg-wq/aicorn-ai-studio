@@ -1396,8 +1396,10 @@ export interface TraceRouteRecord extends TraceSafeModelLabel {
   sourceAuthority?: string;
   /** Diagnostic: true only when the user explicitly saved this slot in Settings. */
   isUserSelected?:  boolean;
-  /** Diagnostic: true when config was seeded from backend/agent-config.json at startup. */
+  /** Diagnostic: true when config was saved to the runtime file by the user. */
   isRuntimeConfig?: boolean;
+  /** Diagnostic: true when model came from factory config (backend/agent-config.json). */
+  isFactoryConfig?: boolean;
   /** Diagnostic: true when a routing fallback rule was applied. */
   isProxyFallback?: boolean;
 }
