@@ -1,5 +1,30 @@
 // ── Public types ─────────────────────────────────────────────────────────────
 
+/**
+ * Describes where a resolved model ID came from.
+ *
+ * Diagnostic-only — does not affect routing behaviour.
+ *
+ * Values:
+ *   user_set            — explicitly saved by the user via the Settings UI
+ *   backend_file_seed   — seeded from backend/agent-config.json on startup
+ *                         (no user action; file is factory config)
+ *   localStorage_unknown — found in localStorage with no source marker
+ *                         (written before this tracking was added, or externally)
+ *   primary_fallback    — slot config absent; primary agent modelId used
+ *   engine_model        — ENGINE_MODEL_ID localStorage key used
+ *   selected_model      — global SELECTED_MODEL localStorage key used
+ *   no_model_configured — no model found in any position; route will get ''
+ */
+export type AgentConfigAuthority =
+  | 'user_set'
+  | 'backend_file_seed'
+  | 'localStorage_unknown'
+  | 'primary_fallback'
+  | 'engine_model'
+  | 'selected_model'
+  | 'no_model_configured';
+
 import { supabase } from '../lib/supabase';
 import {
   normalizeAppLanguage,
@@ -98,6 +123,16 @@ const LABEL_TO_PROVIDER: Record<string, string> = {
   'Mistral':   'mistral',
   'Groq':      'groq',
 };
+
+/**
+ * Companion localStorage key suffix that records whether an agent config slot was
+ * explicitly saved by the user or seeded from backend/agent-config.json at startup.
+ *
+ * Written as:  AGENT_CONFIG_agent_build__source = 'user_set' | 'backend_file_seed'
+ *
+ * Diagnostic-only — never affects routing logic.
+ */
+const AGENT_CONFIG_SOURCE_SUFFIX = '__source';
 
 /** Maps AgentSlot to the localStorage agent config key. */
 const SLOT_TO_AGENT_KEY: Record<AgentSlot, string | null> = {
@@ -395,7 +430,52 @@ export const ConfigService = {
     return '';
   },
 
-  // ── Agent configs (5-agent system) ───────────────────────────────────────
+  /**
+   * Same resolution chain as resolveModel() but also returns the authority
+   * (provenance) of the resolved model ID.
+   *
+   * Diagnostic-only — does not change routing behaviour.
+   */
+  resolveModelWithAuthority(slot: AgentSlot): { modelId: string; authority: AgentConfigAuthority } {
+    const agentKey = SLOT_TO_AGENT_KEY[slot];
+
+    // a) slot-specific stored config
+    if (agentKey) {
+      const raw = get(`AGENT_CONFIG_${agentKey}`);
+      if (raw) {
+        try {
+          const cfg = JSON.parse(raw);
+          if (typeof cfg?.modelId === 'string' && cfg.modelId.trim()) {
+            const sourceMarker = get(`AGENT_CONFIG_${agentKey}${AGENT_CONFIG_SOURCE_SUFFIX}`);
+            const authority: AgentConfigAuthority =
+              sourceMarker === 'user_set'          ? 'user_set' :
+              sourceMarker === 'backend_file_seed' ? 'backend_file_seed' :
+                                                     'localStorage_unknown';
+            return { modelId: cfg.modelId, authority };
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    // b) primary agent stored config
+    const primaryRaw = get('AGENT_CONFIG_agent_primary');
+    if (primaryRaw) {
+      try {
+        const cfg = JSON.parse(primaryRaw);
+        if (cfg?.modelId) return { modelId: cfg.modelId as string, authority: 'primary_fallback' };
+      } catch { /* ignore */ }
+    }
+
+    // c) ENGINE_MODEL_ID
+    const engineModel = get(K.ENGINE_MODEL);
+    if (engineModel) return { modelId: engineModel, authority: 'engine_model' };
+
+    // d) globally selected model
+    const selectedModel = get(K.MODEL);
+    if (selectedModel) return { modelId: selectedModel, authority: 'selected_model' };
+
+    return { modelId: '', authority: 'no_model_configured' };
+  },
 
   getAgentConfig(agentId: string): AgentConfig {
     const raw = get(`AGENT_CONFIG_${agentId}`);
@@ -447,6 +527,9 @@ export const ConfigService = {
     const key = `AGENT_CONFIG_${agentId}`;
     const value = JSON.stringify(config);
     set(key, value);
+    // Mark this slot as explicitly user-set so diagnostics can distinguish it
+    // from file-seeded entries written by loadFromBackend().
+    set(`${key}${AGENT_CONFIG_SOURCE_SUFFIX}`, 'user_set');
     void this.saveKeyToCloud(key, value);
     void this.saveToBackend(agentId, config);
   },
@@ -665,12 +748,16 @@ export const ConfigService = {
               toSync.push({ agentId, config: lsCfg });
             }
           } catch {
-            // Corrupted localStorage entry — fall back to file value
+            // Corrupted localStorage entry — fall back to file value and mark as file-seeded
             set(lsKey, JSON.stringify(fileConfig));
+            set(`${lsKey}${AGENT_CONFIG_SOURCE_SUFFIX}`, 'backend_file_seed');
           }
         } else {
-          // Slot is empty in localStorage — populate from file
+          // Slot is empty in localStorage — populate from file.
+          // Mark as backend_file_seed so diagnostic telemetry can distinguish
+          // this from an explicit user choice (user_set).
           set(lsKey, JSON.stringify(fileConfig));
+          set(`${lsKey}${AGENT_CONFIG_SOURCE_SUFFIX}`, 'backend_file_seed');
         }
       }
 

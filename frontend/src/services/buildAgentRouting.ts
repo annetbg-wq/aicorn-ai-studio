@@ -1,4 +1,4 @@
-import type { ApiProvider, AgentSlot } from './ConfigService';
+import type { ApiProvider, AgentSlot, AgentConfigAuthority } from './ConfigService';
 import { ConfigService } from './ConfigService';
 
 // ── Canonical routing contract ────────────────────────────────────────────────
@@ -33,6 +33,17 @@ export interface AgentExecutionRoute {
   reason:          string;
   /** Secondary reason when a fallback rule was triggered. */
   fallbackReason?: string;
+
+  // ── Diagnostic fields (telemetry only — do not affect routing) ─────────────
+
+  /** Where the resolved modelId came from in the resolution chain. */
+  sourceAuthority:   AgentConfigAuthority;
+  /** True only when the user explicitly saved this slot via the Settings UI. */
+  isUserSelected:    boolean;
+  /** True when the config was seeded from backend/agent-config.json at startup. */
+  isRuntimeConfig:   boolean;
+  /** True when a routing fallback rule was triggered (fallbackReason is set). */
+  isProxyFallback:   boolean;
 }
 
 // ── Endpoint resolution (mirrors Orchestrator.getEndpoint without the import) ─
@@ -93,7 +104,8 @@ export function resolveStandardRoute(
 
   const agentKey              = SLOT_AGENT_KEY[slot];
   const cfg                   = ConfigService.getAgentConfig(agentKey);
-  const rawModelId            = ConfigService.resolveModel(slot);
+  const { modelId: rawModelId, authority: sourceAuthority }
+                              = ConfigService.resolveModelWithAuthority(slot);
   const keyResolution         = ConfigService.getKeyResolutionForAgent(slot);
   const rawProvider           = (cfg.provider ?? keyResolution.provider ?? 'openrouter') as ApiProvider;
   const configuredKey         = keyResolution.key;
@@ -106,7 +118,7 @@ export function resolveStandardRoute(
     const modelId  = normalizeModelForEndpoint(rawModelId, endpoint);
     const reason   =
       `slot=${slot} model=${modelId} configured-provider=anthropic → openrouter (streaming-fallback)`;
-    onLog?.(`[RouteResolver] ${reason}`);
+    onLog?.(`[RouteResolver] ${reason} [authority=${sourceAuthority}]`);
     return {
       slot,
       provider:       'openrouter',
@@ -116,6 +128,10 @@ export function resolveStandardRoute(
       keySource:      `${agentKey}.openrouter (anthropic-streaming-fallback)`,
       reason,
       fallbackReason: 'anthropic_streaming_fallback',
+      sourceAuthority,
+      isUserSelected:  sourceAuthority === 'user_set',
+      isRuntimeConfig: sourceAuthority === 'backend_file_seed',
+      isProxyFallback: true,
     };
   }
 
@@ -125,7 +141,7 @@ export function resolveStandardRoute(
     const modelId  = normalizeModelForEndpoint(rawModelId, endpoint);
     const reason   =
       `slot=${slot} model=${modelId} configured-provider=${rawProvider} key=MISSING → openrouter (missing-key-fallback)`;
-    onLog?.(`[RouteResolver] ${reason}`);
+    onLog?.(`[RouteResolver] ${reason} [authority=${sourceAuthority}]`);
     return {
       slot,
       provider:       'openrouter',
@@ -135,6 +151,10 @@ export function resolveStandardRoute(
       keySource:      `${agentKey}.openrouter (missing-provider-key-fallback)`,
       reason,
       fallbackReason: 'missing_provider_key_fallback',
+      sourceAuthority,
+      isUserSelected:  sourceAuthority === 'user_set',
+      isRuntimeConfig: sourceAuthority === 'backend_file_seed',
+      isProxyFallback: true,
     };
   }
 
@@ -147,7 +167,7 @@ export function resolveStandardRoute(
   const keyTail     = resolvedKey ? `...${resolvedKey.slice(-6)}` : '(none)';
   const reason      =
     `slot=${slot} model=${modelId} provider=${rawProvider} key=${keyTail}`;
-  onLog?.(`[RouteResolver] ${reason}`);
+  onLog?.(`[RouteResolver] ${reason} [authority=${sourceAuthority}]`);
 
   return {
     slot,
@@ -157,6 +177,10 @@ export function resolveStandardRoute(
     apiKey:    resolvedKey,
     keySource: configuredKeySource,
     reason,
+    sourceAuthority,
+    isUserSelected:  sourceAuthority === 'user_set',
+    isRuntimeConfig: sourceAuthority === 'backend_file_seed',
+    isProxyFallback: false,
   };
 }
 
