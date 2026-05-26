@@ -78,6 +78,17 @@ export interface AgentExecutionRoute {
   isFactoryConfig:   boolean;
   /** True when a routing fallback rule was triggered (fallbackReason is set). */
   isProxyFallback:   boolean;
+  /** Alias for isProxyFallback — true only when a named fallback rule was explicitly fired. */
+  isExplicitFallback: boolean;
+  /**
+   * Where the Supabase proxy (or dev-bypass) ultimately routes the request.
+   *   direct_provider  — endpoint is the provider's own API (not via OpenRouter)
+   *   openrouter_proxy — endpoint is OpenRouter (which then routes to the provider)
+   *   unknown          — endpoint host not recognised
+   * Note: in non-dev-bypass mode ALL calls also go through the Supabase edge function.
+   * Use classifyTransportPath() for the full two-level path.
+   */
+  endpointKind: 'direct_provider' | 'openrouter_proxy' | 'unknown';
 }
 
 // ── Endpoint resolution (mirrors Orchestrator.getEndpoint without the import) ─
@@ -92,6 +103,110 @@ function endpointForProvider(provider: ApiProvider): string {
     case 'groq':      return 'https://api.groq.com/openai/v1/chat/completions';
     default:          return 'https://openrouter.ai/api/v1/chat/completions';
   }
+}
+
+// ── Transport path classification ─────────────────────────────────────────────
+
+/**
+ * The set of native provider hostnames proxied directly by the Supabase edge
+ * function (mirrors ALLOWED_HOSTS in supabase/functions/llm-proxy/index.ts).
+ */
+const NATIVE_PROVIDER_HOSTS = new Set([
+  'api.deepseek.com',
+  'api.openai.com',
+  'api.anthropic.com',
+  'generativelanguage.googleapis.com',
+  'api.mistral.ai',
+  'api.groq.com',
+]);
+
+/**
+ * Classifies the full LLM transport path given the target endpoint and whether
+ * the client is in dev-bypass mode (where the Supabase edge function is skipped).
+ *
+ *   direct_provider  — dev-bypass active: frontend → provider's native API (no Supabase proxy)
+ *   supabase_proxy   — normal mode, native endpoint: frontend → Supabase proxy → provider API
+ *   openrouter_proxy — normal mode, OpenRouter endpoint: frontend → Supabase proxy → OpenRouter → provider
+ *   unknown          — endpoint host not recognised
+ *
+ * This is the key function for diagnosing whether OpenRouter is actually in the
+ * call chain for a user-selected DeepSeek route.
+ */
+export function classifyTransportPath(
+  endpoint: string,
+  devBypassActive: boolean,
+): 'direct_provider' | 'supabase_proxy' | 'openrouter_proxy' | 'unknown' {
+  if (devBypassActive) return 'direct_provider';
+  try {
+    const host = new URL(endpoint).hostname;
+    if (host.endsWith('openrouter.ai')) return 'openrouter_proxy';
+    if (NATIVE_PROVIDER_HOSTS.has(host))  return 'supabase_proxy';
+  } catch {
+    // malformed endpoint
+  }
+  return 'unknown';
+}
+
+/**
+ * Simplified endpoint-kind classification used in AgentExecutionRoute.
+ * Describes where the Supabase proxy (or dev-bypass) ultimately sends the request:
+ *   direct_provider  — endpoint is the provider's own API (not via OpenRouter)
+ *   openrouter_proxy — endpoint is OpenRouter (which then routes to the provider)
+ *   unknown          — endpoint host not recognised
+ *
+ * Note: in non-dev-bypass mode ALL calls also go through the Supabase transport
+ * layer first.  Use classifyTransportPath() for the full two-level path.
+ */
+function endpointKindForRoute(
+  endpoint: string,
+): 'direct_provider' | 'openrouter_proxy' | 'unknown' {
+  try {
+    const host = new URL(endpoint).hostname;
+    if (host.endsWith('openrouter.ai')) return 'openrouter_proxy';
+    if (NATIVE_PROVIDER_HOSTS.has(host))  return 'direct_provider';
+  } catch {
+    // malformed endpoint
+  }
+  return 'unknown';
+}
+
+// ── Route telemetry ───────────────────────────────────────────────────────────
+
+/**
+ * Emits a compact single-line structured diagnostic log for LLM route authority.
+ *
+ * Fields emitted:
+ *   llm_route_provider           — effective provider (after fallback rules)
+ *   llm_route_model_id           — normalised model identifier
+ *   llm_route_endpoint_kind      — direct_provider | openrouter_proxy | unknown
+ *   llm_route_proxy_provider     — set when a proxy intermediary (e.g. openrouter) is used
+ *   llm_route_key_source         — human-readable key origin (no raw key material)
+ *   llm_route_fallback_reason    — fallback reason if a rule fired, null otherwise
+ *   llm_route_authority_source   — model provenance (user_set | backend_runtime_saved | …)
+ *   llm_route_is_explicit_fallback — true only when a named fallback rule fired
+ *
+ * Never logs API keys, raw key material, prompts, or generated code.
+ */
+export function recordLlmRouteTelemetry(route: {
+  provider:        string;
+  modelId:         string;
+  endpoint:        string;
+  endpointKind:    string;
+  keySource:       string;
+  fallbackReason?: string;
+  sourceAuthority: string;
+  isProxyFallback: boolean;
+}): void {
+  console.log('[llm_route]', {
+    llm_route_provider:            route.provider,
+    llm_route_model_id:            route.modelId,
+    llm_route_endpoint_kind:       route.endpointKind,
+    llm_route_proxy_provider:      route.provider === 'openrouter' ? 'openrouter' : null,
+    llm_route_key_source:          route.keySource,
+    llm_route_fallback_reason:     route.fallbackReason ?? null,
+    llm_route_authority_source:    route.sourceAuthority,
+    llm_route_is_explicit_fallback: route.isProxyFallback,
+  });
 }
 
 /**
@@ -156,77 +271,92 @@ export function resolveStandardRoute(
 
   // Rule 3: Anthropic → OpenRouter fallback (streaming incompatibility)
   if (rawProvider === 'anthropic') {
-    const endpoint = endpointForProvider('openrouter');
-    const modelId  = normalizeModelForEndpoint(rawModelId, endpoint);
-    const reason   =
+    const endpoint    = endpointForProvider('openrouter');
+    const modelId     = normalizeModelForEndpoint(rawModelId, endpoint);
+    const endpointKind = endpointKindForRoute(endpoint);
+    const reason      =
       `slot=${slot} model=${modelId} configured-provider=anthropic → openrouter (streaming-fallback)`;
     onLog?.(`[RouteResolver] ${reason} [authority=${sourceAuthority}]`);
-    return {
+    const route: AgentExecutionRoute = {
       slot,
-      provider:       'openrouter',
+      provider:          'openrouter',
       modelId,
       endpoint,
-      apiKey:         fallbackOpenRouterKey,
-      keySource:      `${agentKey}.openrouter (anthropic-streaming-fallback)`,
+      apiKey:            fallbackOpenRouterKey,
+      keySource:         `${agentKey}.openrouter (anthropic-streaming-fallback)`,
       reason,
-      fallbackReason: 'anthropic_streaming_fallback',
+      fallbackReason:    'anthropic_streaming_fallback',
       sourceAuthority,
-      isUserSelected:  sourceAuthority === 'user_set',
-      isRuntimeConfig: sourceAuthority === 'backend_runtime_saved',
-      isFactoryConfig: false,
-      isProxyFallback: true,
+      isUserSelected:    sourceAuthority === 'user_set',
+      isRuntimeConfig:   sourceAuthority === 'backend_runtime_saved',
+      isFactoryConfig:   false,
+      isProxyFallback:   true,
+      isExplicitFallback: true,
+      endpointKind,
     };
+    recordLlmRouteTelemetry(route);
+    return route;
   }
 
   // Rule 2: missing provider key → OpenRouter fallback
   if (!configuredKey && rawProvider !== 'openrouter') {
-    const endpoint = endpointForProvider('openrouter');
-    const modelId  = normalizeModelForEndpoint(rawModelId, endpoint);
-    const reason   =
+    const endpoint    = endpointForProvider('openrouter');
+    const modelId     = normalizeModelForEndpoint(rawModelId, endpoint);
+    const endpointKind = endpointKindForRoute(endpoint);
+    const reason      =
       `slot=${slot} model=${modelId} configured-provider=${rawProvider} key=MISSING → openrouter (missing-key-fallback)`;
     onLog?.(`[RouteResolver] ${reason} [authority=${sourceAuthority}]`);
-    return {
+    const route: AgentExecutionRoute = {
       slot,
-      provider:       'openrouter',
+      provider:          'openrouter',
       modelId,
       endpoint,
-      apiKey:         fallbackOpenRouterKey,
-      keySource:      `${agentKey}.openrouter (missing-provider-key-fallback)`,
+      apiKey:            fallbackOpenRouterKey,
+      keySource:         `${agentKey}.openrouter (missing-provider-key-fallback)`,
       reason,
-      fallbackReason: 'missing_provider_key_fallback',
+      fallbackReason:    'missing_provider_key_fallback',
       sourceAuthority,
-      isUserSelected:  sourceAuthority === 'user_set',
-      isRuntimeConfig: sourceAuthority === 'backend_runtime_saved',
-      isFactoryConfig: false,
-      isProxyFallback: true,
+      isUserSelected:    sourceAuthority === 'user_set',
+      isRuntimeConfig:   sourceAuthority === 'backend_runtime_saved',
+      isFactoryConfig:   false,
+      isProxyFallback:   true,
+      isExplicitFallback: true,
+      endpointKind,
     };
+    recordLlmRouteTelemetry(route);
+    return route;
   }
 
   // Rule 1: use configured provider (OpenRouter prefers agent key, falls back to global key)
-  const resolvedKey = rawProvider === 'openrouter'
+  const resolvedKey  = rawProvider === 'openrouter'
     ? (configuredKey || fallbackOpenRouterKey)
     : configuredKey;
-  const endpoint    = endpointForProvider(rawProvider);
-  const modelId     = normalizeModelForEndpoint(rawModelId, endpoint);
-  const keyTail     = resolvedKey ? `...${resolvedKey.slice(-6)}` : '(none)';
-  const reason      =
+  const endpoint     = endpointForProvider(rawProvider);
+  const modelId      = normalizeModelForEndpoint(rawModelId, endpoint);
+  const endpointKind = endpointKindForRoute(endpoint);
+  const keyTail      = resolvedKey ? `...${resolvedKey.slice(-6)}` : '(none)';
+  const reason       =
     `slot=${slot} model=${modelId} provider=${rawProvider} key=${keyTail}`;
   onLog?.(`[RouteResolver] ${reason} [authority=${sourceAuthority}]`);
 
-  return {
+  const route: AgentExecutionRoute = {
     slot,
-    provider:  rawProvider,
+    provider:          rawProvider,
     modelId,
     endpoint,
-    apiKey:    resolvedKey,
-    keySource: configuredKeySource,
+    apiKey:            resolvedKey,
+    keySource:         configuredKeySource,
     reason,
     sourceAuthority,
-    isUserSelected:  sourceAuthority === 'user_set',
-    isRuntimeConfig: sourceAuthority === 'backend_runtime_saved',
-    isFactoryConfig: false,
-    isProxyFallback: false,
+    isUserSelected:    sourceAuthority === 'user_set',
+    isRuntimeConfig:   sourceAuthority === 'backend_runtime_saved',
+    isFactoryConfig:   false,
+    isProxyFallback:   false,
+    isExplicitFallback: false,
+    endpointKind,
   };
+  recordLlmRouteTelemetry(route);
+  return route;
 }
 
 // ── Legacy types & function (kept for backward compat in AgentLoopService) ────

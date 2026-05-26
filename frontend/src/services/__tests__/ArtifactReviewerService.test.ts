@@ -47,18 +47,20 @@ describe('ArtifactReviewerService', () => {
 describe('ArtifactReviewerService.reviewWithAI', () => {
   const noopLog = () => {};
   const fakeRoute: AgentExecutionRoute = {
-    endpoint:        'https://example.com',
-    apiKey:          '',
-    modelId:         'fake-model',
-    slot:            'qa',
-    provider:        'openrouter',
-    keySource:       'agent-config',
-    reason:          'test stub',
-    sourceAuthority: 'user_set',
-    isUserSelected:  true,
-    isRuntimeConfig: false,
-    isFactoryConfig: false,
-    isProxyFallback: false,
+    endpoint:           'https://example.com',
+    apiKey:             '',
+    modelId:            'fake-model',
+    slot:               'qa',
+    provider:           'openrouter',
+    keySource:          'agent-config',
+    reason:             'test stub',
+    sourceAuthority:    'user_set',
+    isUserSelected:     true,
+    isRuntimeConfig:    false,
+    isFactoryConfig:    false,
+    isProxyFallback:    false,
+    isExplicitFallback: false,
+    endpointKind:       'unknown',
   };
 
   it('throws ARTIFACT_SEMANTIC_PARSE_FAIL (not REVIEWER_FAIL) when all files are nested envelopes', async () => {

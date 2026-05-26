@@ -110,9 +110,11 @@ export function classifyLlmHttpError(
   if (httpStatus === 429) return 'provider_rate_limit';
   if (httpStatus === 401 || httpStatus === 403) return 'missing_provider_key';
 
-  // HTTP 546 is a non-standard code used by the OpenRouter→DeepSeek proxy chain
-  // to signal upstream provider capacity / resource limits. Not retried — the
-  // same payload will hit the same limit on an immediate retry.
+  // HTTP 546 is a non-standard status code indicating upstream provider capacity
+  // or resource limits. It can originate from DeepSeek's own API directly
+  // (when the Supabase proxy forwards to api.deepseek.com) or from OpenRouter
+  // when it acts as an intermediary. Not retried — the same payload will hit
+  // the same capacity limit on an immediate retry.
   if (httpStatus === 546) return 'proxy_resource_limit';
 
   if (httpStatus === 400 || httpStatus >= 500) {
