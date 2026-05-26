@@ -129,17 +129,13 @@ reachable.
 
 ## Recommended next implementation step
 
-**Configure a coder-step fallback model.**
+**Trace route authority for the build/coder slot.**
 
-The packaging step already has a working fallback path (Claude CLI bridge → OpenRouter via
-backend). The coder step has no equivalent: when `xiaomi/mimo-v2-pro` via llm-proxy returns
-5xx, there is no recovery. The transport layer already supports a `fallback` model field in
-`agent-config.json` (currently `z-ai/glm-5.1` for `agent_build`). The priority action is to
-either:
-1. Replace `xiaomi/mimo-v2-pro` with a model that is confirmed available on the current
-   OpenRouter account (e.g. `openai/gpt-4o-mini`, already used for the primary agent), **or**
-2. Ensure the fallback model `z-ai/glm-5.1` is activated and reachable via the same llm-proxy
-   path before the retry is exhausted.
+The unexpected `xiaomi/mimo-v2-pro` model must be diagnosed as a routing-source issue, stale
+runtime config, localStorage/runtime override, proxy fallback, or telemetry/reporting mistake.
+Do not change committed provider/model defaults and do not edit `backend/agent-config.json`
+as a product default.
 
-This is a single `agent-config.json` change (no source code change) and would allow the next
-run to proceed through coder → quality gate → repair → preview.
+> **Note:** Changing model in `backend/agent-config.json` is explicitly not recommended
+> because model/provider selection must come from user/runtime settings, not committed
+> product defaults.
