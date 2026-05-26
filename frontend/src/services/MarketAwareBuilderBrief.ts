@@ -1240,6 +1240,69 @@ export function buildBuilderOwnedSelfPlanInstructions(
   return lines.join('\n');
 }
 
+// ── Product Identity Substitution Contract ────────────────────────────────────
+
+/**
+ * Returns a mandatory coder-facing block that forbids leaving generic skeleton
+ * label vocabulary in the output. The coder must replace every visible
+ * page title, KPI label, data entity, navigation label, CTA, empty state, and
+ * placeholder copy with product-specific equivalents derived from:
+ *   - the Product Assembly Plan (written above before code generation)
+ *   - the market-aware brief (PRODUCT PROMISE, TARGET USER, etc.)
+ *   - the original trend idea and product differentiator
+ *
+ * Rules are intentionally generic — they apply to any trend idea / product
+ * category, not just Cashflow Guard. Cashflow Guard-style terms appear only
+ * as concrete domain examples to make the expectation clear.
+ *
+ * No LLM calls. Deterministic. ~1 000 chars.
+ */
+export function buildProductIdentitySubstitutionContract(): string {
+  const lines: string[] = [
+    '═══════════════════════════════════════════════════════════════',
+    'PRODUCT IDENTITY SUBSTITUTION CONTRACT — MANDATORY',
+    '═══════════════════════════════════════════════════════════════',
+    '',
+    'Skeleton defaults are STRUCTURAL PLACEHOLDERS only.',
+    'They provide navigation shells, layout patterns, and component wiring.',
+    'They do NOT define what your product is named, what it measures, or what it says.',
+    '',
+    'RULE 1 — Replace every piece of visible copy with product-specific language.',
+    '  Every page title, KPI label, data entity name, table/list heading,',
+    '  navigation label, CTA button text, empty-state message, and dashboard metric',
+    '  must come from:',
+    '    • your Product Assembly Plan (written above)',
+    '    • the PRODUCT PROMISE and TARGET USER from the market-aware brief',
+    '    • the original trend idea and visible differentiator',
+    '  NOT from skeleton defaults.',
+    '',
+    'RULE 2 — Generic skeleton vocabulary is forbidden unless clearly product-appropriate.',
+    '  Do NOT leave generic labels such as:',
+    '    Pipeline, Records, Leads, Accounts, Tasks, Revenue, Conversion, Activity,',
+    '    Dashboard, Overview, Analytics, Settings, Item 1, Item 2, Sample Data',
+    '  unless the actual product concept makes those terms the correct domain language.',
+    '  If you cannot justify a label from the Product Assembly Plan, replace it.',
+    '',
+    'RULE 3 — First viewport must make the product identity obvious.',
+    '  A user who sees only the first screen (before any scroll or click) must be able',
+    '  to identify what this specific product does. Generic B2B boilerplate fails this.',
+    '  Check: title, primary KPI / hero metric, primary CTA, and any visible data rows.',
+    '',
+    'RULE 4 — Mock data, records, and field names must be domain-authentic.',
+    '  Any sample records, numeric values, status labels, or entity names must reflect',
+    '  the actual product domain (e.g. for a cashflow product: invoice dates, payment',
+    '  statuses, runway days, burn rate; for a fitness product: workout names, rep',
+    '  counts, muscle groups; for a booking app: service types, availability slots).',
+    '',
+    'RULE 5 — self-check before final output.',
+    '  Ask: "Could a user identify this specific product from the visible UI alone,',
+    '  without reading any external context?" If the answer is no, revise copy and labels.',
+    '═══════════════════════════════════════════════════════════════',
+  ];
+
+  return lines.join('\n');
+}
+
 // ── Telemetry serializer ──────────────────────────────────────────────────────
 
 export function serializeMarketAwareBriefDiagnosticsTelemetry(

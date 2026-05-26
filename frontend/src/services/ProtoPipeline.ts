@@ -109,6 +109,7 @@ import {
 import {
   buildMarketAwareBuilderBrief,
   buildBuilderOwnedSelfPlanInstructions,
+  buildProductIdentitySubstitutionContract,
   evaluateMarketAwareBuilderBriefDiagnostics,
   serializeMarketAwareBriefDiagnosticsTelemetry,
   serializeMarketAwareBuilderBriefForCoder,
@@ -2669,6 +2670,10 @@ export function buildCoderPlanningBlocks(input: {
     input.skeletonIntegrationPlan ? buildSkeletonIntegrationPromptBlock(input.skeletonIntegrationPlan) : '',
     input.productSpecificityPlan ? buildProductSpecificityPromptBlock(input.productSpecificityPlan) : '',
     input.marketAwareBuilderBrief ? serializeMarketAwareBuilderBriefForCoder(input.marketAwareBuilderBrief) : '',
+    // Product Identity Substitution Contract — injected when a market-aware brief is present.
+    // Must appear after the brief (so the coder has product context) and before the
+    // self-plan instructions (so the substitution rules are in scope during planning).
+    input.marketAwareBuilderBrief ? buildProductIdentitySubstitutionContract() : '',
     input.marketAwareBuilderBrief ? buildBuilderOwnedSelfPlanInstructions(input.marketAwareBuilderBrief) : '',
   ].filter(Boolean).join('\n');
 }
