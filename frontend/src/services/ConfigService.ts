@@ -6,18 +6,24 @@
  * Diagnostic-only — does not affect routing behaviour.
  *
  * Values:
- *   user_set            — explicitly saved by the user via the Settings UI
- *   backend_file_seed   — seeded from backend/agent-config.json on startup
- *                         (no user action; file is factory config)
- *   localStorage_unknown — found in localStorage with no source marker
- *                         (written before this tracking was added, or externally)
- *   primary_fallback    — slot config absent; primary agent modelId used
- *   engine_model        — ENGINE_MODEL_ID localStorage key used
- *   selected_model      — global SELECTED_MODEL localStorage key used
- *   no_model_configured — no model found in any position; route will get ''
+ *   user_set              — explicitly saved by the user via the Settings UI
+ *   backend_runtime_saved — seeded from backend/agent-config.runtime.json, which is
+ *                           written only when the user saves Settings (explicit save)
+ *   backend_factory_template — read from backend/agent-config.json (factory defaults);
+ *                           NEVER used as route authority; blocks route construction
+ *   backend_file_seed     — legacy: written before runtime/factory distinction existed;
+ *                           treated as backend_factory_template (blocks route construction)
+ *   localStorage_unknown  — found in localStorage with no source marker
+ *                           (written before this tracking was added, or externally)
+ *   primary_fallback      — slot config absent; primary agent modelId used
+ *   engine_model          — ENGINE_MODEL_ID localStorage key used
+ *   selected_model        — global SELECTED_MODEL localStorage key used
+ *   no_model_configured   — no model found in any position; route will throw
  */
 export type AgentConfigAuthority =
   | 'user_set'
+  | 'backend_runtime_saved'
+  | 'backend_factory_template'
   | 'backend_file_seed'
   | 'localStorage_unknown'
   | 'primary_fallback'
@@ -448,9 +454,12 @@ export const ConfigService = {
           if (typeof cfg?.modelId === 'string' && cfg.modelId.trim()) {
             const sourceMarker = get(`AGENT_CONFIG_${agentKey}${AGENT_CONFIG_SOURCE_SUFFIX}`);
             const authority: AgentConfigAuthority =
-              sourceMarker === 'user_set'          ? 'user_set' :
-              sourceMarker === 'backend_file_seed' ? 'backend_file_seed' :
-                                                     'localStorage_unknown';
+              sourceMarker === 'user_set'                  ? 'user_set' :
+              sourceMarker === 'backend_runtime_saved'     ? 'backend_runtime_saved' :
+              // legacy 'backend_file_seed' and new 'backend_factory_template' both mean factory
+              sourceMarker === 'backend_file_seed'         ? 'backend_factory_template' :
+              sourceMarker === 'backend_factory_template'  ? 'backend_factory_template' :
+                                                             'localStorage_unknown';
             return { modelId: cfg.modelId, authority };
           }
         } catch { /* ignore */ }
@@ -721,47 +730,100 @@ export const ConfigService = {
 
   /**
    * Loads all agent configs from the local backend (GET /agent-config)
-   * and writes each one into localStorage under AGENT_CONFIG_{agentId}.
-   * Called once on app startup so the disk file is authoritative.
+   * and syncs them with localStorage.
+   *
+   * Source authority rules:
+   *   - backend/agent-config.json  (_configSource=factory): ONLY the maxTokens field
+   *     is seeded into localStorage. provider/modelId are NOT seeded — these must come
+   *     from explicit user selection. Factory config is NEVER route authority.
+   *   - backend/agent-config.runtime.json (_configSource=runtime): written when the user
+   *     saves Settings. All fields are seeded and labelled backend_runtime_saved.
+   *   - Legacy 'backend_file_seed' entries already in localStorage are migrated:
+   *     provider/modelId are stripped, leaving only maxTokens. Source marker is
+   *     upgraded to 'backend_factory_template'. On next route resolution the build
+   *     slot will have no modelId and route construction will require user selection.
    */
   async loadFromBackend(): Promise<void> {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`);
       if (!res.ok) return;
-      const fileData = await res.json() as Record<string, unknown>;
+      const responseData = await res.json() as Record<string, unknown>;
+
+      // Extract the source marker added to the response by GET /agent-config.
+      // Absent on old backends — treat absence as 'factory' (safe default).
+      const configSource = responseData._configSource === 'runtime' ? 'runtime' : 'factory';
+
+      // Work with the agent entries only (excluding the _configSource metadata field).
+      const fileData = { ...responseData };
+      delete fileData._configSource;
 
       const toSync: Array<{ agentId: string; config: AgentConfig }> = [];
 
       for (const [agentId, fileConfig] of Object.entries(fileData)) {
         if (!fileConfig || typeof fileConfig !== 'object') continue;
-        const lsKey = `AGENT_CONFIG_${agentId}`;
-        const lsRaw = get(lsKey);
+        const lsKey    = `AGENT_CONFIG_${agentId}`;
+        const sourceKey = `${lsKey}${AGENT_CONFIG_SOURCE_SUFFIX}`;
+        const lsRaw    = get(lsKey);
+        const marker   = get(sourceKey);
 
         if (lsRaw !== null) {
-          // localStorage has a value (user set it via UI).
-          // Push it to the file if it differs — localStorage is the user's intent.
-          try {
-            const lsCfg = JSON.parse(lsRaw) as AgentConfig;
-            const lsNorm   = JSON.stringify(JSON.parse(lsRaw));
-            const fileNorm = JSON.stringify(fileConfig);
-            if (lsNorm !== fileNorm) {
-              toSync.push({ agentId, config: lsCfg });
+          // ── Slot already has a value in localStorage ──────────────────────
+
+          if (marker === 'backend_file_seed') {
+            // Legacy factory seed — migrate: strip provider/modelId, keep only maxTokens.
+            // After migration, resolveModelWithAuthority will fall through to the next
+            // resolution step (primary/engine/selected/no-model) and route construction
+            // for the build slot will require explicit user selection.
+            try {
+              const cfg = JSON.parse(lsRaw) as Record<string, unknown>;
+              const maxTokens = (typeof cfg.maxTokens === 'object' && cfg.maxTokens !== null)
+                ? cfg.maxTokens : undefined;
+              set(lsKey, JSON.stringify(maxTokens ? { maxTokens } : {}));
+            } catch {
+              set(lsKey, '{}');
             }
-          } catch {
-            // Corrupted localStorage entry — fall back to file value and mark as file-seeded
-            set(lsKey, JSON.stringify(fileConfig));
-            set(`${lsKey}${AGENT_CONFIG_SOURCE_SUFFIX}`, 'backend_file_seed');
+            set(sourceKey, 'backend_factory_template');
+            console.log(`[ConfigService] Migrated factory-seeded ${agentId} → stripped provider/modelId`);
+
+          } else if (marker === 'backend_factory_template') {
+            // Already migrated — skip (do not re-seed or push).
+
+          } else {
+            // user_set, backend_runtime_saved, null (pre-migration / unknown) — push to
+            // the file if it differs, so the runtime file stays in sync with the user's choice.
+            try {
+              const lsCfg   = JSON.parse(lsRaw) as AgentConfig;
+              const lsNorm   = JSON.stringify(JSON.parse(lsRaw));
+              const fileNorm = JSON.stringify(fileConfig);
+              if (lsNorm !== fileNorm) {
+                toSync.push({ agentId, config: lsCfg });
+              }
+            } catch {
+              // Corrupted localStorage entry — leave as-is (do not overwrite with factory).
+            }
           }
+
         } else {
-          // Slot is empty in localStorage — populate from file.
-          // Mark as backend_file_seed so diagnostic telemetry can distinguish
-          // this from an explicit user choice (user_set).
-          set(lsKey, JSON.stringify(fileConfig));
-          set(`${lsKey}${AGENT_CONFIG_SOURCE_SUFFIX}`, 'backend_file_seed');
+          // ── Slot is empty in localStorage ────────────────────────────────
+
+          if (configSource === 'runtime') {
+            // Runtime file represents explicitly saved user settings — seed all fields.
+            set(lsKey, JSON.stringify(fileConfig));
+            set(sourceKey, 'backend_runtime_saved');
+          } else {
+            // Factory config — seed only maxTokens (non-routing).
+            // provider/modelId are intentionally NOT seeded so fresh installs require
+            // explicit user model selection before generation can proceed.
+            const fc        = fileConfig as Record<string, unknown>;
+            const maxTokens = (typeof fc.maxTokens === 'object' && fc.maxTokens !== null)
+              ? fc.maxTokens : undefined;
+            set(lsKey, JSON.stringify(maxTokens ? { maxTokens } : {}));
+            set(sourceKey, 'backend_factory_template');
+          }
         }
       }
 
-      // Push any localStorage-diverged values back to the file
+      // Push any user-set values that diverged from the file back to the runtime file.
       if (toSync.length > 0) {
         await Promise.allSettled(toSync.map(({ agentId, config }) => this.saveToBackend(agentId, config)));
         console.log(`[ConfigService] Synced ${toSync.length} agent config(s) from localStorage → backend`);

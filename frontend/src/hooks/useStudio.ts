@@ -98,7 +98,7 @@ import {
 } from '../services/ArchitectPlannerService';
 import { ChatArchitectureService } from '../services/ChatArchitectureService';
 import { refreshArchitectureAfterBuild } from '../services/BranchArchitectureOrchestrationService';
-import { resolveStandardRoute } from '../services/buildAgentRouting';
+import { resolveStandardRoute, ModelSelectionRequiredError } from '../services/buildAgentRouting';
 import type { AgentExecutionRoute } from '../services/buildAgentRouting';
 import { showToast } from '../services/toastBus';
 import { autoSelectSurface, SURFACE_CHOICE_TIMEOUT_MS } from '../lib/surfaceHeuristic';
@@ -475,6 +475,7 @@ function buildTraceRouteRecord(role: string, route: AgentExecutionRoute): TraceR
     sourceAuthority: route.sourceAuthority,
     isUserSelected:  route.isUserSelected,
     isRuntimeConfig: route.isRuntimeConfig,
+    isFactoryConfig: route.isFactoryConfig,
     isProxyFallback: route.isProxyFallback,
   };
 }
@@ -4014,11 +4015,31 @@ export const useStudio = () => {
     }
 
     // ── Canonical route resolution — single source of truth for this generation
-    const primaryRoute = resolveStandardRoute(primarySlot, { onLog: addLog });
-    const buildRoute   = resolveStandardRoute('build',      { onLog: addLog });
-    const fixRoute     = resolveStandardRoute('fix',        { onLog: addLog });
-    const specRoute    = resolveStandardRoute('spec',       { onLog: addLog });
-    const qaRoute      = resolveStandardRoute('qa',         { onLog: addLog });
+    // resolveStandardRoute('build') throws ModelSelectionRequiredError if the build
+    // slot has no user-selected model (only factory defaults or nothing configured).
+    let primaryRoute: AgentExecutionRoute;
+    let buildRoute:   AgentExecutionRoute;
+    let fixRoute:     AgentExecutionRoute;
+    let specRoute:    AgentExecutionRoute;
+    let qaRoute:      AgentExecutionRoute;
+    try {
+      primaryRoute = resolveStandardRoute(primarySlot, { onLog: addLog });
+      buildRoute   = resolveStandardRoute('build',      { onLog: addLog });
+      fixRoute     = resolveStandardRoute('fix',        { onLog: addLog });
+      specRoute    = resolveStandardRoute('spec',       { onLog: addLog });
+      qaRoute      = resolveStandardRoute('qa',         { onLog: addLog });
+    } catch (routeErr) {
+      if (routeErr instanceof ModelSelectionRequiredError) {
+        failBeforePipelineRun(
+          new Error(
+            'Build model not configured. Open Settings → Agent Models and select a ' +
+            'model for the Build/Coder slot before generating.',
+          ),
+        );
+        return;
+      }
+      throw routeErr;
+    }
 
     addLog(
       `[Route] primary: slot=${primaryRoute.slot} provider=${primaryRoute.provider} model=${primaryRoute.modelId}` +
@@ -4027,7 +4048,7 @@ export const useStudio = () => {
     );
     addLog(
       `[Route] build:   slot=${buildRoute.slot} provider=${buildRoute.provider} model=${buildRoute.modelId}` +
-      ` [authority=${buildRoute.sourceAuthority}${buildRoute.isUserSelected ? ' user-selected' : ''}${buildRoute.isRuntimeConfig ? ' runtime-config' : ''}]` +
+      ` [authority=${buildRoute.sourceAuthority}${buildRoute.isUserSelected ? ' user-selected' : ''}${buildRoute.isRuntimeConfig ? ' runtime-config' : ''}${buildRoute.isFactoryConfig ? ' factory-config' : ''}]` +
       (buildRoute.fallbackReason ? ` [fallback: ${buildRoute.fallbackReason}]` : ''),
     );
     console.log('[useStudio] routes resolved — primary:', primaryRoute.modelId, 'build:', buildRoute.modelId);
@@ -4042,6 +4063,7 @@ export const useStudio = () => {
       generation_route_fallback_reason:   buildRoute.fallbackReason ?? null,
       generation_route_is_user_selected:  buildRoute.isUserSelected,
       generation_route_is_runtime_config: buildRoute.isRuntimeConfig,
+      generation_route_is_factory_config: buildRoute.isFactoryConfig,
       generation_route_is_proxy_fallback: buildRoute.isProxyFallback,
     });
 
