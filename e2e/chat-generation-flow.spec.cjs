@@ -458,6 +458,16 @@ test.describe('Chat → generation → blueprint → preview', () => {
       await page.addInitScript(() => {
         localStorage.setItem('AIC_E2E_LIVE_GENERATION_CANARY', '1');
         localStorage.setItem('OPENROUTER_API_KEY', 'e2e-live-preview-key');
+        // PR #35: resolveStandardRoute('build') throws ModelSelectionRequiredError
+        // when the build slot has no user-selected model (factory config or empty).
+        // Set an explicit user-selected build model so the canary's pipeline starts.
+        // The LLM is fully mocked (installDeterministicLLM) — the model ID is never
+        // sent to a real API; it exists only to satisfy the route authority check.
+        localStorage.setItem(
+          'AGENT_CONFIG_agent_build',
+          JSON.stringify({ provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }),
+        );
+        localStorage.setItem('AGENT_CONFIG_agent_build__source', 'user_set');
       });
 
       await expectProductionArtifactStudio(page);
@@ -484,9 +494,41 @@ test.describe('Chat → generation → blueprint → preview', () => {
         .catch(() => {});
       console.log('CANARY_STEP: plan_card_confirm_attempted');
 
+      // ── PR #35 fast-fail guard ───────────────────────────────────────────────
+      // After PR #35, resolveStandardRoute('build') throws ModelSelectionRequiredError
+      // when the build slot has no explicit user-selected model. This causes
+      // failBeforePipelineRun() to display "Open Settings → Agent Models" in the chat
+      // UI without emitting any [preview-timeline] events. The canary would then wait
+      // the full LIVE_FLOW_TIMEOUT (300+ s) before failing.
+      //
+      // This guard catches the misconfiguration within 3 s and fails with a clear
+      // diagnostic so CI gives actionable output instead of a silent timeout.
+      {
+        await page.waitForTimeout(3_000);
+        const bodySnapshot = await page.locator('body').innerText().catch(() => '');
+        if (bodySnapshot.includes('Open Settings') && bodySnapshot.includes('Agent Models')) {
+          throw new Error(
+            '[Live Preview Canary] PR #35 gate: resolveStandardRoute("build") threw ' +
+            'ModelSelectionRequiredError before the pipeline could start. ' +
+            'Fix: addInitScript must set AGENT_CONFIG_agent_build with user_set authority. ' +
+            'See: frontend/src/services/__tests__/canaryModelSetup.test.ts',
+          );
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────────
+
       // Either the pipeline is already compiling, or a follow-up plan card appeared.
       // Poll for controller_compiling with the full live-flow budget.
       await expect(async () => {
+        // Secondary fast-fail: if the model-not-configured error appeared late,
+        // fail immediately instead of cycling through the full budget.
+        const bodyText = await page.locator('body').innerText().catch(() => '');
+        if (bodyText.includes('Open Settings') && bodyText.includes('Agent Models')) {
+          throw new Error(
+            '[Live Preview Canary] Model selection required error detected mid-poll. ' +
+            'AGENT_CONFIG_agent_build must be set with user_set authority (PR #35).',
+          );
+        }
         const followUpConfirm = page
           .locator('[data-testid="generation-plan-card"] [data-testid="confirm-plan-btn"]')
           .last();
@@ -497,6 +539,26 @@ test.describe('Chat → generation → blueprint → preview', () => {
         expect(timelineLines(logs).some(line => line.includes('controller_compiling'))).toBe(true);
       }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [500, 1_000, 2_000] });
       console.log('CANARY_STEP: controller_compiling_seen');
+
+      // ── Route authority assertion ─────────────────────────────────────────────
+      // Confirm the canary's build route is not using factory/no-model authority.
+      // Lines matching [RouteResolver] or [Route] are emitted by resolveStandardRoute
+      // and addLog in useStudio respectively.
+      {
+        const FORBIDDEN_AUTHORITIES = ['backend_factory_template', 'backend_file_seed', 'no_model_configured'];
+        const routeLogs = logs.filter(l => l.includes('[RouteResolver]') || l.includes('[Route] build'));
+        for (const forbidden of FORBIDDEN_AUTHORITIES) {
+          if (routeLogs.some(l => l.includes(forbidden))) {
+            throw new Error(
+              `[Live Preview Canary] Forbidden route authority "${forbidden}" found in canary logs. ` +
+              'Canary must use user_set, backend_runtime_saved, or a named fallback authority. ' +
+              'backend/agent-config.json must NOT be the route authority.',
+            );
+          }
+        }
+        console.log('CANARY_STEP: route_authority_ok');
+      }
+      // ─────────────────────────────────────────────────────────────────────────
 
       // Extract buildId from the controller_compiling timeline log.
       // Format after serializeConsoleMessage: [preview-timeline] controller_compiling {"buildId":"uuid",...}
