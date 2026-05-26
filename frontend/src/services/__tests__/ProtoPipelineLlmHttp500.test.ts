@@ -233,6 +233,7 @@ describe('non-retryable errors — no retry', () => {
     { name: 'forbidden (403)', error: 'LLM Proxy 403: forbidden', category: 'missing_provider_key' },
     { name: 'malformed request (400)', error: 'LLM Proxy 400: invalid JSON body', category: 'malformed_llm_request' },
     { name: 'context overflow 500', error: 'LLM Proxy 500: context length exceeded', category: 'context_too_large' },
+    { name: 'proxy resource limit (546)', error: 'LLM Proxy 546: Provider overloaded', category: 'proxy_resource_limit' },
   ];
 
   for (const { name, error, category } of nonRetryableCases) {
@@ -258,6 +259,7 @@ describe('non-retryable errors — no retry', () => {
     const categories: LlmErrorCategory[] = [
       'provider_http_500',
       'provider_rate_limit',
+      'proxy_resource_limit',
       'context_too_large',
       'malformed_llm_request',
       'missing_provider_key',
@@ -385,5 +387,94 @@ describe('classifyLlmHttpError — context/token overflow detection', () => {
     expect(classifyLlmHttpError(500, 'Internal server error')).toBe('provider_http_500');
     expect(classifyLlmHttpError(500, 'upstream timeout')).toBe('provider_http_500');
     expect(classifyLlmHttpError(502, 'bad gateway')).toBe('provider_http_500');
+  });
+});
+
+// ── HTTP 546 — proxy_resource_limit classification and no-retry ───────────────
+
+describe('HTTP 546 — proxy_resource_limit: not retried, specific category', () => {
+  it('classifies 546 as proxy_resource_limit (not provider_http_500)', () => {
+    expect(classifyLlmHttpError(546, 'Provider overloaded')).toBe('proxy_resource_limit');
+    expect(classifyLlmHttpError(546, '')).toBe('proxy_resource_limit');
+  });
+
+  it('does NOT retry on 546 — attempt called exactly once', async () => {
+    const attempt = vi.fn().mockRejectedValue(
+      new Error('LLM Proxy 546: Provider temporarily overloaded'),
+    );
+    await expect(executeWithClassifiedRetry('coder', attempt))
+      .rejects.toBeInstanceOf(LlmTransportError);
+    expect(attempt).toHaveBeenCalledOnce(); // No retry
+  });
+
+  it('throws LlmTransportError with category=proxy_resource_limit and retryUsed=false', async () => {
+    const attempt = vi.fn().mockRejectedValue(
+      new Error('LLM Proxy 546: upstream resource limit'),
+    );
+    const err = await executeWithClassifiedRetry('coder', attempt).catch(e => e) as LlmTransportError;
+    expect(err).toBeInstanceOf(LlmTransportError);
+    expect(err.category).toBe('proxy_resource_limit');
+    expect(err.httpStatus).toBe(546);
+    expect(err.retryUsed).toBe(false);
+  });
+
+  it('emits telemetry with proxy_resource_limit and retryUsed=false on 546', async () => {
+    const spy = vi.spyOn(console, 'log');
+    const attempt = vi.fn().mockRejectedValue(
+      new Error('LLM Proxy 546: overloaded'),
+    );
+    await executeWithClassifiedRetry('coder', attempt).catch(() => {});
+
+    const calls = spy.mock.calls.filter(c => c[0] === '[llm_transport]');
+    expect(calls).toHaveLength(1);
+    const payload = calls[0][1];
+    expect(payload.llm_error_category).toBe('proxy_resource_limit');
+    expect(payload.llm_retry_used).toBe(false);
+    expect(payload.llm_final_status).toBe('failed');
+    expect(payload.llm_call_step).toBe('coder');
+    expect(payload.llm_http_status).toBe(546);
+  });
+
+  it('isTransientLlmError returns false for proxy_resource_limit', () => {
+    expect(isTransientLlmError('proxy_resource_limit')).toBe(false);
+  });
+
+  // Observation evidence: coder 546 failed both attempts in Cashflow Guard run.
+  // Same payload → same resource limit → retry is useless. Fail fast.
+  it('does NOT retry 546 even if a second attempt would theoretically succeed', async () => {
+    let calls = 0;
+    const attempt = vi.fn(() => {
+      calls++;
+      if (calls === 1) return Promise.reject(new Error('LLM Proxy 546: overloaded'));
+      return Promise.resolve('{"choices":[{"message":{"content":"ok"}}]}');
+    });
+    await expect(executeWithClassifiedRetry('coder', attempt))
+      .rejects.toBeInstanceOf(LlmTransportError);
+    expect(attempt).toHaveBeenCalledOnce(); // Fails on first, no retry
+  });
+});
+
+// ── No silent fallback — LlmTransportError is the final failure signal ────────
+
+describe('no silent fallback — typed failure is final, no model switching', () => {
+  it('546 throws LlmTransportError — no fallback to another model', async () => {
+    const attempt = vi.fn().mockRejectedValue(
+      new Error('LLM Proxy 546: Provider overloaded'),
+    );
+    const err = await executeWithClassifiedRetry('coder', attempt).catch(e => e) as LlmTransportError;
+    // LlmTransportError signals pipeline to return {success:false} — no model fallback
+    expect(err).toBeInstanceOf(LlmTransportError);
+    expect(err.category).toBe('proxy_resource_limit');
+    expect(attempt).toHaveBeenCalledOnce(); // Single attempt, no silent retry with another model
+  });
+
+  it('provider_http_500 double-fail throws LlmTransportError — no fallback to another model', async () => {
+    const attempt = vi.fn()
+      .mockRejectedValueOnce(new Error('LLM Proxy 500: e1'))
+      .mockRejectedValueOnce(new Error('LLM Proxy 500: e2'));
+    const err = await executeWithClassifiedRetry('coder', attempt).catch(e => e) as LlmTransportError;
+    // Exactly 2 attempts (1 original + 1 retry), then LlmTransportError — no silent provider switch
+    expect(err).toBeInstanceOf(LlmTransportError);
+    expect(attempt).toHaveBeenCalledTimes(2);
   });
 });
