@@ -128,7 +128,7 @@ import {
   type BuildMinimalArchitectPlanAdapterInput,
 } from './ArchitectReplacementAdapter';
 import { validateDownscopedArchitectOutput } from './ArchitectOutputValidator';
-import { executeWithClassifiedRetry, recordLlmCallDiagnostics } from './LLMTransportError';
+import { executeWithClassifiedRetry, recordLlmCallDiagnostics, recordLlmCallOutcome, LlmTransportError } from './LLMTransportError';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -3136,10 +3136,12 @@ function waitForIframeMounted(buildId: string, signal?: AbortSignal, previewUrl 
 // ── LLM helpers ──────────────────────────────────────────────────────────────
 
 export interface ResolvedRoute {
-  modelId:  string;
-  apiKey:   string;
-  endpoint: string;
-  provider: string;
+  modelId:          string;
+  apiKey:           string;
+  endpoint:         string;
+  provider:         string;
+  endpointKind?:    string;  // direct_provider | supabase_proxy | openrouter_proxy | unknown
+  sourceAuthority?: string;  // user_set | backend_runtime_saved | backend_factory_template | etc.
 }
 
 type RouteOverrideMap = Partial<Record<AgentSlot, ResolvedRoute>>;
@@ -3169,6 +3171,27 @@ function extractUsageMetric(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+// ── Diagnostic helper: classify endpoint for route telemetry ─────────────────
+
+const NATIVE_ROUTE_HOSTS = new Set([
+  'api.deepseek.com',
+  'api.openai.com',
+  'api.anthropic.com',
+  'generativelanguage.googleapis.com',
+  'api.mistral.ai',
+  'api.groq.com',
+]);
+
+function routeEndpointKind(endpoint: string, provider: string): string {
+  if (provider === 'claude-cli' || provider === 'codex-cli') return 'direct_provider';
+  try {
+    const host = new URL(endpoint).hostname;
+    if (host.endsWith('openrouter.ai')) return 'openrouter_proxy';
+    if (NATIVE_ROUTE_HOSTS.has(host))  return 'supabase_proxy';
+  } catch { /* malformed endpoint */ }
+  return 'unknown';
+}
+
 function resolveRoute(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRoute {
   const override = overrides?.[slot];
   if (override) {
@@ -3179,9 +3202,11 @@ function resolveRoute(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRo
     }
     return {
       modelId,
-      apiKey: override.apiKey ?? '',
+      apiKey:          override.apiKey ?? '',
       endpoint,
-      provider: override.provider,
+      provider:        override.provider,
+      endpointKind:    override.endpointKind ?? routeEndpointKind(endpoint, override.provider),
+      sourceAuthority: override.sourceAuthority ?? 'override',
     };
   }
   const modelId = ConfigService.resolveModel(slot);
@@ -3198,7 +3223,15 @@ function resolveRoute(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRo
   }
   const provider = ConfigService.getAgentConfig(`agent_${slot}`).provider || 'openrouter';
   const endpoint = Orchestrator.getEndpoint(provider);
-  return { modelId, apiKey, endpoint, provider };
+  const { authority } = ConfigService.resolveModelWithAuthority(slot);
+  return {
+    modelId,
+    apiKey,
+    endpoint,
+    provider,
+    endpointKind:    routeEndpointKind(endpoint, provider),
+    sourceAuthority: authority,
+  };
 }
 
 function resolveRouteOrSkip(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRoute | null {
@@ -3279,15 +3312,23 @@ async function streamCall(input: {
 
   // Pre-call diagnostics: safe payload metrics only — no prompt text, no API key.
   // Route authority is logged upstream by the route resolver.
+  const systemCharCount = input.system.length;
+  const userCharCount   = input.user.length;
+  const totalCharCount  = systemCharCount + userCharCount;
   recordLlmCallDiagnostics({
-    llm_call_step:         slotToStepName(input.slot),
-    provider:              route.provider,
-    model_id:              Orchestrator.normalizeModelId(route.modelId, route.endpoint),
-    prompt_char_count:     input.system.length + input.user.length,
-    estimated_token_count: Math.round((input.system.length + input.user.length) / 4),
-    messages_count:        2,
-    max_tokens:            input.maxTokens,
-    payload_byte_size:     body.length,
+    llm_call_step:              slotToStepName(input.slot),
+    provider:                   route.provider,
+    model_id:                   Orchestrator.normalizeModelId(route.modelId, route.endpoint),
+    endpoint_kind:              route.endpointKind    ?? 'unknown',
+    route_authority:            route.sourceAuthority ?? 'unknown_authority',
+    system_prompt_char_count:   systemCharCount,
+    user_payload_char_count:    userCharCount,
+    total_prompt_char_count:    totalCharCount,
+    estimated_token_count:      Math.round(totalCharCount / 4),
+    messages_count:             2,
+    max_tokens:                 input.maxTokens,
+    request_payload_byte_size:  body.length,
+    streaming_enabled:          false,
   });
 
   const ctrl = new AbortController();
@@ -3295,6 +3336,7 @@ async function streamCall(input: {
   const onCallerAbort = () => ctrl.abort();
   input.signal?.addEventListener('abort', onCallerAbort, { once: true });
 
+  const callStart = Date.now();
   try {
     const doFetch = async (): Promise<string> => {
       if (input.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -3317,10 +3359,31 @@ async function streamCall(input: {
       }
       return resp.text();
     };
-    const { result: raw } = await executeWithClassifiedRetry(
-      slotToStepName(input.slot),
-      doFetch,
-    );
+    let retryUsed = false;
+    let raw: string;
+    try {
+      const callResult = await executeWithClassifiedRetry(
+        slotToStepName(input.slot),
+        doFetch,
+      );
+      retryUsed = callResult.retryUsed;
+      raw = callResult.result;
+    } catch (llmErr) {
+      recordLlmCallOutcome({
+        llm_call_step:    slotToStepName(input.slot),
+        response_time_ms: Date.now() - callStart,
+        final_status:     (llmErr instanceof LlmTransportError) ? 'failed' : 'aborted',
+        http_status:      (llmErr instanceof LlmTransportError) ? llmErr.httpStatus : 0,
+        error_category:   (llmErr instanceof LlmTransportError) ? llmErr.category : undefined,
+      });
+      throw llmErr;
+    }
+    recordLlmCallOutcome({
+      llm_call_step:    slotToStepName(input.slot),
+      response_time_ms: Date.now() - callStart,
+      final_status:     retryUsed ? 'retry_success' : 'success',
+      http_status:      0,
+    });
     let parsed: any;
     try {
       parsed = JSON.parse(raw);
