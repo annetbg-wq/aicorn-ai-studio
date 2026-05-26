@@ -133,6 +133,11 @@ import {
   buildCoderOutputBudgetDiagnostics,
   recordCoderOutputBudgetDiagnostics,
 } from './CoderOutputBudgetDiagnostics';
+import { buildSkeletonContractForCoder } from './SkeletonContractForCoder';
+import {
+  measureCoderPromptBlockSizes,
+  recordCoderPromptBlockSizes,
+} from './CoderPromptBlockSizeDiagnostics';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -467,6 +472,13 @@ const STEP_BUDGET = {
   repair:        { maxTokens: 12_000, timeoutMs: 120_000 },
   qualityRepair: { maxTokens:  8_000, timeoutMs:  90_000 },
 } as const;
+
+/**
+ * Exported for diagnostics/tests — proves coder.maxTokens was not lowered
+ * as part of the coder-skeleton-context-contract fix.
+ * The fix reduces INPUT payload (skeleton contract), not OUTPUT budget.
+ */
+export const CODER_MAX_TOKENS = STEP_BUDGET.coder.maxTokens;
 
 const MAX_REPAIR_PASSES = 2;
 
@@ -2730,64 +2742,84 @@ async function runCoder(input: {
   const advertisedUiPrimitives = filterAdvertisedUiPrimitiveNames(skeleton.uiPrimitives);
   const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(advertisedUiPrimitives);
 
-  const system = `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.
+  // Compact skeleton contract: describes installed foundation, navigation config exports,
+  // and per-skeleton import rules. Replaces hardcoded mobile-specific nav lines.
+  // Does NOT include raw skeleton source code — structural contract only.
+  const skeletonContractBlock = buildSkeletonContractForCoder(input.skeletonId);
 
-SKELETON: ${skeleton.label} (${skeleton.id})
-PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}
-PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
-UI PRIMITIVES: ${advertisedUiPrimitives.join(', ') || '(see registry)'}
-${contractBlock ? `\n${contractBlock}\n` : ''}${planningBlocks ? '\n' + planningBlocks + '\n' : ''}
-${skeletonPromptBlock}
-DELTA FILE TREE FROM ARCHITECT (source of truth):
-${fileTreeBlock || '  - (none)'}
+  // ── Prompt sub-blocks (measured for diagnostics) ───────────────────────────
+  const skeletonHeaderBlock =
+    `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.\n\n` +
+    `SKELETON: ${skeleton.label} (${skeleton.id})\n` +
+    `PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}\n` +
+    `PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}\n` +
+    `UI PRIMITIVES: ${advertisedUiPrimitives.join(', ') || '(see registry)'}`;
 
-YOU MUST write EXACTLY these files and only these files:
-${fileList}
+  const filePlanBlock =
+    `DELTA FILE TREE FROM ARCHITECT (source of truth):\n${fileTreeBlock || '  - (none)'}\n\n` +
+    `YOU MUST write EXACTLY these files and only these files:\n${fileList}\n\n` +
+    `PAGES TO WIRE INTO THE ROUTER:\n${pageList}` +
+    dataModelBlock + notesBlock;
 
-PAGES TO WIRE INTO THE ROUTER:
-${pageList}
-${dataModelBlock}${notesBlock}
-OUTPUT FORMAT — CRITICAL
-Emit each file enclosed in plain-text markers, nothing else around them:
+  const outputFormatBlock =
+    `OUTPUT FORMAT — CRITICAL\n` +
+    `Emit each file enclosed in plain-text markers, nothing else around them:\n\n` +
+    `<<<FILE: pages/Dashboard.tsx>>>\n// full file contents here\n<<<END>>>\n\n` +
+    `<<<FILE: components/StatCard.tsx>>>\n// full file contents here\n<<<END>>>`;
 
-<<<FILE: pages/Dashboard.tsx>>>
-// full file contents here
-<<<END>>>
+  const importRulesBlock =
+    `IMPORT RULES — follow exactly, never mix paths\n` +
+    `Available UI primitive import catalog (use only these exact paths):\n` +
+    uiPrimitiveImportCatalog + `\n\n` +
+    `From '@/components/EmptyState' (NOT from ui): EmptyState\n` +
+    `From '@/components/LoadingScreen' (NOT from ui): LoadingScreen\n` +
+    `From '@/components/ErrorBoundary' (NOT from ui): ErrorBoundary\n` +
+    `From 'lucide-react': any icon component\n` +
+    `From '@/config/routes': ROUTES\n\n` +
+    `NEVER import EmptyState, LoadingScreen, or ErrorBoundary from '@/components/ui'.\n\n` +
+    skeletonContractBlock;
 
-<<<FILE: components/StatCard.tsx>>>
-// full file contents here
-<<<END>>>
+  const rulesBlock =
+    `RULES\n` +
+    `- Paths relative to preview-workspace/src/. No leading "src/" or "/".\n` +
+    `- Each file must be a complete, compilable .tsx/.ts file. No diffs, no patches.\n` +
+    `- Do not import UI primitives that are not listed in the UI primitive import catalog or not physically present in src/components/ui.\n` +
+    `- If a component is needed but not available in the UI catalog, implement it as a local component under components/ instead of importing a nonexistent shadcn primitive.\n` +
+    `- Only import from skeleton-provided modules listed above, exact UI primitive paths listed above, "lucide-react", "react", and files you yourself emit.\n` +
+    `- For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, use the named import: import { useLocalStorage } from "@/hooks/useLocalStorage".\n` +
+    `- You are extending the installed skeleton by delta. NEVER rebuild the app shell, router, providers, or placeholder app from scratch when the selected skeleton already provides them.\n` +
+    `- Do not modify any skeleton-locked path.\n` +
+    `- No commentary outside the markers. No markdown. No code fences.\n` +
+    `- Quality over verbosity: real content, no lorem ipsum, no TODOs.\n` +
+    `- DESIGN TOKENS: ALWAYS use Tailwind design token classes — bg-background, bg-card, bg-muted, bg-primary, text-foreground, text-muted-foreground, text-primary, text-primary-foreground, border-border. NEVER use raw color utilities (bg-white, bg-black, bg-gray-100, text-gray-900, border-gray-200). Use var(--primary) / var(--foreground) in style props when tokens are needed inline.\n` +
+    `- REAL DATA: Write actual domain entities with real business labels, realistic numbers, and meaningful copy. Never write "Lorem ipsum", "placeholder", "TODO", or generic "Item 1 / Item 2" lists.\n` +
+    `- COMPLETENESS: Every emitted file must be fully functional — no partial stubs, no "// rest of implementation" comments, no empty component bodies.`;
 
-IMPORT RULES — follow exactly, never mix paths
-Available UI primitive import catalog (use only these exact paths):
-${uiPrimitiveImportCatalog}
+  const system = [
+    skeletonHeaderBlock,
+    contractBlock ? `\n${contractBlock}` : '',
+    planningBlocks ? `\n${planningBlocks}` : '',
+    `\n${skeletonPromptBlock}`,
+    `\n${filePlanBlock}`,
+    `\n${outputFormatBlock}`,
+    `\n${importRulesBlock}`,
+    `\n${rulesBlock}`,
+  ].join('\n');
 
-From '@/components/EmptyState' (NOT from ui): EmptyState
-From '@/components/BottomTabs'  (NOT from ui): BottomTabs
-From '@/components/LoadingScreen' (NOT from ui): LoadingScreen
-From '@/components/ErrorBoundary' (NOT from ui): ErrorBoundary
-From 'lucide-react': any icon component
-From '@/config/navigation': BOTTOM_TABS (read-only; do NOT re-import or re-export)
-From '@/config/routes': ROUTES
-
-NEVER import EmptyState, BottomTabs, LoadingScreen, or ErrorBoundary from '@/components/ui'.
-CRITICAL: config/navigation.ts MUST export BOTTOM_TABS (readonly TabDefinition[] with {to, label, icon} matching ROUTES).
-         config/routes.ts MUST export ROUTES object with home/create/detail/progress/profile keys.
-
-RULES
-- Paths relative to preview-workspace/src/. No leading "src/" or "/".
-- Each file must be a complete, compilable .tsx/.ts file. No diffs, no patches.
-- Do not import UI primitives that are not listed in the UI primitive import catalog or not physically present in src/components/ui.
-- If a component is needed but not available in the UI catalog, implement it as a local component under components/ instead of importing a nonexistent shadcn primitive.
-- Only import from skeleton-provided modules listed above, exact UI primitive paths listed above, "lucide-react", "react", and files you yourself emit.
-- For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, use the named import: import { useLocalStorage } from "@/hooks/useLocalStorage".
-- You are extending the installed skeleton by delta. NEVER rebuild the app shell, router, providers, or placeholder app from scratch when the selected skeleton already provides them.
-- Do not modify any skeleton-locked path.
-- No commentary outside the markers. No markdown. No code fences.
-- Quality over verbosity: real content, no lorem ipsum, no TODOs.
-- DESIGN TOKENS: ALWAYS use Tailwind design token classes — bg-background, bg-card, bg-muted, bg-primary, text-foreground, text-muted-foreground, text-primary, text-primary-foreground, border-border. NEVER use raw color utilities (bg-white, bg-black, bg-gray-100, text-gray-900, border-gray-200). Use var(--primary) / var(--foreground) in style props when tokens are needed inline.
-- REAL DATA: Write actual domain entities with real business labels, realistic numbers, and meaningful copy. Never write "Lorem ipsum", "placeholder", "TODO", or generic "Item 1 / Item 2" lists.
-- COMPLETENESS: Every emitted file must be fully functional — no partial stubs, no "// rest of implementation" comments, no empty component bodies.`;
+  // Measure and log prompt block sizes (chars only, no content) for diagnostics.
+  const promptBlockSizes = measureCoderPromptBlockSizes({
+    skeletonHeader:       skeletonHeaderBlock,
+    contractBlock:        contractBlock,
+    planningBlocks:       planningBlocks,
+    skeletonFoundation:   skeletonPromptBlock,
+    skeletonContract:     skeletonContractBlock,
+    filePlan:             filePlanBlock,
+    outputFormat:         outputFormatBlock,
+    importRules:          importRulesBlock,
+    rules:                rulesBlock,
+    userMessage:          input.prompt + '\n\nSummary: ' + input.plan.summary,
+  });
+  recordCoderPromptBlockSizes(promptBlockSizes);
 
   let firstReason = '';
   let body = '';
