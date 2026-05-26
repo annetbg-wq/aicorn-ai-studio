@@ -1322,14 +1322,16 @@ export const AGENT_CONFIG_RUNTIME_FILE = path.join(process.cwd(), 'backend', 'ag
 app.get('/agent-config', (_req, res) => {
   try {
     // Prefer runtime overrides; fall back to committed factory defaults.
-    const filePath = fs.existsSync(AGENT_CONFIG_RUNTIME_FILE)
-      ? AGENT_CONFIG_RUNTIME_FILE
-      : AGENT_CONFIG_FILE;
+    const isRuntime = fs.existsSync(AGENT_CONFIG_RUNTIME_FILE);
+    const filePath = isRuntime ? AGENT_CONFIG_RUNTIME_FILE : AGENT_CONFIG_FILE;
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'agent-config.json not found' });
     }
     const raw = fs.readFileSync(filePath, 'utf8');
-    res.json(JSON.parse(raw));
+    const data = JSON.parse(raw) as Record<string, unknown>;
+    // _configSource lets the frontend distinguish factory defaults (never route authority)
+    // from runtime config (written by the user saving Settings).
+    res.json({ ...data, _configSource: isRuntime ? 'runtime' : 'factory' } as Record<string, unknown>);
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

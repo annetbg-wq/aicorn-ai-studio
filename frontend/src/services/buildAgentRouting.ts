@@ -1,6 +1,37 @@
 import type { ApiProvider, AgentSlot, AgentConfigAuthority } from './ConfigService';
 import { ConfigService } from './ConfigService';
 
+// ── Typed error for missing user model selection ──────────────────────────────
+
+/**
+ * Thrown by resolveStandardRoute() when the build slot's model originates from
+ * a backend factory config or is entirely unconfigured — neither constitutes
+ * explicit user selection, so route construction is refused.
+ *
+ * Callers must catch this and surface a "configure your model" prompt to the user.
+ */
+export class ModelSelectionRequiredError extends Error {
+  readonly slot:      AgentSlot;
+  readonly authority: AgentConfigAuthority;
+
+  constructor(slot: AgentSlot, authority: AgentConfigAuthority) {
+    super(
+      `Model selection required for slot "${slot}" (source authority: ${authority}). ` +
+      'Open Settings → Agent Models and choose a model before generating.',
+    );
+    this.name      = 'ModelSelectionRequiredError';
+    this.slot      = slot;
+    this.authority = authority;
+  }
+}
+
+/** Authority values that are NOT acceptable as user-selected route authority. */
+const FACTORY_OR_EMPTY_AUTHORITIES: ReadonlySet<AgentConfigAuthority> = new Set([
+  'backend_factory_template',
+  'backend_file_seed',   // legacy alias for backend_factory_template
+  'no_model_configured',
+]);
+
 // ── Canonical routing contract ────────────────────────────────────────────────
 
 /**
@@ -40,8 +71,11 @@ export interface AgentExecutionRoute {
   sourceAuthority:   AgentConfigAuthority;
   /** True only when the user explicitly saved this slot via the Settings UI. */
   isUserSelected:    boolean;
-  /** True when the config was seeded from backend/agent-config.json at startup. */
+  /** True when the config was saved by the user to the runtime file (backend_runtime_saved). */
   isRuntimeConfig:   boolean;
+  /** True when the model came from factory config (backend/agent-config.json). Always false
+   *  on returned routes because factory authority throws before a route is returned. */
+  isFactoryConfig:   boolean;
   /** True when a routing fallback rule was triggered (fallbackReason is set). */
   isProxyFallback:   boolean;
 }
@@ -106,6 +140,14 @@ export function resolveStandardRoute(
   const cfg                   = ConfigService.getAgentConfig(agentKey);
   const { modelId: rawModelId, authority: sourceAuthority }
                               = ConfigService.resolveModelWithAuthority(slot);
+
+  // ── Enforce user-selection requirement for the build/coder slot ───────────
+  // Factory config (backend/agent-config.json) and no-model are both unacceptable
+  // as route authority. Generation must not silently use committed factory defaults.
+  if (slot === 'build' && FACTORY_OR_EMPTY_AUTHORITIES.has(sourceAuthority)) {
+    throw new ModelSelectionRequiredError(slot, sourceAuthority);
+  }
+
   const keyResolution         = ConfigService.getKeyResolutionForAgent(slot);
   const rawProvider           = (cfg.provider ?? keyResolution.provider ?? 'openrouter') as ApiProvider;
   const configuredKey         = keyResolution.key;
@@ -130,7 +172,8 @@ export function resolveStandardRoute(
       fallbackReason: 'anthropic_streaming_fallback',
       sourceAuthority,
       isUserSelected:  sourceAuthority === 'user_set',
-      isRuntimeConfig: sourceAuthority === 'backend_file_seed',
+      isRuntimeConfig: sourceAuthority === 'backend_runtime_saved',
+      isFactoryConfig: false,
       isProxyFallback: true,
     };
   }
@@ -153,7 +196,8 @@ export function resolveStandardRoute(
       fallbackReason: 'missing_provider_key_fallback',
       sourceAuthority,
       isUserSelected:  sourceAuthority === 'user_set',
-      isRuntimeConfig: sourceAuthority === 'backend_file_seed',
+      isRuntimeConfig: sourceAuthority === 'backend_runtime_saved',
+      isFactoryConfig: false,
       isProxyFallback: true,
     };
   }
@@ -179,7 +223,8 @@ export function resolveStandardRoute(
     reason,
     sourceAuthority,
     isUserSelected:  sourceAuthority === 'user_set',
-    isRuntimeConfig: sourceAuthority === 'backend_file_seed',
+    isRuntimeConfig: sourceAuthority === 'backend_runtime_saved',
+    isFactoryConfig: false,
     isProxyFallback: false,
   };
 }

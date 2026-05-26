@@ -57,6 +57,7 @@ describe('ArtifactReviewerService.reviewWithAI', () => {
     sourceAuthority: 'user_set',
     isUserSelected:  true,
     isRuntimeConfig: false,
+    isFactoryConfig: false,
     isProxyFallback: false,
   };
 
