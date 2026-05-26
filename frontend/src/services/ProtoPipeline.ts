@@ -128,6 +128,7 @@ import {
   type BuildMinimalArchitectPlanAdapterInput,
 } from './ArchitectReplacementAdapter';
 import { validateDownscopedArchitectOutput } from './ArchitectOutputValidator';
+import { executeWithClassifiedRetry } from './LLMTransportError';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -3222,6 +3223,19 @@ async function callOnce(input: {
   return out;
 }
 
+/** Maps an AgentSlot to a human-readable step name for LLM transport telemetry. */
+function slotToStepName(slot: AgentSlot): string {
+  const map: Record<AgentSlot, string> = {
+    primary: 'architect',
+    build:   'coder',
+    fix:     'repair',
+    spec:    'clarify',
+    qa:      'quality',
+    chat:    'chat',
+  };
+  return map[slot] ?? slot;
+}
+
 /**
  * Non-streaming LLM call. We deliberately set `stream: false` because the
  * surrounding pipeline only needs the final assistant message (it parses
@@ -3269,25 +3283,31 @@ async function streamCall(input: {
   input.signal?.addEventListener('abort', onCallerAbort, { once: true });
 
   try {
-    if (input.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const resp = route.provider === 'claude-cli' || route.provider === 'codex-cli'
-      ? await fetch('/api/quality/llm-run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            provider: route.provider === 'codex-cli' ? 'codex' : 'claude',
-            model: route.modelId,
-            systemPrompt: input.system,
-            userPrompt: input.user,
-          }),
-          signal: ctrl.signal,
-        })
-      : await llmFetch(route.endpoint, headers, body);
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => '');
-      throw new Error(`LLM ${resp.status}: ${errText.slice(0, 300)}`);
-    }
-    const raw = await resp.text();
+    const doFetch = async (): Promise<string> => {
+      if (input.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      const resp = route.provider === 'claude-cli' || route.provider === 'codex-cli'
+        ? await fetch('/api/quality/llm-run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              provider: route.provider === 'codex-cli' ? 'codex' : 'claude',
+              model: route.modelId,
+              systemPrompt: input.system,
+              userPrompt: input.user,
+            }),
+            signal: ctrl.signal,
+          })
+        : await llmFetch(route.endpoint, headers, body);
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => '');
+        throw new Error(`LLM ${resp.status}: ${errText.slice(0, 300)}`);
+      }
+      return resp.text();
+    };
+    const { result: raw } = await executeWithClassifiedRetry(
+      slotToStepName(input.slot),
+      doFetch,
+    );
     let parsed: any;
     try {
       parsed = JSON.parse(raw);
