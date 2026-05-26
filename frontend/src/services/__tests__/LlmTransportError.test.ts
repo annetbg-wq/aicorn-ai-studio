@@ -9,6 +9,7 @@ import {
   parseSafeBodyFromMessage,
   parseStatusFromMessage,
   recordLlmTransportTelemetry,
+  recordLlmCallDiagnostics,
 } from '../LLMTransportError';
 import type { LlmErrorCategory } from '../LLMTransportError';
 
@@ -94,6 +95,12 @@ describe('classifyLlmHttpError', () => {
     expect(classifyLlmHttpError(502, 'Bad gateway')).toBe('provider_http_500');
   });
 
+  it('classifies 546 as proxy_resource_limit regardless of body', () => {
+    expect(classifyLlmHttpError(546, 'Provider overloaded')).toBe('proxy_resource_limit');
+    expect(classifyLlmHttpError(546, '')).toBe('proxy_resource_limit');
+    expect(classifyLlmHttpError(546, 'upstream resource limit reached')).toBe('proxy_resource_limit');
+  });
+
   it('classifies 500 with token-overflow body as context_too_large', () => {
     expect(classifyLlmHttpError(500, 'token limit exceeded')).toBe('context_too_large');
     expect(classifyLlmHttpError(500, 'context window overflow')).toBe('context_too_large');
@@ -114,6 +121,7 @@ describe('isTransientLlmError', () => {
   const transient: LlmErrorCategory[] = ['provider_http_500'];
   const nonTransient: LlmErrorCategory[] = [
     'provider_rate_limit',
+    'proxy_resource_limit',
     'context_too_large',
     'malformed_llm_request',
     'missing_provider_key',
@@ -412,5 +420,73 @@ describe('executeWithClassifiedRetry', () => {
       .mockRejectedValueOnce(new Error('LLM Proxy 500: e2'));
     const err = await executeWithClassifiedRetry('architect', attempt).catch(e => e) as LlmTransportError;
     expect(err.message).toContain('architect');
+  });
+});
+
+// ── recordLlmCallDiagnostics ──────────────────────────────────────────────────
+
+describe('recordLlmCallDiagnostics', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('logs a [llm_call_diag] record with safe payload metrics', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    recordLlmCallDiagnostics({
+      llm_call_step:          'coder',
+      provider:               'deepseek',
+      model_id:               'deepseek/deepseek-v4-pro',
+      prompt_char_count:      10000,
+      estimated_token_count:  2500,
+      messages_count:         2,
+      max_tokens:             35000,
+      payload_byte_size:      12000,
+    });
+    const calls = spy.mock.calls.filter(c => c[0] === '[llm_call_diag]');
+    expect(calls).toHaveLength(1);
+    const payload = calls[0][1];
+    expect(payload.llm_call_step).toBe('coder');
+    expect(payload.provider).toBe('deepseek');
+    expect(payload.model_id).toBe('deepseek/deepseek-v4-pro');
+    expect(payload.prompt_char_count).toBe(10000);
+    expect(payload.estimated_token_count).toBe(2500);
+    expect(payload.messages_count).toBe(2);
+    expect(payload.max_tokens).toBe(35000);
+    expect(payload.payload_byte_size).toBe(12000);
+  });
+
+  it('logs [llm_call_diag] for architect step', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    recordLlmCallDiagnostics({
+      llm_call_step:          'architect',
+      provider:               'openrouter',
+      model_id:               'anthropic/claude-3.5-sonnet',
+      prompt_char_count:      5000,
+      estimated_token_count:  1250,
+      messages_count:         2,
+      max_tokens:             8000,
+      payload_byte_size:      6000,
+    });
+    const calls = spy.mock.calls.filter(c => c[0] === '[llm_call_diag]');
+    expect(calls[0][1].llm_call_step).toBe('architect');
+    expect(calls[0][1].max_tokens).toBe(8000);
+  });
+
+  it('does not include prompt text, API keys, or generated code in the log', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    recordLlmCallDiagnostics({
+      llm_call_step:          'coder',
+      provider:               'deepseek',
+      model_id:               'deepseek/deepseek-v4-pro',
+      prompt_char_count:      5000,
+      estimated_token_count:  1250,
+      messages_count:         2,
+      max_tokens:             35000,
+      payload_byte_size:      6000,
+    });
+    const logged = JSON.stringify(spy.mock.calls);
+    // Only numeric/string metrics — no prompt content, no bearer tokens
+    expect(logged).not.toMatch(/sk-[a-zA-Z0-9]+/);
+    expect(logged).not.toMatch(/system prompt|user prompt|FILE:|<<<END>>>/i);
   });
 });

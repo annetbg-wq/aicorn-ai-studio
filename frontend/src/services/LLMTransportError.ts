@@ -17,6 +17,7 @@
 
 export type LlmErrorCategory =
   | 'provider_http_500'          // Generic 5xx — transient server-side error; one retry allowed
+  | 'proxy_resource_limit'       // HTTP 546 — proxy/provider capacity limit (OpenRouter→DeepSeek); not retried
   | 'provider_rate_limit'        // HTTP 429 — not retried (no sleep budget in pipeline)
   | 'context_too_large'          // 500/400 with token/context overflow body
   | 'malformed_llm_request'      // HTTP 400 — bad request format
@@ -54,6 +55,21 @@ export interface LlmTransportTelemetry {
   llm_retry_used: boolean;
   llm_final_status: 'success' | 'retry_success' | 'failed';
   llm_safe_error_message: string; // No secrets, no raw keys, no full prompts
+}
+
+/**
+ * Pre-call diagnostic payload. Emitted before each LLM HTTP request.
+ * Contains only safe payload metrics — never prompt text, API keys, or generated code.
+ */
+export interface LlmCallDiagnostics {
+  llm_call_step:          string;  // architect | coder | repair | etc.
+  provider:               string;  // deepseek | openrouter | openai | etc.
+  model_id:               string;  // normalized model identifier
+  prompt_char_count:      number;  // system + user character lengths combined
+  estimated_token_count:  number;  // rough estimate: prompt_char_count / 4
+  messages_count:         number;  // always 2 (system + user) for pipeline calls
+  max_tokens:             number;  // max_tokens budget for this step
+  payload_byte_size:      number;  // JSON-serialized request body length in bytes
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -94,6 +110,11 @@ export function classifyLlmHttpError(
   if (httpStatus === 429) return 'provider_rate_limit';
   if (httpStatus === 401 || httpStatus === 403) return 'missing_provider_key';
 
+  // HTTP 546 is a non-standard code used by the OpenRouter→DeepSeek proxy chain
+  // to signal upstream provider capacity / resource limits. Not retried — the
+  // same payload will hit the same limit on an immediate retry.
+  if (httpStatus === 546) return 'proxy_resource_limit';
+
   if (httpStatus === 400 || httpStatus >= 500) {
     // Detect token/context overflow regardless of whether it came as 400 or 500
     if (
@@ -116,8 +137,10 @@ export function classifyLlmHttpError(
  * provider_http_500 is the only transient case: generic server-side errors
  * that are not caused by the request content and may clear on a second attempt.
  *
- * Rate limits, context overflow, auth failures, and malformed requests are
- * all deterministic given the same request and must NOT be retried.
+ * proxy_resource_limit (546), rate limits, context overflow, auth failures,
+ * and malformed requests are all deterministic given the same request and
+ * must NOT be retried. Observation evidence: coder 546 retried once and
+ * failed again — immediate retry against the same payload hits the same limit.
  */
 export function isTransientLlmError(category: LlmErrorCategory): boolean {
   return category === 'provider_http_500';
@@ -137,6 +160,24 @@ export function recordLlmTransportTelemetry(data: LlmTransportTelemetry): void {
     llm_retry_used: data.llm_retry_used,
     llm_final_status: data.llm_final_status,
     llm_safe_error_message: data.llm_safe_error_message,
+  });
+}
+
+/**
+ * Emits a compact pre-call diagnostic log for each LLM request.
+ * Provides payload size visibility without logging prompt text, API keys,
+ * or generated code. Route authority is logged upstream by the route resolver.
+ */
+export function recordLlmCallDiagnostics(data: LlmCallDiagnostics): void {
+  console.log('[llm_call_diag]', {
+    llm_call_step:          data.llm_call_step,
+    provider:               data.provider,
+    model_id:               data.model_id,
+    prompt_char_count:      data.prompt_char_count,
+    estimated_token_count:  data.estimated_token_count,
+    messages_count:         data.messages_count,
+    max_tokens:             data.max_tokens,
+    payload_byte_size:      data.payload_byte_size,
   });
 }
 

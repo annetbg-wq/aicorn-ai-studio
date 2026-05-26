@@ -128,7 +128,7 @@ import {
   type BuildMinimalArchitectPlanAdapterInput,
 } from './ArchitectReplacementAdapter';
 import { validateDownscopedArchitectOutput } from './ArchitectOutputValidator';
-import { executeWithClassifiedRetry } from './LLMTransportError';
+import { executeWithClassifiedRetry, recordLlmCallDiagnostics } from './LLMTransportError';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -3276,6 +3276,19 @@ async function streamCall(input: {
     'Content-Type':  'application/json',
     'HTTP-Referer':  typeof window !== 'undefined' ? window.location.origin : '',
   };
+
+  // Pre-call diagnostics: safe payload metrics only — no prompt text, no API key.
+  // Route authority is logged upstream by the route resolver.
+  recordLlmCallDiagnostics({
+    llm_call_step:         slotToStepName(input.slot),
+    provider:              route.provider,
+    model_id:              Orchestrator.normalizeModelId(route.modelId, route.endpoint),
+    prompt_char_count:     input.system.length + input.user.length,
+    estimated_token_count: Math.round((input.system.length + input.user.length) / 4),
+    messages_count:        2,
+    max_tokens:            input.maxTokens,
+    payload_byte_size:     body.length,
+  });
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), input.timeoutMs);
