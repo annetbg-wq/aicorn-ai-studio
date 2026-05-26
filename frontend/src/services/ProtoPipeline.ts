@@ -129,6 +129,10 @@ import {
 } from './ArchitectReplacementAdapter';
 import { validateDownscopedArchitectOutput } from './ArchitectOutputValidator';
 import { executeWithClassifiedRetry, recordLlmCallDiagnostics, recordLlmCallOutcome, LlmTransportError } from './LLMTransportError';
+import {
+  buildCoderOutputBudgetDiagnostics,
+  recordCoderOutputBudgetDiagnostics,
+} from './CoderOutputBudgetDiagnostics';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -2857,6 +2861,27 @@ ${missing.map(p => `  - ${p}`).join('\n')}`;
   if (missing.length > 0) {
     input.onLog(`[coder] still missing after retry: ${missing.join(', ')}`, 'warn');
   }
+
+  // ── Output-budget diagnostics (safe, no code/prompt/secrets logged) ─────────
+  const parseStatus =
+    Object.keys(parsed).length === 0 ? 'parse_failed'
+    : missing.length > 0 ? 'missing_files'
+    : firstReason === 'length' ? 'retry_recovered'
+    : 'ok';
+
+  const budgetDiag = buildCoderOutputBudgetDiagnostics({
+    requestedMaxTokens:          STEP_BUDGET.coder.maxTokens,
+    expectedFileCount:           input.plan.deltaFiles.length,
+    parsedFileCount:             Object.keys(parsed).length,
+    outputCharCount:             body.length,
+    parseStatus,
+    truncatedArtifactDetected:   firstReason === 'length',
+    missingExpectedFilesCount:   missing.length,
+    finishReason:                firstReason,
+    parsedFiles:                 parsed,
+  });
+  recordCoderOutputBudgetDiagnostics(budgetDiag);
+
   if (usageAcc) input.onUsage?.(usageAcc);
   return parsed;
 }
