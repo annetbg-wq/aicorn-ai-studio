@@ -540,7 +540,7 @@ export const ConfigService = {
     // from file-seeded entries written by loadFromBackend().
     set(`${key}${AGENT_CONFIG_SOURCE_SUFFIX}`, 'user_set');
     void this.saveKeyToCloud(key, value);
-    void this.saveToBackend(agentId, config);
+    // Model choices are localStorage-only; do NOT write to backend file.
   },
 
   // ── Per-stage max token limits ───────────────────────────────────────────
@@ -757,8 +757,6 @@ export const ConfigService = {
       const fileData = { ...responseData };
       delete fileData._configSource;
 
-      const toSync: Array<{ agentId: string; config: AgentConfig }> = [];
-
       for (const [agentId, fileConfig] of Object.entries(fileData)) {
         if (!fileConfig || typeof fileConfig !== 'object') continue;
         const lsKey    = `AGENT_CONFIG_${agentId}`;
@@ -768,6 +766,7 @@ export const ConfigService = {
 
         if (lsRaw !== null) {
           // ── Slot already has a value in localStorage ──────────────────────
+          // Model choices are localStorage-only. Never push back to the backend file.
 
           if (marker === 'backend_file_seed') {
             // Legacy factory seed — migrate: strip provider/modelId, keep only maxTokens.
@@ -784,30 +783,15 @@ export const ConfigService = {
             }
             set(sourceKey, 'backend_factory_template');
             console.log(`[ConfigService] Migrated factory-seeded ${agentId} → stripped provider/modelId`);
-
-          } else if (marker === 'backend_factory_template') {
-            // Already migrated — skip (do not re-seed or push).
-
-          } else {
-            // user_set, backend_runtime_saved, null (pre-migration / unknown) — push to
-            // the file if it differs, so the runtime file stays in sync with the user's choice.
-            try {
-              const lsCfg   = JSON.parse(lsRaw) as AgentConfig;
-              const lsNorm   = JSON.stringify(JSON.parse(lsRaw));
-              const fileNorm = JSON.stringify(fileConfig);
-              if (lsNorm !== fileNorm) {
-                toSync.push({ agentId, config: lsCfg });
-              }
-            } catch {
-              // Corrupted localStorage entry — leave as-is (do not overwrite with factory).
-            }
           }
+          // All other markers (user_set, backend_runtime_saved, backend_factory_template, null):
+          // localStorage is authoritative — leave as-is, do not overwrite or push to backend.
 
         } else {
           // ── Slot is empty in localStorage ────────────────────────────────
 
           if (configSource === 'runtime') {
-            // Runtime file represents explicitly saved user settings — seed all fields.
+            // Runtime file represents previously saved settings — seed all fields.
             set(lsKey, JSON.stringify(fileConfig));
             set(sourceKey, 'backend_runtime_saved');
           } else {
@@ -823,13 +807,7 @@ export const ConfigService = {
         }
       }
 
-      // Push any user-set values that diverged from the file back to the runtime file.
-      if (toSync.length > 0) {
-        await Promise.allSettled(toSync.map(({ agentId, config }) => this.saveToBackend(agentId, config)));
-        console.log(`[ConfigService] Synced ${toSync.length} agent config(s) from localStorage → backend`);
-      } else {
-        console.log('[ConfigService] Agent configs in sync with backend');
-      }
+      console.log('[ConfigService] Agent configs loaded from backend (read-only).');
     } catch {
       // backend not running or unreachable — silently fall back to localStorage
     }
