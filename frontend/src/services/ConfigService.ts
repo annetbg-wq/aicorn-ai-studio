@@ -352,7 +352,7 @@ export const ConfigService = {
 
   // ── Named provider shortcuts (backward compat) ─────────────────────────
 
-  getGoogleApiKey(): string            { return this.getProviderKey('google') || (import.meta.env.VITE_GOOGLE_API_KEY ?? ''); },
+  getGoogleApiKey(): string            { return this.getProviderKey('google'); },
   setGoogleApiKey(v: string): void     { this.setProviderKey('google', v); },
 
   getAnthropicApiKey(): string         { return this.getProviderKey('anthropic') || (import.meta.env.VITE_ANTHROPIC_API_KEY ?? ''); },
