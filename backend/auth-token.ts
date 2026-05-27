@@ -175,6 +175,10 @@ interface ChatRequest {
   message: string;
   model?: string;
   system?: string;
+  /** Explicit route override fields — used when sourceAuthority=user_set. */
+  provider?: string;
+  modelId?: string;
+  sourceAuthority?: string;
 }
 
 interface SessionMessage {
@@ -236,9 +240,8 @@ function readMode(): ModeConfig {
       const parsed = JSON.parse(fs.readFileSync(MODE_FILE, 'utf8')) as Partial<ModeConfig>;
       if (parsed.provider === 'off' || parsed.provider === 'claude' || parsed.provider === 'codex') {
         if (parsed.provider === 'off') {
-          // off is only valid when explicitly set by dev-agent toggle
-          // auto-reset to standard on fresh start
-          return writeMode('claude');
+          // Allow 'off' to persist — per-request explicit routes bypass mode.json
+          return { provider: 'off', claudeMode: false, updatedAt: parsed.updatedAt || '' };
         }
         return {
           provider: parsed.provider,
@@ -905,6 +908,71 @@ async function runStandardAgents(
   return data.choices?.[0]?.message?.content ?? '';
 }
 
+/**
+ * Runs an LLM prompt using an explicit provider/model supplied in the request.
+ *
+ * This path is taken when the caller sets sourceAuthority=user_set along with
+ * an explicit provider and modelId.  It bypasses mode.json and agent-config.json
+ * entirely — the backend never invents a provider/model and never falls back to
+ * Claude CLI.
+ *
+ * Fails fast with a typed error if:
+ *   - provider is not in STANDARD_PROVIDER_ENDPOINTS
+ *   - the required API key env var is missing from the backend environment
+ *
+ * Exported so tests can call it directly without hitting the network.
+ */
+export async function runExplicitRoute(
+  provider: string,
+  modelId: string,
+  prompt: string,
+): Promise<string> {
+  const normalProvider = provider.trim().toLowerCase();
+  const endpoint = STANDARD_PROVIDER_ENDPOINTS[normalProvider];
+  if (!endpoint) {
+    const supported = Object.keys(STANDARD_PROVIDER_ENDPOINTS).join(', ');
+    throw new Error(
+      `[EXPLICIT_ROUTE] provider "${normalProvider}" is not supported. Supported: ${supported}.`,
+    );
+  }
+
+  const envKey = PROVIDER_ENV_KEYS[normalProvider];
+  const apiKey = envKey ? (process.env[envKey] ?? '').trim() : '';
+  if (!apiKey) {
+    throw new Error(
+      `[EXPLICIT_ROUTE] API key for provider "${normalProvider}" is not set. ` +
+      `Set ${envKey ?? '<unknown>'} in the backend environment before running the diagnostic.`,
+    );
+  }
+
+  // Strip "provider/" prefix for native endpoints (e.g. "google/gemini-2.5-flash" → "gemini-2.5-flash")
+  const isNative = normalProvider !== 'openrouter';
+  const effectiveModel = (() => {
+    const base = modelId.trim();
+    if (isNative && base.includes('/')) return base.split('/').slice(1).join('/');
+    return base;
+  })();
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: effectiveModel,
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`[EXPLICIT_ROUTE] ${normalProvider} API ${response.status}: ${err.slice(0, 300)}`);
+  }
+  const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+  return data.choices?.[0]?.message?.content ?? '';
+}
+
 async function updateProjectSummary(
   session: SessionData,
   lastUserMessage: string,
@@ -1162,9 +1230,26 @@ app.get('/sessions/:sessionId', (req, res) => {
 app.post('/chat', async (req, res) => {
   const startTime = Date.now();
   try {
-    const { sessionId: incomingSessionId, message, model } = req.body as ChatRequest;
+    const {
+      sessionId: incomingSessionId,
+      message,
+      model,
+      provider: explicitProvider,
+      modelId: explicitModelId,
+      sourceAuthority,
+    } = req.body as ChatRequest;
     if (!message || !message.trim()) {
       return res.status(400).json({ error: 'message is required' });
+    }
+
+    // ── Explicit route fast-fail ──────────────────────────────────────────────
+    // When sourceAuthority=user_set, provider and modelId are both required.
+    const isExplicitRoute = sourceAuthority === 'user_set';
+    if (isExplicitRoute && (!explicitProvider || !explicitModelId)) {
+      return res.status(400).json({
+        error: 'sourceAuthority=user_set requires both provider and modelId in the request body.',
+        code: 'explicit_route_incomplete',
+      });
     }
 
     const resolvedSessionId = incomingSessionId || makeSessionId();
@@ -1176,29 +1261,40 @@ app.post('/chat', async (req, res) => {
 
       const sessionFile = path.join(sessionDir, 'session.json');
       const activeMode = readMode();
-      const requestedModel = activeMode.provider !== 'off'
-        ? resolveDevAgentModel(activeMode.provider, model)
-        : resolveStandardModel(model);
+      const requestedModel = isExplicitRoute
+        ? (explicitModelId ?? model ?? '')
+        : activeMode.provider !== 'off'
+          ? resolveDevAgentModel(activeMode.provider, model)
+          : resolveStandardModel(model);
       const sessionData = readSessionData(sessionFile, resolvedSessionId, requestedModel);
 
-      const resolvedModel = activeMode.provider !== 'off'
-        ? resolveDevAgentModel(activeMode.provider, model || sessionData.model)
-        : resolveStandardModel(model || sessionData.model);
+      const resolvedModel = isExplicitRoute
+        ? (explicitModelId ?? (model || sessionData.model))
+        : activeMode.provider !== 'off'
+          ? resolveDevAgentModel(activeMode.provider, model || sessionData.model)
+          : resolveStandardModel(model || sessionData.model);
       const userMessage = message.trim();
       const prompt = buildPrompt(sessionData, userMessage);
 
       console.log(`[chat] session: ${resolvedSessionId}, model: ${resolvedModel}, prompt: ${prompt.length} chars`);
 
       let responseText: string;
-      if (activeMode.provider !== 'off' && isProviderAvailable(activeMode.provider)) {
+      if (isExplicitRoute) {
+        // Explicit user_set route — bypass mode.json and agent-config.json entirely.
+        // Claude CLI is never invoked here.
+        console.log(`[chat] Explicit route: provider=${explicitProvider} model=${explicitModelId}`);
+        responseText = await runExplicitRoute(explicitProvider!, explicitModelId!, prompt);
+      } else if (activeMode.provider !== 'off' && isProviderAvailable(activeMode.provider)) {
         console.log(`[chat] Provider: ${describeProvider(activeMode.provider)}`);
         responseText = await runDevAgentPrompt(activeMode.provider, prompt, resolvedModel);
       } else if (activeMode.provider !== 'off') {
         const status = activeMode.provider === 'codex' ? getCodexCliStatus() : getClaudeCliStatus();
         return res.status(503).json({
           error: `${describeProvider(activeMode.provider)} is not available`,
+          code: 'cli_unavailable',
           provider: activeMode.provider,
           details: status.reason || 'CLI not found or not authorized',
+          hint: 'Set sourceAuthority=user_set with provider and modelId to use an explicit route that bypasses CLI mode.',
         });
       } else {
         console.log('[chat] Provider: Standard Agents');
