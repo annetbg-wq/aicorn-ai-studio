@@ -1,9 +1,110 @@
 # Cashflow Guard After Product Identity Contract
 
 **Branch:** `p2/coder-product-identity-substitution`  
-**Run date:** 2026-05-26T23:47–23:51 UTC  
-**Observation window:** 10 minutes (generation ended at ~211s)  
-**Idea launched:** Cashflow Guard для фрилансеров (Trending niches / Идеи дня)
+**Run 1:** 2026-05-26T23:47 UTC — FAIL (HTTP 546 / mimo-v2-pro on coder)  
+**Run 2:** 2026-05-27T12:26 UTC — PARTIAL (gpt-4o-mini, coder completed, preview compiled, identity not applied)  
+**Observation window:** 10 minutes  
+**Idea launched:** Cashflow Guard для фрилансеров (Trending niches / Idea Bank)
+
+---
+
+## Summary verdict
+
+**PARTIAL** (Run 2)
+
+- Coder completed ✓, preview compiled ✓, no HTTP 546 ✓
+- Product Identity Substitution Contract reached coder prompt (1384 chars confirmed) ✓
+- Model (gpt-4o-mini) did NOT apply identity substitutions — skeleton placeholders remain throughout
+
+---
+
+## Route authority (Run 2)
+
+- **provider:** openrouter
+- **model (build/coder):** `openai/gpt-4o-mini`
+- **model (primary/architect):** `openai/gpt-4o-mini`
+- **endpoint kind:** `openrouter_proxy`
+- **source authority:** `backend_runtime_saved` (runtime file reset to gpt-4o-mini before run)
+- not backend_factory_template ✓
+- not backend_file_seed ✓
+- not no_model_configured ✓
+
+> Note: Run 1 failed because `xiaomi/mimo-v2-pro` was on the coder slot via a localStorage→backend
+> sync bug. That bug was fixed in commit `0043cda` before Run 2.
+
+---
+
+## Pipeline timeline (Run 2)
+
+| Stage | Status | Notes |
+|---|---|---|
+| Packaging | ✓ COMPLETE | blueprint packaged, context_contract_chars: 1384 |
+| Architect | ✓ COMPLETE | gpt-4o-mini, ~8s |
+| Skeleton selected | mobile-app | correct for mobile-first product |
+| Skeleton contract emitted | ✓ YES | skeleton_contract_chars: 1228 |
+| Product Identity Contract emitted | ✓ YES | context_contract_chars: 1384 (+824 over skeleton-only) |
+| Coder | ✓ COMPLETE | gpt-4o-mini, planning_blocks_chars: 57516, coder ran to completion |
+| Quality gate | not reached | build moved to repair before QG |
+| Repair | ✓ RAN | gpt-4o-mini, route_authority: backend_runtime_saved |
+| Preview compile | ✓ SUCCESS | |
+| Live preview ready | ✓ YES | final_status: success at ~229s |
+
+---
+
+## Product identity inspection (Run 2)
+
+| Check | Result |
+|---|---|
+| First viewport clarity | ✗ FAIL — `APP_CONFIG.name = 'AppName'`, header shows "Today's space" |
+| KPI labels | ✗ FAIL — `Streak / Done / Total` (generic progress tracker) |
+| Data/table/list labels | ✗ FAIL — seed data: "Morning intention", "Deep work block", "Movement break" (wellness) |
+| Mock data authenticity | ✗ FAIL — wellness/productivity theme, no cashflow/invoice/payment data |
+| Navigation labels | ✗ FAIL — Home / Create / Progress / Profile (unmodified skeleton BottomTabs) |
+| Generic skeleton labels remaining | `Home`, `Create`, `Progress`, `Profile`, `New item`, `Progress`, `Today's space` |
+| Cashflow-specific terms in workspace | ✓ 1 file contains 'cashflow' (App.tsx build ID only) |
+
+---
+
+## Workspace inspection (Run 2)
+
+| Check | Result |
+|---|---|
+| Missing imports/components | ✓ NONE — all imports resolve |
+| PRODUCT token status | Comments remain (`/* PRODUCT: ... */`) but no blocking tokens |
+| Empty array status | ✓ NONE |
+| Compile status | ✓ SUCCESS |
+| UI quality notes | Compiles and renders; wellness scaffold, not cashflow product |
+
+**Files generated:** App.tsx, Home.tsx, Create.tsx, Progress.tsx, Profile.tsx, Onboarding.tsx, Detail.tsx + data/seed.ts, config/app.ts, config/navigation.ts
+
+**Key unchanged skeleton placeholders:**
+- `config/app.ts`: `name: 'AppName'`, `tagline: 'A short, calm space to make consistent progress.'`
+- `config/navigation.ts`: labels `Home / Create / Progress / Profile`
+- `data/seed.ts`: wellness seed data (Morning intention, Deep work block, etc.)
+- `pages/Home.tsx`: header `Today's space`, renders SEED_FEED
+- `pages/Onboarding.tsx`: `Welcome to ${APP_CONFIG.name}` (= "Welcome to AppName")
+
+---
+
+## Conclusion
+
+**Did Product Identity Substitution Contract improve product-specific UI?**  
+No measurable improvement in Run 2. The contract reached the coder prompt (confirmed: +824 chars vs previous run), but gpt-4o-mini produced an identical wellness scaffold with unmodified placeholder strings. The model received the substitution mandate but did not apply it.
+
+**Did coder complete?**  
+✓ Yes — Run 2 completed successfully. This is an improvement over Run 1 (HTTP 546 kill at 150s).
+
+**Did preview compile?**  
+✓ Yes — preview reached live status at ~229s.
+
+**Is remaining bottleneck product identity, visual quality, data authenticity, repair, compile, or model reliability?**  
+**Product identity + model instruction-following.** The coder slot (gpt-4o-mini) has a 57,516-char planning context, skeleton files, and the Product Identity Contract all arriving simultaneously. The model completes generation but does not apply identity substitutions — it reproduces the skeleton structure with placeholder strings intact. The contract text is present but not acted upon. This is a model capability/capacity issue at current context load.
+
+---
+
+## Recommended next implementation step
+
+**Pre-coder identity injection:** Before invoking the coder, add a lightweight dedicated step that rewrites the skeleton identity config files (`config/app.ts`, `config/navigation.ts`, `data/seed.ts`) directly from the Product Assembly Plan / brief. This is a small targeted write (~3 files, ~100 lines) that can reliably be performed by a smaller/cheaper model call before the heavy coder pass. The coder then receives pre-substituted files and only needs to write domain logic — not track identity tokens at the same time.
 
 ---
 
