@@ -30,6 +30,7 @@ import {
   resolveStandardRoute,
   classifyTransportPath,
   recordLlmRouteTelemetry,
+  ModelSelectionRequiredError,
 } from '../buildAgentRouting';
 import { ConfigService } from '../ConfigService';
 
@@ -363,5 +364,103 @@ describe('provider/model label vs endpointKind consistency', () => {
     expect(route.endpoint).toContain('api.openai.com');
 
     localStorage.removeItem('OPENAI_API_KEY');
+  });
+});
+
+// ── Tests: DeepSeek secret safety ─────────────────────────────────────────────
+
+describe('DeepSeek secret safety', () => {
+  afterEach(() => {
+    clearAgentStorage();
+    localStorage.removeItem('DEEPSEEK_API_KEY');
+    vi.restoreAllMocks();
+  });
+
+  it('getDeepSeekApiKey() returns empty string when localStorage is empty (no VITE_ fallback)', () => {
+    localStorage.removeItem('DEEPSEEK_API_KEY');
+    // VITE_DEEPSEEK_API_KEY must NOT be used as a fallback — key must come only from localStorage
+    expect(ConfigService.getDeepSeekApiKey()).toBe('');
+  });
+
+  it('getDeepSeekApiKey() returns the value only from localStorage', () => {
+    localStorage.setItem('DEEPSEEK_API_KEY', 'sk-local-only-key');
+    expect(ConfigService.getDeepSeekApiKey()).toBe('sk-local-only-key');
+    localStorage.removeItem('DEEPSEEK_API_KEY');
+    expect(ConfigService.getDeepSeekApiKey()).toBe('');
+  });
+
+  it('resolveStandardRoute makes no outbound fetch() calls', () => {
+    clearAgentStorage();
+    setOpenRouterKey();
+    setDeepSeekKey();
+    setDeepSeekUserConfig();
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    resolveStandardRoute('build');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('DEEPSEEK_API_KEY is not written to localStorage by resolveStandardRoute()', () => {
+    clearAgentStorage();
+    setOpenRouterKey();
+    setDeepSeekKey('sk-test-deepseek-sentinel');
+    setDeepSeekUserConfig();
+
+    const keysBefore = Object.keys(localStorage).filter(k => k.includes('DEEPSEEK'));
+    resolveStandardRoute('build');
+    const keysAfter = Object.keys(localStorage).filter(k => k.includes('DEEPSEEK'));
+    // Route resolution must not add new DEEPSEEK keys
+    expect(keysAfter).toEqual(keysBefore);
+  });
+
+  it('throws ModelSelectionRequiredError for backend_factory_template even with deepseek model set', () => {
+    clearAgentStorage();
+    setOpenRouterKey();
+    setDeepSeekKey();
+    // Factory template authority — must never be route authority
+    localStorage.setItem('AGENT_CONFIG_agent_build', JSON.stringify({
+      provider: 'deepseek',
+      modelId:  'deepseek/deepseek-v4-pro',
+      maxTokens: { max: 4096 },
+    }));
+    localStorage.setItem('AGENT_CONFIG_agent_build__source', 'backend_factory_template');
+
+    expect(() => resolveStandardRoute('build')).toThrow(ModelSelectionRequiredError);
+  });
+
+  it('explicit user_set deepseek route resolves correctly — backend/agent-config.json is NOT authority', () => {
+    clearAgentStorage();
+    setOpenRouterKey();
+    setDeepSeekKey();
+    // Simulates test runner injecting config via ConfigService.setAgentConfig (user_set authority)
+    ConfigService.setAgentConfig('agent_build', {
+      provider: 'deepseek' as never,
+      modelId:  'deepseek/deepseek-v4-pro',
+    });
+
+    const route = resolveStandardRoute('build');
+
+    expect(route.provider).toBe('deepseek');
+    expect(route.sourceAuthority).toBe('user_set');
+    expect(route.isUserSelected).toBe(true);
+    expect(route.isFactoryConfig).toBe(false);
+    // Must not be any factory/seed/unconfigured authority
+    expect(['backend_factory_template', 'backend_file_seed', 'no_model_configured'])
+      .not.toContain(route.sourceAuthority);
+  });
+
+  it('no real LLM calls occur during unit tests — route resolution is pure localStorage', () => {
+    // Verifies route resolution is deterministic and side-effect-free
+    clearAgentStorage();
+    setOpenRouterKey();
+    setDeepSeekKey();
+    setDeepSeekUserConfig('deepseek/deepseek-v4-pro');
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const route = resolveStandardRoute('build');
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(route.endpoint).toContain('api.deepseek.com');
+    expect(route.modelId).toBe('deepseek-v4-pro');
   });
 });

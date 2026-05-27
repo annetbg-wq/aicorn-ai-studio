@@ -361,7 +361,7 @@ export const ConfigService = {
   getOpenAIApiKey(): string            { return this.getProviderKey('openai') || (import.meta.env.VITE_OPENAI_API_KEY ?? ''); },
   setOpenAIApiKey(v: string): void     { this.setProviderKey('openai', v); },
 
-  getDeepSeekApiKey(): string          { return this.getProviderKey('deepseek') || (import.meta.env.VITE_DEEPSEEK_API_KEY ?? ''); },
+  getDeepSeekApiKey(): string          { return this.getProviderKey('deepseek'); },
   setDeepSeekApiKey(v: string): void   { this.setProviderKey('deepseek', v); },
 
   getMistralApiKey(): string           { return this.getProviderKey('mistral') || (import.meta.env.VITE_MISTRAL_API_KEY ?? ''); },

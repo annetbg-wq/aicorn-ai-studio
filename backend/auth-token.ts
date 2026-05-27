@@ -2018,6 +2018,11 @@ export function startServer(port = PORT) {
   return app.listen(port, '127.0.0.1', () => {
     console.log(`[auth-token] Running on http://127.0.0.1:${port} (loopback only)`);
     console.log(`[auth-token] Provider: Claude Code CLI`);
+    // Log key presence only — never log key values
+    const keyStatus = Object.entries(PROVIDER_ENV_KEYS)
+      .map(([p, k]) => `${k}=${process.env[k]?.trim() ? 'set' : 'missing'}`)
+      .join(', ');
+    console.log(`[auth-token] Env keys: ${keyStatus}`);
     cleanupOldSessions();
   });
 }
