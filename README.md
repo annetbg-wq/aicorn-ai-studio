@@ -4,7 +4,17 @@
 
 The eval gate uses committed benchmark baselines from `artifacts/eval-baselines/` and replays the existing `goldenIntents` suite through the real `SimpleGeneration -> ProtoPipeline` path.
 
-### Capture or refresh the baseline
+### Capture or refresh the baseline (S0.1)
+
+Создай `.env.local` с `DEEPSEEK_API_KEY=...` (session-only, в `.gitignore`, **НЕ коммить**):
+
+```bash
+echo "DEEPSEEK_API_KEY=sk-..." >> .env.local
+```
+
+Eval жёстко привязан к `deepseek/deepseek-v4-flash` и не использует ключи из Settings.
+Все 6 агентных слотов (primary, fix, spec, build, qa, chat) сеются на эту пару.
+Браузерный ConfigService/Settings этим путём не затрагивается и наоборот.
 
 Run this from the repo root:
 

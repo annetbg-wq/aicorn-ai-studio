@@ -3,13 +3,14 @@ import fs from 'fs';
 import { describe, expect, it } from 'vitest';
 
 import {
+  assertEvalModelAllowed,
   baselineArtifactPath,
   ensureBrowserGlobals,
   loadEvalEnv,
   normalizeGateSuite,
   parseCliSuite,
   readJson,
-  resolveEvalConfig,
+  resolveEvalDeepSeekSeedPlan,
   seedBenchmarkConfig,
 } from './eval-runtime.mjs';
 
@@ -41,33 +42,42 @@ describe('eval gate runner', () => {
         throw new Error(`[eval:gate] Unknown BENCHMARK_SUITE="${rawSuite}". Use fast, full, or smoke.`);
       }
 
-      const { provider, apiKey, modelId, fixModelId } = resolveEvalConfig();
-      if (!apiKey) {
-        console.warn('[eval:gate] API key is not configured. Skipping gate.');
+      // Resolve credentials exclusively from process.env (loaded from .env.local).
+      // If DEEPSEEK_API_KEY is absent, skip gracefully so CI stays green without a key.
+      let seedPlan: ReturnType<typeof resolveEvalDeepSeekSeedPlan>;
+      try {
+        seedPlan = resolveEvalDeepSeekSeedPlan();
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`[eval:gate] ${msg} — skipping gate.`);
         return;
       }
+
+      // Hard-fail if somehow the resolved plan diverged from EVAL_ALLOWED.
+      assertEvalModelAllowed(seedPlan.provider, seedPlan.modelId);
 
       const artifactPath = baselineArtifactPath(suite);
       expect(fs.existsSync(artifactPath), `Baseline artifact not found: ${artifactPath}`).toBe(true);
 
-      seedBenchmarkConfig({ provider, apiKey, modelId, fixModelId });
+      seedBenchmarkConfig(seedPlan);
 
       const artifact = readJson(artifactPath);
       const baseline = assertBaselineArtifact(artifact, artifactPath);
       const { BenchmarkGate } = await import('../src/services/benchmark/BenchmarkGate');
+      const displayModelId = seedPlan.modelId;
 
-      console.log(`[eval:gate] Suite=${suite} Model=${modelId} Baseline=${artifactPath}`);
-      if (baseline.modelId !== modelId) {
+      console.log(`[eval:gate] Suite=${suite} Model=${displayModelId} Baseline=${artifactPath}`);
+      if (baseline.modelId !== displayModelId) {
         console.warn(
-          `[eval:gate] Baseline model mismatch: artifact=${baseline.modelId} current=${modelId}. ` +
+          `[eval:gate] Baseline model mismatch: artifact=${baseline.modelId} current=${displayModelId}. ` +
           'Continuing because the caller may be deliberately comparing against a pinned baseline.',
         );
       }
 
       const verdict = await BenchmarkGate.check({
-        apiKey,
-        modelId,
-        fixModelId: fixModelId || undefined,
+        apiKey: seedPlan.apiKey,
+        modelId: displayModelId,
+        fixModelId: seedPlan.fixModelId || undefined,
         suite,
         baseline: baseline as import('../src/services/benchmark/BaselineStore').AggregateBaseline,
       });

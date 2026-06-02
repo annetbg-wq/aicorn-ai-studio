@@ -8,10 +8,11 @@ import {
   normalizeGateSuite,
   parseCliSuite,
   readJson,
-  resolveEvalConfig,
+  resolveEvalDeepSeekSeedPlan,
   seedBenchmarkConfig,
   writeJson,
 } from './eval-runtime.mjs';
+import { captureBaselineSuite } from './eval-baseline-support.mjs';
 
 function normalizeBaselineSuites(rawSuite: string): Array<'fast' | 'full'> {
   if (rawSuite === 'all') {
@@ -26,41 +27,6 @@ function normalizeBaselineSuites(rawSuite: string): Array<'fast' | 'full'> {
   return [normalized];
 }
 
-function artifactFromRun(
-  suite: 'fast' | 'full',
-  report: {
-    runId: string;
-    modelId: string;
-    startedAt: string;
-    finishedAt: string;
-    summary: unknown;
-  },
-  aggregate: {
-    modelId: string;
-    runId: string;
-    createdAt: string;
-    previewReadyRate: number;
-    avgFileCount: number;
-    avgDurationMs: number;
-    intentCount: number;
-  },
-) {
-  return {
-    version: 1,
-    kind: 'benchmark-baseline',
-    suite,
-    generatedAt: new Date().toISOString(),
-    source: {
-      runId: report.runId,
-      modelId: report.modelId,
-      startedAt: report.startedAt,
-      finishedAt: report.finishedAt,
-    },
-    aggregate,
-    summary: report.summary,
-  };
-}
-
 describe('eval baseline runner', () => {
   it(
     'captures benchmark baselines and writes committed artifacts',
@@ -70,11 +36,17 @@ describe('eval baseline runner', () => {
 
       const rawSuite = parseCliSuite('all');
       const suites = normalizeBaselineSuites(rawSuite);
-      const { provider, apiKey, modelId, fixModelId } = resolveEvalConfig();
 
-      expect(apiKey, 'Missing API key. Set OPENROUTER_API_KEY or the provider-specific key env var.').toBeTruthy();
+      // Credentials sourced ONLY from process.env (loaded from .env.local).
+      // INVARIANT: resolveEvalDeepSeekSeedPlan never calls ConfigService or writes anywhere.
+      const seedPlan = resolveEvalDeepSeekSeedPlan();
 
-      seedBenchmarkConfig({ provider, apiKey, modelId, fixModelId });
+      expect(
+        seedPlan.apiKey.length,
+        'Missing DEEPSEEK_API_KEY in .env.local. Eval is pinned to deepseek/deepseek-v4-flash.',
+      ).toBeGreaterThan(0);
+
+      seedBenchmarkConfig(seedPlan);
       ensureArtifactDir();
 
       const [{ BenchmarkService }, { goldenIntents }, { buildAggregateBaseline }] = await Promise.all([
@@ -88,23 +60,24 @@ describe('eval baseline runner', () => {
           ? goldenIntents.slice(0, 5).map((intent) => intent.id)
           : undefined;
 
-        console.log(`[eval:baseline] Running ${suite} benchmark on ${modelId}`);
+        const displayModelId = seedPlan.modelId;
+        console.log(`[eval:baseline] Running ${suite} benchmark on ${displayModelId}`);
         const { report } = await BenchmarkService.run({
-          apiKey,
-          modelId,
-          fixModelId: fixModelId || undefined,
+          apiKey: seedPlan.apiKey,
+          modelId: displayModelId,
+          fixModelId: seedPlan.fixModelId || undefined,
           intentIds,
         });
 
-        const aggregate = buildAggregateBaseline(report);
-        const artifactPath = baselineArtifactPath(suite);
-        writeJson(artifactPath, artifactFromRun(suite, report, aggregate));
+        const { artifactPath } = await captureBaselineSuite({
+          suite,
+          report,
+          buildAggregateBaseline,
+          baselineArtifactPath,
+          writeJson,
+          promoteAsBaseline: BenchmarkService.promoteAsBaseline,
+        });
         console.log(`[eval:baseline] Wrote ${artifactPath}`);
-
-        if (suite === 'full') {
-          await BenchmarkService.promoteAsBaseline(report);
-          console.log('[eval:baseline] Promoted full-suite report through BaselineStore.save()');
-        }
       }
 
       if (suites.length === 1) {
