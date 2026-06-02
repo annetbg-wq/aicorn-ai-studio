@@ -245,6 +245,13 @@ async function runSingleGoldenTest(
 
 // ── Main runner ─────────────────────────────────────────────────────────────
 
+/**
+ * Hard per-intent timeout. Prevents a single hung intent from blocking the whole suite.
+ * Budget: architect LLM (~30s) + skeleton install (~20s) + coder LLM (~130s, large prompt)
+ *         + compile Vite build (~30s) + margin = ~250s. 300s gives a comfortable buffer.
+ */
+const INTENT_TIMEOUT_MS = 300_000; // 300 s (5 min) per intent
+
 async function runSingleIntent(
   intent: GoldenIntent,
   cfg: BenchmarkRunConfig,
@@ -252,6 +259,14 @@ async function runSingleIntent(
   const t0 = performance.now();
   let genResult: GenerationResult | null = null;
   let error: string | null = null;
+
+  // Compose per-intent timeout with the outer abort signal.
+  // If the intent hangs (e.g. LLM stall, iframe wait), it is aborted and marked failed
+  // rather than blocking the rest of the suite indefinitely.
+  const intentTimeout = AbortSignal.timeout(INTENT_TIMEOUT_MS);
+  const intentSignal = cfg.signal
+    ? AbortSignal.any([cfg.signal, intentTimeout])
+    : intentTimeout;
 
   const bPrimaryRoute = resolveStandardRoute('primary');
   const bBuildRoute   = resolveStandardRoute('build');
@@ -274,7 +289,7 @@ async function runSingleIntent(
       onPhase:  () => {},
       onLog:    () => {},
       onPlan:   () => {},
-      signal:   cfg.signal,
+      signal:   intentSignal,
     });
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);

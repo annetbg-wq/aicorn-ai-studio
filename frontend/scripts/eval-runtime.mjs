@@ -172,14 +172,30 @@ export function ensureBrowserGlobals() {
     globalThis.window = globalThis;
   }
 
-  if (!globalThis.window.dispatchEvent) {
-    globalThis.window.dispatchEvent = () => true;
-  }
-  if (!globalThis.window.addEventListener) {
-    globalThis.window.addEventListener = () => {};
-  }
-  if (!globalThis.window.removeEventListener) {
-    globalThis.window.removeEventListener = () => {};
+  // Functional event system — required so waitForIframeMounted in ProtoPipeline
+  // can register its 'message' handler and receive the synthetic preview-mounted
+  // event that patchFetchForEval fires after a successful compile response.
+  // Without this, window.addEventListener is a noop → handler never fires →
+  // waitForIframeMounted waits the full 45s per intent (5 × 45s = 225s of dead time).
+  if (!globalThis.window._evalListeners) {
+    const _listeners = new Map();
+    globalThis.window._evalListeners = _listeners;
+    globalThis.window.addEventListener = (type, handler) => {
+      if (!_listeners.has(type)) _listeners.set(type, new Set());
+      _listeners.get(type).add(handler);
+    };
+    globalThis.window.removeEventListener = (type, handler) => {
+      _listeners.get(type)?.delete(handler);
+    };
+    globalThis.window.dispatchEvent = (event) => {
+      const handlers = _listeners.get(event.type);
+      if (handlers) {
+        for (const h of handlers) {
+          try { h(event); } catch { /* listener errors must not break the pipeline */ }
+        }
+      }
+      return true;
+    };
   }
   if (!globalThis.location) {
     globalThis.location = new URL('http://127.0.0.1:5173');
@@ -373,8 +389,24 @@ export const EVAL_BACKEND_URL = process.env.EVAL_BACKEND_URL ?? 'http://127.0.0.
  *
  * Safe to call multiple times; each call wraps the current fetch exactly once.
  */
+// Matches /api/preview/<buildId>/compile — captures the (possibly encoded) buildId.
+const COMPILE_PATH_RE = /^\/api\/preview\/([^/?]+)\/compile(?:[?#].*)?$/;
+
+/**
+ * Patch globalThis.fetch so that relative URLs (e.g. "/api/preview/…") resolve
+ * against EVAL_BACKEND_URL. ProtoPipeline uses relative fetch in browser
+ * context; in Node.js eval the URL must be absolute.
+ *
+ * Additionally, after a SUCCESSFUL compile response, fires a synthetic
+ * `preview-mounted` MessageEvent on window. This resolves the 45s dead wait in
+ * waitForIframeMounted (ProtoPipeline.ts:3248): in eval there's no browser iframe,
+ * so "compile succeeded" is the correct proxy for "preview ready".
+ *
+ * Safe to call multiple times; each call wraps the current fetch exactly once.
+ */
 export function patchFetchForEval(backendUrl = EVAL_BACKEND_URL) {
   const normalized = backendUrl.replace(/\/$/, '');
+  const origin = globalThis.location?.origin ?? 'http://127.0.0.1:5173';
   const original = globalThis.fetch;
   globalThis.fetch = function patchedFetch(input, init) {
     const rawUrl = typeof input === 'string'
@@ -387,6 +419,28 @@ export function patchFetchForEval(backendUrl = EVAL_BACKEND_URL) {
     if (typeof rawUrl === 'string' && rawUrl.startsWith('/')) {
       const absolute = normalized + rawUrl;
       const newInput = typeof input === 'string' ? absolute : new Request(absolute, input);
+
+      const compileMatch = COMPILE_PATH_RE.exec(rawUrl);
+      if (compileMatch) {
+        // Intercept compile responses. On success → fire synthetic preview-mounted
+        // after a short tick so waitForIframeMounted's handler is registered first.
+        return original.call(this, newInput, init).then((resp) => {
+          if (resp.ok) {
+            const buildId = decodeURIComponent(compileMatch[1]);
+            setTimeout(() => {
+              try {
+                globalThis.window?.dispatchEvent({
+                  type: 'message',
+                  data: { type: 'preview-mounted', buildId },
+                  origin,
+                });
+              } catch { /* ignore */ }
+            }, 50);
+          }
+          return resp;
+        });
+      }
+
       return original.call(this, newInput, init);
     }
     return original.call(this, input, init);
