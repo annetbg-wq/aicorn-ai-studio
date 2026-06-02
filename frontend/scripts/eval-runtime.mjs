@@ -413,9 +413,27 @@ export async function startEvalBackend(opts = {}) {
   const port = opts.port ?? parseInt(process.env.EVAL_BACKEND_PORT ?? parsed.port ?? '3000', 10);
   const timeoutMs = opts.timeoutMs ?? 30_000;
 
+  // Direct tsx invocation: node <tsx-cli> backend/auth-token.ts
+  // Avoids shell entirely → no .cmd extension (Windows EINVAL) and clean SIGTERM on all platforms.
+  // tsx ships dist/cli.mjs which can be run with process.execPath (the local node binary).
+  const tsxSearchBases = [repoDir, frontendDir];
+  let tsxCliPath = null;
+  for (const base of tsxSearchBases) {
+    const candidate = path.join(base, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+    if (fs.existsSync(candidate)) { tsxCliPath = candidate; break; }
+  }
+  if (!tsxCliPath) {
+    throw new Error(
+      '[eval:backend] tsx not found in node_modules. ' +
+      `Searched: ${tsxSearchBases.map(b => path.join(b, 'node_modules/tsx')).join(', ')}. ` +
+      'Add tsx to devDependencies or run `npm install tsx` in the project root.',
+    );
+  }
+
+  const backendEntry = path.join(repoDir, 'backend', 'auth-token.ts');
   const proc = spawn(
-    process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    ['tsx', 'backend/auth-token.ts'],
+    process.execPath,          // local node binary — no .cmd, no shell, cross-platform
+    [tsxCliPath, backendEntry],
     {
       cwd: repoDir,
       env: { ...process.env, BACKEND_PORT: String(port) },
@@ -424,7 +442,8 @@ export async function startEvalBackend(opts = {}) {
   );
 
   proc.on('error', (err) => {
-    console.warn(`[eval:backend] spawn error: ${err.message}`);
+    // Hard error: if spawn itself fails, re-throw so the caller sees it immediately.
+    console.error(`[eval:backend] spawn failed: ${err.message}`);
   });
 
   // Probe healthcheck: GET /api/preview/eval-probe/status returns 404 JSON when
@@ -453,7 +472,7 @@ export async function startEvalBackend(opts = {}) {
     );
   }
 
-  console.log(`[eval:backend] Ready at ${url} (port ${port})`);
+  console.log(`[eval:backend] Ready at ${url} (pid=${proc.pid} port=${port} tsx=${tsxCliPath})`);
 
   function stop() {
     return new Promise((resolve) => {
