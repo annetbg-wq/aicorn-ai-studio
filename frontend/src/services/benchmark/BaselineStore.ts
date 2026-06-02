@@ -43,6 +43,20 @@ export interface AggregateBaseline {
   intentCount:       number;
 }
 
+export function buildAggregateBaseline(report: BenchmarkReport): AggregateBaseline {
+  return {
+    modelId: report.modelId,
+    runId: report.runId,
+    createdAt: report.finishedAt,
+    previewReadyRate: report.summary.total > 0
+      ? report.summary.previewReady / report.summary.total
+      : 0,
+    avgFileCount: report.summary.avgFileCount,
+    avgDurationMs: report.summary.avgDurationMs,
+    intentCount: report.summary.total,
+  };
+}
+
 // ── Table name ─────────────────────────────────────────────────────────────────
 
 const TABLE = 'benchmark_baselines';
@@ -102,8 +116,18 @@ export const BaselineStore = {
       return null;
     }
     if (!data) return null;
+    const aggregate = rowToAggregate(data as BaselineRow, modelId);
+    const intents = await this.getRunIntents(aggregate.runId);
+    if (intents.length === 0) {
+      return aggregate;
+    }
 
-    return rowToAggregate(data as BaselineRow, modelId);
+    const previewReady = intents.filter((row) => row.outcome === 'preview-ready').length;
+    return {
+      ...aggregate,
+      previewReadyRate: previewReady / intents.length,
+      intentCount: intents.length,
+    };
   },
 
   /**

@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "kind": "benchmark-baseline",
+  "suite": "full",
+  "generatedAt": "2026-06-02T14:42:22.837Z",
+  "source": {
+    "runId": "bench-mpwqxkt9",
+    "modelId": "openai/gpt-4o-mini",
+    "startedAt": "2026-06-02T14:42:02.781Z",
+    "finishedAt": "2026-06-02T14:42:22.830Z"
+  },
+  "aggregate": {
+    "modelId": "openai/gpt-4o-mini",
+    "runId": "bench-mpwqxkt9",
+    "createdAt": "2026-06-02T14:42:22.830Z",
+    "previewReadyRate": 0,
+    "avgFileCount": 0,
+    "avgDurationMs": 1336,
+    "intentCount": 15
+  },
+  "summary": {
+    "total": 15,
+    "previewReady": 0,
+    "blocked": 0,
+    "failed": 15,
+    "avgDurationMs": 1336,
+    "avgFileCount": 0,
+    "avgRouteCount": 0,
+    "avgFeatureCount": 0,
+    "byCategory": {
+      "dashboard": {
+        "total": 2,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 2,
+        "avgDurationMs": 1643
+      },
+      "landing": {
+        "total": 2,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 2,
+        "avgDurationMs": 1664
+      },
+      "admin": {
+        "total": 2,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 2,
+        "avgDurationMs": 1129
+      },
+      "mobile": {
+        "total": 2,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 2,
+        "avgDurationMs": 1058
+      },
+      "ecommerce": {
+        "total": 2,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 2,
+        "avgDurationMs": 1087
+      },
+      "media": {
+        "total": 2,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 2,
+        "avgDurationMs": 1174
+      },
+      "form": {
+        "total": 2,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 2,
+        "avgDurationMs": 1454
+      },
+      "ai-tool": {
+        "total": 1,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 1,
+        "avgDurationMs": 1627
+      }
+    }
+  }
+}

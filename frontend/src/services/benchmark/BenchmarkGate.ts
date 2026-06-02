@@ -45,8 +45,8 @@ export interface GateConfig {
   apiKey:      string;
   modelId:     string;
   fixModelId?: string;
-  /** 'fast' = 5 intents (default), 'full' = all 15 */
-  suite?:      'fast' | 'full';
+  /** 'fast' = 5 intents (default), 'full' = all 15; 'smoke' is a backwards-compatible alias for 'fast'. */
+  suite?:      'fast' | 'full' | 'smoke';
   /** Override: compare against this baseline instead of Supabase lookup */
   baseline?:   AggregateBaseline;
   onProgress?: BenchmarkRunConfig['onProgress'];
@@ -68,11 +68,13 @@ const FAST_INTENT_IDS = goldenIntents.slice(0, 5).map(i => i.id);
 export const BenchmarkGate = {
   /**
    * Run the gate check and return a structured verdict.
-   * Always auto-saves the run to Supabase (BaselineStore).
+   * Reads the stored/manual baseline, then runs the selected suite against it.
+   * Baseline promotion is explicit and handled outside the gate.
    */
   async check(cfg: GateConfig): Promise<GateVerdict> {
-    const suite = cfg.suite ?? 'fast';
+    const suite = cfg.suite === 'smoke' ? 'fast' : (cfg.suite ?? 'fast');
     const intentIds = suite === 'fast' ? FAST_INTENT_IDS : undefined;
+    const baseline = cfg.baseline ?? await BaselineStore.getBaseline(cfg.modelId);
 
     console.log(`[BenchmarkGate] Starting ${suite} suite | model=${cfg.modelId}`);
 
@@ -86,13 +88,7 @@ export const BenchmarkGate = {
       signal:      cfg.signal,
     });
 
-    // 2. Persist this run
-    await BenchmarkService.promoteAsBaseline(report);
-
-    // 3. Fetch baseline to compare against
-    const baseline = cfg.baseline ?? await BaselineStore.getBaseline(cfg.modelId);
-
-    // 4. Build verdict
+    // 2. Build verdict
     return buildVerdict(report, baseline);
   },
 

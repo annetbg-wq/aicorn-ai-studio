@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "kind": "benchmark-baseline",
+  "suite": "fast",
+  "generatedAt": "2026-06-02T14:41:37.514Z",
+  "source": {
+    "runId": "bench-mpwqwvu6",
+    "modelId": "openai/gpt-4o-mini",
+    "startedAt": "2026-06-02T14:41:30.414Z",
+    "finishedAt": "2026-06-02T14:41:37.505Z"
+  },
+  "aggregate": {
+    "modelId": "openai/gpt-4o-mini",
+    "runId": "bench-mpwqwvu6",
+    "createdAt": "2026-06-02T14:41:37.505Z",
+    "previewReadyRate": 0,
+    "avgFileCount": 0,
+    "avgDurationMs": 1417,
+    "intentCount": 5
+  },
+  "summary": {
+    "total": 5,
+    "previewReady": 0,
+    "blocked": 0,
+    "failed": 5,
+    "avgDurationMs": 1417,
+    "avgFileCount": 0,
+    "avgRouteCount": 0,
+    "avgFeatureCount": 0,
+    "byCategory": {
+      "dashboard": {
+        "total": 2,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 2,
+        "avgDurationMs": 1919
+      },
+      "landing": {
+        "total": 2,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 2,
+        "avgDurationMs": 1103
+      },
+      "admin": {
+        "total": 1,
+        "previewReady": 0,
+        "blocked": 0,
+        "failed": 1,
+        "avgDurationMs": 1044
+      }
+    }
+  }
+}

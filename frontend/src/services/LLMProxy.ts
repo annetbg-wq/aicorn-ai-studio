@@ -8,13 +8,17 @@
 import { supabase } from '../lib/supabase';
 import { canUseDevAuthBypass } from './internalAccess';
 
+const viteEnv = ((import.meta as ImportMeta & {
+  env?: Record<string, string | undefined>;
+}).env) ?? {};
+
 const SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL ||
+  viteEnv.VITE_SUPABASE_URL ||
   localStorage.getItem('SUPABASE_URL') ||
   'https://zdzuaodphrlpvorutpyc.supabase.co';
 
 const SUPABASE_ANON_KEY =
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  viteEnv.VITE_SUPABASE_ANON_KEY ||
   localStorage.getItem('SUPABASE_ANON_KEY') ||
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpkenVhb2RwaHJscHZvcnV0cHljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NDIyMTIsImV4cCI6MjA4NzUxODIxMn0.7L5sYMedvIKnU7o0X280Y92rUTAs86Q4RwBJsppuFxI';
 

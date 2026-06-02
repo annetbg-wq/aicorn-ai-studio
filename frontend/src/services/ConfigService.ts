@@ -37,6 +37,10 @@ import {
   type SupportedAppLanguage,
 } from '../shared/appLanguage';
 
+const viteEnv = ((import.meta as ImportMeta & {
+  env?: Record<string, string | undefined>;
+}).env) ?? {};
+
 export {
   SUPPORTED_APP_LANGUAGES,
   normalizeAppLanguage,
@@ -197,7 +201,7 @@ export const ConfigService = {
 
   // ── OpenRouter API Key ────────────────────────────────────────────────────
 
-  getApiKey(): string        { return get(K.API_KEY) ?? import.meta.env.VITE_OPENROUTER_API_KEY ?? ''; },
+  getApiKey(): string        { return get(K.API_KEY) ?? viteEnv.VITE_OPENROUTER_API_KEY ?? ''; },
   setApiKey(v: string): void {
     set(K.API_KEY, v);
     if (v.trim()) void this.saveKeyToCloud(K.API_KEY, v);
@@ -355,19 +359,19 @@ export const ConfigService = {
   getGoogleApiKey(): string            { return this.getProviderKey('google'); },
   setGoogleApiKey(v: string): void     { this.setProviderKey('google', v); },
 
-  getAnthropicApiKey(): string         { return this.getProviderKey('anthropic') || (import.meta.env.VITE_ANTHROPIC_API_KEY ?? ''); },
+  getAnthropicApiKey(): string         { return this.getProviderKey('anthropic') || (viteEnv.VITE_ANTHROPIC_API_KEY ?? ''); },
   setAnthropicApiKey(v: string): void  { this.setProviderKey('anthropic', v); },
 
-  getOpenAIApiKey(): string            { return this.getProviderKey('openai') || (import.meta.env.VITE_OPENAI_API_KEY ?? ''); },
+  getOpenAIApiKey(): string            { return this.getProviderKey('openai') || (viteEnv.VITE_OPENAI_API_KEY ?? ''); },
   setOpenAIApiKey(v: string): void     { this.setProviderKey('openai', v); },
 
   getDeepSeekApiKey(): string          { return this.getProviderKey('deepseek'); },
   setDeepSeekApiKey(v: string): void   { this.setProviderKey('deepseek', v); },
 
-  getMistralApiKey(): string           { return this.getProviderKey('mistral') || (import.meta.env.VITE_MISTRAL_API_KEY ?? ''); },
+  getMistralApiKey(): string           { return this.getProviderKey('mistral') || (viteEnv.VITE_MISTRAL_API_KEY ?? ''); },
   setMistralApiKey(v: string): void    { this.setProviderKey('mistral', v); },
 
-  getGroqApiKey(): string              { return this.getProviderKey('groq') || (import.meta.env.VITE_GROQ_API_KEY ?? ''); },
+  getGroqApiKey(): string              { return this.getProviderKey('groq') || (viteEnv.VITE_GROQ_API_KEY ?? ''); },
   setGroqApiKey(v: string): void       { this.setProviderKey('groq', v); },
 
   // ── Deploy tokens ─────────────────────────────────────────────────────────
@@ -702,7 +706,7 @@ export const ConfigService = {
     const storageKey = PROVIDER_KEYS[provider];
     if (storageKey) set(storageKey, key);
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-keys`, {
+      await fetch(`${viteEnv.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, key }),
@@ -720,7 +724,7 @@ export const ConfigService = {
   async loadProviderKeysFromBackend(): Promise<void> {
     try {
       // Optional flags-only probe, never fetches key values and never mutates localStorage.
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-keys`);
+      await fetch(`${viteEnv.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-keys`);
     } catch {
       // backend not running — keep existing local/user/cloud values untouched
     }
@@ -745,7 +749,7 @@ export const ConfigService = {
    */
   async loadFromBackend(): Promise<void> {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`);
+      const res = await fetch(`${viteEnv.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`);
       if (!res.ok) return;
       const responseData = await res.json() as Record<string, unknown>;
 
@@ -819,7 +823,7 @@ export const ConfigService = {
    */
   async saveToBackend(agentId: string, config: AgentConfig): Promise<void> {
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`, {
+      await fetch(`${viteEnv.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agentId, config }),
