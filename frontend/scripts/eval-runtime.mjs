@@ -41,8 +41,14 @@ const SLOT_TO_AGENT = {
 };
 
 /**
- * EVAL_ALLOWED — single allowed provider/model for eval runs.
- * All 6 agent slots are seeded to this pair; any divergence is a hard fail.
+ * EVAL_MODELS — single source of truth for eval provider/model per suite.
+ *
+ * - fast  → deepseek/deepseek-v4-flash  (5-intent smoke sweep)
+ * - full  → deepseek/deepseek-v4-pro    (15-intent full benchmark)
+ *
+ * modelId values use the full "provider/model" format.
+ * The backend (auth-token.ts:887) strips the "deepseek/" prefix for the native
+ * DeepSeek endpoint automatically — the runner must NOT pre-strip it.
  *
  * ISOLATION INVARIANT (eval path):
  *   - The eval path reads DEEPSEEK_API_KEY ONLY from process.env (loaded from .env.local).
@@ -51,9 +57,9 @@ const SLOT_TO_AGENT = {
  *     browser-side ConfigService — so eval credentials cannot leak into user sessions.
  *   - Browser-side ConfigService is never imported or invoked from this module.
  */
-export const EVAL_ALLOWED = Object.freeze({
-  provider: 'deepseek',
-  modelId: 'deepseek/deepseek-v4-flash',
+export const EVAL_MODELS = Object.freeze({
+  fast: Object.freeze({ provider: 'deepseek', modelId: 'deepseek/deepseek-v4-flash' }),
+  full: Object.freeze({ provider: 'deepseek', modelId: 'deepseek/deepseek-v4-pro' }),
 });
 
 // All 6 agent slots that the eval pipeline must seed.
@@ -93,38 +99,45 @@ export function requireEvalDeepSeekKey(env = process.env) {
 }
 
 /**
- * Hard-fail model guard. If provider or modelId diverges from EVAL_ALLOWED, throws immediately.
- * Never silently substitutes a default — isolation must be explicit and auditable.
+ * Hard-fail model guard.
+ * provider must be 'deepseek'; modelId must be one of the EVAL_MODELS values.
+ * Any other combination → immediate throw. Never silently substitutes a default.
  */
 export function assertEvalModelAllowed(provider, modelId) {
-  if (provider !== EVAL_ALLOWED.provider || modelId !== EVAL_ALLOWED.modelId) {
+  const allowedModels = Object.values(EVAL_MODELS).map((m) => m.modelId);
+  if (provider !== 'deepseek' || !allowedModels.includes(modelId)) {
     throw new Error(
-      `eval is pinned to deepseek/deepseek-v4-flash; refusing provider=${provider} model=${modelId}`,
+      `eval is pinned to deepseek allowlist [${allowedModels.join(', ')}]; refusing provider=${provider} model=${modelId}`,
     );
   }
 }
 
 /**
- * Builds a seed plan pinned to EVAL_ALLOWED for ALL 6 agent slots.
+ * Builds a seed plan for all 6 agent slots, choosing the model by suite.
  * Sources the API key ONLY from process.env via requireEvalDeepSeekKey().
  *
  * INVARIANT: does NOT call ConfigService.getProviderKey / setProviderKey / saveKeyToCloud.
  *            Does NOT read or write localStorage, Supabase, or backend defaults.
  *            Eval credentials obtained here cannot reach browser ConfigService paths.
+ *
+ * modelId is stored in "provider/model" format (e.g. "deepseek/deepseek-v4-pro").
+ * The backend (auth-token.ts:887) strips the "deepseek/" prefix for the native endpoint —
+ * the runner must NOT pre-strip it.
  */
-export function resolveEvalDeepSeekSeedPlan(env = process.env) {
+export function resolveEvalDeepSeekSeedPlan(env = process.env, suite = 'fast') {
   const apiKey = requireEvalDeepSeekKey(env);
-  assertEvalModelAllowed(EVAL_ALLOWED.provider, EVAL_ALLOWED.modelId);
+  const model = EVAL_MODELS[suite] ?? EVAL_MODELS.fast;
+  assertEvalModelAllowed(model.provider, model.modelId);
   return {
     mode: 'eval-deepseek-pinned',
-    provider: EVAL_ALLOWED.provider,
+    provider: model.provider,
     apiKey,
-    modelId: EVAL_ALLOWED.modelId,
+    modelId: model.modelId,
     fixModelId: '',
     agentConfigs: Object.fromEntries(
       EVAL_AGENT_IDS.map((agentId) => [
         agentId,
-        { provider: EVAL_ALLOWED.provider, modelId: EVAL_ALLOWED.modelId },
+        { provider: model.provider, modelId: model.modelId },
       ]),
     ),
   };

@@ -46,7 +46,7 @@ describe('eval gate runner', () => {
       // If DEEPSEEK_API_KEY is absent, skip gracefully so CI stays green without a key.
       let seedPlan: ReturnType<typeof resolveEvalDeepSeekSeedPlan>;
       try {
-        seedPlan = resolveEvalDeepSeekSeedPlan();
+        seedPlan = resolveEvalDeepSeekSeedPlan(process.env, suite);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         console.warn(`[eval:gate] ${msg} — skipping gate.`);

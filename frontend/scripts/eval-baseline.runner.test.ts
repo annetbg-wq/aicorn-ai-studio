@@ -8,6 +8,7 @@ import {
   normalizeGateSuite,
   parseCliSuite,
   readJson,
+  requireEvalDeepSeekKey,
   resolveEvalDeepSeekSeedPlan,
   seedBenchmarkConfig,
   writeJson,
@@ -37,16 +38,11 @@ describe('eval baseline runner', () => {
       const rawSuite = parseCliSuite('all');
       const suites = normalizeBaselineSuites(rawSuite);
 
-      // Credentials sourced ONLY from process.env (loaded from .env.local).
+      // Verify the key is present before running any suite.
       // INVARIANT: resolveEvalDeepSeekSeedPlan never calls ConfigService or writes anywhere.
-      const seedPlan = resolveEvalDeepSeekSeedPlan();
+      requireEvalDeepSeekKey(process.env);
 
-      expect(
-        seedPlan.apiKey.length,
-        'Missing DEEPSEEK_API_KEY in .env.local. Eval is pinned to deepseek/deepseek-v4-flash.',
-      ).toBeGreaterThan(0);
-
-      seedBenchmarkConfig(seedPlan);
+      seedBenchmarkConfig(resolveEvalDeepSeekSeedPlan(process.env, suites[0]));
       ensureArtifactDir();
 
       const [{ BenchmarkService }, { goldenIntents }, { buildAggregateBaseline }] = await Promise.all([
@@ -60,12 +56,16 @@ describe('eval baseline runner', () => {
           ? goldenIntents.slice(0, 5).map((intent) => intent.id)
           : undefined;
 
-        const displayModelId = seedPlan.modelId;
+        // Each suite gets its own model (fast=flash, full=pro) from EVAL_MODELS.
+        const suitePlan = resolveEvalDeepSeekSeedPlan(process.env, suite);
+        seedBenchmarkConfig(suitePlan);
+
+        const displayModelId = suitePlan.modelId;
         console.log(`[eval:baseline] Running ${suite} benchmark on ${displayModelId}`);
         const { report } = await BenchmarkService.run({
-          apiKey: seedPlan.apiKey,
+          apiKey: suitePlan.apiKey,
           modelId: displayModelId,
-          fixModelId: seedPlan.fixModelId || undefined,
+          fixModelId: suitePlan.fixModelId || undefined,
           intentIds,
         });
 
