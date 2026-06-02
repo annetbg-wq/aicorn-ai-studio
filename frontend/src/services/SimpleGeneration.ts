@@ -350,10 +350,24 @@ Return ONLY JSON, no markdown, matching this exact shape:
     }
 
     // Emit onFiles ops for the produced delta files.
+    // R6: onFiles throw is a real failure — pipeline output didn't reach the revision.
     const ops: FileOperation[] = Object.entries(result.files ?? {})
       .map(([name, content]) => ({ op: 'upsert', name: `src/${name}`, content }));
     if (ops.length > 0) {
-      try { config.onFiles(ops); } catch { /* ignore */ }
+      try {
+        config.onFiles(ops);
+      } catch (onFilesErr) {
+        revisionManager.releasePreviewOwnership();
+        const onFilesMsg = onFilesErr instanceof Error ? onFilesErr.message : String(onFilesErr);
+        log(`[SimpleGeneration] onFiles failed — pipeline output not applied to revision: ${onFilesMsg}`);
+        return makeFailedResult({
+          intent:  config.intent,
+          modelId: config.buildRoute?.modelId || config.modelId,
+          message: `Files produced but could not be applied to revision: ${onFilesMsg}`,
+          startMs,
+          startedAt,
+        });
+      }
     }
 
     // Mark all phases done.
