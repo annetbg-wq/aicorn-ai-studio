@@ -32,6 +32,7 @@ import { Orchestrator } from './Orchestrator';
 import { llmFetchStream } from './LLMProxy';
 import { revisionManager } from './RevisionManager';
 import { metricsService } from './MetricsService';
+import { generationTracer } from './GenerationTracer';
 import { GenerationQualityService } from './benchmark/GenerationQualityService';
 import { VisualQualityService } from './benchmark/VisualQualityService';
 import type {
@@ -267,6 +268,9 @@ Return ONLY JSON, no markdown, matching this exact shape:
       } catch { /* ignore */ }
     }
 
+    // Capture the tracer id BEFORE the pipeline runs so fail() and success share one runId.
+    const outcomeRunId = generationTracer.current()?.id ?? crypto.randomUUID();
+
     let result: {
       success: boolean;
       files?: Record<string, string>;
@@ -274,6 +278,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
       url?: string;
       fastPathTelemetry?: import('../shared/projectModel').FastPathTelemetry;
       runTelemetry?: import('../shared/projectModel').GenerationRunTelemetry;
+      outcomeData?: import('./ProtoPipeline').ProtoPipelineResult['outcomeData'];
       plan?: {
         appName: string;
         summary: string;
@@ -286,6 +291,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
         prompt:     config.intent,
         skeletonId,
         buildId,
+        runId:      outcomeRunId,
         attachments: (config.attachments ?? [])
           .filter(a => a.type === 'image' || a.type === 'text' || a.type === 'code' || a.type === 'pdf')
           .map(a => ({
@@ -360,6 +366,20 @@ Return ONLY JSON, no markdown, matching this exact shape:
         revisionManager.releasePreviewOwnership();
         const onFilesMsg = onFilesErr instanceof Error ? onFilesErr.message : String(onFilesErr);
         log(`[SimpleGeneration] onFiles failed — pipeline output not applied to revision: ${onFilesMsg}`);
+        metricsService.logOutcomeEvent({
+          runId:           outcomeRunId,
+          prompt:          config.intent.slice(0, 600),
+          skeletonId:      result.runTelemetry?.skeletonId,
+          planSummary:     result.runTelemetry?.planSummary,
+          deltaFileCount:  result.runTelemetry?.deltaFiles.length,
+          compiled:        result.outcomeData?.compiled,
+          repairPasses:    result.outcomeData?.repairPasses,
+          designContractOk: result.outcomeData?.designContractOk,
+          durationMs:      Date.now() - startMs,
+          outcome:         'applied_empty',
+          failedStep:      'apply_files',
+          errorMessage:    onFilesMsg,
+        });
         return makeFailedResult({
           intent:  config.intent,
           modelId: config.buildRoute?.modelId || config.modelId,
@@ -411,18 +431,31 @@ Return ONLY JSON, no markdown, matching this exact shape:
     const visualQualitySummary = VisualQualityService.evaluate(baseResult);
     const qualitySummary = GenerationQualityService.evaluate(baseResult);
 
+    const autofixNeeded  = (result.outcomeData?.repairPasses ?? 0) > 0;
     metricsService.logGeneration({
-      generation_id:   crypto.randomUUID(),
+      generation_id:   outcomeRunId,
       intent:          config.intent.slice(0, 200),
       model_id:        config.buildRoute?.modelId || config.modelId || 'unknown',
       duration_ms:     Date.now() - startMs,
       file_count:      filesArray.length,
       parse_success:   true,
       fallback_used:   false,
-      compile_success: true,
-      autofix_needed:  false,
-      autofix_success: false,
+      compile_success: result.outcomeData?.compiled ?? true,
+      autofix_needed:  autofixNeeded,
+      autofix_success: autofixNeeded,
       error_message:   null,
+    });
+    metricsService.logOutcomeEvent({
+      runId:           outcomeRunId,
+      prompt:          config.intent.slice(0, 600),
+      skeletonId:      result.runTelemetry?.skeletonId,
+      planSummary:     result.runTelemetry?.planSummary,
+      deltaFileCount:  result.runTelemetry?.deltaFiles.length,
+      compiled:        result.outcomeData?.compiled ?? true,
+      repairPasses:    result.outcomeData?.repairPasses,
+      designContractOk: result.outcomeData?.designContractOk,
+      durationMs:      Date.now() - startMs,
+      outcome:         'success',
     });
 
     return {

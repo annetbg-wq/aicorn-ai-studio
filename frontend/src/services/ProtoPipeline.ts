@@ -23,6 +23,8 @@
 
 import { llmFetch } from './LLMProxy';
 import { ConfigService, type AgentSlot } from './ConfigService';
+import { metricsService } from './MetricsService';
+import type { GenerationOutcomeEvent } from '../shared/projectModel';
 import { Orchestrator } from './Orchestrator';
 import {
   type SkeletonId,
@@ -399,6 +401,8 @@ export interface ProtoPipelineConfig {
   skipClarify?: boolean;
   signal?:      AbortSignal;
   routeOverrides?: Partial<Record<AgentSlot, ResolvedRoute>>;
+  /** Unified run id — passed by SimpleGeneration so fail() and success share one id. */
+  runId?:       string;
   /** Step lifecycle events for the progress UI. */
   onStep:       (e: StepEvent) => void;
   /** Free-form log output (debug pane, telemetry). */
@@ -419,6 +423,12 @@ export interface ProtoPipelineResult {
   stepResults?:       Partial<Record<StepId, StepExecutionMetrics>>;
   fastPathTelemetry?: FastPathTelemetry;
   runTelemetry?:      GenerationRunTelemetry;
+  /** Data for the flywheel outcome event — populated only on success. */
+  outcomeData?: {
+    repairPasses:    number;
+    designContractOk: boolean | undefined;
+    compiled:        boolean;
+  };
 }
 
 export interface ArchitectPlan {
@@ -1461,6 +1471,13 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     const stepStartedAt = new Map<StepId, number>();
     let compileCount = 0;
     let finalPreviewMounted = false;
+    // ── Outcome telemetry state (captured by fail() closure) ──────────────────
+    const runId = config.runId ?? config.buildId;
+    let capturedPlan: ArchitectPlan | undefined;
+    let designContractOk: boolean | undefined;
+    let repairPasses = 0;
+    // true once the final build compile loop starts (not the skeleton compile)
+    let buildCompileAttempted = false;
     const updateStepTimeline = (
       step: StepId,
       status: StepStatus,
@@ -1514,6 +1531,24 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     const fail = (step: StepId, error: string): ProtoPipelineResult => {
       log(`[ProtoPipeline] ${step} failed: ${error}`, 'error');
       emit(step, 'error', error);
+      const isAborted = error === 'aborted';
+      const outcomeEvent: GenerationOutcomeEvent = {
+        runId,
+        prompt:          config.prompt.slice(0, 600),
+        skeletonId:      config.skeletonId,
+        planSummary:     capturedPlan?.summary,
+        deltaFileCount:  capturedPlan?.deltaFiles.length,
+        // compiled: only meaningful after build was actually attempted; aborts = undefined
+        compiled:        !isAborted && buildCompileAttempted ? false : undefined,
+        // repairPasses/designContractOk: undefined if we never reached architect/apply
+        repairPasses:    capturedPlan !== undefined ? repairPasses : undefined,
+        designContractOk,
+        durationMs:      Date.now() - runStartedAt,
+        outcome:         isAborted ? 'aborted' : 'failed',
+        failedStep:      step,
+        errorMessage:    error,
+      };
+      metricsService.logOutcomeEvent(outcomeEvent);
       return { success: false, buildId: config.buildId, error, stepResults };
     };
 
@@ -1606,6 +1641,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       if (isAbort(err)) return fail('architect', 'aborted');
       return fail('architect', (err as Error).message);
     }
+    capturedPlan = plan;
 
     // ── Controlled adapter fallback (rescue before pipeline guard) ────────────
     // Fires only when runArchitect output fails isArchitectPlanUsableForPipeline.
@@ -1916,6 +1952,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
 
     // Validate the design contract — fail loudly so the coder is forced to use tokens.
     const verdict = validateDesignContract(deltaFiles, designCtx);
+    designContractOk = verdict.ok;
     if (!verdict.ok) {
       const summary = describeViolations(verdict.violations);
       log(`[design] ${verdict.violations.length} contract violation(s):\n${summary}`, 'warn');
@@ -2095,6 +2132,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           routeOverrides:               config.routeOverrides,
           onLog:                        log,
         });
+        repairPasses += 1;
         // Re-run diagnostics on repaired files — pure JS, no LLM
         const repairedVerdict = validateDesignContract(filteredFiles, designCtx);
         const repairedVisualUsage = buildVisualUsageDiagnostics({
@@ -2136,7 +2174,12 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         }
       } catch (err) {
         if (isAbort(err)) return fail('apply', 'aborted');
-        log(`[quality-gate] repair attempt failed: ${(err as Error).message}`, 'warn');
+        const repairErrMsg = (err as Error).message;
+        log(`[quality-gate] repair attempt failed: ${repairErrMsg}`, 'warn');
+        metricsService.recordError('orchestrator', `quality-repair infra failure: ${repairErrMsg}`, {
+          step: 'quality_repair',
+          blockingCount: qualityGate.blockingReasons.length,
+        });
         // Repair infrastructure failure (no FILE/END blocks, timeout, etc.) — we cannot
         // determine whether it would have fixed the issues. Degrade ALL blocking reasons to
         // advisory and continue. Hard-fail is reserved for when repair runs successfully but
@@ -2155,6 +2198,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     let lastBuildErr: string | null = null;
     let currentFiles = filteredFiles;
     let buildOk = false;
+    buildCompileAttempted = true;
     for (let attempt = 0; attempt <= MAX_REPAIR_PASSES; attempt++) {
       try {
         compileCount += 1;
@@ -2188,10 +2232,16 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
             designCtx,
             mediaHints:  mediaMaterialization.mediaHints,
           });
+          repairPasses += 1;
           currentFiles = { ...currentFiles, ...repaired };
         } catch (repairErr) {
           if (isAbort(repairErr)) return fail('build', 'aborted');
-          log(`[repair] LLM call failed: ${(repairErr as Error).message}`, 'warn');
+          const repairErrMsg = (repairErr as Error).message;
+          log(`[repair] LLM call failed: ${repairErrMsg}`, 'warn');
+          metricsService.recordError('orchestrator', `build-repair LLM failure: ${repairErrMsg}`, {
+            step: 'build_repair',
+            attempt: attempt + 1,
+          });
           break;
         }
       }
@@ -2297,6 +2347,11 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       stepResults,
       fastPathTelemetry,
       runTelemetry,
+      outcomeData: {
+        repairPasses,
+        designContractOk,
+        compiled: true,
+      },
     };
   }
 
