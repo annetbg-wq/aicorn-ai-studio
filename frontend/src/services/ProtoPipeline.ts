@@ -1549,7 +1549,20 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         errorMessage:    error,
       };
       metricsService.logOutcomeEvent(outcomeEvent);
-      return { success: false, buildId: config.buildId, error, stepResults };
+      // Include outcomeData so callers (GenerationEngine, BenchmarkService) can read
+      // designContractOk even for failed runs. Previously this was only logged to telemetry,
+      // making designContractOkRate always 0 for suites where every intent failed at build.
+      return {
+        success: false,
+        buildId: config.buildId,
+        error,
+        stepResults,
+        outcomeData: {
+          repairPasses:     capturedPlan !== undefined ? repairPasses : 0,
+          designContractOk,
+          compiled:         false,
+        },
+      };
     };
 
     if (!SKELETON_REGISTRY[config.skeletonId]) {

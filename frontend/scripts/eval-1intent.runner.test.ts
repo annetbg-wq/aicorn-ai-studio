@@ -111,8 +111,8 @@ describe('eval 1-intent diagnostic', () => {
           onPhase:      () => {},
           onPlan:       () => {},
           onLog: (msg: string) => {
-            if (/^\[(?:clarify|skeleton|pack|architect|coder|apply|build|preview|GenerationEngine)\]/.test(msg)) {
-              logStep(msg.slice(0, 120));
+            if (/^\[(?:clarify|skeleton|pack|architect|coder|apply|build|preview|GenerationEngine|design|quality-gate)\]/.test(msg)) {
+              logStep(msg.slice(0, 200));
             }
           },
           onStepTrack: (e) => {
