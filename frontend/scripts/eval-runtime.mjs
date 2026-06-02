@@ -345,6 +345,14 @@ export function seedBenchmarkConfig({ provider, apiKey, modelId, fixModelId, age
       provider ? 'user_set' : 'backend_runtime_saved',
     );
   });
+
+  // TRANSPORT INVARIANT: activate dev-bypass so LLMProxy routes ALL eval LLM
+  // calls through directLLMRequest (LLMProxy.ts:125-126), bypassing the
+  // Supabase edge function entirely. This eliminates the "401 User not found"
+  // root cause (stale JWT on deleted user) and removes the Supabase session
+  // dependency for eval runs. Requires hostname 127.0.0.1 (set by
+  // ensureBrowserGlobals) + this flag being '1'.
+  localStorage.setItem('AIC_DEV_AUTH_BYPASS', '1');
 }
 
 export async function importFrontendModule(relativePath) {

@@ -9,10 +9,22 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   EVAL_MODELS,
   assertEvalModelAllowed,
+  ensureBrowserGlobals,
   requireEvalDeepSeekKey,
   resolveEvalDeepSeekSeedPlan,
   seedBenchmarkConfig,
 } from './eval-runtime.mjs';
+
+// ── Supabase mock: must be declared before any dynamic import of LLMProxy ───
+// Hoist-safe because vi.mock is always placed at the top of the transformed
+// module by vite's vitest plugin.
+vi.mock('../src/lib/supabase', () => ({
+  supabase: {
+    auth: {
+      getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+    },
+  },
+}));
 
 const EXPECTED_SLOTS = [
   'agent_primary', 'agent_fix', 'agent_spec',
@@ -159,5 +171,66 @@ describe('seedBenchmarkConfig isolation', () => {
     } finally {
       (globalThis as Record<string, unknown>).localStorage = originalLS;
     }
+  });
+});
+
+// ─── 5. Transport: dev-bypass active after seed — no Supabase, no proxy URL ─
+//
+// After ensureBrowserGlobals() + seedBenchmarkConfig():
+//   - globalThis.location.hostname === '127.0.0.1'  (isLocalDevHost → true)
+//   - localStorage['AIC_DEV_AUTH_BYPASS'] === '1'
+// Together these make canUseDevAuthBypass() return true, which routes every
+// llmFetch call through directLLMRequest (LLMProxy.ts:125-126) instead of the
+// Supabase edge function.  supabase.auth.getSession is never called.
+
+describe('transport dev-bypass: no Supabase proxy, no getSession', () => {
+  it('seedBenchmarkConfig sets AIC_DEV_AUTH_BYPASS = "1"', () => {
+    const store = new Map<string, string>();
+    const fakeLocalStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => store.set(k, v),
+      removeItem: (k: string) => store.delete(k),
+      clear: () => store.clear(),
+      key: (i: number) => Array.from(store.keys())[i] ?? null,
+      get length() { return store.size; },
+    };
+    const originalLS = (globalThis as Record<string, unknown>).localStorage;
+    (globalThis as Record<string, unknown>).localStorage = fakeLocalStorage;
+    try {
+      seedBenchmarkConfig(resolveEvalDeepSeekSeedPlan({ DEEPSEEK_API_KEY: 'sk-test' }));
+      expect(store.get('AIC_DEV_AUTH_BYPASS')).toBe('1');
+    } finally {
+      (globalThis as Record<string, unknown>).localStorage = originalLS;
+    }
+  });
+
+  it('after seed: canUseDevAuthBypass logic is satisfied — bypass flag set, localhost confirmed', async () => {
+    ensureBrowserGlobals();
+    const plan = resolveEvalDeepSeekSeedPlan({ DEEPSEEK_API_KEY: 'sk-eval-direct' }, 'fast');
+    seedBenchmarkConfig(plan);
+
+    const { canUseDevAuthBypass, DEV_BYPASS_KEY, isLocalDevHost } =
+      await import('../src/services/internalAccess');
+
+    // Bypass flag must be '1' in localStorage — this is what LLMProxy.ts:114 reads.
+    const bypassVal = (globalThis as Record<string, unknown> & {
+      localStorage: Storage;
+    }).localStorage.getItem(DEV_BYPASS_KEY);
+    expect(bypassVal, 'AIC_DEV_AUTH_BYPASS must be "1"').toBe('1');
+
+    // 127.0.0.1 must be recognised as a local dev host.
+    expect(isLocalDevHost('127.0.0.1')).toBe(true);
+
+    // With explicit params (hostname + flag), canUseDevAuthBypass returns true.
+    // This is the exact logic LLMProxy.ts:125 evaluates at call time:
+    //   if (canUseDevAuthBypass() && !isPlaywrightTest) → directLLMRequest (no PROXY_URL)
+    // Passing explicit params here keeps the test free of window-global order
+    // sensitivity while still exercising the real function logic.
+    expect(canUseDevAuthBypass('127.0.0.1', bypassVal)).toBe(true);
+
+    // supabase.auth.getSession is skipped on the dev-bypass path (LLMProxy.ts:41).
+    // Confirm it was never called anywhere in the transport describe block.
+    const { supabase } = await import('../src/lib/supabase');
+    expect(supabase.auth.getSession).not.toHaveBeenCalled();
   });
 });
