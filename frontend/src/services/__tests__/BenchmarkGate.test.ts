@@ -21,8 +21,8 @@ function makeResult(
     outcome,
     blockingCodes: outcome === 'blocked' ? ['runtime-guard'] : [],
     error: outcome === 'failed' ? 'boom' : null,
-    filesProduced: fileCount > 0,
-    qualityPassed: outcome === 'preview-ready',
+    designContractOkPassed: outcome === 'preview-ready',
+    qualityPassed:          outcome === 'preview-ready',
   };
 }
 

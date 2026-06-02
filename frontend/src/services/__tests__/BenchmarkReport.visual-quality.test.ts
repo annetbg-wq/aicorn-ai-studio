@@ -22,8 +22,8 @@ function createResult(
     outcome: partial.outcome,
     blockingCodes: partial.blockingCodes ?? [],
     error: partial.error ?? null,
-    filesProduced: partial.filesProduced ?? (partial.fileCount ?? 4) > 0,
-    qualityPassed: partial.qualityPassed ?? partial.outcome === 'preview-ready',
+    designContractOkPassed: partial.designContractOkPassed ?? partial.outcome === 'preview-ready',
+    qualityPassed:          partial.qualityPassed ?? partial.outcome === 'preview-ready',
     visualQuality: partial.visualQuality,
   };
 }

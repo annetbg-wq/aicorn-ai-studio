@@ -45,7 +45,7 @@ export interface GateAxis {
   description:     string;
   /** Key in AggregateBaseline to read. Must be a numeric metric field. */
   metricKey:       keyof Pick<AggregateBaseline,
-    'previewReadyRate' | 'filesProducedRate' | 'qualityPassRate' | 'avgVisualScore'
+    'previewReadyRate' | 'designContractOkRate' | 'qualityPassRate' | 'avgVisualScore'
   >;
   /**
    * Regression threshold: current must be >= baseline - threshold.
@@ -65,17 +65,18 @@ export interface GateAxis {
  * Open list of gate axes. All axes are evaluated uniformly by buildVerdict().
  *
  * Threshold rationale:
- *   filesProducedRate  0.20 — 20% slack covers sporadic LLM network failures.
- *   qualityPassRate    0.20 — same reasoning; quality checks include guard results.
- *   avgVisualScore     10.0 — 10/100 points covers stochastic visual scoring variance
- *                             (~1–2 standard deviations for typical model outputs).
- *   previewReadyRate   0.0  — any compile regression is a hard regression; no slack.
+ *   designContractOkRate 0.20 — 20% slack: DesignContract is stochastic; model occasionally
+ *                               misses a token rule without being worse overall.
+ *   qualityPassRate      0.20 — same reasoning; quality checks include guard results.
+ *   avgVisualScore       10.0 — 10/100 points covers stochastic visual scoring variance
+ *                               (~1–2 standard deviations for typical model outputs).
+ *   previewReadyRate     0.0  — any compile regression is a hard regression; no slack.
  */
 export const GATE_AXES: readonly GateAxis[] = [
   {
-    id:             'filesProduced',
-    description:    'Files produced rate (≥1 file from generation)',
-    metricKey:      'filesProducedRate',
+    id:             'designContractOk',
+    description:    'Design contract pass rate (apply step: DesignContract.validateDesignContract)',
+    metricKey:      'designContractOkRate',
     threshold:      0.20,
     higherIsBetter: true,
     required:       true,
@@ -265,7 +266,7 @@ function buildVerdict(
 // ── Format helpers ────────────────────────────────────────────────────────────
 
 function fmt(
-  metricKey: keyof Pick<AggregateBaseline, 'previewReadyRate' | 'filesProducedRate' | 'qualityPassRate' | 'avgVisualScore'>,
+  metricKey: keyof Pick<AggregateBaseline, 'previewReadyRate' | 'designContractOkRate' | 'qualityPassRate' | 'avgVisualScore'>,
   value: number,
 ): string {
   if (metricKey === 'avgVisualScore') return value.toFixed(1);
@@ -311,7 +312,7 @@ function renderScorecard(
     '',
     '| Axis | Metric | Value |',
     '|------|--------|-------|',
-    `| filesProduced (L1) | files-produced rate | ${pct(s.filesProducedRate)} |`,
+    `| designContractOk (L1) | design-contract pass rate | ${pct(s.designContractOkRate)} |`,
     `| qualityPass (L1) | quality-pass rate | ${pct(s.qualityPassRate)} |`,
     `| visualScore (L1) | avg visual score | ${(s.visualQuality?.avgScore ?? 0).toFixed(1)} |`,
     `| previewReady (L2) | preview-ready rate | ${pct(currentPreviewRate)} |`,

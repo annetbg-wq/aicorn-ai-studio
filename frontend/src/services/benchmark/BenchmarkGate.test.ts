@@ -5,7 +5,7 @@
  * Five invariants:
  *   1. Null baseline → assertBaselineUsable throws.
  *   2. Zero on any required axis → assertBaselineUsable throws.
- *   3. Regression on each structural axis (filesProduced, qualityPass, visualScore).
+ *   3. Regression on each structural axis (designContractOkPassed, qualityPass, visualScore).
  *   4. Regression on previewReady (E2E axis).
  *   5. Passing run with all axes above regression floor → verdict.passed === true.
  */
@@ -25,7 +25,7 @@ function makeBaseline(overrides: Partial<AggregateBaseline> = {}): AggregateBase
     avgFileCount:      8,
     avgDurationMs:     20000,
     previewReadyRate:  0.8,
-    filesProducedRate: 1.0,
+    designContractOkRate: 1.0,
     qualityPassRate:   0.9,
     avgVisualScore:    70,
     ...overrides,
@@ -43,10 +43,10 @@ function makeResult(overrides: Partial<IntentRunResult> = {}): IntentRunResult {
     featureCount:  3,
     outcome:       'preview-ready',
     blockingCodes: [],
-    error:         null,
-    filesProduced: true,
-    qualityPassed: true,
-    visualQuality: { score: 70, verdict: 'acceptable', reasons: [] },
+    error:                  null,
+    designContractOkPassed: true,
+    qualityPassed:          true,
+    visualQuality:          { score: 70, verdict: 'acceptable', reasons: [] },
     ...overrides,
   };
 }
@@ -74,8 +74,8 @@ function makeReport(results: IntentRunResult[]): BenchmarkReport {
       avgRouteCount:   Math.round(avg(results.map(r => r.routeCount))),
       avgFeatureCount: Math.round(avg(results.map(r => r.featureCount))),
       byCategory:      {} as never,
-      filesProducedRate: total > 0 ? results.filter(r => r.filesProduced).length / total : 0,
-      qualityPassRate:   total > 0 ? results.filter(r => r.qualityPassed).length / total : 0,
+      designContractOkRate: total > 0 ? results.filter(r => r.designContractOkPassed).length / total : 0,
+      qualityPassRate:      total > 0 ? results.filter(r => r.qualityPassed).length / total : 0,
       visualQuality: {
         measuredIntents: results.filter(r => r.visualQuality).length,
         avgScore: Math.round(avg(results.filter(r => r.visualQuality).map(r => r.visualQuality!.score))),
@@ -92,9 +92,9 @@ describe('assertBaselineUsable', () => {
     expect(() => assertBaselineUsable(null)).toThrowError(/No baseline found/);
   });
 
-  it('throws when filesProducedRate is 0', () => {
-    expect(() => assertBaselineUsable(makeBaseline({ filesProducedRate: 0 })))
-      .toThrowError(/filesProduced.*is 0/);
+  it('throws when designContractOkRate is 0', () => {
+    expect(() => assertBaselineUsable(makeBaseline({ designContractOkRate: 0 })))
+      .toThrowError(/designContractOk.*is 0/);
   });
 
   it('throws when qualityPassRate is 0', () => {
@@ -120,17 +120,17 @@ describe('assertBaselineUsable', () => {
 // ── 2–4. Regression detection per axis ───────────────────────────────────────
 
 describe('BenchmarkGate.evaluate — structural axes (Layer 1)', () => {
-  it('REGRESSION when filesProducedRate drops beyond threshold', () => {
-    const baseline = makeBaseline({ filesProducedRate: 1.0 });
+  it('REGRESSION when designContractOkRate drops beyond threshold', () => {
+    const baseline = makeBaseline({ designContractOkRate: 1.0 });
     // 1.0 - 0.20 threshold = 0.80 floor; 0.50 is below floor
     const results = Array.from({ length: 5 }, (_, i) =>
-      makeResult({ filesProduced: i < 2, fileCount: i < 2 ? 5 : 0 }),
+      makeResult({ designContractOkPassed: i < 2, fileCount: i < 2 ? 5 : 0 }),
     );
-    const report = makeReport(results); // filesProducedRate = 0.40
+    const report = makeReport(results); // designContractOkRate = 0.40
 
     const verdict = BenchmarkGate.evaluate(report, baseline);
     expect(verdict.passed).toBe(false);
-    expect(verdict.regressions.some(r => r.axisId === 'filesProduced')).toBe(true);
+    expect(verdict.regressions.some(r => r.axisId === 'designContractOk')).toBe(true);
   });
 
   it('REGRESSION when qualityPassRate drops beyond threshold', () => {
@@ -181,13 +181,13 @@ describe('BenchmarkGate.evaluate — passing case', () => {
   it('passes when all axes are at or above baseline', () => {
     const baseline = makeBaseline({
       previewReadyRate:  0.8,
-      filesProducedRate: 1.0,
+      designContractOkRate: 1.0,
       qualityPassRate:   0.9,
       avgVisualScore:    70,
     });
     // All 5 intents succeed; metrics are >= baseline
     const results = Array.from({ length: 5 }, () =>
-      makeResult({ outcome: 'preview-ready', filesProduced: true, qualityPassed: true }),
+      makeResult({ outcome: 'preview-ready', designContractOkPassed: true, qualityPassed: true }),
     );
     const report = makeReport(results);
 
@@ -197,15 +197,15 @@ describe('BenchmarkGate.evaluate — passing case', () => {
   });
 
   it('passes when current is slightly below but within threshold', () => {
-    const baseline = makeBaseline({ filesProducedRate: 1.0, qualityPassRate: 1.0, avgVisualScore: 70, previewReadyRate: 0.8 });
-    // filesProducedRate 0.9 is within 0.20 threshold of 1.0
+    const baseline = makeBaseline({ designContractOkRate: 1.0, qualityPassRate: 1.0, avgVisualScore: 70, previewReadyRate: 0.8 });
+    // designContractOkRate 0.9 is within 0.20 threshold of 1.0
     const results = Array.from({ length: 10 }, (_, i) =>
-      makeResult({ filesProduced: i < 9, qualityPassed: i < 9 }),
+      makeResult({ designContractOkPassed: i < 9, qualityPassed: i < 9 }),
     );
     const report = makeReport(results);
 
     const verdict = BenchmarkGate.evaluate(report, baseline);
-    expect(verdict.regressions.filter(r => r.axisId === 'filesProduced')).toHaveLength(0);
+    expect(verdict.regressions.filter(r => r.axisId === 'designContractOkPassed')).toHaveLength(0);
     expect(verdict.regressions.filter(r => r.axisId === 'qualityPass')).toHaveLength(0);
   });
 });

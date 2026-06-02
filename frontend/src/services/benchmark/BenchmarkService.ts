@@ -293,9 +293,9 @@ async function runSingleIntent(
       featureCount:  0,
       outcome:       'failed',
       blockingCodes: [],
-      error:         error ?? genResult?.error ?? 'No result returned',
-      filesProduced: false,
-      qualityPassed: false,
+      error:                   error ?? genResult?.error ?? 'No result returned',
+      designContractOkPassed:  false,
+      qualityPassed:           false,
     };
   }
 
@@ -312,9 +312,9 @@ async function runSingleIntent(
     featureCount:  graph.features.length,
     outcome,
     blockingCodes,
-    error:         genResult.error ?? null,
-    filesProduced: graph.files.length > 0,
-    qualityPassed: genResult.qualitySummary?.passed ?? false,
+    error:                   genResult.error ?? null,
+    designContractOkPassed:  genResult.designContractOk === true,
+    qualityPassed:           genResult.qualitySummary?.passed ?? false,
     visualQuality: genResult.visualQualitySummary
       ? {
           score: genResult.visualQualitySummary.score,

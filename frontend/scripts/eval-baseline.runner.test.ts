@@ -43,18 +43,12 @@ beforeAll(async () => {
   ensureBrowserGlobals();
   patchFetchForEval(EVAL_BACKEND_URL);
 
-  try {
-    const backend = await startEvalBackend({ url: EVAL_BACKEND_URL, timeoutMs: 45_000 });
-    backendStop = backend.stop;
-    console.log(`[eval:baseline] Backend ready at ${backend.url}`);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[eval:baseline] Backend did not start (${msg}). ` +
-      'previewReadyRate will be 0 — only structural metrics will be captured. ' +
-      'Start the backend manually or set EVAL_BACKEND_URL to enable E2E layer.',
-    );
-  }
+  // Hard-fail: both layers must be non-zero. A silent fallback would allow a
+  // baseline with previewReadyRate=0 to be committed, then assertBaselineUsable()
+  // would reject every subsequent gate run — S0.1 closed on paper, broken in practice.
+  const backend = await startEvalBackend({ url: EVAL_BACKEND_URL, timeoutMs: 45_000 });
+  backendStop = backend.stop;
+  console.log(`[eval:baseline] Backend ready at ${backend.url}`);
 }, 60_000);
 
 afterAll(async () => {
@@ -119,17 +113,18 @@ describe('eval baseline runner', () => {
         const agg = artifact.aggregate;
         console.log(
           `[eval:baseline] ${suite} baseline ready: ` +
-          `filesProduced=${Math.round(agg.filesProducedRate * 100)}% ` +
+          `designContractOk=${Math.round(agg.designContractOkRate * 100)}% ` +
           `qualityPass=${Math.round(agg.qualityPassRate * 100)}% ` +
           `visualScore=${agg.avgVisualScore.toFixed(1)} ` +
           `previewReady=${Math.round(agg.previewReadyRate * 100)}% ` +
           `(${agg.avgFileCount.toFixed(1)} avg files, ${(agg.avgDurationMs / 1000).toFixed(1)}s avg).`,
         );
 
-        // Structural metrics must be non-zero; previewReady may be 0 if no backend.
+        // ALL four axes must be non-zero: three structural (L1) + one E2E (L2).
+        // S0.1 is closed only when both layers have real signal.
         expect(
-          agg.filesProducedRate,
-          'filesProducedRate must be > 0 — generation must produce files',
+          agg.designContractOkRate,
+          'designContractOkRate must be > 0 — DesignContract must pass for ≥1 intent',
         ).toBeGreaterThan(0);
         expect(
           agg.qualityPassRate,
@@ -138,6 +133,11 @@ describe('eval baseline runner', () => {
         expect(
           agg.avgVisualScore,
           'avgVisualScore must be > 0 — visual scoring must produce a non-zero result',
+        ).toBeGreaterThan(0);
+        expect(
+          agg.previewReadyRate,
+          'previewReadyRate must be > 0 — at least one intent must compile and mount (E2E layer). ' +
+          'If this fails, check that startEvalBackend started successfully and the backend is healthy.',
         ).toBeGreaterThan(0);
       }
     },

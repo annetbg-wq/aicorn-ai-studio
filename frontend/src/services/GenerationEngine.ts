@@ -462,6 +462,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
       ...baseResult,
       qualitySummary,
       visualQualitySummary,
+      designContractOk: result.outcomeData?.designContractOk,
     } as unknown as GenerationResult;
   }
 

@@ -1853,6 +1853,11 @@ export interface GenerationResult {
   designTelemetry?: DesignRecipeTelemetry;
   fastPathTelemetry?: FastPathTelemetry;
   runTelemetry?: GenerationRunTelemetry;
+  /**
+   * Whether the generated code satisfied the DesignContract (ProtoPipeline apply step).
+   * Populated on success; undefined when the apply step was not reached.
+   */
+  designContractOk?: boolean;
   visibleReasoningTrace?: VisibleReasoningTrace;
   fullDebugTrace?:        FullDebugTrace;
 }
