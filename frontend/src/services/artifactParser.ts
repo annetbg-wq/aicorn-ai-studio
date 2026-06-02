@@ -429,9 +429,8 @@ export function looksLikeTruncatedArtifact(raw: string): boolean {
 }
 
 /**
- * Inspects a parsed artifact for semantic problems that would cause
- * ArtifactReviewerService._deepHeuristicRepair to drop all files,
- * ultimately producing "REVIEWER_FAIL: 0 files after heuristic repair".
+ * Inspects a parsed artifact for semantic problems that would cause every
+ * file to be dropped during heuristic repair (i.e. an unrecoverable artifact).
  *
  * Returns a classified issue when the artifact is semantically unrecoverable,
  * or null when it looks acceptable.
@@ -446,8 +445,7 @@ export function classifyArtifactHealth(
 
   if (!artifact || artifact.files.length === 0) return null;
 
-  // Mirror ArtifactReviewerService.isNestedEnvelope logic — same pattern,
-  // kept in sync intentionally to pre-screen before the reviewer runs.
+  // Nested artifact health guard kept here for future re-wire into the live ProtoPipeline parse path.
   const isEnvelopeLike = (content: string): boolean => {
     const t = content.trim();
     return (
@@ -458,7 +456,7 @@ export function classifyArtifactHealth(
   };
 
   // POISONED: every file looks like a nested artifact envelope.
-  // Heuristic repair would drop all of them → REVIEWER_FAIL: 0 files.
+  // Heuristic repair would drop all of them → unrecoverable (0 usable files).
   if (artifact.files.every(f => isEnvelopeLike(f.content))) {
     return {
       failClass: ARTIFACT_FAIL_POISONED_ENVELOPE,
