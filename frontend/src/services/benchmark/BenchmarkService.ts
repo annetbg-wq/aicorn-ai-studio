@@ -294,6 +294,8 @@ async function runSingleIntent(
       outcome:       'failed',
       blockingCodes: [],
       error:         error ?? genResult?.error ?? 'No result returned',
+      filesProduced: false,
+      qualityPassed: false,
     };
   }
 
@@ -311,6 +313,8 @@ async function runSingleIntent(
     outcome,
     blockingCodes,
     error:         genResult.error ?? null,
+    filesProduced: graph.files.length > 0,
+    qualityPassed: genResult.qualitySummary?.passed ?? false,
     visualQuality: genResult.visualQualitySummary
       ? {
           score: genResult.visualQualitySummary.score,

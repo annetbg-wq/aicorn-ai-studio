@@ -44,7 +44,7 @@ export function applyCorsHeaders(req: express.Request, res: express.Response): b
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.BACKEND_PORT ?? '3000', 10);
 
 app.use((req, res, next) => {
   if (!applyCorsHeaders(req, res)) return;

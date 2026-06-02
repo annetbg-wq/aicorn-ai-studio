@@ -1,17 +1,20 @@
 import fs from 'fs';
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  EVAL_BACKEND_URL,
   assertEvalModelAllowed,
   baselineArtifactPath,
   ensureBrowserGlobals,
   loadEvalEnv,
   normalizeGateSuite,
   parseCliSuite,
+  patchFetchForEval,
   readJson,
   resolveEvalDeepSeekSeedPlan,
   seedBenchmarkConfig,
+  startEvalBackend,
 } from './eval-runtime.mjs';
 
 function assertBaselineArtifact(raw: unknown, filePath: string) {
@@ -20,7 +23,11 @@ function assertBaselineArtifact(raw: unknown, filePath: string) {
   }
 
   const aggregate = raw.aggregate as Record<string, unknown>;
-  const requiredKeys = ['modelId', 'runId', 'createdAt', 'previewReadyRate', 'avgFileCount', 'avgDurationMs', 'intentCount'];
+  const requiredKeys = [
+    'modelId', 'runId', 'createdAt',
+    'previewReadyRate', 'avgFileCount', 'avgDurationMs', 'intentCount',
+    'filesProducedRate', 'qualityPassRate', 'avgVisualScore',
+  ];
   const missing = requiredKeys.filter((key) => !(key in aggregate));
   if (missing.length > 0) {
     throw new Error(`[eval:gate] Baseline artifact is missing keys: ${missing.join(', ')}`);
@@ -29,13 +36,41 @@ function assertBaselineArtifact(raw: unknown, filePath: string) {
   return aggregate;
 }
 
+// ── Backend lifecycle ─────────────────────────────────────────────────────────
+
+let backendStop: (() => Promise<unknown>) | null = null;
+
+beforeAll(async () => {
+  loadEvalEnv();
+  ensureBrowserGlobals();
+  patchFetchForEval(EVAL_BACKEND_URL);
+
+  try {
+    const backend = await startEvalBackend({ url: EVAL_BACKEND_URL, timeoutMs: 45_000 });
+    backendStop = backend.stop;
+    console.log(`[eval:gate] Backend ready at ${backend.url}`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[eval:gate] Backend did not start (${msg}). ` +
+      'previewReadyRate will be 0; gate will reject baseline if previewReadyRate was > 0 there.',
+    );
+  }
+}, 60_000);
+
+afterAll(async () => {
+  if (backendStop) {
+    await backendStop();
+    console.log('[eval:gate] Backend stopped.');
+  }
+});
+
+// ── Gate check ────────────────────────────────────────────────────────────────
+
 describe('eval gate runner', () => {
   it(
     'replays the benchmark suite against the committed baseline',
     async () => {
-      loadEvalEnv();
-      ensureBrowserGlobals();
-
       const rawSuite = parseCliSuite('fast');
       const suite = normalizeGateSuite(rawSuite, '__invalid__');
       if (suite === '__invalid__') {
@@ -53,7 +88,6 @@ describe('eval gate runner', () => {
         return;
       }
 
-      // Hard-fail if somehow the resolved plan diverged from EVAL_ALLOWED.
       assertEvalModelAllowed(seedPlan.provider, seedPlan.modelId);
 
       const artifactPath = baselineArtifactPath(suite);
@@ -74,19 +108,27 @@ describe('eval gate runner', () => {
         );
       }
 
+      // assertBaselineUsable throws if any required axis is 0/missing.
+      // This ensures the gate cannot go vacuous on an empty baseline.
+      const { assertBaselineUsable } = await import('../src/services/benchmark/BenchmarkGate');
+      assertBaselineUsable(baseline as import('../src/services/benchmark/BaselineStore').AggregateBaseline);
+
       const verdict = await BenchmarkGate.check({
-        apiKey: seedPlan.apiKey,
-        modelId: displayModelId,
+        apiKey:    seedPlan.apiKey,
+        modelId:   displayModelId,
         fixModelId: seedPlan.fixModelId || undefined,
         suite,
-        baseline: baseline as import('../src/services/benchmark/BaselineStore').AggregateBaseline,
+        baseline:  baseline as import('../src/services/benchmark/BaselineStore').AggregateBaseline,
       });
 
       if (verdict.scorecard) {
         console.log(`\n${verdict.scorecard}`);
       }
 
-      expect(verdict.passed, verdict.regressions.map((issue) => `${issue.metric}: ${issue.message}`).join('\n')).toBe(true);
+      expect(
+        verdict.passed,
+        verdict.regressions.map((issue) => `[${issue.axisId}] ${issue.message}`).join('\n'),
+      ).toBe(true);
     },
     15 * 60 * 1000,
   );

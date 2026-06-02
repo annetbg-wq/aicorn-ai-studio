@@ -37,6 +37,10 @@ export interface IntentRunResult {
   blockingCodes: string[];
   /** Non-null when outcome is 'failed'. */
   error:         string | null;
+  /** true when generation produced ≥1 file (structural layer: parse/produce succeeded). */
+  filesProduced: boolean;
+  /** true when GenerationQualityService.evaluate().passed — structural quality checks passed. */
+  qualityPassed: boolean;
   /** Optional per-intent visual-quality result, distinct from operational outcome. */
   visualQuality?: IntentRunVisualQuality;
 }
@@ -72,6 +76,9 @@ export interface BenchmarkSummary {
   avgFeatureCount: number;
   byCategory:   Record<IntentCategory, CategorySummary>;
   visualQuality?: BenchmarkVisualQualitySummary;
+  /** Structural Layer 1 metrics (headless, no backend needed). */
+  filesProducedRate: number;  // 0–1: fraction of intents that produced ≥1 file
+  qualityPassRate:   number;  // 0–1: fraction of intents that passed GenerationQualityService
 }
 
 export interface CategorySummary {
@@ -145,6 +152,13 @@ export function computeSummary(results: IntentRunResult[]): BenchmarkSummary {
       })()
     : undefined;
 
+  const filesProducedRate = total > 0
+    ? results.filter(r => r.filesProduced).length / total
+    : 0;
+  const qualityPassRate = total > 0
+    ? results.filter(r => r.qualityPassed).length / total
+    : 0;
+
   return {
     total,
     previewReady,
@@ -156,6 +170,8 @@ export function computeSummary(results: IntentRunResult[]): BenchmarkSummary {
     avgFeatureCount: avg(results.map(r => r.featureCount)),
     byCategory,
     visualQuality,
+    filesProducedRate,
+    qualityPassRate,
   };
 }
 

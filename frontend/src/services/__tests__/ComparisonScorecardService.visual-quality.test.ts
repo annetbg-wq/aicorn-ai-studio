@@ -19,6 +19,8 @@ function createResult(
     outcome: partial.outcome,
     blockingCodes: partial.blockingCodes ?? [],
     error: partial.error ?? null,
+    filesProduced: partial.filesProduced ?? (partial.fileCount ?? 4) > 0,
+    qualityPassed: partial.qualityPassed ?? partial.outcome === 'preview-ready',
     visualQuality: partial.visualQuality,
   };
 }

@@ -355,6 +355,117 @@ export function seedBenchmarkConfig({ provider, apiKey, modelId, fixModelId, age
   localStorage.setItem('AIC_DEV_AUTH_BYPASS', '1');
 }
 
+// ── Backend URL (configurable for CI / remote environments) ──────────────────
+
+/**
+ * Backend URL read from env. Defaulting to localhost:3000 for local dev.
+ * Override via EVAL_BACKEND_URL (e.g. "http://ci-host:3001") to run eval
+ * against a remote or differently-ported backend without touching this code.
+ */
+export const EVAL_BACKEND_URL = process.env.EVAL_BACKEND_URL ?? 'http://127.0.0.1:3000';
+
+/**
+ * Patch globalThis.fetch so that relative URLs (e.g. "/api/preview/…") resolve
+ * against EVAL_BACKEND_URL. ProtoPipeline uses relative fetch in browser
+ * context; in Node.js eval the URL must be absolute. The structural layer
+ * (headless, no backend) does not call fetch at all — this patch only matters
+ * for the E2E layer.
+ *
+ * Safe to call multiple times; each call wraps the current fetch exactly once.
+ */
+export function patchFetchForEval(backendUrl = EVAL_BACKEND_URL) {
+  const normalized = backendUrl.replace(/\/$/, '');
+  const original = globalThis.fetch;
+  globalThis.fetch = function patchedFetch(input, init) {
+    const rawUrl = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.href
+        : (input && typeof input === 'object' && 'url' in input)
+          ? input.url
+          : String(input);
+    if (typeof rawUrl === 'string' && rawUrl.startsWith('/')) {
+      const absolute = normalized + rawUrl;
+      const newInput = typeof input === 'string' ? absolute : new Request(absolute, input);
+      return original.call(this, newInput, init);
+    }
+    return original.call(this, input, init);
+  };
+}
+
+/**
+ * Start the backend server and wait until it accepts requests.
+ *
+ * The port is read from EVAL_BACKEND_URL (or EVAL_BACKEND_PORT as a fallback).
+ * The backend process receives BACKEND_PORT so auth-token.ts listens on the
+ * same port this function probes.
+ *
+ * Returns { url, stop }:
+ *   url  — the absolute backend URL (identical to EVAL_BACKEND_URL/default)
+ *   stop — call to send SIGTERM and wait for exit (max 5 s)
+ *
+ * Throws if the backend does not become ready within timeoutMs (default 30 s).
+ */
+export async function startEvalBackend(opts = {}) {
+  const { spawn } = await import('child_process');
+  const url = opts.url ?? EVAL_BACKEND_URL;
+  const parsed = new URL(url);
+  const port = opts.port ?? parseInt(process.env.EVAL_BACKEND_PORT ?? parsed.port ?? '3000', 10);
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+
+  const proc = spawn(
+    process.platform === 'win32' ? 'npx.cmd' : 'npx',
+    ['tsx', 'backend/auth-token.ts'],
+    {
+      cwd: repoDir,
+      env: { ...process.env, BACKEND_PORT: String(port) },
+      stdio: 'pipe',
+    },
+  );
+
+  proc.on('error', (err) => {
+    console.warn(`[eval:backend] spawn error: ${err.message}`);
+  });
+
+  // Probe healthcheck: GET /api/preview/eval-probe/status returns 404 JSON when
+  // the server is up (build not found), which is fine — it proves the server
+  // is listening. Any non-network error means it's up.
+  const probeUrl = `${url.replace(/\/$/, '')}/api/preview/eval-probe/status`;
+  const started = Date.now();
+  let ready = false;
+
+  while (Date.now() - started < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const resp = await fetch(probeUrl);
+      // 404 = server up but build unknown — exactly what we expect
+      if (resp.status === 404 || resp.ok) { ready = true; break; }
+    } catch {
+      // ECONNREFUSED → server not up yet, keep polling
+    }
+  }
+
+  if (!ready) {
+    proc.kill('SIGTERM');
+    throw new Error(
+      `[eval:backend] Backend did not become ready within ${timeoutMs}ms on ${url}. ` +
+      'Ensure the backend compiles and port is not occupied.',
+    );
+  }
+
+  console.log(`[eval:backend] Ready at ${url} (port ${port})`);
+
+  function stop() {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => { proc.kill('SIGKILL'); resolve(); }, 5_000);
+      proc.once('exit', () => { clearTimeout(timeout); resolve(); });
+      proc.kill('SIGTERM');
+    });
+  }
+
+  return { url, stop };
+}
+
 export async function importFrontendModule(relativePath) {
   return import(pathToFileURL(path.join(frontendDir, relativePath)).href);
 }

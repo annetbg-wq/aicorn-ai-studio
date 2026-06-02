@@ -37,23 +37,35 @@ export interface AggregateBaseline {
   modelId:           string;
   runId:             string;
   createdAt:         string;
-  previewReadyRate:  number;   // 0–1
+  intentCount:       number;
   avgFileCount:      number;
   avgDurationMs:     number;
-  intentCount:       number;
+  // ── E2E axis (Layer 2 — requires backend compile) ──────────────────────────
+  previewReadyRate:  number;   // 0–1
+  // ── Structural axes (Layer 1 — headless, no backend needed) ───────────────
+  filesProducedRate: number;   // 0–1: fraction of intents that produced ≥1 file
+  qualityPassRate:   number;   // 0–1: fraction of intents that passed GenerationQualityService
+  avgVisualScore:    number;   // 0–100: average of VisualQualityService.score
 }
 
 export function buildAggregateBaseline(report: BenchmarkReport): AggregateBaseline {
+  const total = report.summary.total;
+  const visualResults = report.results.filter(r => r.visualQuality != null);
+  const avgVisualScore = visualResults.length > 0
+    ? Math.round(visualResults.reduce((s, r) => s + (r.visualQuality?.score ?? 0), 0) / visualResults.length)
+    : 0;
+
   return {
-    modelId: report.modelId,
-    runId: report.runId,
-    createdAt: report.finishedAt,
-    previewReadyRate: report.summary.total > 0
-      ? report.summary.previewReady / report.summary.total
-      : 0,
-    avgFileCount: report.summary.avgFileCount,
-    avgDurationMs: report.summary.avgDurationMs,
-    intentCount: report.summary.total,
+    modelId:           report.modelId,
+    runId:             report.runId,
+    createdAt:         report.finishedAt,
+    intentCount:       total,
+    avgFileCount:      report.summary.avgFileCount,
+    avgDurationMs:     report.summary.avgDurationMs,
+    previewReadyRate:  total > 0 ? report.summary.previewReady / total : 0,
+    filesProducedRate: report.summary.filesProducedRate,
+    qualityPassRate:   report.summary.qualityPassRate,
+    avgVisualScore,
   };
 }
 
@@ -212,12 +224,15 @@ export const BaselineStore = {
 function rowToAggregate(row: BaselineRow, modelId: string): AggregateBaseline {
   return {
     modelId,
-    runId:            row.run_id,
-    createdAt:        row.created_at ?? new Date().toISOString(),
-    // previewReadyRate not directly stored — caller must compute from intent rows or pass 0
-    previewReadyRate: 0,
-    avgFileCount:     row.file_count,
-    avgDurationMs:    row.duration_ms,
-    intentCount:      0, // populated by getBaseline callers when needed
+    runId:             row.run_id,
+    createdAt:         row.created_at ?? new Date().toISOString(),
+    intentCount:       0,       // populated by getBaseline callers when needed
+    avgFileCount:      row.file_count,
+    avgDurationMs:     row.duration_ms,
+    // Rates not stored in the legacy DB schema — caller must compute or re-run baseline.
+    previewReadyRate:  0,
+    filesProducedRate: 0,
+    qualityPassRate:   0,
+    avgVisualScore:    0,
   };
 }

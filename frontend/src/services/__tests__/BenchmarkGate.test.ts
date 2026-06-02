@@ -21,6 +21,8 @@ function makeResult(
     outcome,
     blockingCodes: outcome === 'blocked' ? ['runtime-guard'] : [],
     error: outcome === 'failed' ? 'boom' : null,
+    filesProduced: fileCount > 0,
+    qualityPassed: outcome === 'preview-ready',
   };
 }
 
@@ -61,7 +63,9 @@ describe('BenchmarkGate', () => {
     expect(verdict.regressions[0]?.metric).toBe('previewReadyRate');
   });
 
-  it('surfaces warnings without failing the gate', () => {
+  it('passes when file count and duration change but all axes stay above regression floors', () => {
+    // File count and duration are NOT regression axes — only GATE_AXES (filesProduced,
+    // qualityPass, visualScore, previewReady) can block the gate.
     const baselineReport = makeReport([
       makeResult('a', 'preview-ready', 10, 10_000),
       makeResult('b', 'preview-ready', 10, 10_000),
@@ -81,9 +85,7 @@ describe('BenchmarkGate', () => {
 
     expect(verdict.passed).toBe(true);
     expect(verdict.regressions).toHaveLength(0);
-    expect(verdict.warnings.map((warning) => warning.metric)).toEqual([
-      'avgFileCount',
-      'avgDurationMs',
-    ]);
+    // No warnings in axis-based model — all relevant checks are REGRESSION axes
+    expect(verdict.warnings).toHaveLength(0);
   });
 });
