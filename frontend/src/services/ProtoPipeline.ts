@@ -2148,6 +2148,10 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         repairPasses += 1;
         // Re-run diagnostics on repaired files — pure JS, no LLM
         const repairedVerdict = validateDesignContract(filteredFiles, designCtx);
+        // Update designContractOk to reflect the POST-repair state so the metric
+        // captures "did the final code satisfy the contract?" not "did the first
+        // coder pass satisfy it?" (the first pass almost always has violations).
+        designContractOk = repairedVerdict.ok;
         const repairedVisualUsage = buildVisualUsageDiagnostics({
           files:                      filteredFiles,
           skeletonId:                 config.skeletonId,
