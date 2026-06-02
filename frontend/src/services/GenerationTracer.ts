@@ -112,6 +112,7 @@ export interface FirstLLMStepDebugRecord {
   schema: 'aic-first-llm-step-v1';
   id: string;
   timestamp: string;
+  // TODO(S1.4): rename to 'GenerationEngine.generatePlan' + migrate persisted localStorage traces
   stepIdentity: 'SimpleGeneration.generatePlan';
   projectId?: string;
   intentText: string;

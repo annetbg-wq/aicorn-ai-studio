@@ -12,7 +12,7 @@
  * Does NOT auto-run on app load.
  */
 
-import { SimpleGeneration as GenerationPipeline } from '../SimpleGeneration';
+import { GenerationEngine as GenerationPipeline } from '../GenerationEngine';
 import { ConfigService } from '../ConfigService';
 import { resolveStandardRoute } from '../buildAgentRouting';
 import { goldenIntents, type GoldenIntent, type IntentCategory } from './goldenIntents';

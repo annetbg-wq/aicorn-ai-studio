@@ -27,8 +27,8 @@ import {
   type PhaseEvent,
   type UsageData,
 } from '../services/Orchestrator';
-import { SimpleGeneration as GenerationPipeline } from '../services/SimpleGeneration';
-import type { ProjectPlan } from '../services/SimpleGeneration';
+import { GenerationEngine } from '../services/GenerationEngine';
+import type { ProjectPlan } from '../services/types/ProjectPlan';
 import {
   classifyIdea,
   fallbackClassify,
@@ -231,7 +231,7 @@ export interface PendingBlueprintPlan {
   architectKickoff?: PendingArchitectKickoffSelection | null;
 }
 
-type GeneratedPlanPreview = Awaited<ReturnType<typeof GenerationPipeline.generatePlan>>;
+type GeneratedPlanPreview = Awaited<ReturnType<typeof GenerationEngine.generatePlan>>;
 
 export function scheduleKickoffFastStart(input: {
   pendingPlan: PendingBlueprintPlan | null;
@@ -2855,7 +2855,7 @@ export const useStudio = () => {
     }
     setIsAutoFixing(true);
     addLog(`[AutoFix] Attempt ${attempt}/${MAX_FIX_ATTEMPTS}: ${errorMsg.slice(0, 100)}`);
-    GenerationPipeline.autoFix({ errorMsg, apiKey: effectiveKey, onLog: addLog })
+    GenerationEngine.autoFix({ errorMsg, apiKey: effectiveKey, onLog: addLog })
       .then(success => {
         if (success) {
           setPreviewLifecycle('committing'); // waiting for backend recompile + preview-mounted
@@ -3941,7 +3941,7 @@ export const useStudio = () => {
     } else {
       const planRoute = resolveStandardRoute('primary', { onLog: addLog });
       try {
-        plan = await GenerationPipeline.generatePlan({
+        plan = await GenerationEngine.generatePlan({
           intent:   userPrompt,
           userLang,
           apiKey:   planRoute.apiKey,
@@ -4291,7 +4291,7 @@ export const useStudio = () => {
         traceStepIds.delete(stepId);
       };
 
-      const runOnce = (intentArg: string, buildRouteOverride?: AgentExecutionRoute) => GenerationPipeline.run({
+      const runOnce = (intentArg: string, buildRouteOverride?: AgentExecutionRoute) => GenerationEngine.run({
         intent:       intentArg,
         history,
         files:        contextWithTheme,
@@ -4644,7 +4644,7 @@ export const useStudio = () => {
         if (isParseFailure) {
           addLog('LLM returned invalid format — no parseable artifact found', 'error');
         } else {
-          addLog(`[GenerationPipeline] failed: ${failMsg}`, 'error');
+          addLog(`[GenerationEngine] failed: ${failMsg}`, 'error');
         }
         startTransition(() => {
           chatPatchLast({

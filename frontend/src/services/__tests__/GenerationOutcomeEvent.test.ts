@@ -15,7 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { metricsService } from '../MetricsService';
 import { generationTracer } from '../GenerationTracer';
-import { SimpleGeneration, type PipelineRunConfig } from '../SimpleGeneration';
+import { GenerationEngine, type PipelineRunConfig } from '../GenerationEngine';
 import { ProtoPipeline, type ResolvedRoute } from '../ProtoPipeline';
 import type { GenerationOutcomeEvent } from '../../shared/projectModel';
 
@@ -186,7 +186,7 @@ describe('GenerationOutcomeEvent', () => {
       },
     });
 
-    await SimpleGeneration.run(makePipelineConfig());
+    await GenerationEngine.run(makePipelineConfig());
 
     expect(logOutcomeEventMock()).toHaveBeenCalledOnce();
     const event = logOutcomeEventMock().mock.calls[0][0] as GenerationOutcomeEvent;
@@ -291,7 +291,7 @@ describe('GenerationOutcomeEvent', () => {
       },
     });
 
-    await SimpleGeneration.run(makePipelineConfig({
+    await GenerationEngine.run(makePipelineConfig({
       onFiles: vi.fn().mockImplementation(() => { throw onFilesError; }),
     }));
 
@@ -322,7 +322,7 @@ describe('GenerationOutcomeEvent', () => {
       outcomeData: { repairPasses: 0, designContractOk: undefined, compiled: true },
     });
 
-    await SimpleGeneration.run(makePipelineConfig());
+    await GenerationEngine.run(makePipelineConfig());
 
     // Verify the runId passed to ProtoPipeline.run matches the tracer id.
     expect(runSpy).toHaveBeenCalledWith(

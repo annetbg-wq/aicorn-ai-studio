@@ -1,24 +1,24 @@
 /**
- * SimpleGeneration — compatibility shim over the new ProtoPipeline.
+ * GenerationEngine — adapter over the ProtoPipeline engine.
  *
  * The legacy SimpleGeneration module (~7 200 lines) has been replaced by the
  * 6-step pipeline in `ProtoPipeline.ts`. This file preserves
- * the public surface (`SimpleGeneration.run / .generatePlan / .autoFix /
+ * the public surface (`GenerationEngine.run / .generatePlan / .autoFix /
  * .clarify`, plus the `ProjectPlan` and `PipelineRunConfig` types) so the rest
  * of the codebase keeps compiling while every actual generation now goes
  * through ProtoPipeline under the hood.
  *
  *   ┌────────────────────────────────────────────────────────────────┐
  *   │ useStudio / SandpackPreview / BenchmarkService                 │
- *   │      │  SimpleGeneration.run / .generatePlan / .autoFix         │
+ *   │      │  GenerationEngine.run / .generatePlan / .autoFix        │
  *   │      ▼                                                          │
- *   │ shim (this file) → ProtoPipeline.{run,clarify,repair}           │
+ *   │ adapter (this file) → ProtoPipeline.{run,clarify,repair}        │
  *   │      │                                                          │
  *   │      ▼                                                          │
  *   │ /api/preview/:buildId/compile  (skeleton install + build)       │
  *   └────────────────────────────────────────────────────────────────┘
  *
- * The shim is intentionally thin: no admission gating, no artist layer,
+ * The adapter is intentionally thin: no admission gating, no artist layer,
  * no visual-polish loops, no plan confirmation gating, no edit-vs-create
  * branching. Every call is forwarded to ProtoPipeline and the response
  * is normalised back into the GenerationResult shape that downstream code
@@ -126,7 +126,7 @@ export interface PipelineRunConfig {
 
 // ── Public class — adapter over ProtoPipeline ──────────────────────────────
 
-export class SimpleGeneration {
+export class GenerationEngine {
   /**
    * Optional clarification step. Mirrors the legacy signature; delegates to
    * ProtoPipeline.clarify().
@@ -231,7 +231,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
       try { config.onPhase({ phase: p, progress }); } catch { /* ignore */ }
     };
 
-    revisionManager.claimPreviewOwnership('SimpleGeneration.run');
+    revisionManager.claimPreviewOwnership('GenerationEngine.run');
 
     const buildId = config.revisionId
       || revisionManager.getActiveRevisionId()
@@ -242,19 +242,19 @@ Return ONLY JSON, no markdown, matching this exact shape:
     const tags = inferTags(config);
     const skOverride = selectSkeletonWithSafeOverrides(archetype, tags);
     const skeletonId: SkeletonId = skOverride.finalSelectedSkeletonId;
-    log(`[SimpleGeneration] Skeleton original=${skOverride.originalSelectedSkeletonId} final=${skeletonId} override=${skOverride.overrideApplied}`);
+    log(`[GenerationEngine] Skeleton original=${skOverride.originalSelectedSkeletonId} final=${skeletonId} override=${skOverride.overrideApplied}`);
     if (skOverride.overrideApplied && skOverride.overrideReason) {
-      log(`[SimpleGeneration] Skeleton override reason: ${skOverride.overrideReason}`);
+      log(`[GenerationEngine] Skeleton override reason: ${skOverride.overrideReason}`);
     }
-    log(`[SimpleGeneration] Skeleton diagnostics: confidence=${skOverride.confidence} bestScore=${skOverride.bestScore} runnerUp=${skOverride.runnerUpSkeletonId ?? 'none'}(${skOverride.runnerUpScore})`);
+    log(`[GenerationEngine] Skeleton diagnostics: confidence=${skOverride.confidence} bestScore=${skOverride.bestScore} runnerUp=${skOverride.runnerUpSkeletonId ?? 'none'}(${skOverride.runnerUpScore})`);
     if (skOverride.intentSignals.length > 0) {
-      log(`[SimpleGeneration] Skeleton intent signals: ${skOverride.intentSignals.join(', ')}`);
+      log(`[GenerationEngine] Skeleton intent signals: ${skOverride.intentSignals.join(', ')}`);
     }
     for (const warning of skOverride.mismatchWarnings) {
-      log(`[SimpleGeneration] ⚠ Skeleton mismatch: ${warning}`);
+      log(`[GenerationEngine] ⚠ Skeleton mismatch: ${warning}`);
     }
     if (skOverride.fallbackReason) {
-      log(`[SimpleGeneration] Skeleton fallback reason: ${skOverride.fallbackReason}`);
+      log(`[GenerationEngine] Skeleton fallback reason: ${skOverride.fallbackReason}`);
     }
 
     // Surface the architect "pages" plan to the UI as soon as we have one.
@@ -332,7 +332,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
     } catch (err) {
       revisionManager.releasePreviewOwnership();
       const message = err instanceof Error ? err.message : String(err);
-      log(`[SimpleGeneration] pipeline crashed: ${message}`);
+      log(`[GenerationEngine] pipeline crashed: ${message}`);
       return makeFailedResult({
         intent: config.intent,
         modelId: config.buildRoute?.modelId || config.modelId,
@@ -345,7 +345,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
     revisionManager.releasePreviewOwnership();
 
     if (!result.success) {
-      log(`[SimpleGeneration] pipeline failed: ${result.error ?? 'unknown'}`);
+      log(`[GenerationEngine] pipeline failed: ${result.error ?? 'unknown'}`);
       return makeFailedResult({
         intent: config.intent,
         modelId: config.buildRoute?.modelId || config.modelId,
@@ -365,7 +365,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
       } catch (onFilesErr) {
         revisionManager.releasePreviewOwnership();
         const onFilesMsg = onFilesErr instanceof Error ? onFilesErr.message : String(onFilesErr);
-        log(`[SimpleGeneration] onFiles failed — pipeline output not applied to revision: ${onFilesMsg}`);
+        log(`[GenerationEngine] onFiles failed — pipeline output not applied to revision: ${onFilesMsg}`);
         metricsService.logOutcomeEvent({
           runId:           outcomeRunId,
           prompt:          config.intent.slice(0, 600),

@@ -18,11 +18,11 @@
  * Writes a pre_build_draft snapshot into the branch-scoped architecture memory
  * (Session 1 model) via ProjectRepository.saveBranchArchitectureSnapshot().
  *
- * NOT to touch: SimpleGeneration, Orchestrator, preview pipeline, projectModel types.
+ * NOT to touch: GenerationEngine, Orchestrator, preview pipeline, projectModel types.
  */
 
 import { llmFetch } from './LLMProxy';
-import type { ProjectPlan } from './SimpleGeneration';
+import type { ProjectPlan, KickoffBuildScopeId } from './types/ProjectPlan';
 import { ProjectRepository } from './ProjectRepository';
 import {
   createProjectBranchArchitecture,
@@ -42,7 +42,7 @@ import {
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
-export type KickoffBuildScopeId = 'core' | 'core_backend' | 'core_backend_ai';
+export type { KickoffBuildScopeId };
 
 export interface KickoffScopeOption {
   id: KickoffBuildScopeId | 'revise';
