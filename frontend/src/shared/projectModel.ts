@@ -1853,11 +1853,10 @@ export interface GenerationResult {
   designTelemetry?: DesignRecipeTelemetry;
   fastPathTelemetry?: FastPathTelemetry;
   runTelemetry?: GenerationRunTelemetry;
-  /**
-   * Whether the generated code satisfied the DesignContract (ProtoPipeline apply step).
-   * Populated on success; undefined when the apply step was not reached.
-   */
+  /** Pre-repair: did the coder's FIRST output satisfy the DesignContract? (substrate quality signal) */
   designContractOk?: boolean;
+  /** Post-repair: does the FINAL committed code satisfy the DesignContract? (repair reliability signal) */
+  designContractFinalOk?: boolean;
   visibleReasoningTrace?: VisibleReasoningTrace;
   fullDebugTrace?:        FullDebugTrace;
 }

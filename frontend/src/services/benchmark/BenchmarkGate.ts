@@ -45,7 +45,11 @@ export interface GateAxis {
   description:     string;
   /** Key in AggregateBaseline to read. Must be a numeric metric field. */
   metricKey:       keyof Pick<AggregateBaseline,
-    'previewReadyRate' | 'designContractOkRate' | 'qualityPassRate' | 'avgVisualScore'
+    | 'previewReadyRate'
+    | 'designContractCleanRate'
+    | 'designContractFinalRate'
+    | 'qualityPassRate'
+    | 'avgVisualScore'
   >;
   /**
    * Regression threshold: current must be >= baseline - threshold.
@@ -65,19 +69,32 @@ export interface GateAxis {
  * Open list of gate axes. All axes are evaluated uniformly by buildVerdict().
  *
  * Threshold rationale:
- *   designContractOkRate 0.20 — 20% slack: DesignContract is stochastic; model occasionally
- *                               misses a token rule without being worse overall.
+ *   designContractClean  0.10 — conservative: flash almost always violates on first pass (0/5
+ *                               expected on baseline). Low threshold detects real regressions
+ *                               (e.g. was 20% clean → dropped to 0%) without false alarms.
+ *                               required=false: baseline=0% is a known state for flash; don't
+ *                               block baseline capture, just track trend.
+ *   designContractFinal  0.15 — repair is reliable but not deterministic. 15% slack handles
+ *                               stochastic repair failures without masking real breakage.
+ *                               required=true: repair MUST succeed for most intents.
  *   qualityPassRate      0.20 — same reasoning; quality checks include guard results.
- *   avgVisualScore       10.0 — 10/100 points covers stochastic visual scoring variance
- *                               (~1–2 standard deviations for typical model outputs).
+ *   avgVisualScore       10.0 — 10/100 points covers stochastic visual scoring variance.
  *   previewReadyRate     0.0  — any compile regression is a hard regression; no slack.
  */
 export const GATE_AXES: readonly GateAxis[] = [
   {
-    id:             'designContractOk',
-    description:    'Design contract pass rate (apply step: DesignContract.validateDesignContract)',
-    metricKey:      'designContractOkRate',
-    threshold:      0.20,
+    id:             'designContractClean',
+    description:    'Design contract clean rate — coder first-pass (pre-repair substrate signal)',
+    metricKey:      'designContractCleanRate',
+    threshold:      0.10,
+    higherIsBetter: true,
+    required:       false,  // flash baseline may be 0%; track trend, don't block capture
+  },
+  {
+    id:             'designContractFinal',
+    description:    'Design contract final rate — committed code post-repair (repair reliability)',
+    metricKey:      'designContractFinalRate',
+    threshold:      0.15,
     higherIsBetter: true,
     required:       true,
   },
@@ -266,7 +283,10 @@ function buildVerdict(
 // ── Format helpers ────────────────────────────────────────────────────────────
 
 function fmt(
-  metricKey: keyof Pick<AggregateBaseline, 'previewReadyRate' | 'designContractOkRate' | 'qualityPassRate' | 'avgVisualScore'>,
+  metricKey: keyof Pick<AggregateBaseline,
+    | 'previewReadyRate' | 'designContractCleanRate' | 'designContractFinalRate'
+    | 'qualityPassRate'  | 'avgVisualScore'
+  >,
   value: number,
 ): string {
   if (metricKey === 'avgVisualScore') return value.toFixed(1);
@@ -312,7 +332,8 @@ function renderScorecard(
     '',
     '| Axis | Metric | Value |',
     '|------|--------|-------|',
-    `| designContractOk (L1) | design-contract pass rate | ${pct(s.designContractOkRate)} |`,
+    `| designContractClean (L1) | pre-repair clean rate | ${pct(s.designContractCleanRate)} |`,
+    `| designContractFinal (L1) | post-repair final rate | ${pct(s.designContractFinalRate)} |`,
     `| qualityPass (L1) | quality-pass rate | ${pct(s.qualityPassRate)} |`,
     `| visualScore (L1) | avg visual score | ${(s.visualQuality?.avgScore ?? 0).toFixed(1)} |`,
     `| previewReady (L2) | preview-ready rate | ${pct(currentPreviewRate)} |`,

@@ -21,8 +21,9 @@ function makeResult(
     outcome,
     blockingCodes: outcome === 'blocked' ? ['runtime-guard'] : [],
     error: outcome === 'failed' ? 'boom' : null,
-    designContractOkPassed: outcome === 'preview-ready',
-    qualityPassed:          outcome === 'preview-ready',
+    designContractCleanPassed: outcome === 'preview-ready',
+    designContractFinalPassed: outcome === 'preview-ready',
+    qualityPassed:             outcome === 'preview-ready',
   };
 }
 
@@ -59,8 +60,10 @@ describe('BenchmarkGate', () => {
     const verdict = BenchmarkGate.evaluate(currentReport, buildAggregateBaseline(baselineReport));
 
     expect(verdict.passed).toBe(false);
-    expect(verdict.regressions).toHaveLength(1);
-    expect(verdict.regressions[0]?.metric).toBe('previewReadyRate');
+    // previewReady regression is present; other axes may also regress (blocked intent
+    // affects designContractClean/Final since they default to outcome === 'preview-ready')
+    expect(verdict.regressions.length).toBeGreaterThanOrEqual(1);
+    expect(verdict.regressions.some(r => r.metric === 'previewReadyRate')).toBe(true);
   });
 
   it('passes when file count and duration change but all axes stay above regression floors', () => {

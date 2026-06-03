@@ -423,11 +423,14 @@ export interface ProtoPipelineResult {
   stepResults?:       Partial<Record<StepId, StepExecutionMetrics>>;
   fastPathTelemetry?: FastPathTelemetry;
   runTelemetry?:      GenerationRunTelemetry;
-  /** Data for the flywheel outcome event — populated only on success. */
+  /** Data for the flywheel outcome event — populated by both success and fail() paths. */
   outcomeData?: {
-    repairPasses:    number;
-    designContractOk: boolean | undefined;
-    compiled:        boolean;
+    repairPasses:          number;
+    /** Pre-repair: was the coder's FIRST output contract-clean? (signal for substrate quality) */
+    designContractOk?:      boolean;
+    /** Post-repair: does the FINAL committed code satisfy the contract? (signal for repair reliability) */
+    designContractFinalOk?: boolean;
+    compiled:              boolean;
   };
 }
 
@@ -1474,7 +1477,8 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     // ── Outcome telemetry state (captured by fail() closure) ──────────────────
     const runId = config.runId ?? config.buildId;
     let capturedPlan: ArchitectPlan | undefined;
-    let designContractOk: boolean | undefined;
+    let designContractOk:      boolean | undefined;  // pre-repair (coder first pass)
+    let designContractFinalOk: boolean | undefined;  // post-repair (committed code)
     let repairPasses = 0;
     // true once the final build compile loop starts (not the skeleton compile)
     let buildCompileAttempted = false;
@@ -1558,9 +1562,10 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         error,
         stepResults,
         outcomeData: {
-          repairPasses:     capturedPlan !== undefined ? repairPasses : 0,
+          repairPasses:          capturedPlan !== undefined ? repairPasses : 0,
           designContractOk,
-          compiled:         false,
+          designContractFinalOk,
+          compiled:              false,
         },
       };
     };
@@ -1965,7 +1970,8 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
 
     // Validate the design contract — fail loudly so the coder is forced to use tokens.
     const verdict = validateDesignContract(deltaFiles, designCtx);
-    designContractOk = verdict.ok;
+    designContractOk      = verdict.ok;   // pre-repair: coder first-pass quality signal
+    designContractFinalOk = verdict.ok;   // default = same; overwritten if repair runs
     if (!verdict.ok) {
       const summary = describeViolations(verdict.violations);
       log(`[design] ${verdict.violations.length} contract violation(s):\n${summary}`, 'warn');
@@ -2148,6 +2154,8 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         repairPasses += 1;
         // Re-run diagnostics on repaired files — pure JS, no LLM
         const repairedVerdict = validateDesignContract(filteredFiles, designCtx);
+        // post-repair state: did the repair make the final code contract-clean?
+        designContractFinalOk = repairedVerdict.ok;
         const repairedVisualUsage = buildVisualUsageDiagnostics({
           files:                      filteredFiles,
           skeletonId:                 config.skeletonId,
@@ -2197,6 +2205,8 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         // determine whether it would have fixed the issues. Degrade ALL blocking reasons to
         // advisory and continue. Hard-fail is reserved for when repair runs successfully but
         // re-evaluation still shows hard-blocking issues (handled in the try block above).
+        // Repair infra failed → final state unknown; mark as not verified.
+        designContractFinalOk = false;
         log(
           `[quality-gate] repair infrastructure failure — all ${qualityGate.blockingReasons.length} quality issue(s) downgraded to advisory (best-effort)`,
           'warn',
@@ -2363,6 +2373,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       outcomeData: {
         repairPasses,
         designContractOk,
+        designContractFinalOk,
         compiled: true,
       },
     };

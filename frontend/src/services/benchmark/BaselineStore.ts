@@ -43,9 +43,10 @@ export interface AggregateBaseline {
   // ── E2E axis (Layer 2 — requires backend compile) ──────────────────────────
   previewReadyRate:  number;   // 0–1
   // ── Structural axes (Layer 1 — apply-step dependency, no backend compile needed) ─
-  designContractOkRate: number;  // 0–1: fraction where DesignContract passed (apply step)
-  qualityPassRate:      number;  // 0–1: fraction that passed GenerationQualityService
-  avgVisualScore:       number;  // 0–100: average of VisualQualityService.score
+  designContractCleanRate: number;  // 0–1: pre-repair coder quality (substrate signal; low on flash)
+  designContractFinalRate: number;  // 0–1: post-repair committed code quality (repair reliability)
+  qualityPassRate:         number;  // 0–1: fraction that passed GenerationQualityService
+  avgVisualScore:          number;  // 0–100: average of VisualQualityService.score
 }
 
 export function buildAggregateBaseline(report: BenchmarkReport): AggregateBaseline {
@@ -62,9 +63,10 @@ export function buildAggregateBaseline(report: BenchmarkReport): AggregateBaseli
     intentCount:       total,
     avgFileCount:      report.summary.avgFileCount,
     avgDurationMs:     report.summary.avgDurationMs,
-    previewReadyRate:     total > 0 ? report.summary.previewReady / total : 0,
-    designContractOkRate: report.summary.designContractOkRate,
-    qualityPassRate:      report.summary.qualityPassRate,
+    previewReadyRate:        total > 0 ? report.summary.previewReady / total : 0,
+    designContractCleanRate: report.summary.designContractCleanRate,
+    designContractFinalRate: report.summary.designContractFinalRate,
+    qualityPassRate:         report.summary.qualityPassRate,
     avgVisualScore,
   };
 }
@@ -230,9 +232,10 @@ function rowToAggregate(row: BaselineRow, modelId: string): AggregateBaseline {
     avgFileCount:      row.file_count,
     avgDurationMs:     row.duration_ms,
     // Rates not stored in the legacy DB schema — caller must compute or re-run baseline.
-    previewReadyRate:     0,
-    designContractOkRate: 0,
-    qualityPassRate:      0,
-    avgVisualScore:       0,
+    previewReadyRate:        0,
+    designContractCleanRate: 0,
+    designContractFinalRate: 0,
+    qualityPassRate:         0,
+    avgVisualScore:          0,
   };
 }

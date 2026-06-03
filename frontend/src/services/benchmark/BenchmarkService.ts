@@ -308,9 +308,10 @@ async function runSingleIntent(
       featureCount:  0,
       outcome:       'failed',
       blockingCodes: [],
-      error:                   error ?? genResult?.error ?? 'No result returned',
-      designContractOkPassed:  false,
-      qualityPassed:           false,
+      error:                      error ?? genResult?.error ?? 'No result returned',
+      designContractCleanPassed:  false,
+      designContractFinalPassed:  false,
+      qualityPassed:              false,
     };
   }
 
@@ -327,9 +328,10 @@ async function runSingleIntent(
     featureCount:  graph.features.length,
     outcome,
     blockingCodes,
-    error:                   genResult.error ?? null,
-    designContractOkPassed:  genResult.designContractOk === true,
-    qualityPassed:           genResult.qualitySummary?.passed ?? false,
+    error:                      genResult.error ?? null,
+    designContractCleanPassed:  genResult.designContractOk === true,
+    designContractFinalPassed:  (genResult as { designContractFinalOk?: boolean }).designContractFinalOk === true,
+    qualityPassed:              genResult.qualitySummary?.passed ?? false,
     visualQuality: genResult.visualQualitySummary
       ? {
           score: genResult.visualQualitySummary.score,

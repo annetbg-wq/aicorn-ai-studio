@@ -37,8 +37,10 @@ export interface IntentRunResult {
   blockingCodes: string[];
   /** Non-null when outcome is 'failed'. */
   error:         string | null;
-  /** true when DesignContract.validateDesignContract() passed in the apply step. */
-  designContractOkPassed: boolean;
+  /** Pre-repair: did the coder's FIRST output pass the DesignContract? */
+  designContractCleanPassed: boolean;
+  /** Post-repair: does the FINAL committed code pass the DesignContract? */
+  designContractFinalPassed: boolean;
   /** true when GenerationQualityService.evaluate().passed — structural quality checks passed. */
   qualityPassed: boolean;
   /** Optional per-intent visual-quality result, distinct from operational outcome. */
@@ -77,8 +79,9 @@ export interface BenchmarkSummary {
   byCategory:   Record<IntentCategory, CategorySummary>;
   visualQuality?: BenchmarkVisualQualitySummary;
   /** Structural Layer 1 metrics (headless, no backend needed). */
-  designContractOkRate: number;  // 0–1: fraction of intents where DesignContract passed (apply step)
-  qualityPassRate:      number;  // 0–1: fraction of intents that passed GenerationQualityService
+  designContractCleanRate: number;  // 0–1: pre-repair coder quality (substrate signal)
+  designContractFinalRate: number;  // 0–1: post-repair committed code quality (repair reliability)
+  qualityPassRate:         number;  // 0–1: fraction that passed GenerationQualityService
 }
 
 export interface CategorySummary {
@@ -152,8 +155,11 @@ export function computeSummary(results: IntentRunResult[]): BenchmarkSummary {
       })()
     : undefined;
 
-  const designContractOkRate = total > 0
-    ? results.filter(r => r.designContractOkPassed).length / total
+  const designContractCleanRate = total > 0
+    ? results.filter(r => r.designContractCleanPassed).length / total
+    : 0;
+  const designContractFinalRate = total > 0
+    ? results.filter(r => r.designContractFinalPassed).length / total
     : 0;
   const qualityPassRate = total > 0
     ? results.filter(r => r.qualityPassed).length / total
@@ -170,7 +176,8 @@ export function computeSummary(results: IntentRunResult[]): BenchmarkSummary {
     avgFeatureCount: avg(results.map(r => r.featureCount)),
     byCategory,
     visualQuality,
-    designContractOkRate,
+    designContractCleanRate,
+    designContractFinalRate,
     qualityPassRate,
   };
 }

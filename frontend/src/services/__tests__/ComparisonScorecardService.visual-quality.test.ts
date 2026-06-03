@@ -19,8 +19,9 @@ function createResult(
     outcome: partial.outcome,
     blockingCodes: partial.blockingCodes ?? [],
     error: partial.error ?? null,
-    designContractOkPassed: partial.designContractOkPassed ?? partial.outcome === 'preview-ready',
-    qualityPassed:          partial.qualityPassed ?? partial.outcome === 'preview-ready',
+    designContractCleanPassed: partial.designContractCleanPassed ?? partial.outcome === 'preview-ready',
+    designContractFinalPassed: partial.designContractFinalPassed ?? partial.outcome === 'preview-ready',
+    qualityPassed:             partial.qualityPassed ?? partial.outcome === 'preview-ready',
     visualQuality: partial.visualQuality,
   };
 }

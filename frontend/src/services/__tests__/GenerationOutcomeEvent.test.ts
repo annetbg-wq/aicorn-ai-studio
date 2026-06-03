@@ -180,9 +180,10 @@ describe('GenerationOutcomeEvent', () => {
         finalPreviewMounted: true,
       },
       outcomeData: {
-        repairPasses:    1,
-        designContractOk: true,
-        compiled:        true,
+        repairPasses:         1,
+        designContractOk:     true,
+        designContractFinalOk: true,
+        compiled:             true,
       },
     });
 
@@ -285,9 +286,10 @@ describe('GenerationOutcomeEvent', () => {
         finalPreviewMounted: true,
       },
       outcomeData: {
-        repairPasses:    0,
-        designContractOk: true,
-        compiled:        true,
+        repairPasses:          0,
+        designContractOk:      true,
+        designContractFinalOk: true,
+        compiled:              true,
       },
     });
 
@@ -319,7 +321,7 @@ describe('GenerationOutcomeEvent', () => {
       files:      {},
       plan:       { appName: 'App', summary: '', fileTree: {}, deltaFiles: [] },
       stepResults: {},
-      outcomeData: { repairPasses: 0, designContractOk: undefined, compiled: true },
+      outcomeData: { repairPasses: 0, designContractOk: undefined, designContractFinalOk: undefined, compiled: true },
     });
 
     await GenerationEngine.run(makePipelineConfig());
