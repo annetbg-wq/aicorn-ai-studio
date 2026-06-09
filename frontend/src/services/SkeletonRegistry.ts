@@ -263,8 +263,17 @@ CRITICAL RULES:
       'Marketing single-page site: sticky nav, hero, social proof, ' +
       'features bento, how-it-works, pricing toggle, FAQ, footer.',
     tags: [
-      'landing', 'marketing', 'product', 'saas-landing', 'waitlist',
-      'launch', 'single-page', 'promotional', 'website',
+      // NOTE: input is normalized with hyphens→spaces before scoring, so
+      // multi-word tags MUST use spaces ('saas landing', not 'saas-landing')
+      // or they can never match.
+      'landing', 'marketing', 'product', 'saas landing', 'waitlist',
+      'launch', 'single page', 'promotional', 'website',
+      // Landing-specific section vocabulary. Without these, genuine landing /
+      // portfolio prompts scored <2 and fell through to mobile-app, or lost the
+      // base scoring to saas-dashboard on incidental keywords ('saas', 'table').
+      // These tokens appear in real landing/portfolio briefs but not in
+      // dashboard/admin ones, so landing-page wins by strength of match.
+      'portfolio', 'hero', 'pricing', 'testimonials', 'faq',
     ],
     navigation: 'anchor-scroll',
     deltaFiles: [
@@ -1050,13 +1059,14 @@ export interface SkeletonSelectionDiagnostics {
   fallbackReason?: string;
   mismatchWarnings: string[];
   intentSignals: string[];
+  intentSignalMatches: Array<{ signal: string; matchedKeywords: string[] }>;
 }
 
 /** Intent keyword groups used purely for advisory signal detection. */
 const INTENT_SIGNAL_GROUPS: ReadonlyArray<{ signal: string; keywords: string[] }> = [
   {
     signal: 'landing-intent',
-    keywords: ['landing', 'website', 'marketing', 'promotional', 'homepage', 'waitlist', 'saas landing', 'product page', 'launch page'],
+    keywords: ['landing', 'website', 'marketing', 'promotional', 'homepage', 'waitlist', 'saas landing', 'product page', 'launch page', 'portfolio'],
   },
   {
     signal: 'dashboard-intent',
@@ -1068,13 +1078,32 @@ const INTENT_SIGNAL_GROUPS: ReadonlyArray<{ signal: string; keywords: string[] }
   },
   {
     signal: 'social-intent',
-    keywords: ['social', 'community', 'feed', 'posts', 'forum', 'follow', 'instagram', 'twitter', 'club', 'share', 'like', 'comment', 'network'],
+    // Precise social-app signals only. Bare substrings ('social', 'feed',
+    // 'follow', 'share', 'like', 'comment', 'network', 'club') fired on
+    // incidental matches — "social links" in a landing footer, a dashboard's
+    // "recent-activity feed", "feedback", "following up" — and then forced a
+    // correct skeleton over to social-community. A real social product names
+    // itself with these phrases; a footer link does not.
+    keywords: [
+      'social network', 'social media', 'social app', 'social platform',
+      'community', 'forum', 'followers', 'posts', 'newsfeed', 'news feed',
+      'social feed', 'instagram', 'twitter', 'upvote',
+    ],
   },
   {
     signal: 'game-intent',
     keywords: ['game', 'rpg', 'progression', 'levels', 'leaderboard', 'score', 'puzzle', 'arcade', 'quest', 'player', 'achievements', 'gamification'],
   },
 ];
+
+function detectIntentSignalMatches(input: string): Array<{ signal: string; matchedKeywords: string[] }> {
+  return INTENT_SIGNAL_GROUPS
+    .map(group => ({
+      signal: group.signal,
+      matchedKeywords: group.keywords.filter(keyword => input.includes(keyword)),
+    }))
+    .filter(group => group.matchedKeywords.length > 0);
+}
 
 /** Skeletons that are reasonable choices for social/community intent. */
 const SOCIAL_APPROPRIATE: ReadonlySet<SkeletonId> = new Set<SkeletonId>([
@@ -1146,9 +1175,8 @@ export function selectSkeletonWithDiagnostics(
       : 'mobile-app';
 
   // Detect intent signals from keyword groups.
-  const intentSignals: string[] = INTENT_SIGNAL_GROUPS
-    .filter(g => g.keywords.some(kw => input.includes(kw)))
-    .map(g => g.signal);
+  const intentSignalMatches = detectIntentSignalMatches(input);
+  const intentSignals = intentSignalMatches.map(group => group.signal);
 
   // Compute confidence.
   let confidence: 'high' | 'medium' | 'low';
@@ -1201,6 +1229,7 @@ export function selectSkeletonWithDiagnostics(
     ...(fallbackReason !== undefined ? { fallbackReason } : {}),
     mismatchWarnings,
     intentSignals,
+    intentSignalMatches,
   };
 }
 
@@ -1220,6 +1249,7 @@ export interface SkeletonSelectionOverrideResult {
   fallbackReason?: string;
   mismatchWarnings: string[];
   intentSignals: string[];
+  intentSignalMatches: Array<{ signal: string; matchedKeywords: string[] }>;
 }
 
 /**
@@ -1254,15 +1284,15 @@ const SAFE_OVERRIDE_RULES: ReadonlyArray<{
   },
   {
     signal: 'social-intent',
-    // Any skeleton that isn't in SOCIAL_APPROPRIATE is a bad fit.
-    // The mismatch warning guard (below) ensures this only fires when the
-    // diagnostics already reported a mismatch.
-    badSelections: new Set<SkeletonId>([
-      'mobile-app', 'landing-page', 'saas-dashboard', 'productivity-tool',
-      'ecommerce', 'b2b-operations-workspace', 'creator-editor-workspace',
-      'gaming-casino-app', 'game-interactive-app', 'booking-service-app',
-      'content-learning-app',
-    ]),
+    // Rescue ONLY the weak universal fallback — never steamroll a skeleton the
+    // scorer chose confidently (score ≥2). A genuinely social brief makes
+    // social-community win (or tie) the base scorer on its own tags, so the
+    // override is only needed when scoring fell through to mobile-app.
+    // Previously this set covered every non-social skeleton, so a single stray
+    // social keyword force-rewrote a confidently-chosen saas-dashboard /
+    // landing-page → social-community. Selection is by strength of match, not
+    // by one keyword firing: social-community now competes, it does not dictate.
+    badSelections: new Set<SkeletonId>(['mobile-app']),
     preferred: 'social-community',
   },
   {
@@ -1300,6 +1330,7 @@ export function selectSkeletonWithSafeOverrides(
   const {
     selectedSkeletonId: originalSelectedSkeletonId,
     intentSignals,
+    intentSignalMatches,
     mismatchWarnings,
     confidence: diagConfidence,
     bestScore,
@@ -1313,6 +1344,7 @@ export function selectSkeletonWithSafeOverrides(
     runnerUpSkeletonId,
     runnerUpScore,
     intentSignals,
+    intentSignalMatches,
     mismatchWarnings,
     ...(fallbackReason !== undefined ? { fallbackReason } : {}),
   };

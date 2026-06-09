@@ -76,10 +76,11 @@ describe('selectSkeletonWithSafeOverrides', () => {
 
   // ── Social / community / feed intent override ───────────────────────────
 
-  it('social intent with unrelated skeleton: overrides to social-community', () => {
-    // 'network' and 'share' are social-intent keywords but not social-community tags.
-    // social-community score=0 → mobile-app fallback; mobile-app not in SOCIAL_APPROPRIATE.
-    const result = selectSkeletonWithSafeOverrides('', ['network', 'share']);
+  it('social intent on the mobile-app fallback: rescued to social-community', () => {
+    // 'forum' is a precise social-intent signal AND a social-community tag, but
+    // a single tag scores 1 (<2) → mobile-app fallback. The override rescues
+    // the weak fallback (mobile-app IS in badSelections) → social-community.
+    const result = selectSkeletonWithSafeOverrides('', ['forum']);
     expect(result.intentSignals).toContain('social-intent');
     expect(result.originalSelectedSkeletonId).toBe('mobile-app');
     expect(result.finalSelectedSkeletonId).toBe('social-community');
@@ -205,5 +206,64 @@ describe('selectSkeletonWithSafeOverrides', () => {
       expect(result.finalSelectedSkeletonId).toBe('game-interactive-app');
       expect(result.overrideApplied).toBe(true);
     }
+  });
+
+  // ── S2.1-a regression: social override must not steamroll a confident pick ──
+  //
+  // These use the EXACT golden-intent prompts the diagnostic run failed on, fed
+  // the same way the benchmark feeds them (whole prompt as one tag).
+
+  const asPromptTag = (prompt: string) => selectSkeletonWithSafeOverrides(undefined, [prompt]);
+
+  // ROOT 1 — a confidently-scored skeleton with a stray social keyword.
+
+  it('ROOT 1: dashboard prompt with an "activity feed" is NOT hijacked to social-community', () => {
+    // dash-analytics: base scorer confidently picks saas-dashboard; the word
+    // "feed" must no longer trigger a social override.
+    const result = asPromptTag(
+      'Build an analytics dashboard with KPI cards, a line chart for weekly revenue, a bar chart for user sign-ups, and a recent-activity feed. Dark theme.',
+    );
+    expect(result.intentSignals).not.toContain('social-intent'); // "feed" no longer a social signal
+    expect(result.finalSelectedSkeletonId).toBe('saas-dashboard');
+    expect(result.overrideApplied).toBe(false);
+  });
+
+  it('ROOT 1: landing prompt with "social links" goes to landing-page, not social-community', () => {
+    // land-saas: "footer with social links" must not pull the page to social,
+    // and landing vocabulary (hero/pricing/testimonials) must out-score the
+    // incidental saas-dashboard match ('saas', 'enterprise', 'table').
+    const result = asPromptTag(
+      'Build a SaaS landing page with a hero section, three feature cards with icons, a pricing table (Free / Pro / Enterprise), testimonials carousel, and a footer with social links.',
+    );
+    expect(result.finalSelectedSkeletonId).toBe('landing-page');
+    expect(result.intentSignals).not.toContain('social-intent'); // "social links" no longer a social signal
+  });
+
+  it('ROOT 1 invariant: a genuinely social brief still resolves to social-community', () => {
+    // The fix narrows false positives without killing the rule: a real social
+    // product (named with social phrases) still wins social-community — here by
+    // strength of base scoring, exactly as intended.
+    const result = asPromptTag('A social network with posts, a feed, followers, and a community forum.');
+    expect(result.intentSignals).toContain('social-intent');
+    expect(result.finalSelectedSkeletonId).toBe('social-community');
+  });
+
+  // ROOT 2 — landing/portfolio coverage gap → silent mobile-app fallback.
+
+  it('ROOT 2: a portfolio site resolves to landing-page, not the mobile-app fallback', () => {
+    // land-portfolio: previously scored 0 landing tags and emitted no landing
+    // signal → silent mobile-app fallback. 'portfolio' + 'hero' now score ≥2.
+    const result = asPromptTag(
+      'Create a personal portfolio site with a hero intro, a project gallery grid with hover effects, an about-me section, and a contact form.',
+    );
+    expect(result.finalSelectedSkeletonId).toBe('landing-page');
+    expect(result.bestScore).toBeGreaterThanOrEqual(2);
+  });
+
+  it('ROOT 2 invariant: a genuine mobile brief still resolves to mobile-app', () => {
+    const result = asPromptTag(
+      'Build a mobile-first weather app with a current conditions card, a 5-day forecast row, and a city search bar. Use soft gradients.',
+    );
+    expect(result.finalSelectedSkeletonId).toBe('mobile-app');
   });
 });
