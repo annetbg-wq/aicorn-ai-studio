@@ -25,7 +25,7 @@
  * still reads.
  */
 
-import { ProtoPipeline, type StepEvent, type StepId } from './ProtoPipeline';
+import { ProtoPipeline, type ResolvedRoute, type StepEvent, type StepId } from './ProtoPipeline';
 import { selectSkeletonWithSafeOverrides, type SkeletonId } from './SkeletonRegistry';
 import { ConfigService } from './ConfigService';
 import { Orchestrator } from './Orchestrator';
@@ -50,9 +50,10 @@ import type {
   VisualPolishMode,
   RouteSpec,
 } from '../shared/projectModel';
-import type { AgentExecutionRoute } from './buildAgentRouting';
+import { classifyTransportPath, type AgentExecutionRoute } from './buildAgentRouting';
 import type { AdmissionDecision } from './EditAdmissionService';
 import type { FileDiff } from '../components/DiffPreview';
+import { canUseDevAuthBypass } from './internalAccess';
 
 // ── Re-export ProjectPlan + co. so existing imports keep working ─────────────
 
@@ -292,6 +293,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
         skeletonId,
         buildId,
         runId:      outcomeRunId,
+        routeOverrides: buildPipelineRouteOverrides(config),
         attachments: (config.attachments ?? [])
           .filter(a => a.type === 'image' || a.type === 'text' || a.type === 'code' || a.type === 'pdf')
           .map(a => ({
@@ -712,6 +714,31 @@ function inferGeneratedRole(path: string): ProjectGraph['files'][number]['role']
   if (/\/services\//.test(path)) return 'service';
   if (/\/(?:data|context|lib)\//.test(path)) return path.endsWith('.css') ? 'style' : 'util';
   return 'component';
+}
+
+function toPipelineRouteOverride(route?: AgentExecutionRoute): ResolvedRoute | undefined {
+  if (!route) return undefined;
+  const devBypassActive = canUseDevAuthBypass();
+  return {
+    modelId: route.modelId,
+    apiKey: route.apiKey,
+    endpoint: route.endpoint,
+    provider: route.provider,
+    endpointKind: classifyTransportPath(route.endpoint, devBypassActive),
+    sourceAuthority: route.sourceAuthority,
+  };
+}
+
+function buildPipelineRouteOverrides(
+  config: PipelineRunConfig,
+): Partial<Record<'primary' | 'build' | 'fix' | 'spec' | 'qa', ResolvedRoute>> {
+  return {
+    primary: toPipelineRouteOverride(config.primaryRoute),
+    build:   toPipelineRouteOverride(config.buildRoute),
+    fix:     toPipelineRouteOverride(config.fixRoute),
+    spec:    toPipelineRouteOverride(config.specRoute),
+    qa:      toPipelineRouteOverride(config.qaRoute),
+  };
 }
 
 function buildRoutesFromPlan(plan?: {

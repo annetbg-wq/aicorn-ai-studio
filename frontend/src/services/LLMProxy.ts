@@ -112,6 +112,9 @@ async function proxyRequestWithSessionFallback(
   signal?: AbortSignal,
 ): Promise<Response> {
   const devBypassEnabled = canUseDevAuthBypass();
+  const forceEvalDirect =
+    typeof localStorage !== 'undefined' &&
+    localStorage.getItem('AIC_EVAL_FORCE_DIRECT') === '1';
   // In Playwright e2e tests VITE_PLAYWRIGHT_TEST=1 is baked in at build time.
   // Keep auth bypass active but route LLM calls through the proxy so that
   // deterministic mocks (page.route('**/functions/v1/llm-proxy')) can intercept
@@ -119,10 +122,15 @@ async function proxyRequestWithSessionFallback(
   // openrouter.ai — a URL the mock never covers — causing ProtoPipeline to
   // abort before compile() and controller_compiling is never emitted.
   const isPlaywrightTest = import.meta.env.VITE_PLAYWRIGHT_TEST === '1';
+  // Eval benchmarks also run under Vite, but they explicitly seed a local
+  // direct-transport override and do not rely on Playwright route mocks.
+  // Honor that flag so benchmark runs use the same direct path as the seeded
+  // dev-bypass contract intends.
+  const allowDirectBypass = devBypassEnabled && (!isPlaywrightTest || forceEvalDirect);
 
   // In dev-bypass mode go directly to the LLM — avoids Supabase edge function
   // timeouts (QUIC/150 s limit) on long generation requests.
-  if (devBypassEnabled && !isPlaywrightTest) {
+  if (allowDirectBypass) {
     return directLLMRequest(endpoint, headers, body, stream, method, signal);
   }
 

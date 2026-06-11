@@ -65,7 +65,7 @@ describe('resolveEvalDeepSeekSeedPlan', () => {
       expect(plan.agentConfigs[agentId].provider, `${agentId}.provider`).toBe(EVAL_MODELS.fast.provider);
       expect(plan.agentConfigs[agentId].modelId, `${agentId}.modelId`).toBe(EVAL_MODELS.fast.modelId);
     }
-    expect(plan.modelId).toBe('deepseek/deepseek-v4-flash');
+    expect(plan.modelId).toBe(EVAL_MODELS.fast.modelId);
     expect(plan.mode).toBe('eval-deepseek-pinned');
   });
 
@@ -95,7 +95,7 @@ describe('resolveEvalDeepSeekSeedPlan', () => {
 
 describe('assertEvalModelAllowed', () => {
   it('allows deepseek/deepseek-v4-flash (fast model)', () => {
-    expect(() => assertEvalModelAllowed('deepseek', 'deepseek/deepseek-v4-flash')).not.toThrow();
+    expect(() => assertEvalModelAllowed(EVAL_MODELS.fast.provider, EVAL_MODELS.fast.modelId)).not.toThrow();
   });
 
   it('allows deepseek/deepseek-v4-pro (full model)', () => {
@@ -199,6 +199,7 @@ describe('transport dev-bypass: no Supabase proxy, no getSession', () => {
     try {
       seedBenchmarkConfig(resolveEvalDeepSeekSeedPlan({ DEEPSEEK_API_KEY: 'sk-test' }));
       expect(store.get('AIC_DEV_AUTH_BYPASS')).toBe('1');
+      expect(store.get('AIC_EVAL_FORCE_DIRECT')).toBe('1');
     } finally {
       (globalThis as Record<string, unknown>).localStorage = originalLS;
     }
@@ -217,6 +218,7 @@ describe('transport dev-bypass: no Supabase proxy, no getSession', () => {
       localStorage: Storage;
     }).localStorage.getItem(DEV_BYPASS_KEY);
     expect(bypassVal, 'AIC_DEV_AUTH_BYPASS must be "1"').toBe('1');
+    expect(globalThis.localStorage.getItem('AIC_EVAL_FORCE_DIRECT')).toBe('1');
 
     // 127.0.0.1 must be recognised as a local dev host.
     expect(isLocalDevHost('127.0.0.1')).toBe(true);
@@ -232,5 +234,29 @@ describe('transport dev-bypass: no Supabase proxy, no getSession', () => {
     // Confirm it was never called anywhere in the transport describe block.
     const { supabase } = await import('../src/lib/supabase');
     expect(supabase.auth.getSession).not.toHaveBeenCalled();
+  });
+
+  it('llmFetch uses direct provider transport for eval even when VITE_PLAYWRIGHT_TEST=1', async () => {
+    ensureBrowserGlobals();
+    seedBenchmarkConfig(resolveEvalDeepSeekSeedPlan({ DEEPSEEK_API_KEY: 'sk-eval-direct' }, 'fast'));
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: 'ok' } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const { llmFetch } = await import('../src/services/LLMProxy');
+    await llmFetch(
+      'https://api.deepseek.com/v1/chat/completions',
+      { Authorization: 'Bearer sk-eval-direct' },
+      JSON.stringify({ model: 'deepseek-v4-pro', messages: [] }),
+    );
+
+    expect(fetchSpy).toHaveBeenCalled();
+    const firstUrl = String(fetchSpy.mock.calls[0][0]);
+    expect(firstUrl).toBe('https://api.deepseek.com/v1/chat/completions');
+    expect(firstUrl).not.toContain('/functions/v1/llm-proxy');
   });
 });

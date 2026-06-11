@@ -163,6 +163,7 @@ async function runSingleGoldenTest(
   signal?: AbortSignal,
 ): Promise<GoldenTestDetail> {
   const primaryRoute = resolveStandardRoute('primary');
+  const specRoute    = resolveStandardRoute('spec');
   const buildRoute   = resolveStandardRoute('build');
   const fixRoute     = resolveStandardRoute('fix');
   const qaRoute      = resolveStandardRoute('qa');
@@ -179,6 +180,7 @@ async function runSingleGoldenTest(
       history:      [],
       files:        {},
       primaryRoute,
+      specRoute,
       buildRoute,
       fixRoute,
       qaRoute,
@@ -269,6 +271,7 @@ async function runSingleIntent(
     : intentTimeout;
 
   const bPrimaryRoute = resolveStandardRoute('primary');
+  const bSpecRoute    = resolveStandardRoute('spec');
   const bBuildRoute   = resolveStandardRoute('build');
   const bFixRoute     = resolveStandardRoute('fix');
   const bQaRoute      = resolveStandardRoute('qa');
@@ -278,6 +281,7 @@ async function runSingleIntent(
       history:      [],
       files:        {},
       primaryRoute: bPrimaryRoute,
+      specRoute:    bSpecRoute,
       buildRoute:   bBuildRoute,
       fixRoute:     bFixRoute,
       qaRoute:      bQaRoute,

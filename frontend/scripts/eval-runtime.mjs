@@ -369,6 +369,11 @@ export function seedBenchmarkConfig({ provider, apiKey, modelId, fixModelId, age
   // dependency for eval runs. Requires hostname 127.0.0.1 (set by
   // ensureBrowserGlobals) + this flag being '1'.
   localStorage.setItem('AIC_DEV_AUTH_BYPASS', '1');
+  // Eval runs execute through Vite/Vitest where VITE_PLAYWRIGHT_TEST may be
+  // globally enabled for browser e2e helpers. Mark benchmark runs explicitly
+  // so LLMProxy can keep Playwright mocks on the proxy path while allowing
+  // eval diagnostics to use direct provider transport.
+  localStorage.setItem('AIC_EVAL_FORCE_DIRECT', '1');
 }
 
 // ── Backend URL (configurable for CI / remote environments) ──────────────────

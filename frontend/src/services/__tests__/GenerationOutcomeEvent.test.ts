@@ -17,6 +17,7 @@ import { metricsService } from '../MetricsService';
 import { generationTracer } from '../GenerationTracer';
 import { GenerationEngine, type PipelineRunConfig } from '../GenerationEngine';
 import { ProtoPipeline, type ResolvedRoute } from '../ProtoPipeline';
+import type { AgentExecutionRoute } from '../buildAgentRouting';
 import type { GenerationOutcomeEvent } from '../../shared/projectModel';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
@@ -141,6 +142,25 @@ const PRIMARY_ROUTE_OVERRIDE: ResolvedRoute = {
   endpointKind:     'openrouter_proxy',
   sourceAuthority:  'test',
 };
+
+function makeExecutionRoute(slot: AgentExecutionRoute['slot']): AgentExecutionRoute {
+  return {
+    slot,
+    provider: 'deepseek',
+    modelId: 'deepseek-v4-pro',
+    endpoint: 'https://api.deepseek.com/v1/chat/completions',
+    apiKey: `sk-${slot}-test`,
+    keySource: `agent_${slot}.deepseek`,
+    reason: `${slot}-test-route`,
+    sourceAuthority: 'user_set',
+    isUserSelected: true,
+    isRuntimeConfig: false,
+    isFactoryConfig: false,
+    isProxyFallback: false,
+    isExplicitFallback: false,
+    endpointKind: 'direct_provider',
+  };
+}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -335,5 +355,50 @@ describe('GenerationOutcomeEvent', () => {
     expect(logOutcomeEventMock()).toHaveBeenCalled();
     const event = logOutcomeEventMock().mock.calls[0][0] as GenerationOutcomeEvent;
     expect(event.runId).toBe(expectedRunId);
+  });
+
+  it('6. routeOverrides — forwards build/fix/spec routes into ProtoPipeline with shared transport kind', async () => {
+    localStorage.removeItem('AIC_DEV_AUTH_BYPASS');
+
+    const runSpy = vi.spyOn(ProtoPipeline, 'run').mockResolvedValue({
+      success: true,
+      buildId: 'build-route-overrides',
+      url: '/preview/build-route-overrides',
+      files: {},
+      plan: { appName: 'App', summary: '', fileTree: {}, deltaFiles: [] },
+      stepResults: {},
+      outcomeData: {
+        repairPasses: 0,
+        designContractOk: true,
+        designContractFinalOk: true,
+        compiled: true,
+      },
+    });
+
+    await GenerationEngine.run(makePipelineConfig({
+      primaryRoute: makeExecutionRoute('primary'),
+      buildRoute:   makeExecutionRoute('build'),
+      fixRoute:     makeExecutionRoute('fix'),
+      specRoute:    makeExecutionRoute('spec'),
+      qaRoute:      makeExecutionRoute('qa'),
+    }));
+
+    expect(runSpy).toHaveBeenCalledOnce();
+    const routeOverrides = runSpy.mock.calls[0][0].routeOverrides;
+    expect(routeOverrides).toMatchObject({
+      primary: expect.objectContaining({
+        endpoint: 'https://api.deepseek.com/v1/chat/completions',
+        sourceAuthority: 'user_set',
+      }),
+      build: expect.objectContaining({
+        endpoint: 'https://api.deepseek.com/v1/chat/completions',
+        endpointKind: 'supabase_proxy',
+      }),
+      fix: expect.objectContaining({
+        endpoint: 'https://api.deepseek.com/v1/chat/completions',
+        endpointKind: 'supabase_proxy',
+      }),
+    });
+    expect(routeOverrides?.build?.endpointKind).toBe(routeOverrides?.fix?.endpointKind);
   });
 });
