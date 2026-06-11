@@ -810,11 +810,24 @@ async function compileBuild(
   // step 0 — overwriting them with generic template files breaks those imports.
   const isSkeletonOnlyCompile = Object.keys(files).length === 0;
 
-  // 0.5. Mirror section templates into the preview workspace so generated
   await ensurePreviewLibShims(PREVIEW_WORKSPACE);
-  // App.tsx imports always resolve to concrete files.
-  // Skip for skeleton-only compiles: skeleton sections must be preserved.
-  if (!isSkeletonOnlyCompile) {
+
+  // 0.5. The generic section templates (frontend/src/templates/components:
+  //      HeroLamp, BentoGrid, Logos, …) exist only to give the LEGACY,
+  //      pre-skeleton generation path concrete @/components/sections/* files so a
+  //      generated App.tsx resolves. A skeleton that ships its OWN named sections
+  //      — manifest marks src/components/sections/** protected; currently only
+  //      landing-page, whose App.tsx imports { Hero }, { SocialProof }, … — must
+  //      NOT be overwritten: the rm+cp deletes the skeleton's real components and
+  //      breaks those named imports (root cause of land-saas/land-portfolio
+  //      missing_local_import / missing_named_export). So mirror the templates
+  //      ONLY when the active skeleton does not supply its own sections (the
+  //      legacy/no-skeleton path, or a sectionless skeleton). This respects
+  //      manifest.protectedFiles: constrain-then-generate is not clobbered.
+  const skeletonShipsSections = Boolean(skeletonId) && fs.existsSync(
+    path.join(SKELETONS_ROOT, skeletonId, `skeleton-${skeletonId}`, 'src', 'components', 'sections'),
+  );
+  if (!isSkeletonOnlyCompile && !skeletonShipsSections) {
     const { templatesSrc, sectionsDest } = resolveSectionTemplatePaths(PREVIEW_WORKSPACE);
     await fsPromises.rm(sectionsDest, { recursive: true, force: true });
     await fsPromises.cp(templatesSrc, sectionsDest, { recursive: true });

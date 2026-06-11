@@ -638,11 +638,14 @@ describe('preview-manager skeleton-only compile section preservation', () => {
     expect(src).toContain('Object.keys(files).length === 0');
   });
 
-  it('template section overwrite is guarded by isSkeletonOnlyCompile (not skipped for non-empty files)', () => {
+  it('template section overwrite is skipped for skeletons that ship their own sections (and for skeleton-only compiles)', () => {
     const src = fs.readFileSync(path.resolve('backend/preview-manager.ts'), 'utf-8');
-    // The guard must appear before the rm(sectionsDest) call in the source.
-    expect(src).toContain('if (!isSkeletonOnlyCompile)');
-    const guardIdx = src.indexOf('if (!isSkeletonOnlyCompile)');
+    // The overwrite must be gated by BOTH guards: never clobber a skeleton that
+    // supplies its own protected sections (e.g. landing-page Hero/SocialProof),
+    // nor a skeleton-only compile. The combined guard must precede rm(sectionsDest).
+    expect(src).toContain('skeletonShipsSections');
+    expect(src).toContain('if (!isSkeletonOnlyCompile && !skeletonShipsSections)');
+    const guardIdx = src.indexOf('if (!isSkeletonOnlyCompile && !skeletonShipsSections)');
     const rmIdx = src.indexOf('fsPromises.rm(sectionsDest');
     expect(guardIdx).toBeGreaterThan(-1);
     expect(rmIdx).toBeGreaterThan(-1);
