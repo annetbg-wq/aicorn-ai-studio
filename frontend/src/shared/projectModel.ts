@@ -1853,6 +1853,10 @@ export interface GenerationResult {
   designTelemetry?: DesignRecipeTelemetry;
   fastPathTelemetry?: FastPathTelemetry;
   runTelemetry?: GenerationRunTelemetry;
+  pipelineFailureDiagnostics?: {
+    failedStep?: string;
+    errorMessage?: string;
+  };
   /** Pre-repair: did the coder's FIRST output satisfy the DesignContract? (substrate quality signal) */
   designContractOk?: boolean;
   /** Post-repair: does the FINAL committed code satisfy the DesignContract? (repair reliability signal) */

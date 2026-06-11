@@ -354,6 +354,13 @@ Return ONLY JSON, no markdown, matching this exact shape:
         message: result.error ?? 'Generation failed',
         startMs,
         startedAt,
+        runTelemetry: result.runTelemetry,
+        designContractOk: result.outcomeData?.designContractOk,
+        designContractFinalOk: result.outcomeData?.designContractFinalOk,
+        pipelineFailureDiagnostics: {
+          failedStep: result.outcomeData?.failedStep,
+          errorMessage: result.outcomeData?.errorMessage ?? result.error ?? 'Generation failed',
+        },
       });
     }
 
@@ -388,6 +395,13 @@ Return ONLY JSON, no markdown, matching this exact shape:
           message: `Files produced but could not be applied to revision: ${onFilesMsg}`,
           startMs,
           startedAt,
+          runTelemetry: result.runTelemetry,
+          designContractOk: result.outcomeData?.designContractOk,
+          designContractFinalOk: result.outcomeData?.designContractFinalOk,
+          pipelineFailureDiagnostics: {
+            failedStep: 'apply_files',
+            errorMessage: onFilesMsg,
+          },
         });
       }
     }
@@ -724,6 +738,7 @@ function toPipelineRouteOverride(route?: AgentExecutionRoute): ResolvedRoute | u
     apiKey: route.apiKey,
     endpoint: route.endpoint,
     provider: route.provider,
+    // ProtoPipeline diagnostics should describe the actual transport path used now.
     endpointKind: classifyTransportPath(route.endpoint, devBypassActive),
     sourceAuthority: route.sourceAuthority,
   };
@@ -831,6 +846,10 @@ function makeFailedResult(input: {
   message:   string;
   startMs:   number;
   startedAt: string;
+  runTelemetry?: GenerationResult['runTelemetry'];
+  designContractOk?: boolean;
+  designContractFinalOk?: boolean;
+  pipelineFailureDiagnostics?: GenerationResult['pipelineFailureDiagnostics'];
 }): GenerationResult {
   const failedId = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -875,5 +894,9 @@ function makeFailedResult(input: {
     createdAt:     now,
     error:         input.message,
     changePackage: emptyChangePackage(graph, []),
+    runTelemetry:  input.runTelemetry,
+    designContractOk: input.designContractOk,
+    designContractFinalOk: input.designContractFinalOk,
+    pipelineFailureDiagnostics: input.pipelineFailureDiagnostics,
   } as unknown as GenerationResult;
 }

@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
@@ -490,19 +491,30 @@ export async function startEvalBackend(opts = {}) {
   }
 
   const backendEntry = path.join(repoDir, 'backend', 'auth-token.ts');
+  // Strip VITEST / NODE_ENV=test so auth-token.ts actually calls startServer().
+  // When spawned from within a vitest run, the child process inherits VITEST=true
+  // which hits the `if (process.env.VITEST !== 'true')` guard and skips startServer().
+  const { VITEST: _vt, ...childEnv } = process.env;
+  if (childEnv.NODE_ENV === 'test') childEnv.NODE_ENV = 'development';
   const proc = spawn(
     process.execPath,          // local node binary — no .cmd, no shell, cross-platform
     [tsxCliPath, backendEntry],
     {
       cwd: repoDir,
-      env: { ...process.env, BACKEND_PORT: String(port) },
+      env: { ...childEnv, BACKEND_PORT: String(port) },
       stdio: 'pipe',
     },
   );
 
   proc.on('error', (err) => {
-    // Hard error: if spawn itself fails, re-throw so the caller sees it immediately.
     console.error(`[eval:backend] spawn failed: ${err.message}`);
+  });
+
+  // Drain stdout/stderr so pipe buffers never block the subprocess.
+  // stderr is forwarded to console.error so crash output is visible on timeout.
+  proc.stdout.on('data', () => {});
+  proc.stderr.on('data', (chunk) => {
+    process.stderr.write(`[eval:backend:stderr] ${chunk}`);
   });
 
   // Probe healthcheck: GET /api/preview/eval-probe/status returns 404 JSON when
@@ -511,8 +523,16 @@ export async function startEvalBackend(opts = {}) {
   const probeUrl = `${url.replace(/\/$/, '')}/api/preview/eval-probe/status`;
   const started = Date.now();
   let ready = false;
+  let backendExited = false;
+  proc.once('exit', (code) => {
+    backendExited = true;
+    if (!ready) {
+      console.error(`[eval:backend] Process exited (code=${code}) before becoming ready.`);
+    }
+  });
 
   while (Date.now() - started < timeoutMs) {
+    if (backendExited) break;
     await new Promise((r) => setTimeout(r, 500));
     try {
       const resp = await fetch(probeUrl);
@@ -527,7 +547,7 @@ export async function startEvalBackend(opts = {}) {
     proc.kill('SIGTERM');
     throw new Error(
       `[eval:backend] Backend did not become ready within ${timeoutMs}ms on ${url}. ` +
-      'Ensure the backend compiles and port is not occupied.',
+      `Exited early: ${backendExited}. Check [eval:backend:stderr] output above for the crash reason.`,
     );
   }
 
@@ -562,4 +582,28 @@ export function writeJson(filePath, value) {
 
 export function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+export function envFlagEnabled(value) {
+  if (typeof value !== 'string') return false;
+  return value === '1' || value.toLowerCase() === 'true';
+}
+
+export function writeJsonWithParentDir(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  writeJson(filePath, value);
+}
+
+export function resolveBenchmarkDiagnosticPath(suite, env = process.env, now = new Date()) {
+  const explicit = env.BENCHMARK_DIAGNOSTIC_PATH?.trim();
+  if (explicit) {
+    return explicit.replaceAll('{suite}', suite);
+  }
+
+  const stamp = now.toISOString().replace(/[:.]/g, '-');
+  return path.join(
+    env.TEMP || env.TMP || os.tmpdir(),
+    'aic-benchmark-diagnostics',
+    `benchmark.${suite}.${stamp}.diagnostic.json`,
+  );
 }

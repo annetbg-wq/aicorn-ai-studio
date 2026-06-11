@@ -431,6 +431,8 @@ export interface ProtoPipelineResult {
     /** Post-repair: does the FINAL committed code satisfy the contract? (signal for repair reliability) */
     designContractFinalOk?: boolean;
     compiled:              boolean;
+    failedStep?:           StepId;
+    errorMessage?:         string;
   };
 }
 
@@ -1566,6 +1568,8 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           designContractOk,
           designContractFinalOk,
           compiled:              false,
+          failedStep:            step,
+          errorMessage:          error,
         },
       };
     };
