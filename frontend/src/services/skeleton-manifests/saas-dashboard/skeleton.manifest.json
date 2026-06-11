@@ -48,6 +48,12 @@
     "src/pages/DataView.tsx",
     "src/pages/Settings.tsx"
   ],
+  "carcassFiles": [
+    "src/data/seed.ts",
+    "src/data/types.ts",
+    "src/config/app.ts",
+    "src/config/navigation.ts"
+  ],
   "requiredExports": {
     "data/seed.ts": [
       { "name": "DEFAULT_CHECKLIST", "type": "readonly ChecklistTask[]" }

@@ -2,28 +2,32 @@
   "version": 1,
   "kind": "benchmark-baseline",
   "suite": "fast",
-  "generatedAt": "2026-06-02T14:41:37.514Z",
+  "generatedAt": "2026-06-10T21:42:45.273Z",
   "source": {
-    "runId": "bench-mpwqwvu6",
-    "modelId": "openai/gpt-4o-mini",
-    "startedAt": "2026-06-02T14:41:30.414Z",
-    "finishedAt": "2026-06-02T14:41:37.505Z"
+    "runId": "bench-mq8ky3wj",
+    "modelId": "deepseek/deepseek-v4-flash",
+    "startedAt": "2026-06-10T21:27:43.939Z",
+    "finishedAt": "2026-06-10T21:42:45.251Z"
   },
   "aggregate": {
-    "modelId": "openai/gpt-4o-mini",
-    "runId": "bench-mpwqwvu6",
-    "createdAt": "2026-06-02T14:41:37.505Z",
-    "previewReadyRate": 0,
+    "modelId": "deepseek/deepseek-v4-flash",
+    "runId": "bench-mq8ky3wj",
+    "createdAt": "2026-06-10T21:42:45.251Z",
+    "intentCount": 5,
     "avgFileCount": 0,
-    "avgDurationMs": 1417,
-    "intentCount": 5
+    "avgDurationMs": 180259,
+    "previewReadyRate": 0,
+    "designContractCleanRate": 0.8,
+    "designContractFinalRate": 0.6,
+    "qualityPassRate": 0,
+    "avgVisualScore": 0
   },
   "summary": {
     "total": 5,
     "previewReady": 0,
     "blocked": 0,
     "failed": 5,
-    "avgDurationMs": 1417,
+    "avgDurationMs": 180259,
     "avgFileCount": 0,
     "avgRouteCount": 0,
     "avgFeatureCount": 0,
@@ -33,22 +37,25 @@
         "previewReady": 0,
         "blocked": 0,
         "failed": 2,
-        "avgDurationMs": 1919
+        "avgDurationMs": 194055
       },
       "landing": {
         "total": 2,
         "previewReady": 0,
         "blocked": 0,
         "failed": 2,
-        "avgDurationMs": 1103
+        "avgDurationMs": 178669
       },
       "admin": {
         "total": 1,
         "previewReady": 0,
         "blocked": 0,
         "failed": 1,
-        "avgDurationMs": 1044
+        "avgDurationMs": 155849
       }
-    }
+    },
+    "designContractCleanRate": 0.8,
+    "designContractFinalRate": 0.6,
+    "qualityPassRate": 0
   }
 }

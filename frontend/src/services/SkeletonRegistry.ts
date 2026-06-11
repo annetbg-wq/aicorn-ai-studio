@@ -27,6 +27,11 @@ import productivityToolManifest from './skeleton-manifests/productivity-tool/ske
 import saasDashboardManifest from './skeleton-manifests/saas-dashboard/skeleton.manifest.json';
 import socialCommunityManifest from './skeleton-manifests/social-community/skeleton.manifest.json';
 import { filterAdvertisedUiPrimitiveNames } from './LiveGenerationUiPrimitives';
+import {
+  getSkeletonCarcassFile,
+  getSkeletonCarcassMap,
+  hasCarcassContent,
+} from './SkeletonCarcassContent';
 
 export type SkeletonId =
   | 'mobile-app'
@@ -108,6 +113,12 @@ interface SkeletonManifest {
   editableFiles: string[];
   deltaFiles: string[];
   requiredExports?: Record<string, ExportContractEntry[]>;
+  /**
+   * Paths of "carcass files" (scaffold+marker files) whose exported symbols the
+   * apply step must restore if the coder drops them.  Rich-skeleton mode only.
+   * Path format: with src/ prefix (matches skeleton disk layout).
+   */
+  carcassFiles?: string[];
 }
 
 const SKELETON_MANIFESTS: Record<SkeletonId, SkeletonManifest> = {
@@ -1512,10 +1523,144 @@ export function checkExportIntegrity(
   return violations;
 }
 
+// ── Scaffold merge (механизм Б) ────────────────────────────────────────────────
+
 /**
- * Builds a prose block for the coder prompt that lists all required exports.
- * Injected between EDITABLE FILES and YOUR TASK in buildSkeletonPromptBlock.
+ * Extracts the full declaration block for a named export from TypeScript source.
+ *
+ * Handles:
+ *   - Single-line: `export type X = string;`
+ *   - Multi-line const: `export const X = { ... } as const;`
+ *   - Multi-line const array: `export const X: T[] = [...] as const;`
+ *   - Interface: `export interface X { ... }`
+ *   - Enum: `export enum X { ... }`
+ *
+ * Returns undefined if the export is not found.
+ * Intentionally simple (no full AST) — robust enough for the well-structured
+ * skeleton carcass files (seed.ts, types.ts, config/app.ts, config/navigation.ts).
  */
+export function extractExportDeclaration(source: string, name: string): string | undefined {
+  const lines = source.split('\n');
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const startRe = new RegExp(
+    `^export\\s+(?:declare\\s+)?(?:const|function|type|interface|enum|class|abstract\\s+class)\\s+${escaped}\\b`,
+  );
+
+  let startIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (startRe.test(lines[i])) {
+      startIdx = i;
+      break;
+    }
+  }
+  if (startIdx === -1) return undefined;
+
+  // Single-line export (no opening brace/bracket on this line, ends with ;)
+  const startLine = lines[startIdx];
+  if (startLine.trimEnd().endsWith(';') && !/[{[]/.test(startLine)) {
+    return startLine;
+  }
+
+  // Multi-line: scan until depth returns to 0 after going positive
+  let depth = 0;
+  let endIdx = startIdx;
+
+  for (let i = startIdx; i < lines.length; i++) {
+    for (const ch of lines[i]) {
+      if (ch === '{' || ch === '[' || ch === '(') depth++;
+      else if (ch === '}' || ch === ']' || ch === ')') depth--;
+    }
+    if (i > startIdx && depth <= 0) {
+      endIdx = i;
+      break;
+    }
+    if (i === lines.length - 1) endIdx = i;
+  }
+
+  return lines.slice(startIdx, endIdx + 1).join('\n');
+}
+
+/**
+ * Collects all top-level named export identifiers from a TypeScript source string.
+ * Returns an array of export names found in the source.
+ */
+function collectExportNames(source: string): string[] {
+  const names: string[] = [];
+  // Matches: export const/function/type/interface/enum/class NAME
+  const declRe = /\bexport\s+(?:declare\s+)?(?:const|function|type|interface|enum|class|abstract\s+class)\s+(\w+)\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = declRe.exec(source)) !== null) {
+    names.push(m[1]);
+  }
+  // Matches: export { NAME, NAME as alias, ... }
+  const namedRe = /\bexport\s+\{([^}]+)\}/g;
+  while ((m = namedRe.exec(source)) !== null) {
+    for (const part of m[1].split(',')) {
+      const trimmed = part.trim();
+      // "NAME as alias" → take the alias (what is exported)
+      const asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(trimmed);
+      names.push(asMatch ? asMatch[2] : trimmed.split(/\s+/)[0]);
+    }
+  }
+  return names.filter(Boolean);
+}
+
+/**
+ * Merge mechanism Б (фундамент): for each carcass file in `files`, restores any
+ * skeleton export that the coder dropped.
+ *
+ *   - Reads skeleton carcass content from SkeletonCarcassContent store.
+ *   - Collects all export names from the skeleton version.
+ *   - For each name absent from the coder's version → extracts the declaration
+ *     from the skeleton and appends it to the coder's file.
+ *   - If the coder re-declared a symbol (name present) → leaves it untouched.
+ *
+ * Returns a new files map with any restored content.  Files not classified as
+ * carcass files, or files absent from the input map, are passed through unchanged.
+ *
+ * This runs BEFORE checkExportIntegrity in the apply step so that merge closes the
+ * "coder dropped carcass export" gap before the integrity check fires.
+ */
+export function mergeSkeletonExports(
+  skeletonId: SkeletonId,
+  files: Record<string, string>,
+): Record<string, string> {
+  const carcassMap = getSkeletonCarcassMap(skeletonId);
+  if (!carcassMap) return files; // not a rich-skeleton — nothing to merge
+
+  const result: Record<string, string> = { ...files };
+
+  for (const [carcassPath, skeletonSource] of Object.entries(carcassMap)) {
+    const coderContent = result[carcassPath];
+    if (coderContent === undefined) continue; // coder didn't touch this file — skip
+
+    const skeletonExports = collectExportNames(skeletonSource);
+    const missingNames: string[] = [];
+
+    for (const name of skeletonExports) {
+      if (!hasNamedExport(coderContent, name)) {
+        missingNames.push(name);
+      }
+    }
+
+    if (missingNames.length === 0) continue; // nothing dropped — no change needed
+
+    const restored: string[] = [];
+    for (const name of missingNames) {
+      const decl = extractExportDeclaration(skeletonSource, name);
+      if (decl) restored.push(decl);
+    }
+
+    if (restored.length > 0) {
+      result[carcassPath] =
+        coderContent.trimEnd() +
+        '\n\n// ── Restored scaffold exports (merge Б) ──\n' +
+        restored.join('\n\n');
+    }
+  }
+
+  return result;
+}
 function buildRequiredExportsPromptBlock(
   requiredExports: Record<string, ExportContractEntry[]> | undefined | null,
 ): string {
@@ -1667,6 +1812,11 @@ export function buildSkeletonPromptBlock(
     ...blueprintDeltaFiles,
   ]);
 
+  // ── Inject (механизм A): for rich-skeletons show scaffold file contents ──────
+  // Coder sees the exact scaffold source and fills in PRODUCT:/SEED: markers instead
+  // of blindly replacing or omitting scaffold exports.
+  const injectBlock = buildCarcassInjectBlock(skeletonId);
+
   return `
 ═══════════════════════════════════════════════════════
   SKELETON ALREADY INSTALLED: ${s.label} (${s.id})
@@ -1699,7 +1849,7 @@ ${formatPathList(manifest?.protectedFiles ?? installedFiles.filter(path => isPro
 
 EDITABLE SKELETON FILES — MODIFY IN PLACE WHEN NEEDED:
 ${formatPathList(manifestEditableFiles)}
-${manifest?.requiredExports ? `\n${buildRequiredExportsPromptBlock(manifest.requiredExports)}\n` : ''}
+${manifest?.requiredExports ? `\n${buildRequiredExportsPromptBlock(manifest.requiredExports)}\n` : ''}${injectBlock ? `\n${injectBlock}\n` : ''}
 YOUR TASK: Write ONLY the delta files. New pages, new components, new hooks, and
 product-specific config/data changes that the skeleton does not provide.
 
@@ -1717,4 +1867,48 @@ KEY RULES:
 - Every loading state uses <Skeleton> from @/components/ui/Skeleton
 - Paywall trigger: call openPaywall() from useApp() after freeActionLimit actions
 `.trim();
+}
+
+/**
+ * Builds the "SKELETON FILES ALREADY ON DISK — EXTEND, DO NOT REPLACE" inject block
+ * for rich-skeleton (old-5) project types.
+ *
+ * Shows the literal scaffold content of seed.ts and types.ts so the coder can see
+ * what's already on disk, fill in PRODUCT:/SEED: markers with domain data, and add
+ * new exports alongside the existing ones rather than replacing or dropping them.
+ *
+ * Returns an empty string for stub-skeletons (new-8) where no carcass content exists.
+ */
+function buildCarcassInjectBlock(skeletonId: SkeletonId): string {
+  if (!hasCarcassContent(skeletonId)) return '';
+
+  const seedContent = getSkeletonCarcassFile(skeletonId, 'data/seed.ts');
+  const typesContent = getSkeletonCarcassFile(skeletonId, 'data/types.ts');
+
+  if (!seedContent && !typesContent) return '';
+
+  const parts: string[] = [
+    '═══════════════════════════════════════════════════════',
+    '  SCAFFOLD FILES ALREADY ON DISK — EXTEND, DO NOT REPLACE',
+    '═══════════════════════════════════════════════════════',
+    '',
+    'The following files are already installed from the skeleton with scaffold exports',
+    'and PRODUCT:/SEED: markers.  When you emit these files:',
+    '  1. PRESERVE all existing exports (SEED_KPIS, SEED_ROWS, SEED_ACTIVITY,',
+    '     SEED_SPARKLINE, DEFAULT_CHECKLIST, etc.) — do NOT drop them.',
+    '  2. FILL IN the PRODUCT:/SEED: markers with product-specific domain data from the brief.',
+    '  3. ADD new exports alongside the existing ones for additional domain entities.',
+    '  4. Do NOT replace the entire file with only your new content.',
+  ];
+
+  if (seedContent) {
+    parts.push('', '--- data/seed.ts (scaffold version on disk) ---', '```typescript', seedContent.trim(), '```');
+  }
+  if (typesContent) {
+    parts.push('', '--- data/types.ts (scaffold version on disk) ---', '```typescript', typesContent.trim(), '```');
+  }
+
+  parts.push('', '═══════════════════════════════════════════════════════');
+
+  return parts.join('\n');
 }

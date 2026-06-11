@@ -34,6 +34,7 @@ import {
   getEditableSkeletonFiles,
   getSkeletonInstalledFiles,
   isProtectedSkeletonFile,
+  mergeSkeletonExports,
 } from './SkeletonRegistry';
 import { previewController } from './PreviewController';
 import {
@@ -1997,6 +1998,22 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     }
     if (Object.keys(filteredFiles).length === 0) {
       return fail('apply', 'All produced files are skeleton-protected — nothing to write');
+    }
+
+    // ── Scaffold merge (механизм Б) — BEFORE export integrity check ──────────
+    // For rich-skeleton project types (old-5 with scaffold+markers), restore any
+    // scaffold export the coder dropped.  Deterministic, no LLM call.
+    // Runs BEFORE checkExportIntegrity so merge closes the "coder dropped carcass
+    // export" gap and integrity check handles "coder's own symbol missing".
+    if (config.skeletonId) {
+      const merged = mergeSkeletonExports(config.skeletonId, filteredFiles);
+      if (merged !== filteredFiles) {
+        const restoredCount = Object.keys(filteredFiles).filter(
+          k => merged[k] !== filteredFiles[k],
+        ).length;
+        log(`[apply] scaffold merge: restored exports in ${restoredCount} file(s)`, 'info');
+        filteredFiles = merged;
+      }
     }
 
     // ── Export integrity check — targeted retry at source, BEFORE repair ────
