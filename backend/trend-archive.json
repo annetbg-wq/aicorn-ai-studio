@@ -1,5 +1,77 @@
 [
   {
+    "id": "2026-05-27T17:39:40.495Z",
+    "date": "2026-05-27",
+    "interest": null,
+    "daily": "Real-Time Consumer Trend Dashboard, Personalized Health Journey App, Sustainable Product Sourcing Platform",
+    "weekly": "RemoteWell: Digital Therapy for Remote Workers, EcoChic: Sustainable Fashion Rental for Young Professionals, SecureVoice: Voice-Activated Home Security for Seniors",
+    "monthly": "Психолог на расстоянии, Зеленые инвестиции, ЭргоДом",
+    "createdAt": "2026-05-27T17:39:40.495Z"
+  },
+  {
+    "id": "2026-05-27T17:39:38.041Z",
+    "date": "2026-05-27",
+    "interest": null,
+    "daily": "Margin Recovery Cockpit for E-commerce Brands, Personalized Health Journey Planner, Sustainable Food Tracker for Eco-Conscious Consumers",
+    "weekly": "Telehealth Suite for Mental Health Professionals, Sustainable Packaging Marketplace, VR Fitness Programs for Seniors",
+    "monthly": "Эмпатия, ЭкоМаркет, Синергия",
+    "createdAt": "2026-05-27T17:39:38.041Z"
+  },
+  {
+    "id": "2026-05-27T12:28:53.771Z",
+    "date": "2026-05-27",
+    "interest": null,
+    "daily": "EcoPack Innovator, SyncSphere, HealthTailor",
+    "weekly": "SeniorConnect Health Tracker, GreenWrap Packaging Solutions, VR Explorer: Travel from Home",
+    "monthly": "Release Risk Map for Small Teams, Return Saver for Micro-Commerce, Family Care Vault",
+    "createdAt": "2026-05-27T12:28:53.771Z"
+  },
+  {
+    "id": "2026-05-27T12:28:47.526Z",
+    "date": "2026-05-27",
+    "interest": null,
+    "daily": "Dynamic Inventory Optimizer for E-commerce, EcoPack: Sustainable Packaging Solutions for SMEs, Culture Connect: Remote Work Culture Builder",
+    "weekly": "Biodegradable E-Commerce Packaging Kits, AI-Driven Mental Wellness Companion for College Students, VR Nature Retreats for Urban Dwellers",
+    "monthly": "Release Risk Map for Small Teams, Return Saver for Micro-Commerce, Family Care Vault",
+    "createdAt": "2026-05-27T12:28:47.526Z"
+  },
+  {
+    "id": "2026-05-26T23:48:20.506Z",
+    "date": "2026-05-26",
+    "interest": null,
+    "daily": "Holistic Digital Mental Health Ecosystem, Sustainable Fashion Circular Marketplace, Dynamic Remote Team Collaboration Hub",
+    "weekly": "Freelancer Compliance Companion, AR Shopping Guide for Seniors, EcoPack Designer",
+    "monthly": "ТелеМедик, Сберегатель, Групповой Взаимодействие",
+    "createdAt": "2026-05-26T23:48:20.506Z"
+  },
+  {
+    "id": "2026-05-26T23:48:15.895Z",
+    "date": "2026-05-26",
+    "interest": null,
+    "daily": "Margin Recovery Cockpit for Shopify Brands Hit by Return Fraud, Sustainable Packaging Marketplace for Eco-Conscious Brands, Holistic Wellness Platform for Remote Workers",
+    "weekly": "ClaimAssist AI, EcoChic Plus, RemoteWell",
+    "monthly": "Платформа цифрового здоровья, Устойчивый модный рынок, Создатель культуры удаленной команды",
+    "createdAt": "2026-05-26T23:48:15.895Z"
+  },
+  {
+    "id": "2026-05-26T22:46:51.837Z",
+    "date": "2026-05-26",
+    "interest": null,
+    "daily": "EcoPack Optimizer, Mindful Escape, TeamVibe Booster",
+    "weekly": "ClaimAI Adjuster Pro, EcoPack Revolution, MindNest Parent Connect",
+    "monthly": "Оптимизация удаленной работы, Устойчивый шопинг, Инструмент создания контента на базе ИИ",
+    "createdAt": "2026-05-26T22:46:51.837Z"
+  },
+  {
+    "id": "2026-05-26T22:46:44.408Z",
+    "date": "2026-05-26",
+    "interest": null,
+    "daily": "Margin Recovery Cockpit for Return Fraud, Personalized Sustainable Fashion Guide, Wellness Influencer Connection Platform",
+    "weekly": "ClaimAI Adjuster Suite, MoodSync: Gen Z Wellness Hub, GreenWrap: Sustainable Packaging Innovator",
+    "monthly": "Цифровая терапия, Эко-магазин, Удаленное обучение",
+    "createdAt": "2026-05-26T22:46:44.408Z"
+  },
+  {
     "id": "2026-05-18T06:30:17.377Z",
     "date": "2026-05-18",
     "interest": "wellness",

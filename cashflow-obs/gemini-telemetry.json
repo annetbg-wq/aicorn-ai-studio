@@ -1,0 +1,200 @@
+{
+  "runId": "gemini-diagnostic-2026-05-27-17-48",
+  "finalStatus": "timeout",
+  "elapsedSecs": 662,
+  "provider": "google",
+  "modelId": "google/gemini-2.5-flash",
+  "sourceAuthority": "user_set",
+  "keyPresentAfterCleanup": false,
+  "pipelineTelemetry": {
+    "skeletonSelected": null,
+    "skeletonContract": false,
+    "productIdentityContract": false,
+    "coderStarted": false,
+    "coderCompleted": false,
+    "http546": false,
+    "promptBlockSizes": null,
+    "qualityGateRan": false,
+    "repairRan": false,
+    "previewCompile": null,
+    "buildCompleted": false,
+    "packagingReached": false,
+    "architectReached": false,
+    "architectCompleted": false,
+    "llmRoute": null
+  },
+  "workspace": {
+    "filesInspected": [
+      "config/app.ts",
+      "config/navigation.ts",
+      "data/seed.ts",
+      "App.tsx",
+      "app.tsx"
+    ],
+    "firstViewportClarity": false,
+    "kpiLabels": [
+      "config/navigation.ts:label: 'Home'",
+      "config/navigation.ts:label: 'Create'",
+      "config/navigation.ts:label: 'Progress'",
+      "config/navigation.ts:label: 'Profile'"
+    ],
+    "navigationLabels": [
+      "config/app.ts:name: 'AppName'",
+      "config/navigation.ts:label: 'Home'",
+      "config/navigation.ts:label: 'Create'",
+      "config/navigation.ts:label: 'Progress'",
+      "config/navigation.ts:label: 'Profile'",
+      "data/seed.ts:title: 'Morning intention'",
+      "data/seed.ts:title: 'Deep work block'",
+      "data/seed.ts:title: 'Movement break'",
+      "data/seed.ts:title: 'Stretch and reset posture'",
+      "data/seed.ts:title: 'Evening review'"
+    ],
+    "genericLabelsFound": [],
+    "cashflowTermsFound": [
+      "App.tsx:guard",
+      "app.tsx:guard"
+    ],
+    "productTokens": [],
+    "emptyArrays": [],
+    "missingImports": [
+      "App.tsx: no relative imports but uses React",
+      "app.tsx: no relative imports but uses React"
+    ],
+    "appName": "AppName"
+  },
+  "consoleSample": [
+    "[browser][debug] [vite] connecting...",
+    "[browser][debug] [vite] connected.",
+    "[browser][info] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+    "[browser][log] [Supabase] Connected to: https://zdzuaodphrlpvorutpyc.supabase.co",
+    "[browser][debug] [vite] connecting...",
+    "[browser][debug] [vite] connected.",
+    "[browser][info] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+    "[browser][log] [Supabase] Connected to: https://zdzuaodphrlpvorutpyc.supabase.co",
+    "[browser][log] [ConfigService] Agent configs loaded from backend (read-only).",
+    "[browser][log] [ConfigService] Agent configs loaded from backend (read-only).",
+    "[browser][log] [StorageService] Connected to Supabase ✓",
+    "[browser][log] [StorageService] Connected to Supabase ✓",
+    "[browser][error] Failed to load resource: the server responded with a status of 404 ()",
+    "[browser][error] Failed to load resource: the server responded with a status of 404 ()",
+    "[browser][error] Failed to load resource: the server responded with a status of 404 ()",
+    "[browser][error] Failed to load resource: the server responded with a status of 404 ()",
+    "[browser][error] Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 503: {\"error\":\"Claude CLI is not available\",\"provider\":\"claude\",\"details\":\"spawnSync cmd.exe ETIMEDOUT\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 500: {\"error\":\"Error: spawn claude ENOENT\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 503: {\"error\":\"Claude CLI is not available\",\"provider\":\"claude\",\"details\":\"spawnSync cmd.exe ETIMEDOUT\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 500: {\"error\":\"Error: spawn EINVAL\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 500: {\"error\":\"Error: spawn EINVAL\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 500: {\"error\":\"Error: spawn EINVAL\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 500: {\"error\":\"Error: spawn EINVAL\"}). Falling back to standard model flow."
+  ],
+  "networkSample": [
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:45:15.120Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:45:25.201Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:45:35.123Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:45:45.137Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:45:55.271Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:46:05.123Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:46:15.361Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:46:25.318Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:46:35.659Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:46:45.797Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:46:55.107Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:47:05.107Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:47:15.832Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:47:25.845Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:47:35.170Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:47:45.123Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:47:55.150Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:48:05.104Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:48:15.108Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T17:48:25.097Z"
+    }
+  ]
+}
