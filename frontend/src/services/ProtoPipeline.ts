@@ -30,6 +30,7 @@ import {
   type SkeletonId,
   SKELETON_REGISTRY,
   buildSkeletonPromptBlock,
+  checkExportIntegrity,
   getEditableSkeletonFiles,
   getSkeletonInstalledFiles,
   isProtectedSkeletonFile,
@@ -1996,6 +1997,57 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     }
     if (Object.keys(filteredFiles).length === 0) {
       return fail('apply', 'All produced files are skeleton-protected — nothing to write');
+    }
+
+    // ── Export integrity check — targeted retry at source, BEFORE repair ────
+    // Verify that every required export listed in the manifest is present in the
+    // coder output.  If any are missing, issue ONE targeted retry asking the coder
+    // to re-emit only the offending files with the missing exports added.
+    const exportViolations = checkExportIntegrity(config.skeletonId, filteredFiles);
+    if (exportViolations.length > 0) {
+      const byFile = new Map<string, typeof exportViolations>();
+      for (const v of exportViolations) {
+        if (!byFile.has(v.file)) byFile.set(v.file, []);
+        byFile.get(v.file)!.push(v);
+      }
+      const instructions = Array.from(byFile.entries()).map(([file, vs]) => {
+        const exports = vs.map(v => (v.type ? `${v.name}: ${v.type}` : v.name)).join(', ');
+        return `${file} is missing required export(s) ${vs.map(v => v.name).join(', ')} — re-emit it exporting ${exports}`;
+      });
+      log(
+        `[apply] export-integrity violations (${exportViolations.length}): ${instructions.join(' | ')}`,
+        'warn',
+      );
+      const retryFiles = Array.from(byFile.keys());
+      const retrySystem =
+        `Same task as before. Some files are missing required exports that locked skeleton files import.\n` +
+        `Re-emit ONLY the files listed below with ALL existing content preserved AND the missing exports added.\n\n` +
+        `EXPORT VIOLATIONS:\n${instructions.map(i => `- ${i}`).join('\n')}\n\n` +
+        `FILES TO RE-EMIT:\n${retryFiles.map(f => `  - ${f}`).join('\n')}`;
+      try {
+        let retryBody = '';
+        await streamCall({
+          slot:          'build',
+          system:        retrySystem,
+          user:          'Re-emit the listed files with all required exports present.',
+          maxTokens:     STEP_BUDGET.coder.maxTokens,
+          timeoutMs:     STEP_BUDGET.coder.timeoutMs,
+          signal:        config.signal,
+          routeOverrides: config.routeOverrides,
+          onChunk:       (delta) => { retryBody += delta; },
+          onUsage:       (usage) => { coderUsage = mergeLlmUsage(coderUsage, usage); },
+        });
+        const retryParsed = parseFileMarkers(retryBody);
+        for (const [retryPath, retryContent] of Object.entries(retryParsed)) {
+          if (retryPath in filteredFiles) {
+            filteredFiles[retryPath] = retryContent;
+            log(`[apply] export-integrity retry: updated ${retryPath}`, 'info');
+          }
+        }
+      } catch (err) {
+        if (isAbort(err)) throw err;
+        log(`[apply] export-integrity retry failed: ${(err as Error).message}`, 'warn');
+      }
     }
     const selectedPremiumComponentIds = designCtx.premiumComponentSelection.selectedComponents
       .map(component => component.id)

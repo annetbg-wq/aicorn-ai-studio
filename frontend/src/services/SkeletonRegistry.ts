@@ -90,12 +90,24 @@ interface SkeletonManifestGroup {
   paths: string[];
 }
 
+export interface ExportContractEntry {
+  name: string;
+  type?: string;
+}
+
+export interface ExportIntegrityViolation {
+  file: string;
+  name: string;
+  type?: string;
+}
+
 interface SkeletonManifest {
   id: SkeletonId;
   workingGroups: SkeletonManifestGroup[];
   protectedFiles: string[];
   editableFiles: string[];
   deltaFiles: string[];
+  requiredExports?: Record<string, ExportContractEntry[]>;
 }
 
 const SKELETON_MANIFESTS: Record<SkeletonId, SkeletonManifest> = {
@@ -1460,6 +1472,67 @@ export function getRequiredSkeletonDataFiles(skeletonId: SkeletonId): string[] {
   )));
 }
 
+/**
+ * Returns true if the source text contains a named export for `name`.
+ * Covers:
+ *   - `export const/function/type/interface/enum/class NAME`
+ *   - `export { NAME }` / `export { NAME as ... }`
+ */
+function hasNamedExport(source: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const declRe = new RegExp(
+    `\\bexport\\s+(?:declare\\s+)?(?:const|function|type|interface|enum|class|abstract\\s+class)\\s+${escaped}\\b`,
+  );
+  if (declRe.test(source)) return true;
+  const namedRe = new RegExp(`\\bexport\\s+\\{[^}]*\\b${escaped}\\b[^}]*\\}`);
+  return namedRe.test(source);
+}
+
+/**
+ * Checks that every file listed in the manifest's `requiredExports` block
+ * actually exports the required symbols.  Returns one violation per missing
+ * export.  Files not present in `files` are skipped (not-yet-generated guard).
+ */
+export function checkExportIntegrity(
+  skeletonId: SkeletonId,
+  files: Record<string, string>,
+): ExportIntegrityViolation[] {
+  const manifest = SKELETON_MANIFESTS[skeletonId];
+  if (!manifest?.requiredExports) return [];
+  const violations: ExportIntegrityViolation[] = [];
+  for (const [file, entries] of Object.entries(manifest.requiredExports)) {
+    const content = files[file];
+    if (content === undefined) continue; // file not in delta set — skip
+    for (const entry of entries) {
+      if (!hasNamedExport(content, entry.name)) {
+        violations.push({ file, name: entry.name, type: entry.type });
+      }
+    }
+  }
+  return violations;
+}
+
+/**
+ * Builds a prose block for the coder prompt that lists all required exports.
+ * Injected between EDITABLE FILES and YOUR TASK in buildSkeletonPromptBlock.
+ */
+function buildRequiredExportsPromptBlock(
+  requiredExports: Record<string, ExportContractEntry[]> | undefined | null,
+): string {
+  if (!requiredExports || Object.keys(requiredExports).length === 0) return '';
+  const lines: string[] = ['REQUIRED EXPORTS CONTRACT — DO NOT OMIT THESE:'];
+  for (const [file, entries] of Object.entries(requiredExports)) {
+    const nameList = entries
+      .map(e => (e.type ? `${e.name} (${e.type})` : e.name))
+      .join(', ');
+    lines.push(`Your ${file} MUST export: ${nameList}.`);
+  }
+  lines.push(
+    'These are imported by locked skeleton files; if any symbol is missing the build fails.',
+  );
+  return lines.join('\n');
+}
+
 function globPatternToRegExp(pattern: string): RegExp {
   const normalized = normalizeSkeletonPath(pattern);
   let source = '';
@@ -1626,7 +1699,7 @@ ${formatPathList(manifest?.protectedFiles ?? installedFiles.filter(path => isPro
 
 EDITABLE SKELETON FILES — MODIFY IN PLACE WHEN NEEDED:
 ${formatPathList(manifestEditableFiles)}
-
+${manifest?.requiredExports ? `\n${buildRequiredExportsPromptBlock(manifest.requiredExports)}\n` : ''}
 YOUR TASK: Write ONLY the delta files. New pages, new components, new hooks, and
 product-specific config/data changes that the skeleton does not provide.
 
