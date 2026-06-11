@@ -45,5 +45,30 @@
     "src/data/types.ts",
     "src/data/seed.ts",
     "src/pages/Workspace.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "SEED_WORKSPACES" },
+      { "name": "SEED_TAGS" },
+      { "name": "SEED_ITEMS" }
+    ],
+    "data/types.ts": [
+      { "name": "ID" },
+      { "name": "LoadingState" },
+      { "name": "ViewMode" },
+      { "name": "ItemStatus" },
+      { "name": "Priority" },
+      { "name": "Workspace" },
+      { "name": "Tag" },
+      { "name": "Item" },
+      { "name": "Filters" }
+    ],
+    "config/app.ts": [
+      { "name": "APP_CONFIG" },
+      { "name": "STORAGE_KEYS" }
+    ],
+    "config/navigation.ts": [
+      { "name": "SIDEBAR_FILTERS" }
+    ]
+  }
 }

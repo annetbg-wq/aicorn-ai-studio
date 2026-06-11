@@ -48,5 +48,31 @@
     "src/pages/Create.tsx",
     "src/pages/Progress.tsx",
     "src/pages/Profile.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "SEED_FEED" },
+      { "name": "SEED_PROGRESS" },
+      { "name": "PRICING_TIERS" }
+    ],
+    "data/types.ts": [
+      { "name": "ID" },
+      { "name": "SubscriptionPlan" },
+      { "name": "LoadingState" },
+      { "name": "UserProfile" },
+      { "name": "FeedItem" },
+      { "name": "ProgressEntry" },
+      { "name": "PricingTier" }
+    ],
+    "config/app.ts": [
+      { "name": "APP_CONFIG" },
+      { "name": "STORAGE_KEYS" }
+    ],
+    "config/navigation.ts": [
+      { "name": "BOTTOM_TABS" }
+    ],
+    "config/routes.ts": [
+      { "name": "ROUTES" }
+    ]
+  }
 }

@@ -46,5 +46,23 @@
     "src/pages/Media.tsx",
     "src/pages/Publications.tsx",
     "src/pages/Settings.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "drafts" },
+      { "name": "mediaAssets" },
+      { "name": "publications" }
+    ],
+    "data/types.ts": [
+      { "name": "Draft" },
+      { "name": "MediaAsset" },
+      { "name": "Publication" }
+    ],
+    "config/app.ts": [
+      { "name": "appConfig" }
+    ],
+    "config/navigation.ts": [
+      { "name": "navigationItems" }
+    ]
+  }
 }

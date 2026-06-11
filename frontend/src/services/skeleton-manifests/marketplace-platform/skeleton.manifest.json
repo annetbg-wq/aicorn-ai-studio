@@ -46,5 +46,23 @@
     "src/pages/Messages.tsx",
     "src/pages/Profile.tsx",
     "src/pages/SellerDashboard.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "listings" },
+      { "name": "orders" },
+      { "name": "messages" }
+    ],
+    "data/types.ts": [
+      { "name": "Listing" },
+      { "name": "Order" },
+      { "name": "Message" }
+    ],
+    "config/app.ts": [
+      { "name": "appConfig" }
+    ],
+    "config/navigation.ts": [
+      { "name": "navigationItems" }
+    ]
+  }
 }

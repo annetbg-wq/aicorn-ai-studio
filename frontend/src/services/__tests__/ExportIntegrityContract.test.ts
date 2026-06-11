@@ -157,3 +157,74 @@ describe('buildSkeletonPromptBlock — saas-dashboard REQUIRED EXPORTS CONTRACT'
     expect(block).toContain('build fails');
   });
 });
+
+// ── Smoke: every skeleton with requiredExports emits them in prompt block ────
+describe('buildSkeletonPromptBlock — all 14 skeletons have REQUIRED EXPORTS in prompt', () => {
+  const skeletonIds = [
+    'saas-dashboard', 'mobile-app', 'landing-page', 'social-community',
+    'productivity-tool', 'ecommerce', 'b2b-operations-workspace',
+    'marketplace-platform', 'creator-editor-workspace', 'dating-matching-app',
+    'gaming-casino-app', 'game-interactive-app', 'booking-service-app',
+    'content-learning-app',
+  ] as const;
+
+  for (const id of skeletonIds) {
+    it(`${id} prompt block contains REQUIRED EXPORTS CONTRACT`, () => {
+      const block = buildSkeletonPromptBlock(id);
+      expect(block, `${id} should have REQUIRED EXPORTS CONTRACT`).toContain('REQUIRED EXPORTS CONTRACT');
+      expect(block, `${id} should have "build fails" warning`).toContain('build fails');
+    });
+  }
+});
+
+// ── checkExportIntegrity smoke: all 13 non-saas skeletons accept clean files ─
+describe('checkExportIntegrity — all skeletons pass when required exports present', () => {
+  it('mobile-app passes with correct seed/types/config exports', () => {
+    const files = {
+      'data/seed.ts': 'export const SEED_FEED = []; export const SEED_PROGRESS = []; export const PRICING_TIERS = [];',
+      'data/types.ts': 'export type ID = string; export type SubscriptionPlan = {}; export type LoadingState = "idle"; export interface UserProfile {} export interface FeedItem {} export interface ProgressEntry {} export interface PricingTier {}',
+      'config/app.ts': 'export const APP_CONFIG = {}; export const STORAGE_KEYS = {};',
+      'config/navigation.ts': 'export const BOTTOM_TABS = [];',
+      'config/routes.ts': 'export const ROUTES = {};',
+    };
+    expect(checkExportIntegrity('mobile-app', files)).toHaveLength(0);
+  });
+
+  it('landing-page passes with correct content exports', () => {
+    const files = {
+      'data/content.ts': 'export const NAV_LINKS=[]; export const SOCIAL_PROOF_LOGOS=[]; export const FEATURES=[]; export const STEPS=[]; export interface PricingTier {} export const PRICING=[]; export const FAQ=[]; export const FOOTER_COLUMNS=[];',
+      'config/app.ts': 'export const APP_CONFIG = {};',
+    };
+    expect(checkExportIntegrity('landing-page', files)).toHaveLength(0);
+  });
+
+  it('social-community passes with correct exports', () => {
+    const files = {
+      'data/seed.ts': 'export const CURRENT_USER_ID=""; export const SEED_USERS=[]; export const SEED_POSTS=[]; export const SEED_COMMENTS=[]; export const SEED_NOTIFICATIONS=[]; export const EXPLORE_TAGS=[];',
+      'data/types.ts': 'export type ID=string; export type LoadingState="idle"; export interface User {} export type PostKind="text"; export interface Post {} export interface Comment {} export type NotificationType="like"; export interface Notification {}',
+      'config/app.ts': 'export const APP_CONFIG={}; export const STORAGE_KEYS={};',
+      'config/navigation.ts': 'export const BOTTOM_TABS=[];',
+    };
+    expect(checkExportIntegrity('social-community', files)).toHaveLength(0);
+  });
+
+  it('b2b-operations-workspace passes with correct exports', () => {
+    const files = {
+      'data/seed.ts': 'export const records=[]; export const team=[]; export const activities=[];',
+      'data/types.ts': 'export type Stage=""; export type RecordItem={}; export type TeamMember={}; export type Activity={};',
+      'config/app.ts': 'export const appConfig={};',
+      'config/navigation.ts': 'export const navigationItems=[];',
+    };
+    expect(checkExportIntegrity('b2b-operations-workspace', files)).toHaveLength(0);
+  });
+
+  it('booking-service-app passes with correct exports', () => {
+    const files = {
+      'data/seed.ts': 'export const services=[]; export const bookings=[];',
+      'data/types.ts': 'export type Service={}; export type Booking={};',
+      'config/app.ts': 'export const appConfig={};',
+      'config/navigation.ts': 'export const navigationItems=[];',
+    };
+    expect(checkExportIntegrity('booking-service-app', files)).toHaveLength(0);
+  });
+});

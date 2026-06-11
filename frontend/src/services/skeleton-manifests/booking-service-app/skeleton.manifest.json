@@ -46,5 +46,21 @@
     "src/pages/Profile.tsx",
     "src/pages/Search.tsx",
     "src/pages/ServiceDetail.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "services" },
+      { "name": "bookings" }
+    ],
+    "data/types.ts": [
+      { "name": "Service" },
+      { "name": "Booking" }
+    ],
+    "config/app.ts": [
+      { "name": "appConfig" }
+    ],
+    "config/navigation.ts": [
+      { "name": "navigationItems" }
+    ]
+  }
 }

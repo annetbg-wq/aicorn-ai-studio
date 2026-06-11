@@ -46,5 +46,23 @@
     "src/pages/Onboarding.tsx",
     "src/pages/Profile.tsx",
     "src/pages/Settings.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "candidates" },
+      { "name": "matches" },
+      { "name": "messages" }
+    ],
+    "data/types.ts": [
+      { "name": "Candidate" },
+      { "name": "Match" },
+      { "name": "ChatMessage" }
+    ],
+    "config/app.ts": [
+      { "name": "appConfig" }
+    ],
+    "config/navigation.ts": [
+      { "name": "navigationItems" }
+    ]
+  }
 }
