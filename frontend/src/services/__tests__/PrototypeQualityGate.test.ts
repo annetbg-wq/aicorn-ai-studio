@@ -2,12 +2,14 @@
 /**
  * Unit tests for evaluatePrototypeQualityGate — deterministic helper, no LLM calls.
  * Unit tests for runQualityRepair — LLM call mocked via stubGlobal('fetch').
+ * Unit tests for computeRepairScopedFiles — pure scoping helper, no LLM calls.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   evaluatePrototypeQualityGate,
   runQualityRepair,
   buildRepairPrompt,
+  computeRepairScopedFiles,
   type PrototypeQualityGateInput,
   type VisualUsageDiagnostics,
 } from '../ProtoPipeline';
@@ -705,5 +707,236 @@ describe('buildRepairPrompt', () => {
     const second = buildRepairPrompt(baseInput);
     expect(first.system).toBe(second.system);
     expect(first.user).toBe(second.user);
+  });
+
+  it('(в) scoped repair prompt preserves full context even when only violating files are passed', () => {
+    // Simulates what runQualityRepair does: pass only the scoped files to buildRepairPrompt,
+    // but keep prompt + psd unchanged — context must still be present in system/user.
+    const scopedFiles = {
+      'pages/App.tsx': 'export default function App() { return <h1>PRODUCT</h1>; }',
+    };
+    const psd: ProductSpecificityDiagnostics = {
+      ...validSpecificityDiagnostics(),
+      domainEntitySignals: ['Invoice', 'Client', 'Payment'],
+      productMetricSignals: ['Monthly Revenue', 'Unpaid Invoices'],
+    };
+    const { system, user } = buildRepairPrompt({
+      prompt:             'FinTrack – personal finance tracker for freelancers',
+      blockingReasons:    ['Bare PRODUCT token in pages/App.tsx'],
+      repairInstructions: ['Replace PRODUCT with product name from prompt'],
+      currentFiles:       scopedFiles,   // scoped (1 file, not 34)
+      productSpecificityDiagnostics: psd,
+    });
+
+    // (в-1) Original task prompt is in user message
+    expect(user).toContain('FinTrack – personal finance tracker for freelancers');
+    // (в-2) Scoped file is in user message
+    expect(user).toContain('<<<FILE: pages/App.tsx>>>');
+    // (в-3) psd domain signals are in system message (context not stripped with files)
+    expect(system).toContain('Invoice');
+    expect(system).toContain('Monthly Revenue');
+  });
+});
+
+// ── computeRepairScopedFiles tests ────────────────────────────────────────────
+//
+// Pure function tests — no LLM, no fetch mock needed.
+// Verifies the scoping logic: union of all violation sources, normalization,
+// fallback behaviour.
+
+describe('computeRepairScopedFiles', () => {
+  it('(а) scopes to exactly the violating files — 3 out of 34', () => {
+    const allFiles: Record<string, string> = {};
+    for (let i = 0; i < 34; i++) allFiles[`pages/Page${i}.tsx`] = `content ${i}`;
+
+    const violations: DesignViolation[] = [
+      { path: 'pages/Page2.tsx',  rule: 'no-raw-hex',           example: '#fff',       line: 1 },
+      { path: 'pages/Page7.tsx',  rule: 'no-tailwind-palette',  example: 'bg-blue-500', line: 3 },
+      { path: 'pages/Page15.tsx', rule: 'no-raw-color-fn',      example: 'rgb(0,0,0)', line: 5 },
+    ];
+
+    const { scopedFiles, isFallback } = computeRepairScopedFiles(allFiles, violations);
+
+    expect(isFallback).toBe(false);
+    expect(Object.keys(scopedFiles)).toHaveLength(3);
+    expect('pages/Page2.tsx'  in scopedFiles).toBe(true);
+    expect('pages/Page7.tsx'  in scopedFiles).toBe(true);
+    expect('pages/Page15.tsx' in scopedFiles).toBe(true);
+    expect('pages/Page0.tsx'  in scopedFiles).toBe(false); // clean file excluded
+  });
+
+  it('(б) includes files from all three violation types (tokens + PRODUCT + labels) in different files', () => {
+    const currentFiles = {
+      'pages/Home.tsx':      'className="bg-blue-500"',  // token violation
+      'App.tsx':             '<h1>PRODUCT</h1>',          // PRODUCT placeholder
+      'pages/Dashboard.tsx': 'KPI 1',                    // label placeholder
+      'pages/Unrelated.tsx': 'clean content',            // no violation
+    };
+
+    const tokenViolations: DesignViolation[] = [
+      { path: 'pages/Home.tsx', rule: 'no-tailwind-palette', example: 'bg-blue-500', line: 1 },
+    ];
+    const vudFindings = ['App.tsx: PRODUCT'];          // "path: label" format
+    const psdFindings = ['pages/Dashboard.tsx: KPI 1']; // "path: label" format
+
+    const { scopedFiles, isFallback } = computeRepairScopedFiles(
+      currentFiles, tokenViolations, vudFindings, psdFindings,
+    );
+
+    expect(isFallback).toBe(false);
+    expect(Object.keys(scopedFiles)).toHaveLength(3);
+    expect('pages/Home.tsx'      in scopedFiles).toBe(true);  // token
+    expect('App.tsx'             in scopedFiles).toBe(true);  // PRODUCT
+    expect('pages/Dashboard.tsx' in scopedFiles).toBe(true);  // label
+    expect('pages/Unrelated.tsx' in scopedFiles).toBe(false); // clean → excluded
+  });
+
+  it('(г-1) falls back to all files when violation paths do not match currentFiles keys', () => {
+    const currentFiles = {
+      'pages/App.tsx':       'content',
+      'pages/Dashboard.tsx': 'content',
+    };
+    // Violation path points to a file NOT in currentFiles (rogue/stale path)
+    const violations: DesignViolation[] = [
+      { path: 'pages/Nonexistent.tsx', rule: 'no-raw-hex', example: '#fff', line: 1 },
+    ];
+
+    const { scopedFiles, isFallback, fallbackReason } = computeRepairScopedFiles(
+      currentFiles, violations,
+    );
+
+    expect(isFallback).toBe(true);
+    expect(fallbackReason).toBeDefined();
+    expect(fallbackReason).toMatch(/could not be matched/i);
+    // Falls back to all files — repair still runs, just unscoped
+    expect(Object.keys(scopedFiles)).toHaveLength(2);
+    expect('pages/App.tsx'       in scopedFiles).toBe(true);
+    expect('pages/Dashboard.tsx' in scopedFiles).toBe(true);
+  });
+
+  it('(г-2) falls back with explicit reason when no violation sources provide any paths', () => {
+    const currentFiles = { 'pages/App.tsx': 'content' };
+
+    const { scopedFiles, isFallback, fallbackReason } = computeRepairScopedFiles(
+      currentFiles, [], [], [],  // all empty — no violations provided
+    );
+
+    expect(isFallback).toBe(true);
+    expect(fallbackReason).toMatch(/no violation sources/i);
+    expect(Object.keys(scopedFiles)).toHaveLength(1); // falls back to all (1) files
+  });
+
+  it('deduplicates when the same file appears in multiple violation sources', () => {
+    const currentFiles = {
+      'App.tsx': 'content',
+      'pages/Other.tsx': 'content',
+    };
+    const violations: DesignViolation[] = [
+      { path: 'App.tsx', rule: 'no-raw-hex',          example: '#fff',      line: 1 },
+      { path: 'App.tsx', rule: 'no-tailwind-palette', example: 'bg-blue-500', line: 2 },
+    ];
+    const vudFindings = ['App.tsx: PRODUCT', 'App.tsx: Feature 1'];
+
+    const { scopedFiles, isFallback } = computeRepairScopedFiles(
+      currentFiles, violations, vudFindings,
+    );
+
+    expect(isFallback).toBe(false);
+    // App.tsx appears in multiple sources but must appear only once
+    expect(Object.keys(scopedFiles)).toHaveLength(1);
+    expect('App.tsx' in scopedFiles).toBe(true);
+  });
+});
+
+// ── runQualityRepair — scoping integration tests ──────────────────────────────
+//
+// Verifies that scoping log messages are emitted correctly by runQualityRepair.
+
+describe('runQualityRepair scope logging', () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('(г) logs explicit scoped-repair fallback warning when no violation paths resolve', async () => {
+    const currentFiles = { 'pages/App.tsx': 'original content' };
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () =>
+        JSON.stringify({
+          output_text: '<<<FILE: pages/App.tsx>>>\nfixed\n<<<END>>>',
+          finish_reason: 'stop',
+        }),
+    });
+
+    const logs: Array<{ msg: string; level?: string }> = [];
+
+    await runQualityRepair({
+      prompt:             'Test app',
+      skeletonId:         'mobile-app',
+      currentFiles,
+      blockingReasons:    ['some reason'],
+      repairInstructions: ['fix it'],
+      designContractViolations: [
+        // Path does NOT exist in currentFiles → triggers fallback
+        { path: 'pages/Nonexistent.tsx', rule: 'no-raw-hex', example: '#fff', line: 1 },
+      ],
+      routeOverrides: {
+        fix: { modelId: 'test', endpoint: 'https://test.example.com/api', apiKey: 'k', provider: 'claude-cli' },
+      },
+      onLog: (msg, level) => logs.push({ msg, level }),
+    });
+
+    const fallbackLog = logs.find(
+      l => l.msg.includes('scoped-repair') && l.msg.includes('no paths resolved'),
+    );
+    expect(fallbackLog).toBeDefined();
+    expect(fallbackLog?.level).toBe('warn');
+    // The summary log must mention fallback
+    const summaryLog = logs.find(l => l.msg.includes('fallback: all files'));
+    expect(summaryLog).toBeDefined();
+  });
+
+  it('logs scoped count when violations resolve to a subset of files', async () => {
+    const currentFiles = {
+      'pages/App.tsx':      'className="bg-blue-500"',
+      'pages/Clean.tsx':    'clean content',
+      'pages/Another.tsx':  'also clean',
+    };
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () =>
+        JSON.stringify({
+          output_text: '<<<FILE: pages/App.tsx>>>\nfixed\n<<<END>>>',
+          finish_reason: 'stop',
+        }),
+    });
+
+    const logs: Array<string> = [];
+
+    await runQualityRepair({
+      prompt:             'Test app',
+      skeletonId:         'mobile-app',
+      currentFiles,
+      blockingReasons:    ['token violation'],
+      repairInstructions: ['fix tokens'],
+      designContractViolations: [
+        { path: 'pages/App.tsx', rule: 'no-tailwind-palette', example: 'bg-blue-500', line: 1 },
+      ],
+      routeOverrides: {
+        fix: { modelId: 'test', endpoint: 'https://test.example.com/api', apiKey: 'k', provider: 'claude-cli' },
+      },
+      onLog: (msg) => logs.push(msg),
+    });
+
+    // Summary log must show 1/3 (scoped, not fallback)
+    const scopedLog = logs.find(l => l.includes('1/3') && l.includes('scoped to violations'));
+    expect(scopedLog).toBeDefined();
   });
 });

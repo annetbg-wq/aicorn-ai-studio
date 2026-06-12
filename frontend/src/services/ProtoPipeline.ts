@@ -2218,6 +2218,8 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           currentFiles:                 filteredFiles,
           blockingReasons:              qualityGate.blockingReasons,
           repairInstructions:           qualityGate.repairInstructions,
+          designContractViolations:     verdict.ok ? [] : verdict.violations,
+          visualUsageDiagnostics,
           designCtx,
           productSpecificityDiagnostics,
           signal:                       config.signal,
@@ -3199,34 +3201,106 @@ export function buildRepairPrompt(input: {
 }
 
 /**
+ * Computes the scoped file subset that quality repair should edit.
+ *
+ * Union of paths from all three violation sources:
+ *   1. DesignViolation[].path        — design-contract token violations
+ *   2. vudGenericFindings[]          — "path: label" from VisualUsageDiagnostics
+ *   3. psdGenericFindings[]          — "path: label" from ProductSpecificityDiagnostics
+ *
+ * Only paths already present in currentFiles are included (safe subset).
+ * When no paths can be resolved, falls back to all files with an explanation.
+ *
+ * Exported for unit testing — pure function, no LLM calls.
+ */
+export function computeRepairScopedFiles(
+  currentFiles:          Record<string, string>,
+  designContractViolations?: DesignViolation[] | null,
+  vudGenericFindings?:   string[] | null,
+  psdGenericFindings?:   string[] | null,
+): { scopedFiles: Record<string, string>; isFallback: boolean; fallbackReason?: string } {
+  const rawPaths = new Set<string>();
+
+  // Source 1: design-contract token violations — path is a direct string field
+  for (const v of (designContractViolations ?? [])) {
+    if (typeof v.path === 'string' && v.path) rawPaths.add(v.path);
+  }
+
+  // Sources 2 & 3: "path: label" findings — extract everything before the first ': '
+  for (const finding of [...(vudGenericFindings ?? []), ...(psdGenericFindings ?? [])]) {
+    const idx = finding.indexOf(': ');
+    if (idx > 0) rawPaths.add(finding.slice(0, idx));
+  }
+
+  // Normalize and filter to paths actually present in currentFiles
+  const currentKeys = new Set(Object.keys(currentFiles));
+  const uniqueScoped = Array.from(
+    new Set(Array.from(rawPaths).map(p => normalizeOutputPath(p))),
+  ).filter(p => currentKeys.has(p));
+
+  if (uniqueScoped.length > 0) {
+    const scopedFiles = Object.fromEntries(uniqueScoped.map(p => [p, currentFiles[p]!]));
+    return { scopedFiles, isFallback: false };
+  }
+
+  const fallbackReason = rawPaths.size === 0
+    ? 'no violation sources provided file paths'
+    : `${rawPaths.size} raw path(s) could not be matched to currentFiles after normalization`;
+  return { scopedFiles: currentFiles, isFallback: true, fallbackReason };
+}
+
+/**
  * Bounded one-shot quality repair — separate from compile repair (runRepair).
  *
  * Called only when evaluatePrototypeQualityGate() returns blockingReasons.length > 0.
  * Makes exactly ONE LLM call via the 'fix' slot with a quality-focused prompt.
+ * Scopes the LLM input to only the files that contain violations (2-5 files instead of
+ * all 34), so the 8k output budget can cover all violating files rather than just one.
+ * Context (prompt, designCtx, psd) remains full — needed for PRODUCT/label resolution.
  * Parses output using parseFileMarkers; only accepts paths already in currentFiles
  * (safety filter — prevents injecting new skeleton-protected files).
  *
  * No loops, no retry. At most one repair attempt per pipeline run.
  */
 export async function runQualityRepair(input: {
-  prompt:                       string;
-  skeletonId:                   SkeletonId;
-  currentFiles:                 Record<string, string>;
-  blockingReasons:              string[];
-  repairInstructions:           string[];
-  designCtx?:                   DesignContext;
+  prompt:                        string;
+  skeletonId:                    SkeletonId;
+  currentFiles:                  Record<string, string>;
+  blockingReasons:               string[];
+  repairInstructions:            string[];
+  designContractViolations?:     DesignViolation[] | null;
+  visualUsageDiagnostics?:       VisualUsageDiagnostics | null;
+  designCtx?:                    DesignContext;
   productSpecificityDiagnostics?: ProductSpecificityDiagnostics | null;
-  signal?:                      AbortSignal;
-  routeOverrides?:              RouteOverrideMap;
-  onLog:                        (msg: string, level?: 'info' | 'warn' | 'error') => void;
-  onUsage?:                     (usage: StepLlmMetrics) => void;
+  signal?:                       AbortSignal;
+  routeOverrides?:               RouteOverrideMap;
+  onLog:                         (msg: string, level?: 'info' | 'warn' | 'error') => void;
+  onUsage?:                      (usage: StepLlmMetrics) => void;
 }): Promise<Record<string, string>> {
-  const { system, user } = buildRepairPrompt(input);
+  const { scopedFiles, isFallback, fallbackReason } = computeRepairScopedFiles(
+    input.currentFiles,
+    input.designContractViolations,
+    input.visualUsageDiagnostics?.genericPlaceholderFindings,
+    input.productSpecificityDiagnostics?.genericPlaceholderFindings,
+  );
 
+  if (isFallback) {
+    input.onLog(
+      `[quality-repair] scoped-repair: no paths resolved (${fallbackReason}); ` +
+      `falling back to all ${Object.keys(input.currentFiles).length} file(s) — repair may patch fewer issues than intended`,
+      'warn',
+    );
+  }
+
+  const scopedCount = Object.keys(scopedFiles).length;
+  const totalCount  = Object.keys(input.currentFiles).length;
   input.onLog(
     `[quality-repair] attempting repair of ${input.blockingReasons.length} issue(s) across ` +
-    `${Object.keys(input.currentFiles).length} file(s)`,
+    `${scopedCount}/${totalCount} file(s)` +
+    (isFallback ? ' (fallback: all files)' : ' (scoped to violations)'),
   );
+
+  const { system, user } = buildRepairPrompt({ ...input, currentFiles: scopedFiles });
 
   let body = '';
   await streamCall({
