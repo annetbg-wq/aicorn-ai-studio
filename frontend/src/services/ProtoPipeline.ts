@@ -3207,6 +3207,7 @@ export function buildRepairPrompt(input: {
  *   1. DesignViolation[].path        — design-contract token violations
  *   2. vudGenericFindings[]          — "path: label" from VisualUsageDiagnostics
  *   3. psdGenericFindings[]          — "path: label" from ProductSpecificityDiagnostics
+ *   4. psdEmptyMetricFindings[]      — "path: detail" for empty/generic KPI cards
  *
  * Only paths already present in currentFiles are included (safe subset).
  * When no paths can be resolved, falls back to all files with an explanation.
@@ -3218,18 +3219,58 @@ export function computeRepairScopedFiles(
   designContractViolations?: DesignViolation[] | null,
   vudGenericFindings?:   string[] | null,
   psdGenericFindings?:   string[] | null,
-): { scopedFiles: Record<string, string>; isFallback: boolean; fallbackReason?: string } {
+  psdEmptyMetricFindings?: string[] | null,
+): {
+  scopedFiles: Record<string, string>;
+  isFallback: boolean;
+  fallbackReason?: string;
+  rawPaths: string[];
+  resolvedPaths: string[];
+  sourcePathCounts: {
+    designContract: number;
+    visualPlaceholders: number;
+    specificityPlaceholders: number;
+    specificityEmptyMetrics: number;
+  };
+} {
   const rawPaths = new Set<string>();
+  const sourcePathCounts = {
+    designContract: 0,
+    visualPlaceholders: 0,
+    specificityPlaceholders: 0,
+    specificityEmptyMetrics: 0,
+  };
 
   // Source 1: design-contract token violations — path is a direct string field
   for (const v of (designContractViolations ?? [])) {
-    if (typeof v.path === 'string' && v.path) rawPaths.add(v.path);
+    if (typeof v.path === 'string' && v.path) {
+      rawPaths.add(v.path);
+      sourcePathCounts.designContract += 1;
+    }
   }
 
   // Sources 2 & 3: "path: label" findings — extract everything before the first ': '
-  for (const finding of [...(vudGenericFindings ?? []), ...(psdGenericFindings ?? [])]) {
+  for (const finding of (vudGenericFindings ?? [])) {
     const idx = finding.indexOf(': ');
-    if (idx > 0) rawPaths.add(finding.slice(0, idx));
+    if (idx > 0) {
+      rawPaths.add(finding.slice(0, idx));
+      sourcePathCounts.visualPlaceholders += 1;
+    }
+  }
+  for (const finding of (psdGenericFindings ?? [])) {
+    const idx = finding.indexOf(': ');
+    if (idx > 0) {
+      rawPaths.add(finding.slice(0, idx));
+      sourcePathCounts.specificityPlaceholders += 1;
+    }
+  }
+  // Source 4: empty/generic metric findings also carry "path: detail"
+  for (const finding of (psdEmptyMetricFindings ?? [])) {
+    const idx = finding.indexOf(': ');
+    if (idx > 0) {
+      rawPaths.add(finding.slice(0, idx));
+      sourcePathCounts.specificityEmptyMetrics += 1;
+    }
   }
 
   // Normalize and filter to paths actually present in currentFiles
@@ -3237,16 +3278,31 @@ export function computeRepairScopedFiles(
   const uniqueScoped = Array.from(
     new Set(Array.from(rawPaths).map(p => normalizeOutputPath(p))),
   ).filter(p => currentKeys.has(p));
+  const rawPathList = Array.from(rawPaths);
+  const resolvedPaths = [...uniqueScoped];
 
   if (uniqueScoped.length > 0) {
     const scopedFiles = Object.fromEntries(uniqueScoped.map(p => [p, currentFiles[p]!]));
-    return { scopedFiles, isFallback: false };
+    return {
+      scopedFiles,
+      isFallback: false,
+      rawPaths: rawPathList,
+      resolvedPaths,
+      sourcePathCounts,
+    };
   }
 
   const fallbackReason = rawPaths.size === 0
     ? 'no violation sources provided file paths'
     : `${rawPaths.size} raw path(s) could not be matched to currentFiles after normalization`;
-  return { scopedFiles: currentFiles, isFallback: true, fallbackReason };
+  return {
+    scopedFiles: currentFiles,
+    isFallback: true,
+    fallbackReason,
+    rawPaths: rawPathList,
+    resolvedPaths,
+    sourcePathCounts,
+  };
 }
 
 /**
@@ -3277,11 +3333,28 @@ export async function runQualityRepair(input: {
   onLog:                         (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onUsage?:                      (usage: StepLlmMetrics) => void;
 }): Promise<Record<string, string>> {
-  const { scopedFiles, isFallback, fallbackReason } = computeRepairScopedFiles(
+  const {
+    scopedFiles,
+    isFallback,
+    fallbackReason,
+    rawPaths,
+    resolvedPaths,
+    sourcePathCounts,
+  } = computeRepairScopedFiles(
     input.currentFiles,
     input.designContractViolations,
     input.visualUsageDiagnostics?.genericPlaceholderFindings,
     input.productSpecificityDiagnostics?.genericPlaceholderFindings,
+    input.productSpecificityDiagnostics?.emptyMetricFindings,
+  );
+
+  input.onLog(
+    `[quality-repair] scope sources: design=${sourcePathCounts.designContract}, ` +
+      `visual-placeholder=${sourcePathCounts.visualPlaceholders}, ` +
+      `specificity-placeholder=${sourcePathCounts.specificityPlaceholders}, ` +
+      `specificity-empty-metric=${sourcePathCounts.specificityEmptyMetrics}, ` +
+      `raw=${rawPaths.length}, resolved=${resolvedPaths.length}` +
+      (resolvedPaths.length > 0 ? ` -> ${resolvedPaths.join(', ')}` : ''),
   );
 
   if (isFallback) {
@@ -3321,14 +3394,44 @@ export async function runQualityRepair(input: {
   }
 
   // Safety filter: only accept patches for paths already present in currentFiles.
-  const safePatches = Object.fromEntries(
-    Object.entries(patches).filter(([path]) => path in input.currentFiles),
+  // Use a normalised-key map so that src/-prefix mismatches (e.g. patch emits
+  // "config/navigation.ts" but currentFiles key is "src/config/navigation.ts") are
+  // resolved the same way the export-retry pattern does — normaliseDeltaPath both sides.
+  const normToOriginal = new Map<string, string>(
+    Object.keys(input.currentFiles).map(k => [normaliseDeltaPath(k), k]),
   );
+  const safePatches: Record<string, string> = {};
+  const unexpectedPaths: string[] = [];
+  for (const [patchPath, patchContent] of Object.entries(patches)) {
+    if (patchPath in input.currentFiles) {
+      safePatches[patchPath] = patchContent;
+    } else {
+      // patchPath already normalised by parseFileMarkers; look up by normalised currentFiles key
+      const originalKey = normToOriginal.get(patchPath);
+      if (originalKey !== undefined) {
+        safePatches[originalKey] = patchContent;
+      } else {
+        unexpectedPaths.push(patchPath);
+      }
+    }
+  }
   if (Object.keys(safePatches).length === 0) {
-    input.onLog('[quality-repair] all patched paths were unexpected — no files merged', 'warn');
+    const attempted = Object.keys(patches).slice(0, 5).join(', ');
+    const available = Object.keys(input.currentFiles).slice(0, 5).join(', ');
+    input.onLog(
+      `[quality-repair] all patched paths were unexpected — no files merged` +
+      ` (attempted: ${attempted}; available sample: ${available})`,
+      'warn',
+    );
     return input.currentFiles;
   }
-
+  if (unexpectedPaths.length > 0) {
+    input.onLog(
+      `[quality-repair] ${unexpectedPaths.length} patch path(s) skipped (not in currentFiles): ` +
+      unexpectedPaths.slice(0, 5).join(', '),
+      'warn',
+    );
+  }
   input.onLog(`[quality-repair] repair patched ${Object.keys(safePatches).length} file(s)`);
   return { ...input.currentFiles, ...safePatches };
 }
