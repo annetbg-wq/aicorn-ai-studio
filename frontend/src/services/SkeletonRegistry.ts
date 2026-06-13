@@ -1495,7 +1495,7 @@ function hasNamedExport(source: string, name: string): boolean {
     `\\bexport\\s+(?:declare\\s+)?(?:const|function|type|interface|enum|class|abstract\\s+class)\\s+${escaped}\\b`,
   );
   if (declRe.test(source)) return true;
-  const namedRe = new RegExp(`\\bexport\\s+\\{[^}]*\\b${escaped}\\b[^}]*\\}`);
+  const namedRe = new RegExp(`\\bexport\\s+(?:type\\s+)?\\{[^}]*\\b${escaped}\\b[^}]*\\}`);
   return namedRe.test(source);
 }
 
@@ -1542,12 +1542,18 @@ export function checkExportIntegrity(
 export function extractExportDeclaration(source: string, name: string): string | undefined {
   const lines = source.split('\n');
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const namedExportRe = new RegExp(
+    `^export\\s+(?:type\\s+)?\\{[^}]*\\b${escaped}\\b[^}]*\\}\\s*;?\\s*$`,
+  );
   const startRe = new RegExp(
     `^export\\s+(?:declare\\s+)?(?:const|function|type|interface|enum|class|abstract\\s+class)\\s+${escaped}\\b`,
   );
 
   let startIdx = -1;
   for (let i = 0; i < lines.length; i++) {
+    if (namedExportRe.test(lines[i])) {
+      return lines[i];
+    }
     if (startRe.test(lines[i])) {
       startIdx = i;
       break;
@@ -1593,7 +1599,7 @@ function collectExportNames(source: string): string[] {
     names.push(m[1]);
   }
   // Matches: export { NAME, NAME as alias, ... }
-  const namedRe = /\bexport\s+\{([^}]+)\}/g;
+  const namedRe = /\bexport\s+(?:type\s+)?\{([^}]+)\}/g;
   while ((m = namedRe.exec(source)) !== null) {
     for (const part of m[1].split(',')) {
       const trimmed = part.trim();

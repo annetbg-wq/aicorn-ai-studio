@@ -127,6 +127,24 @@ describe('checkExportIntegrity — saas-dashboard', () => {
     const seedViolations = violations.filter(v => v.file === 'data/seed.ts');
     expect(seedViolations).toHaveLength(0);
   });
+
+  it('recognises export type { NAME } re-export form as satisfying the contract', () => {
+    const files: Record<string, string> = {
+      'data/types.ts': `
+        import type { ThemeChoice } from '@/config/theme';
+        export interface ChecklistTask { id: string; }
+        export type DataRow = { id: string; };
+        export type RowStatus = 'active' | 'inactive';
+        export interface KPIMetric { label: string; value: number; }
+        export interface UserProfile { id: string; name: string; }
+        export type LoadingState = 'idle' | 'loading' | 'error';
+        export type { ThemeChoice };
+      `,
+    };
+    const violations = checkExportIntegrity('saas-dashboard', files);
+    const typesViolations = violations.filter(v => v.file === 'data/types.ts');
+    expect(typesViolations).toHaveLength(0);
+  });
 });
 
 // ── (c) Prompt block contains required export names for saas-dashboard ───────

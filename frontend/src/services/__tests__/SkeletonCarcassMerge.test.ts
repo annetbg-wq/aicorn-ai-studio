@@ -58,6 +58,22 @@ export const DEFAULT_CHECKLIST: readonly ChecklistTask[] = [
 ] as const;
 `.trim();
 
+const CODER_TYPES_WITHOUT_THEME_CHOICE = `
+export type ID = string;
+export type LoadingState = 'idle' | 'loading' | 'ready' | 'error';
+
+export interface UserProfile {
+  id: ID;
+  name: string;
+}
+
+export type RowStatus = 'active' | 'pending' | 'archived';
+export interface DataRow { id: ID; title: string; status: RowStatus; value: number; createdAt: string; owner: string; }
+export interface KPIMetric { id: string; label: string; value: string; deltaPct: number; trend: 'up' | 'down' | 'flat'; }
+export interface ActivityEvent { id: ID; actor: string; action: string; target: string; timestamp: string; }
+export interface ChecklistTask { id: string; label: string; done: boolean; }
+`.trim();
+
 // ── (a) Coder dropped SEED_KPIS → merge restores it ─────────────────────────
 
 describe('mergeSkeletonExports — (a) coder dropped SEED_KPIS', () => {
@@ -98,6 +114,15 @@ describe('mergeSkeletonExports — (a) coder dropped SEED_KPIS', () => {
     const violations = checkExportIntegrity('saas-dashboard', merged);
     const seedViolations = violations.filter(v => v.file === 'data/seed.ts');
     expect(seedViolations).toHaveLength(0);
+  });
+
+  it('restores export type { ThemeChoice } when coder drops it from data/types.ts', () => {
+    const files = { 'data/types.ts': CODER_TYPES_WITHOUT_THEME_CHOICE };
+    const merged = mergeSkeletonExports('saas-dashboard', files);
+    expect(merged['data/types.ts']).toContain('export type { ThemeChoice };');
+    const typeViolations = checkExportIntegrity('saas-dashboard', merged)
+      .filter(v => v.file === 'data/types.ts');
+    expect(typeViolations).toHaveLength(0);
   });
 });
 
