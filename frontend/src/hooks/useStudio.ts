@@ -87,6 +87,7 @@ import {
 import { analyzeOutputTruth } from '../shared/outputTruth';
 import { useFigmaState } from './useFigmaState';
 import { useSettingsState } from './useSettingsState';
+import { restoreGenerationPath } from './useStudioGenerationPath';
 import { getSkeletonSaveFiles, resolveReloadCompleteSaveFiles } from './useStudioSaveFiles';
 import {
   ArchitectPlannerService,
@@ -3107,7 +3108,7 @@ export const useStudio = () => {
       clearSnapshots();
 
       // Restore generationPath from persisted project (default → skeleton_assembly)
-      const restoredPath = full.generationPath === 'blank_canvas' ? 'blank_canvas' : 'skeleton_assembly';
+      const restoredPath = restoreGenerationPath(full);
       setGenerationPath(restoredPath);
 
       // 1. Compile project files — await so backend compile + preview-mounted(buildId) complete before React state update
