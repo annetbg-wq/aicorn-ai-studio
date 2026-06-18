@@ -7,6 +7,7 @@
 import { scanBeforePreviewLoad } from './projectCorruptionScan';
 import { revisionManager, PRELOAD_SKIP_OWNED_MSG } from './RevisionManager';
 import { previewLog } from './PreviewController';
+import type { ProductDocumentSet } from './ProductDocumentSet';
 import {
   DEFAULT_PROJECT_BRANCH_ID,
   createProjectBranchArchitecture,
@@ -67,6 +68,7 @@ export interface StoredProject {
   durationMs?:     number;
   generationMode?: string;                        // 'landing' | 'app' | 'superapp'
   generationPath?: 'skeleton_assembly' | 'blank_canvas';
+  productDocs?:     ProductDocumentSet;
   billingCost?:    number;
   billingTokens?:  number;
   revisions?:      ProjectRevision[];              // max 5, newest first
@@ -76,6 +78,42 @@ export interface StoredProject {
 export type { ProjectMeta } from '../shared/projectModel';
 
 const PROJECT_KEY_PREFIX = 'aic-proj-';
+const PRODUCT_DOCS_JSON_PATHS = [
+  'docs/architect/product-document-set.json',
+  'src/docs/architect/product-document-set.json',
+] as const;
+
+function isStoredProductDocumentSet(value: unknown): value is ProductDocumentSet {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === 'string'
+    && typeof record.projectId === 'string'
+    && typeof record.runId === 'string'
+    && record.markdownBundle !== null
+    && typeof record.markdownBundle === 'object';
+}
+
+function parseStoredProductDocs(raw: unknown): ProductDocumentSet | undefined {
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isStoredProductDocumentSet(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveStoredProductDocs(
+  existing: unknown,
+  files: Record<string, string> | undefined,
+): ProductDocumentSet | undefined {
+  if (isStoredProductDocumentSet(existing)) return existing;
+  for (const path of PRODUCT_DOCS_JSON_PATHS) {
+    const parsed = parseStoredProductDocs(files?.[path]);
+    if (parsed) return parsed;
+  }
+  return undefined;
+}
 
 function readCanonicalName(raw: unknown, fallback = 'New Project'): string {
   if (!raw || typeof raw !== 'object') return fallback;
@@ -241,16 +279,18 @@ export class ProjectStorage {
       const canonicalName = readCanonicalName(parsed);
       const { activeBranchId, branches } = normalizeStoredProjectBranches(parsed);
       const activeBranch = branches[activeBranchId];
+      const files = parsed.files ?? {};
       return {
         ...parsed,
         name: canonicalName,
         activeBranchId,
         branches,
-        files: parsed.files ?? {},
+        files,
         chatHistory: (activeBranch?.chatHistory as Array<{ role: string; content: string; type?: string }>)
           ?? parsed.chatHistory
           ?? [],
         revisions: (activeBranch?.revisions as ProjectRevision[]) ?? parsed.revisions,
+        productDocs: resolveStoredProductDocs(parsed.productDocs, files),
       };
     } catch { return null; }
   }
@@ -280,6 +320,7 @@ export class ProjectStorage {
       const mergedProjectFiles = activeBranch
         ? { ...(project.files ?? {}), ...(activeBranch.files ?? {}) }
         : (project.files ?? {});
+      const productDocs = resolveStoredProductDocs(project.productDocs, mergedProjectFiles);
       const materializedProject: StoredProject = {
         ...project,
         name: canonicalName,
@@ -290,6 +331,7 @@ export class ProjectStorage {
           ?? project.chatHistory
           ?? [],
         revisions: (activeBranch?.revisions as ProjectRevision[]) ?? project.revisions,
+        productDocs,
       };
 
       localStorage.setItem(`${PROJECT_KEY_PREFIX}${project.id}`, JSON.stringify(materializedProject));

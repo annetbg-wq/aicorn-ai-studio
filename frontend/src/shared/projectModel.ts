@@ -804,6 +804,17 @@ export interface GenerationRunTelemetry {
   designIntent: string[];
   architectSummary?: string;
   designSummary?: string;
+  productDocs?: {
+    built: boolean;
+    saved: boolean;
+    id: string;
+    status: string;
+    generationPath: 'skeleton_assembly' | 'blank_canvas';
+    persistenceTarget: 'project_snapshot' | 'project_storage' | 'run_report';
+    featureChecklistItemCount: number;
+    featureChecklistMustCount: number;
+    markdownBundleFiles: string[];
+  };
   steps: GenerationRunStepTelemetry[];
   compileCount: number;
   finalPreviewMounted: boolean;
