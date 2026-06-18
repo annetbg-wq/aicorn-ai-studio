@@ -556,6 +556,7 @@ describe('LiveGenerationContractValidator UI primitive catalog contract', () => 
 
     expect(advertisedKeys).toEqual([
       'Accordion',
+      'Alert',
       'AlertDialog',
       'Avatar',
       'Badge',

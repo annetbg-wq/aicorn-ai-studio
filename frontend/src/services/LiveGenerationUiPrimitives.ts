@@ -1,5 +1,10 @@
 const LIVE_GENERATION_UI_PRIMITIVE_SPECS = [
   {
+    id: 'alert',
+    displayName: 'Alert',
+    importCatalogEntry: "Alert, AlertDescription, AlertTitle from '@/components/ui/alert'",
+  },
+  {
     id: 'accordion',
     displayName: 'Accordion',
     importCatalogEntry: "Accordion, AccordionContent, AccordionItem, AccordionTrigger from '@/components/ui/accordion'",
@@ -107,6 +112,8 @@ export type UiPrimitiveDisplayName = typeof LIVE_GENERATION_UI_PRIMITIVE_SPECS[n
 export const LIVE_GENERATION_ALLOWED_UI_PRIMITIVES: CanonicalUiPrimitive[] = LIVE_GENERATION_UI_PRIMITIVE_SPECS
   .map(spec => spec.id);
 
+export const LIVE_GENERATION_MINIMAL_BASELINE_PRIMITIVES: UiPrimitiveDisplayName[] = ['Alert'];
+
 export const LIVE_GENERATION_UI_IMPORT_CATALOG: Record<UiPrimitiveDisplayName, string> = Object.fromEntries(
   LIVE_GENERATION_UI_PRIMITIVE_SPECS.map(spec => [spec.displayName, spec.importCatalogEntry]),
 ) as Record<UiPrimitiveDisplayName, string>;
@@ -198,7 +205,12 @@ export function uiPrimitiveWorkspaceCandidates(
 }
 
 export function buildLiveGenerationUiPrimitiveImportCatalog(uiPrimitives: readonly string[]): string {
-  const lines = filterAdvertisedUiPrimitiveNames(uiPrimitives)
+  const lines = Array.from(new Set(
+    filterAdvertisedUiPrimitiveNames([
+      ...uiPrimitives,
+      ...LIVE_GENERATION_MINIMAL_BASELINE_PRIMITIVES,
+    ]),
+  ))
     .map(name => LIVE_GENERATION_UI_IMPORT_CATALOG[name])
     .filter((line): line is string => Boolean(line))
     .map(line => `  - ${line}`);

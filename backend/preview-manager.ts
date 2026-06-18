@@ -584,27 +584,31 @@ export function findUiPrimitiveImportsInSource(source: string, importedBy: strin
   return imports;
 }
 
-function toUiPrimitivePascalName(primitive: string): string {
-  return primitive
-    .split('-')
-    .filter(Boolean)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('');
-}
-
 function hasUiPrimitiveFile(uiRoot: string, primitive: string): boolean {
-  const pascalName = toUiPrimitivePascalName(primitive);
-  const candidates = [
-    `${primitive}.ts`,
-    `${primitive}.tsx`,
-    `${pascalName}.ts`,
-    `${pascalName}.tsx`,
-    path.join(primitive, 'index.ts'),
-    path.join(primitive, 'index.tsx'),
-    path.join(pascalName, 'index.ts'),
-    path.join(pascalName, 'index.tsx'),
-  ];
-  return candidates.some(candidate => fs.existsSync(path.join(uiRoot, candidate)));
+  let rootEntries: fs.Dirent[];
+  try {
+    rootEntries = fs.readdirSync(uiRoot, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+
+  if (rootEntries.some(entry =>
+    entry.isFile() && (entry.name === `${primitive}.ts` || entry.name === `${primitive}.tsx`)
+  )) {
+    return true;
+  }
+
+  const primitiveDir = rootEntries.find(entry => entry.isDirectory() && entry.name === primitive);
+  if (!primitiveDir) return false;
+
+  try {
+    const nestedEntries = fs.readdirSync(path.join(uiRoot, primitiveDir.name), { withFileTypes: true });
+    return nestedEntries.some(entry =>
+      entry.isFile() && (entry.name === 'index.ts' || entry.name === 'index.tsx')
+    );
+  } catch {
+    return false;
+  }
 }
 
 function canonicalUiPrimitiveCandidates(primitive: string, skeletonId?: string): string[] {
@@ -944,6 +948,40 @@ window.addEventListener('unhandledrejection', (e) => {
       '*',
     );
   } catch { /* ignore */ }
+});
+
+async function captureScreenshot(): Promise<void> {
+  if (typeof window === 'undefined' || window.parent === window) return;
+  try {
+    if ('fonts' in document) {
+      await (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts?.ready;
+    }
+    const { default: html2canvas } = await import('html2canvas');
+    const canvas = await html2canvas(document.documentElement, {
+      backgroundColor: null,
+      logging: false,
+      scale: Math.min(window.devicePixelRatio || 1, 2),
+      useCORS: true,
+    });
+    window.parent.postMessage(
+      { type: 'screenshot-result', buildId: BUILD_ID, dataUrl: canvas.toDataURL('image/png') },
+      '*',
+    );
+  } catch (error) {
+    window.parent.postMessage(
+      {
+        type: 'screenshot-result',
+        buildId: BUILD_ID,
+        error: String(error instanceof Error ? error.message : error ?? 'screenshot failed'),
+      },
+      '*',
+    );
+  }
+}
+
+window.addEventListener('message', (event) => {
+  if (event.data?.type !== 'capture-screenshot') return;
+  void captureScreenshot();
 });
 `;
   await fsPromises.writeFile(path.join(srcDir, 'main.tsx'), canonicalMainTsx, 'utf-8');

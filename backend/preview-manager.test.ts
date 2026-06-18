@@ -182,6 +182,28 @@ describe('preview-manager UI primitive guard', () => {
     });
   });
 
+  it('materializes canonical lowercase primitives even when a legacy PascalCase file already exists', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.mkdir(path.join(srcDir, 'components', 'ui'), { recursive: true });
+      await fsPromises.mkdir(path.join(srcDir, 'pages'), { recursive: true });
+      await fsPromises.writeFile(
+        path.join(srcDir, 'components', 'ui', 'Button.tsx'),
+        'export const Button = () => null;\n',
+        'utf-8',
+      );
+      await fsPromises.writeFile(
+        path.join(srcDir, 'pages', 'Home.tsx'),
+        "import Button from '@/components/ui/button';\nexport function Home() { return <Button />; }\n",
+        'utf-8',
+      );
+
+      const result = await ensureImportedUiPrimitives(srcDir, 'mobile-app');
+
+      expect(result.materialized).toContain('components/ui/button.tsx');
+      expect(fs.existsSync(path.join(srcDir, 'components', 'ui', 'button.tsx'))).toBe(true);
+    });
+  });
+
   it('fails unknown UI primitive imports with a clear pre-compile diagnostic', async () => {
     await withTempSrc(async (srcDir) => {
       await fsPromises.mkdir(path.join(srcDir, 'pages'), { recursive: true });
@@ -206,6 +228,13 @@ describe('preview-manager UI primitive guard', () => {
     expect(src, 'shadcn@latest must not appear in compile path').not.toContain('shadcn@latest');
     expect(src, 'npx shadcn must not appear in compile path').not.toContain('npx shadcn');
     expect(src, 'ensureShadcnComponents must not exist').not.toContain('ensureShadcnComponents');
+  });
+
+  it('canonical preview main.tsx contains the screenshot capture handshake', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toContain('capture-screenshot');
+    expect(src).toContain('screenshot-result');
+    expect(src).toContain("import('html2canvas')");
   });
 
   it('keeps every exported skeleton UI barrel backed by a physical file', async () => {
