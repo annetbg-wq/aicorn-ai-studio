@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveDesignContext } from '../DesignContract';
 import { clearFileVisualSelectionMemory } from '../FileVisualBankService';
 import { materializeMediaAssets } from '../ProtoPipeline';
@@ -9,6 +9,25 @@ import {
   serializeDesignSelectionDiagnostics,
   serializeVisualUsageDiagnostics,
 } from '../ProtoPipeline';
+
+vi.mock('../../lib/supabase', () => {
+  const unavailable = new Error('Supabase is intentionally disabled in ProtoPipeline unit tests.');
+  const fallback = { data: null, error: unavailable };
+  const query = {
+    data: null,
+    error: unavailable,
+    eq: () => ({ single: async () => fallback }),
+    single: async () => fallback,
+  };
+
+  return {
+    supabase: {
+      from: () => ({
+        select: () => query,
+      }),
+    },
+  };
+});
 
 describe('ProtoPipeline diagnostics', () => {
   beforeEach(() => {

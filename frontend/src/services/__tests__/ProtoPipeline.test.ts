@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   extractJsonObjectFromModelText,
   validateArchitectJsonShape,
@@ -10,6 +10,25 @@ import {
   materializePremiumComponents,
   materializeMediaAssets,
 } from '../ProtoPipeline';
+
+vi.mock('../../lib/supabase', () => {
+  const unavailable = new Error('Supabase is intentionally disabled in ProtoPipeline unit tests.');
+  const fallback = { data: null, error: unavailable };
+  const query = {
+    data: null,
+    error: unavailable,
+    eq: () => ({ single: async () => fallback }),
+    single: async () => fallback,
+  };
+
+  return {
+    supabase: {
+      from: () => ({
+        select: () => query,
+      }),
+    },
+  };
+});
 
 describe('ProtoPipeline premium materialization', () => {
   it('copies selected premium component files and the shared registry into preview design-pack paths', async () => {
@@ -86,6 +105,7 @@ describe('ProtoPipeline coder UI primitive catalog', () => {
   it('lists exact physical import paths and does not advertise unlisted primitives', () => {
     const catalog = buildUiPrimitiveImportCatalog(['Button', 'ScrollArea']);
 
+    expect(catalog).toContain("Alert, AlertDescription, AlertTitle from '@/components/ui/alert'");
     expect(catalog).toContain("Button from '@/components/ui/button'");
     expect(catalog).toContain("ScrollArea, ScrollBar from '@/components/ui/scroll-area'");
     expect(catalog).not.toContain('DropdownMenu');
