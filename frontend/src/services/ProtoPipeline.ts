@@ -370,6 +370,19 @@ export interface StepOutputMetrics {
   architecture_implementation_diagnostics?: ArchitectureImplementationDiagnosticsTelemetry;
   product_specificity_diagnostics?: ProductSpecificityDiagnosticsTelemetry;
   screen_composition_diagnostics?: ScreenCompositionDiagnosticsResult;
+  completeness_gate?: {
+    mustTotal: number;
+    mustCovered: number;
+    shouldTotal: number;
+    shouldCovered: number;
+    coverageRatioMust: number;
+    coverageRatioAll: number;
+    uncoveredMust: string[];
+    uncoveredShould: string[];
+    completenessGateStatus: 'pass' | 'fail';
+    completenessGateReason: string;
+    factoryGatePassed: boolean;
+  };
 }
 
 export interface StepExecutionMetrics {
@@ -2546,6 +2559,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     }
 
     const completenessGate = evaluateCompletenessGate({
+      featureChecklist: productDocumentSet.productDocs.featureChecklist,
       prebuiltPlan: config.prebuiltPlan,
       generatedFiles: filterCompletenessFiles(filteredFiles),
       skeletonFiles: getSkeletonInstalledFiles(config.skeletonId),
@@ -2553,10 +2567,14 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     if (!completenessGate.ok) {
       return fail('apply', completenessGate.blockingReasons.join(' | '));
     }
-    if (completenessGate.coverage.requiredPageCount > 0 || completenessGate.coverage.requiredCapabilityCount > 0) {
+    if (completenessGate.coverage.mustTotal > 0) {
       log(
-        `[completeness] pages ${completenessGate.coverage.coveredPageCount}/${completenessGate.coverage.requiredPageCount}, ` +
-        `capabilities ${completenessGate.coverage.coveredCapabilityCount}/${completenessGate.coverage.requiredCapabilityCount}`,
+        `[completeness] must-coverage ${completenessGate.coverage.mustCovered}/${completenessGate.coverage.mustTotal}` +
+        ` (${(completenessGate.coverage.coverageRatioMust * 100).toFixed(0)}%)` +
+        (completenessGate.coverage.uncoveredMust.length > 0
+          ? ` uncovered: ${completenessGate.coverage.uncoveredMust.join(', ')}`
+          : ''),
+        completenessGate.ok ? 'info' : 'warn',
       );
     }
 
@@ -2661,6 +2679,19 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         architecture_implementation_diagnostics: serializeArchitectureImplementationDiagnostics(architectureImplementationDiagnostics),
         product_specificity_diagnostics: serializeProductSpecificityDiagnostics(productSpecificityDiagnostics),
         screen_composition_diagnostics: compositionDiagnostics,
+        completeness_gate: {
+          mustTotal: completenessGate.coverage.mustTotal,
+          mustCovered: completenessGate.coverage.mustCovered,
+          shouldTotal: completenessGate.coverage.shouldTotal,
+          shouldCovered: completenessGate.coverage.shouldCovered,
+          coverageRatioMust: completenessGate.coverage.coverageRatioMust,
+          coverageRatioAll: completenessGate.coverage.coverageRatioAll,
+          uncoveredMust: completenessGate.coverage.uncoveredMust,
+          uncoveredShould: completenessGate.coverage.uncoveredShould,
+          completenessGateStatus: completenessGate.coverage.completenessGateStatus,
+          completenessGateReason: completenessGate.coverage.completenessGateReason,
+          factoryGatePassed: completenessGate.ok && completenessGate.coverage.coverageRatioMust >= 0.8,
+        },
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
