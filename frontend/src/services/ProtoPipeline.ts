@@ -144,7 +144,7 @@ import {
   recordCoderPromptBlockSizes,
 } from './CoderPromptBlockSizeDiagnostics';
 import type { ProjectPlan } from './types/ProjectPlan';
-import { materializeProductDocumentSet } from './ProductDocumentSet';
+import { materializeProductDocumentSet, type FeatureChecklistItem } from './ProductDocumentSet';
 import { evaluateCompletenessGate } from './CompletenessGate';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -160,6 +160,42 @@ export type StepId =
   | 'preview';
 
 export type StepStatus = 'pending' | 'active' | 'done' | 'error';
+
+// ── Pass 2 Gap types (WI-4) ───────────────────────────────────────────────────
+
+export type GapStatus = 'missing' | 'partial' | 'fake' | 'broken' | 'visual';
+export type GapPriority = 'must' | 'should' | 'nice';
+export type GapSource = 'completeness' | 'build' | 'critic' | 'visual';
+
+/** Strict gap item returned by the Pass 2 critic. No loose {verdict,reasons,instructions,focusFiles} schema. */
+export interface Gap {
+  id: string;
+  briefPoint: string;
+  status: GapStatus;
+  evidence: string;
+  targetFile: string;
+  requiredAction: string;
+  priority: GapPriority;
+  source: GapSource;
+}
+
+/** Telemetry emitted by the Pass 2 loop. Included in stepResults.apply.output. */
+export interface Pass2Telemetry {
+  pass2_ran: boolean;
+  pass2_available: boolean;
+  pass2_unavailable_reason?: string;
+  pass2_iterations: number;
+  critic_gap_count: number;
+  critic_schema: 'Gap[]';
+  critic_parse_status: 'ok' | 'parse_error' | 'retry_ok' | 'unavailable';
+  implementer_touched_files: string[];
+  implementer_rejected_files: string[];
+  coverage_before: number;
+  coverage_after: number;
+  pass2_build_ok: boolean;
+  outcome: 'done' | 'partial' | 'pass2_unavailable' | 'route_unresolved';
+  factoryGatePassed: boolean;
+}
 
 export interface StepLlmMetrics {
   model: string;
@@ -383,6 +419,7 @@ export interface StepOutputMetrics {
     completenessGateReason: string;
     factoryGatePassed: boolean;
   };
+  pass2_telemetry?: Pass2Telemetry;
 }
 
 export interface StepExecutionMetrics {
@@ -518,6 +555,7 @@ const STEP_BUDGET = {
 export const CODER_MAX_TOKENS = STEP_BUDGET.coder.maxTokens;
 
 const MAX_REPAIR_PASSES = 2;
+const PASS2_MAX_ITERATIONS = 2;
 
 const DESIGN_PACK_RAW_MODULES = import.meta.glob(
   [
@@ -1147,172 +1185,362 @@ function buildCriticFileDigest(currentFiles: Record<string, string>): string {
     .join('\n');
 }
 
-interface PassTwoCriticResult {
-  verdict: 'pass' | 'revise';
-  reasons: string[];
-  instructions: string[];
-  focusFiles: string[];
+// ── Pass 2 helpers (WI-4) ─────────────────────────────────────────────────────
+
+/** Paths that the Pass 2 implementer must never touch. */
+const PASS2_UNSAFE_PATH_PATTERNS: RegExp[] = [
+  /^backend\//,
+  /package(?:-lock)?\.json$/,
+  /yarn\.lock$/,
+  /pnpm-lock\.yaml$/,
+  /\.env(?:\.|$)/,
+  /agent-config\.json$/,
+  /tsconfig(?:\..*)?\.json$/,
+  /vite\.config\./,
+  /tailwind\.config\./,
+  /postcss\.config\./,
+  /node_modules\//,
+  /secrets?\./,
+];
+
+/** Returns false for backend/config/secrets/package paths; true for workspace source files. */
+export function isPass2SafeTargetFile(path: string): boolean {
+  const normalized = normalizeOutputPath(path);
+  return !PASS2_UNSAFE_PATH_PATTERNS.some(rx => rx.test(normalized));
 }
 
-async function runPassTwoCritic(input: {
-  prompt: string;
-  plan: ArchitectPlan;
-  prebuiltPlan?: ProjectPlan;
+/** Strips ```json or ``` fences from LLM output before JSON.parse. */
+export function stripPass2JsonFences(text: string): string {
+  return text
+    .replace(/^```(?:json)?\s*\n?/im, '')
+    .replace(/\n?```\s*$/m, '')
+    .trim();
+}
+
+/**
+ * Parses a Gap[] from raw LLM text.
+ * Rejects the old loose schema {verdict, reasons, instructions, focusFiles} with an explicit error.
+ */
+export function parseGapArray(raw: string): { gaps: Gap[] | null; parseError?: string } {
+  const stripped = stripPass2JsonFences(raw);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch (e) {
+    return { gaps: null, parseError: `json_parse_failed: ${(e as Error).message}` };
+  }
+  if (!Array.isArray(parsed)) {
+    if (typeof parsed === 'object' && parsed !== null) {
+      const obj = parsed as Record<string, unknown>;
+      if ('verdict' in obj || 'reasons' in obj || 'instructions' in obj || 'focusFiles' in obj) {
+        return {
+          gaps: null,
+          parseError: 'loose_schema_rejected: critic returned {verdict,reasons,instructions,focusFiles} instead of Gap[]',
+        };
+      }
+    }
+    return { gaps: null, parseError: `expected_json_array: got ${typeof parsed}` };
+  }
+
+  const GAP_STATUSES = new Set(['missing', 'partial', 'fake', 'broken', 'visual']);
+  const GAP_PRIORITIES = new Set(['must', 'should', 'nice']);
+  const GAP_SOURCES = new Set(['completeness', 'build', 'critic', 'visual']);
+
+  const gaps: Gap[] = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== 'object') continue;
+    const g = item as Record<string, unknown>;
+    if (typeof g.id !== 'string' || !g.id) continue;
+    if (typeof g.briefPoint !== 'string' || !g.briefPoint) continue;
+    gaps.push({
+      id: g.id,
+      briefPoint: g.briefPoint,
+      status: GAP_STATUSES.has(String(g.status)) ? g.status as GapStatus : 'missing',
+      evidence: typeof g.evidence === 'string' ? g.evidence : '',
+      targetFile: typeof g.targetFile === 'string' ? g.targetFile : '',
+      requiredAction: typeof g.requiredAction === 'string' ? g.requiredAction : '',
+      priority: GAP_PRIORITIES.has(String(g.priority)) ? g.priority as GapPriority : 'must',
+      source: GAP_SOURCES.has(String(g.source)) ? g.source as GapSource : 'completeness',
+    });
+  }
+
+  return { gaps };
+}
+
+/**
+ * Converts CompletenessGate uncoveredMust feature points into a deterministic Gap[].
+ * Always available — no LLM required. Used as the canonical gap source even when
+ * the QA route is not configured.
+ */
+export function buildDeterministicGaps(
+  featureChecklist: FeatureChecklistItem[],
+  uncoveredMust: string[],
+): Gap[] {
+  return uncoveredMust.map((briefPoint, index) => {
+    const item = featureChecklist.find(f => f.briefPoint === briefPoint);
+    const targetFile = item?.targetFiles[0]
+      ? normalizeOutputPath(item.targetFiles[0])
+      : 'pages/Home.tsx';
+    return {
+      id: `gap-${String(index + 1).padStart(3, '0')}`,
+      briefPoint,
+      status: 'missing' as GapStatus,
+      evidence: item
+        ? `CompletenessGate: feature not covered. Target file(s): ${item.targetFiles.join(', ')}`
+        : `CompletenessGate: feature absent from generated output`,
+      targetFile,
+      requiredAction: item
+        ? `Implement "${briefPoint}" with concrete code in ${item.targetFiles.join(', ')}`
+        : `Implement "${briefPoint}" with concrete code`,
+      priority: (item?.priority ?? 'must') as GapPriority,
+      source: 'completeness' as GapSource,
+    };
+  });
+}
+
+/**
+ * Pass 2 critic — strict Gap[] output.
+ *
+ * Always builds a deterministic Gap[] from CompletenessGate uncovered must features.
+ * If the QA route is configured, attempts LLM enrichment with one retry on parse failure.
+ * If LLM unavailable or parse fails after retry, falls back to the deterministic Gap[].
+ * Never returns the loose {verdict,reasons,instructions,focusFiles} schema.
+ */
+async function runPass2Critic(input: {
+  featureChecklist: FeatureChecklistItem[];
+  uncoveredMust: string[];
   currentFiles: Record<string, string>;
-  uploadedAssets?: UploadedAssetFusionResult;
+  buildErrors?: string;
   signal?: AbortSignal;
   routeOverrides?: RouteOverrideMap;
   onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onUsage?: (usage: StepLlmMetrics) => void;
-}): Promise<PassTwoCriticResult> {
-  if (!resolveRouteOrSkip('qa', input.routeOverrides)) {
-    return { verdict: 'pass', reasons: [], instructions: [], focusFiles: [] };
+}): Promise<{
+  gaps: Gap[];
+  parseStatus: Pass2Telemetry['critic_parse_status'];
+  available: boolean;
+  unavailableReason?: string;
+}> {
+  const deterministicGaps = buildDeterministicGaps(input.featureChecklist, input.uncoveredMust);
+
+  const qaRoute = resolveRouteOrSkip('qa', input.routeOverrides);
+  if (!qaRoute) {
+    input.onLog('[pass2-critic] qa route not configured — using deterministic Gap[] from CompletenessGate', 'info');
+    return { gaps: deterministicGaps, parseStatus: 'unavailable', available: false, unavailableReason: 'route_unresolved' };
   }
 
-  const requiredPages = (input.prebuiltPlan?.pages ?? [])
-    .map(page => `${page.name} -> ${normalizeOutputPath(page.file)} (${page.purpose})`)
-    .join('\n');
-  const mustCapabilities = collectRequiredCapabilityIds(input.prebuiltPlan);
   const system = [
     'You are Pass 2 critic for a prototype pipeline.',
-    'Review the candidate app after the first implementation pass.',
-    'Return ONLY valid JSON with this exact shape:',
-    '{',
-    '  "verdict": "pass" | "revise",',
-    '  "reasons": ["short concrete finding"],',
-    '  "instructions": ["implementer instruction"],',
-    '  "focusFiles": ["pages/Home.tsx"]',
-    '}',
-    'Use "revise" only when there is concrete missing work in the shipped prototype.',
-    'Prioritize saved-plan required pages, must-capabilities, product specificity, uploaded assets, and obvious UI contract misses.',
-    'Do not suggest rebuilding the app from scratch.',
+    'Analyze the provided feature gaps and current file state.',
+    'Return ONLY a valid JSON array of Gap objects (no prose, no markdown fences):',
+    '[',
+    '  {',
+    '    "id": "gap-001",',
+    '    "briefPoint": "short description of gap",',
+    '    "status": "missing" | "partial" | "fake" | "broken" | "visual",',
+    '    "evidence": "concrete reason the gap exists",',
+    '    "targetFile": "path/to/file.tsx",',
+    '    "requiredAction": "what the implementer must do",',
+    '    "priority": "must" | "should" | "nice",',
+    '    "source": "completeness" | "build" | "critic" | "visual"',
+    '  }',
+    ']',
+    'STRICT RULES:',
+    '- Return ONLY a JSON array. No object wrapper. No verdict/reasons/instructions/focusFiles.',
+    '- Do NOT generate code. Only identify and describe gaps.',
+    '- If input gaps are already complete, return them as-is.',
   ].join('\n');
+
   const user = [
-    `Original task: ${input.prompt}`,
-    '',
-    `App name: ${input.plan.appName}`,
-    `Architect summary: ${input.plan.summary}`,
-    '',
-    'Required pages from saved plan:',
-    requiredPages || '(none)',
-    '',
-    `Must capabilities from saved plan: ${mustCapabilities.join(', ') || 'none'}`,
-    '',
-    input.uploadedAssets?.promptBlock || 'UPLOADED ASSETS / REFERENCE MATERIAL\n(none)',
+    'Detected gaps from CompletenessGate:',
+    JSON.stringify(deterministicGaps, null, 2),
     '',
     'Current file inventory:',
-    Object.keys(input.currentFiles).sort((left, right) => left.localeCompare(right)).map(path => `- ${path}`).join('\n'),
-    '',
-    'Candidate file digest:',
-    buildCriticFileDigest(input.currentFiles),
+    Object.keys(input.currentFiles).sort((a, b) => a.localeCompare(b)).map(p => `- ${p}`).join('\n'),
+    ...(input.buildErrors ? ['', `Build errors:\n${input.buildErrors}`] : []),
   ].join('\n');
 
-  const raw = await callOnce({
-    slot: 'qa',
-    system,
-    user,
-    maxTokens: 2500,
-    timeoutMs: 60_000,
-    signal: input.signal,
-    routeOverrides: input.routeOverrides,
-    onUsage: input.onUsage,
-  });
+  const callCritic = async (extraInstruction = ''): Promise<string> =>
+    callOnce({
+      slot: 'qa',
+      system: extraInstruction ? `${system}\n\n${extraInstruction}` : system,
+      user,
+      maxTokens: 3000,
+      timeoutMs: 60_000,
+      signal: input.signal,
+      routeOverrides: input.routeOverrides,
+      onUsage: input.onUsage,
+    });
 
-  const parsed = safeParseJson(raw);
-  if (!parsed || typeof parsed !== 'object') {
-    input.onLog('[pass-2] critic returned non-JSON output; skipping critic repair', 'warn');
-    return { verdict: 'pass', reasons: [], instructions: [], focusFiles: [] };
+  let raw = '';
+  try {
+    raw = await callCritic();
+  } catch (err) {
+    if (isAbort(err)) throw err;
+    input.onLog(`[pass2-critic] LLM call failed: ${(err as Error).message} — using deterministic gaps`, 'warn');
+    return { gaps: deterministicGaps, parseStatus: 'unavailable', available: true };
   }
-  const result = parsed as Record<string, unknown>;
-  const verdict = result.verdict === 'revise' ? 'revise' : 'pass';
-  return {
-    verdict,
-    reasons: Array.isArray(result.reasons)
-      ? result.reasons.filter((item): item is string => typeof item === 'string').slice(0, 6)
-      : [],
-    instructions: Array.isArray(result.instructions)
-      ? result.instructions.filter((item): item is string => typeof item === 'string').slice(0, 8)
-      : [],
-    focusFiles: Array.isArray(result.focusFiles)
-      ? result.focusFiles
-        .filter((item): item is string => typeof item === 'string')
-        .map(path => normalizeOutputPath(path))
-        .slice(0, 12)
-      : [],
-  };
+
+  const result = parseGapArray(raw);
+  if (!result.gaps || result.gaps.length === 0) {
+    input.onLog(`[pass2-critic] first parse failed (${result.parseError ?? 'empty'}) — retrying`, 'warn');
+    try {
+      const raw2 = await callCritic(
+        'IMPORTANT: Previous response was not a valid JSON array. Return ONLY a JSON array of Gap objects. No text before or after.',
+      );
+      const result2 = parseGapArray(raw2);
+      if (result2.gaps && result2.gaps.length > 0) {
+        input.onLog(`[pass2-critic] retry parse ok — ${result2.gaps.length} gap(s)`, 'info');
+        return { gaps: result2.gaps, parseStatus: 'retry_ok', available: true };
+      }
+    } catch (err) {
+      if (isAbort(err)) throw err;
+      input.onLog(`[pass2-critic] retry call failed: ${(err as Error).message}`, 'warn');
+    }
+    input.onLog('[pass2-critic] parse_error after retry — using deterministic gaps', 'warn');
+    return { gaps: deterministicGaps, parseStatus: 'parse_error', available: true, unavailableReason: result.parseError };
+  }
+
+  input.onLog(`[pass2-critic] LLM returned ${result.gaps.length} gap(s) — schema Gap[]`, 'info');
+  return { gaps: result.gaps, parseStatus: 'ok', available: true };
 }
 
-async function runPassTwoImplementer(input: {
-  prompt: string;
-  skeletonId: SkeletonId;
-  plan: ArchitectPlan;
+/**
+ * Pass 2 implementer — scope-guarded patch applicator.
+ *
+ * Receives Gap[] from the critic, calls the 'fix' agent slot to produce delta patches,
+ * and merges only patches whose paths are:
+ *  1. Not unsafe (no backend/, package.json, .env, agent-config.json, tsconfig.json, etc.)
+ *  2. Present in the existing generated files OR in the allowed target files set
+ *  3. Not skeleton-protected
+ */
+async function runPass2Implementer(input: {
+  gaps: Gap[];
   currentFiles: Record<string, string>;
-  critic: PassTwoCriticResult;
-  uploadedAssets?: UploadedAssetFusionResult;
+  allowedTargetFiles: Set<string>;
+  skeletonId: SkeletonId;
   signal?: AbortSignal;
   routeOverrides?: RouteOverrideMap;
   onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void;
   onUsage?: (usage: StepLlmMetrics) => void;
-  designCtx?: DesignContext;
-  mediaHints?: MediaHint[];
-}): Promise<Record<string, string>> {
-  const allowedNewPaths = new Set(input.plan.deltaFiles.map(file => normalizeOutputPath(file.path)));
-  const targets = Object.entries(input.currentFiles)
-    .map(([path, content]) => `<<<FILE: ${path}>>>\n${content}\n<<<END>>>`)
+}): Promise<{
+  mergedFiles: Record<string, string>;
+  touchedFiles: string[];
+  rejectedFiles: string[];
+}> {
+  const fixRoute = resolveRouteOrSkip('fix', input.routeOverrides);
+  if (!fixRoute) {
+    input.onLog('[pass2-implementer] fix route not configured — skipping implementation', 'warn');
+    return { mergedFiles: input.currentFiles, touchedFiles: [], rejectedFiles: [] };
+  }
+
+  const allowedNormalized = new Set<string>();
+  for (const path of Object.keys(input.currentFiles)) {
+    allowedNormalized.add(normalizeOutputPath(path));
+  }
+  for (const path of input.allowedTargetFiles) {
+    allowedNormalized.add(normalizeOutputPath(path));
+  }
+  for (const gap of input.gaps) {
+    if (gap.targetFile) allowedNormalized.add(normalizeOutputPath(gap.targetFile));
+  }
+
+  const gapSummary = input.gaps
+    .map(gap =>
+      `${gap.id} [${gap.priority}] "${gap.briefPoint}"\n  status=${gap.status} targetFile=${gap.targetFile}\n  action: ${gap.requiredAction}`,
+    )
     .join('\n\n');
+
+  const allowedList = [...allowedNormalized].sort((a, b) => a.localeCompare(b));
   const system = [
-    'You are the pass-2 implementer. Apply critic feedback to the current prototype candidate.',
-    'Re-emit only the files you changed plus any missing required files from the allowed delta list.',
-    'Use the same <<<FILE: path>>> ... <<<END>>> format.',
-    'Do not modify skeleton-locked paths.',
+    'You are the Pass 2 implementer. Patch the prototype to address the identified gaps.',
+    'Emit ONLY the files you changed using delta patch format:',
+    '<<<FILE: src/pages/Coach.tsx>>>',
+    '...full file content...',
+    '<<<END>>>',
     '',
-    'CRITIC REASONS:',
-    ...input.critic.reasons.map(reason => `- ${reason}`),
+    'SCOPE RULES (strictly enforced):',
+    '- Only emit files listed in ALLOWED FILES below.',
+    '- Do NOT create files outside the workspace.',
+    '- Do NOT modify: backend/, package.json, tsconfig.json, .env, agent-config.json, vite.config.*, tailwind.config.*, node_modules/.',
+    '- Preserve all existing working code — only patch what gaps require.',
+    `- ALLOWED FILES:\n${allowedList.map(p => `  ${p}`).join('\n')}`,
+  ].join('\n');
+
+  const relevantFiles = Object.entries(input.currentFiles)
+    .filter(([path]) => allowedNormalized.has(normalizeOutputPath(path)))
+    .slice(0, 10)
+    .map(([path, content]) => `<<<FILE: ${path}>>>\n${content.slice(0, 1200)}\n<<<END>>>`)
+    .join('\n\n');
+
+  const user = [
+    'Gaps to implement:',
+    gapSummary,
     '',
-    'CRITIC INSTRUCTIONS:',
-    ...input.critic.instructions.map(instruction => `- ${instruction}`),
-    '',
-    `ALLOWED DELTA FILES: ${Array.from(allowedNewPaths).sort((left, right) => left.localeCompare(right)).join(', ')}`,
-    input.uploadedAssets?.promptBlock ?? '',
-    input.designCtx ? `\n${designContractForCoder(input.designCtx, input.mediaHints)}` : '',
-    '',
-    'SELF-CHECK BEFORE RETURNING:',
-    '- Preserve working structure and only patch what is needed.',
-    '- Missing saved-plan pages must ship as real files when they are in the allowed delta list.',
-    '- Must-capabilities must be visible in the shipped UI/flows, not hidden in notes.',
-  ].filter(Boolean).join('\n');
+    'Relevant current files:',
+    relevantFiles || '(none in allowed set)',
+  ].join('\n');
 
   let body = '';
-  await streamCall({
-    slot: 'fix',
-    system,
-    user: `Original task: ${input.prompt}\n\nCurrent candidate files:\n\n${targets}`,
-    maxTokens: STEP_BUDGET.repair.maxTokens,
-    timeoutMs: STEP_BUDGET.repair.timeoutMs,
-    signal: input.signal,
-    routeOverrides: input.routeOverrides,
-    onChunk: (delta) => { body += delta; },
-    onUsage: input.onUsage,
-  });
+  try {
+    await streamCall({
+      slot: 'fix',
+      system,
+      user,
+      maxTokens: STEP_BUDGET.repair.maxTokens,
+      timeoutMs: STEP_BUDGET.repair.timeoutMs,
+      signal: input.signal,
+      routeOverrides: input.routeOverrides,
+      onChunk: (delta) => { body += delta; },
+      onUsage: input.onUsage,
+    });
+  } catch (err) {
+    if (isAbort(err)) throw err;
+    input.onLog(`[pass2-implementer] LLM call failed: ${(err as Error).message}`, 'warn');
+    return { mergedFiles: input.currentFiles, touchedFiles: [], rejectedFiles: [] };
+  }
 
   const patches = parseFileMarkers(body);
   if (Object.keys(patches).length === 0) {
-    throw new Error('Pass-2 implementer produced no FILE/END blocks');
+    input.onLog('[pass2-implementer] no <<<FILE:>>>/<<<END>>> blocks produced', 'warn');
+    return { mergedFiles: input.currentFiles, touchedFiles: [], rejectedFiles: [] };
   }
 
   const merged: Record<string, string> = { ...input.currentFiles };
-  const dropped: string[] = [];
+  const touchedFiles: string[] = [];
+  const rejectedFiles: string[] = [];
+
   for (const [patchPath, patchContent] of Object.entries(patches)) {
-    if (patchPath in input.currentFiles || allowedNewPaths.has(normalizeOutputPath(patchPath))) {
-      merged[patchPath] = patchContent;
-    } else {
-      dropped.push(patchPath);
+    const normalized = normalizeOutputPath(patchPath);
+
+    if (!isPass2SafeTargetFile(normalized)) {
+      rejectedFiles.push(normalized);
+      input.onLog(`[pass2-implementer] rejected unsafe path: ${normalized}`, 'warn');
+      continue;
     }
+    if (!allowedNormalized.has(normalized)) {
+      rejectedFiles.push(normalized);
+      input.onLog(`[pass2-implementer] rejected out-of-scope path: ${normalized}`, 'warn');
+      continue;
+    }
+    if (isProtectedSkeletonFile(input.skeletonId, patchPath)) {
+      rejectedFiles.push(normalized);
+      input.onLog(`[pass2-implementer] rejected skeleton-protected path: ${normalized}`, 'warn');
+      continue;
+    }
+
+    merged[patchPath] = patchContent;
+    touchedFiles.push(normalized);
   }
-  if (dropped.length > 0) {
-    input.onLog(`[pass-2] dropped ${dropped.length} unexpected pass-2 file(s): ${dropped.join(', ')}`, 'warn');
+
+  if (touchedFiles.length > 0) {
+    input.onLog(`[pass2-implementer] patched ${touchedFiles.length} file(s): ${touchedFiles.join(', ')}`, 'info');
   }
-  return merged;
+  if (rejectedFiles.length > 0) {
+    input.onLog(`[pass2-implementer] rejected ${rejectedFiles.length} file(s): ${rejectedFiles.join(', ')}`, 'warn');
+  }
+
+  return { mergedFiles: merged, touchedFiles, rejectedFiles };
 }
 
 function filterCompletenessFiles(files: Record<string, string>): Record<string, string> {
@@ -2521,52 +2749,159 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       }
     }
 
-    try {
-      const passTwoCritic = await runPassTwoCritic({
-        prompt: clarifiedPrompt,
-        plan,
-        prebuiltPlan: config.prebuiltPlan,
-        currentFiles: filteredFiles,
-        uploadedAssets: uploadedAssetFusion,
-        signal: config.signal,
-        routeOverrides: config.routeOverrides,
-        onLog: log,
-      });
-      if (passTwoCritic.verdict === 'revise') {
-        log(
-          `[pass-2] critic requested implementer follow-up: ${passTwoCritic.reasons.join(' | ') || 'unspecified revision'}`,
-          'warn',
-        );
-        filteredFiles = await runPassTwoImplementer({
-          prompt: clarifiedPrompt,
-          skeletonId: config.skeletonId,
-          plan,
-          currentFiles: filteredFiles,
-          critic: passTwoCritic,
-          uploadedAssets: uploadedAssetFusion,
-          signal: config.signal,
-          routeOverrides: config.routeOverrides,
-          onLog: log,
-          designCtx,
-          mediaHints: mediaMaterialization.mediaHints,
-        });
-      } else {
-        log('[pass-2] critic passed the candidate without implementer follow-up');
-      }
-    } catch (err) {
-      if (isAbort(err)) return fail('apply', 'aborted');
-      log(`[pass-2] critic/implementer failed: ${(err as Error).message}`, 'warn');
-    }
-
-    const completenessGate = evaluateCompletenessGate({
-      featureChecklist: productDocumentSet.productDocs.featureChecklist,
+    // ── Pass 2: CompletenessGate → strict Gap[] critic → implementer loop ──────
+    // WI-4: CompletenessGate runs first to establish coverage_before.
+    // If gate fails, up to PASS2_MAX_ITERATIONS of (critic → implementer → re-gate).
+    // Outcome 'done' + factoryGatePassed=true requires coverageRatioMust >= 0.8.
+    // Outcome 'partial' + factoryGatePassed=false: pipeline continues, not a gate pass.
+    // Pass 2 unavailable (fix slot unset): structured telemetry, no crash.
+    const pass2FeatureChecklist = productDocumentSet.productDocs.featureChecklist ?? [];
+    const pass2SkeletonFiles = getSkeletonInstalledFiles(config.skeletonId);
+    let completenessGate = evaluateCompletenessGate({
+      featureChecklist: pass2FeatureChecklist,
       prebuiltPlan: config.prebuiltPlan,
       generatedFiles: filterCompletenessFiles(filteredFiles),
-      skeletonFiles: getSkeletonInstalledFiles(config.skeletonId),
+      skeletonFiles: pass2SkeletonFiles,
     });
-    if (!completenessGate.ok) {
-      return fail('apply', completenessGate.blockingReasons.join(' | '));
+    const coverageBefore = completenessGate.coverage.coverageRatioMust;
+
+    const pass2Telemetry: Pass2Telemetry = {
+      pass2_ran: false,
+      pass2_available: false,
+      pass2_iterations: 0,
+      critic_gap_count: 0,
+      critic_schema: 'Gap[]',
+      critic_parse_status: 'unavailable',
+      implementer_touched_files: [],
+      implementer_rejected_files: [],
+      coverage_before: coverageBefore,
+      coverage_after: coverageBefore,
+      pass2_build_ok: false,
+      outcome: 'pass2_unavailable',
+      factoryGatePassed: false,
+    };
+
+    if (completenessGate.ok) {
+      pass2Telemetry.outcome = 'done';
+      pass2Telemetry.factoryGatePassed = true;
+      pass2Telemetry.pass2_build_ok = true;
+      log(`[completeness] gate passed (${(coverageBefore * 100).toFixed(0)}%) — no Pass 2 needed`);
+    } else {
+      pass2Telemetry.pass2_ran = true;
+      log(
+        `[completeness] gate failed (${(coverageBefore * 100).toFixed(0)}%) — entering Pass 2 loop (max ${PASS2_MAX_ITERATIONS} iter)`,
+        'warn',
+      );
+
+      const fixRoute = resolveRouteOrSkip('fix', config.routeOverrides);
+      pass2Telemetry.pass2_available = Boolean(fixRoute);
+
+      if (!fixRoute) {
+        pass2Telemetry.pass2_unavailable_reason = 'route_unresolved';
+        pass2Telemetry.outcome = 'route_unresolved';
+        log('[pass2] fix route not configured — pass2_unavailable; structured telemetry only', 'warn');
+      } else {
+        let lastCoverage = coverageBefore;
+        const allTouchedFiles: string[] = [];
+        const allRejectedFiles: string[] = [];
+
+        for (let pass2Iter = 0; pass2Iter < PASS2_MAX_ITERATIONS; pass2Iter++) {
+          pass2Telemetry.pass2_iterations += 1;
+          try {
+            const criticResult = await runPass2Critic({
+              featureChecklist: pass2FeatureChecklist,
+              uncoveredMust: completenessGate.coverage.uncoveredMust,
+              currentFiles: filterCompletenessFiles(filteredFiles),
+              signal: config.signal,
+              routeOverrides: config.routeOverrides,
+              onLog: log,
+            });
+
+            pass2Telemetry.critic_gap_count = criticResult.gaps.length;
+            pass2Telemetry.critic_parse_status = criticResult.parseStatus;
+            if (!criticResult.available && criticResult.unavailableReason) {
+              pass2Telemetry.pass2_unavailable_reason = criticResult.unavailableReason;
+            }
+
+            if (criticResult.gaps.length === 0) {
+              log('[pass2] no gaps identified — stopping loop early', 'info');
+              break;
+            }
+
+            const allowedTargetFiles = new Set<string>(
+              pass2FeatureChecklist.flatMap(item =>
+                item.targetFiles.map(f => normalizeOutputPath(f)),
+              ),
+            );
+
+            const implResult = await runPass2Implementer({
+              gaps: criticResult.gaps,
+              currentFiles: filteredFiles,
+              allowedTargetFiles,
+              skeletonId: config.skeletonId,
+              signal: config.signal,
+              routeOverrides: config.routeOverrides,
+              onLog: log,
+            });
+
+            filteredFiles = implResult.mergedFiles;
+            for (const f of implResult.touchedFiles) {
+              if (!allTouchedFiles.includes(f)) allTouchedFiles.push(f);
+            }
+            for (const f of implResult.rejectedFiles) {
+              if (!allRejectedFiles.includes(f)) allRejectedFiles.push(f);
+            }
+
+            completenessGate = evaluateCompletenessGate({
+              featureChecklist: pass2FeatureChecklist,
+              prebuiltPlan: config.prebuiltPlan,
+              generatedFiles: filterCompletenessFiles(filteredFiles),
+              skeletonFiles: pass2SkeletonFiles,
+            });
+
+            const newCoverage = completenessGate.coverage.coverageRatioMust;
+            pass2Telemetry.coverage_after = newCoverage;
+
+            log(
+              `[pass2] iter ${pass2Iter + 1}: coverage ${(lastCoverage * 100).toFixed(0)}% → ${(newCoverage * 100).toFixed(0)}%`,
+              newCoverage > lastCoverage ? 'info' : 'warn',
+            );
+
+            if (completenessGate.ok) {
+              pass2Telemetry.outcome = 'done';
+              pass2Telemetry.factoryGatePassed = true;
+              pass2Telemetry.pass2_build_ok = true;
+              log('[pass2] coverage reached threshold — outcome: done, factoryGatePassed: true');
+              break;
+            }
+
+            if (newCoverage <= lastCoverage) {
+              log('[pass2] no coverage improvement — stopping early', 'warn');
+              break;
+            }
+
+            lastCoverage = newCoverage;
+          } catch (err) {
+            if (isAbort(err)) return fail('apply', 'aborted');
+            log(`[pass2] iter ${pass2Iter + 1} error: ${(err as Error).message}`, 'warn');
+            break;
+          }
+        }
+
+        pass2Telemetry.implementer_touched_files = allTouchedFiles;
+        pass2Telemetry.implementer_rejected_files = allRejectedFiles;
+
+        if (!pass2Telemetry.factoryGatePassed) {
+          // partial outcome — pipeline continues, NOT a gate pass
+          pass2Telemetry.outcome = 'partial';
+          log(
+            `[pass2] outcome: partial (coverage ${(pass2Telemetry.coverage_after * 100).toFixed(0)}% < 80%) — factoryGatePassed: false`,
+            'warn',
+          );
+        }
+      }
     }
+
     if (completenessGate.coverage.mustTotal > 0) {
       log(
         `[completeness] must-coverage ${completenessGate.coverage.mustCovered}/${completenessGate.coverage.mustTotal}` +
@@ -2690,8 +3025,9 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           uncoveredShould: completenessGate.coverage.uncoveredShould,
           completenessGateStatus: completenessGate.coverage.completenessGateStatus,
           completenessGateReason: completenessGate.coverage.completenessGateReason,
-          factoryGatePassed: completenessGate.ok && completenessGate.coverage.coverageRatioMust >= 0.8,
+          factoryGatePassed: pass2Telemetry.factoryGatePassed,
         },
+        pass2_telemetry: pass2Telemetry,
       },
       warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
     };
