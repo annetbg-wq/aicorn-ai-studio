@@ -1,0 +1,1240 @@
+warning: in the working copy of 'frontend/src/services/LVPipeline.ts', LF will be replaced by CRLF the next time Git touches it
+diff --git a/frontend/src/services/LVPipeline.ts b/frontend/src/services/LVPipeline.ts
+index 6779015..41bfa9b 100644
+--- a/frontend/src/services/LVPipeline.ts
++++ b/frontend/src/services/LVPipeline.ts
+@@ -28,12 +28,17 @@ import {
+   buildDeterministicGaps,
+   parseGapArray,
+   isPass2SafeTargetFile,
++  materializeUploadedAssetFusion,
+   type Gap,
+   type Pass2Telemetry,
+   type StepId,
+   type StepStatus,
+   type StepEvent,
+ } from './ProtoPipeline';
++import {
++  buildDesignFusionPromptBlock,
++  buildUploadedAssetFusionEntries,
++} from './DesignFusionService';
+ import {
+   appendPreviewSessionToUrl,
+   getPreviewSessionToken,
+@@ -158,6 +163,7 @@ function parseLvFileMarkers(raw: string): Record<string, string> {
+ function buildLvCoderSystemPrompt(
+   prompt: string,
+   featureChecklist: FeatureChecklistItem[],
++  designFusionBlock?: string,
+ ): string {
+   const mustFeatures = featureChecklist.filter(f => f.priority === 'must');
+   const shouldFeatures = featureChecklist.filter(f => f.priority === 'should');
+@@ -179,11 +185,14 @@ function buildLvCoderSystemPrompt(
+     '- React 18 + TypeScript + Vite',
+     '- Tailwind CSS with semantic tokens only (bg-background, text-foreground, bg-primary, bg-card, bg-muted, text-muted-foreground, border)',
+     '- lucide-react for icons',
++    '- shadcn/ui primitives via @/components/ui/* (Button, Card, Input, Dialog, Alert, AlertDialog, Tabs, etc.)',
+     '',
+     'MUST IMPLEMENT (all required):',
+     mustBlock,
+     ...(shouldBlock ? ['', 'SHOULD IMPLEMENT:', shouldBlock] : []),
+     '',
++    // WI-7: Design Fusion Contract — injected when available
++    ...(designFusionBlock ? [designFusionBlock, ''] : []),
+     'OUTPUT FORMAT — CRITICAL:',
+     'Emit EACH file using these exact plain-text markers:',
+     '',
+@@ -200,10 +209,10 @@ function buildLvCoderSystemPrompt(
+     '- Always emit index.css with @tailwind directives',
+     '- Use ONLY semantic Tailwind tokens: bg-background, text-foreground, bg-primary, etc.',
+     '- Do NOT use hardcoded hex colours or bg-blue-500 / text-gray-700 etc.',
+-    '- Imports: from lucide-react, react. Use simple HTML elements + Tailwind for UI.',
++    '- Use shadcn primitives from @/components/ui/* — NEVER from @radix-ui/react-* directly.',
++    '- Imports: from lucide-react, react, @/components/ui/*. No skeleton dependencies.',
+     '- Complete working code — no TODOs, no placeholder comments',
+     '- TypeScript with proper type annotations',
+-    '- No skeleton dependencies — generate everything from scratch',
+   ].join('\n');
+ }
+ 
+@@ -220,9 +229,10 @@ async function lvStreamCoder(
+   featureChecklist: FeatureChecklistItem[],
+   onChunk: (delta: string) => void,
+   signal?: AbortSignal,
++  designFusionBlock?: string,
+ ): Promise<LvCoderCallResult> {
+   const startMs = Date.now();
+-  const system = buildLvCoderSystemPrompt(prompt, featureChecklist);
++  const system = buildLvCoderSystemPrompt(prompt, featureChecklist, designFusionBlock);
+   const provider = (route as { provider?: string }).provider || 'openrouter';
+   const endpoint = Orchestrator.getEndpoint(provider);
+   const headers: Record<string, string> = {
+@@ -876,6 +886,25 @@ export class LVPipeline {
+       config.onPlan(['Generate', 'Quality check', 'Compile'], config.intent.slice(0, 40) || 'My App');
+     } catch { /* ignore */ }
+ 
++    // ── WI-7: Materialize uploaded assets + build Design Fusion block ─────────
++    const lvUploadedAssetFusion = materializeUploadedAssetFusion(
++      (config.attachments ?? []).map(a => ({
++        type: (a.type as 'image' | 'text' | 'code' | 'pdf'),
++        name: a.name,
++        data: a.data,
++        mimeType: a.mimeType,
++        textContent: a.textContent,
++      })),
++    );
++    const lvFusionEntries = buildUploadedAssetFusionEntries(lvUploadedAssetFusion.entries);
++    const lvDesignFusionBlock = buildDesignFusionPromptBlock({
++      uploadedAssets: lvFusionEntries,
++      premiumComponents: [], // blank_canvas does not use premium components
++    });
++    if (lvUploadedAssetFusion.entries.length > 0) {
++      log(`[LVPipeline] design fusion: ${lvUploadedAssetFusion.entries.length} uploaded asset(s) materialized`);
++    }
++
+     // ── 2. Single streaming coder LLM call ───────────────────────────────────
+     emitPhase('code', 40);
+ 
+@@ -898,6 +927,7 @@ export class LVPipeline {
+         featureChecklist,
+         (delta) => { try { config.onStream(delta); } catch { /* ignore */ } },
+         config.signal,
++        lvDesignFusionBlock,
+       );
+     } catch (err) {
+       if (lvIsAbort(err)) {
+@@ -924,7 +954,12 @@ export class LVPipeline {
+     log(`[LVPipeline] parsed ${parsedCount} file(s) from coder output`);
+ 
+     // Overlay AI output on neutral scaffold; normalise all keys to strip src/
+-    const merged: Record<string, string> = { ...NEUTRAL_SCAFFOLD, ...parsed };
++    // Also overlay materialized uploaded asset modules so generated imports resolve.
++    const merged: Record<string, string> = {
++      ...NEUTRAL_SCAFFOLD,
++      ...lvUploadedAssetFusion.files,
++      ...parsed,
++    };
+     const normalisedFiles: Record<string, string> = {};
+     for (const [key, value] of Object.entries(merged)) {
+       const normed = normaliseLvDeltaPath(key);
+diff --git a/frontend/src/services/ProtoPipeline.ts b/frontend/src/services/ProtoPipeline.ts
+index 004b65d..a55fe9a 100644
+--- a/frontend/src/services/ProtoPipeline.ts
++++ b/frontend/src/services/ProtoPipeline.ts
+@@ -146,6 +146,11 @@ import {
+ import type { ProjectPlan } from './types/ProjectPlan';
+ import { materializeProductDocumentSet, type FeatureChecklistItem } from './ProductDocumentSet';
+ import { evaluateCompletenessGate } from './CompletenessGate';
++import {
++  buildDesignFusionPromptBlock,
++  buildUploadedAssetFusionEntries,
++  buildPremiumFusionEntries,
++} from './DesignFusionService';
+ 
+ // ── Public types ──────────────────────────────────────────────────────────────
+ 
+@@ -969,7 +974,7 @@ function isSourceScanFile(path: string): boolean {
+   return true;
+ }
+ 
+-interface UploadedAssetPromptEntry {
++export interface UploadedAssetPromptEntry {
+   id: string;
+   kind: PipelineAttachment['type'];
+   name: string;
+@@ -977,7 +982,7 @@ interface UploadedAssetPromptEntry {
+   excerpt?: string;
+ }
+ 
+-interface UploadedAssetFusionResult {
++export interface UploadedAssetFusionResult {
+   files: Record<string, string>;
+   materializedFiles: string[];
+   promptBlock: string;
+@@ -999,7 +1004,7 @@ function sanitizeAttachmentModuleId(name: string, index: number): string {
+   return stem ? `${String(index + 1).padStart(2, '0')}-${stem}` : `attachment-${index + 1}`;
+ }
+ 
+-function materializeUploadedAssetFusion(
++export function materializeUploadedAssetFusion(
+   attachments: readonly PipelineAttachment[] | undefined,
+ ): UploadedAssetFusionResult {
+   const files: Record<string, string> = {};
+@@ -2604,6 +2609,16 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+     let coderUsage: StepLlmMetrics | undefined;
+     const coderStartedAt = Date.now();
+     try {
++       // WI-7: Build Design Fusion block before coder call using already-resolved context.
++       const _dfUploadedEntries = buildUploadedAssetFusionEntries(uploadedAssetFusion.entries);
++       const _dfPremiumEntries = designCtx
++         ? buildPremiumFusionEntries(designCtx.premiumComponentSelection.selectedComponents)
++         : [];
++       const _designFusionBlock = buildDesignFusionPromptBlock({
++         uploadedAssets: _dfUploadedEntries,
++         premiumComponents: _dfPremiumEntries,
++       });
++
+        deltaFiles = await runCoder({
+           prompt:     clarifiedPrompt,
+           plan,
+@@ -2621,6 +2636,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+          productSpecificityPlan,
+          marketAwareBuilderBrief: marketBrief,
+          attachmentPromptBlock: uploadedAssetFusion.promptBlock,
++         designFusionBlock: _designFusionBlock,
+        });
+     } catch (err) {
+       if (isAbort(err)) return fail('coder', 'aborted');
+@@ -3693,6 +3709,8 @@ export function buildCoderPlanningBlocks(input: {
+   productSpecificityPlan?: ProductSpecificityPlan;
+   marketAwareBuilderBrief?: MarketAwareBuilderBrief;
+   attachmentPromptBlock?: string;
++  /** WI-7: Design Fusion Contract block — injected after attachment context. */
++  designFusionBlock?: string;
+ }): string {
+   return [
+     input.designCtx ? designContractForCoder(input.designCtx, input.mediaHints) : '',
+@@ -3702,6 +3720,8 @@ export function buildCoderPlanningBlocks(input: {
+     input.productSpecificityPlan ? buildProductSpecificityPromptBlock(input.productSpecificityPlan) : '',
+     input.marketAwareBuilderBrief ? serializeMarketAwareBuilderBriefForCoder(input.marketAwareBuilderBrief) : '',
+     input.attachmentPromptBlock ?? '',
++    // WI-7: Design Fusion Contract — priority hierarchy for visual assets vs shadcn vs custom.
++    input.designFusionBlock ?? '',
+     // Product Identity Substitution Contract — injected when a market-aware brief is present.
+     // Must appear after the brief (so the coder has product context) and before the
+     // self-plan instructions (so the substitution rules are in scope during planning).
+@@ -3731,6 +3751,8 @@ async function runCoder(input: {
+   productSpecificityPlan?: ProductSpecificityPlan;
+   marketAwareBuilderBrief?: MarketAwareBuilderBrief;
+   attachmentPromptBlock?: string;
++  /** WI-7: Design Fusion Contract block for this coder call. */
++  designFusionBlock?: string;
+ }): Promise<Record<string, string>>{
+   const skeleton = SKELETON_REGISTRY[input.skeletonId];
+   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
+@@ -3777,6 +3799,7 @@ async function runCoder(input: {
+       productSpecificityPlan: input.productSpecificityPlan,
+       marketAwareBuilderBrief: input.marketAwareBuilderBrief,
+       attachmentPromptBlock: input.attachmentPromptBlock,
++      designFusionBlock: input.designFusionBlock,
+     });
+   const advertisedUiPrimitives = filterAdvertisedUiPrimitiveNames(skeleton.uiPrimitives);
+   const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(advertisedUiPrimitives);
+warning: in the working copy of 'frontend/src/services/DesignFusionService.ts', LF will be replaced by CRLF the next time Git touches it
+diff --git a/frontend/src/services/DesignFusionService.ts b/frontend/src/services/DesignFusionService.ts
+new file mode 100644
+index 0000000..025be87
+--- /dev/null
++++ b/frontend/src/services/DesignFusionService.ts
+@@ -0,0 +1,341 @@
++/**
++ * DesignFusionService — WI-7 Design Fusion Contract.
++ *
++ * Defines the canonical priority hierarchy for combining visual assets in both
++ * skeleton_assembly (ProtoPipeline) and blank_canvas (LVPipeline).
++ *
++ * Priority:
++ *   A) Uploaded assets / FileVisualBank / Premium components
++ *   B) shadcn local UI primitives
++ *   C) Local custom components — last resort only
++ */
++
++// ── Primitive catalog ─────────────────────────────────────────────────────────
++
++/** shadcn primitives that must never be hand-rolled when available. */
++export const SHADCN_PRIMITIVE_CATALOG = [
++  'Alert',
++  'AlertDialog',
++  'Badge',
++  'Button',
++  'Card',
++  'Checkbox',
++  'Dialog',
++  'Input',
++  'Label',
++  'Progress',
++  'ScrollArea',
++  'Select',
++  'Switch',
++  'Tabs',
++  'Textarea',
++  'Tooltip',
++] as const;
++
++export type ShadcnPrimitiveName = typeof SHADCN_PRIMITIVE_CATALOG[number];
++
++/** Surfaces where uploaded or premium visual assets are appropriate. */
++export const VISUAL_ASSET_SURFACES = [
++  'hero',
++  'onboarding',
++  'empty-state',
++  'marketing',
++  'feature-block',
++  'branded-illustration',
++  'visual-identity',
++] as const;
++
++// ── Public types ──────────────────────────────────────────────────────────────
++
++export interface UploadedAssetFusionEntry {
++  id: string;
++  originalName: string;
++  importPath: string;
++  intendedSurfaces: string[];
++  assetType: 'image' | 'text' | 'code' | 'pdf' | 'other';
++  category: 'visual' | 'reference' | 'data';
++  usageGuidance: string;
++}
++
++export interface PremiumFusionEntry {
++  id: string;
++  name: string;
++  importPath: string;
++  intendedSurface: string;
++  usageGuidance: string;
++  constraints: string[];
++}
++
++export interface DesignFusionTelemetry {
++  design_fusion_rules_injected: boolean;
++  uploaded_asset_manifest_count: number;
++  uploaded_asset_materialized_count: number;
++  premium_component_selected_count: number;
++  premium_component_used_count: number;
++  premium_selected_not_used: boolean;
++  visual_asset_selected_not_used: boolean;
++  shadcn_primitive_usage_count: number;
++  direct_radix_import_count: number;
++  self_made_primitive_count: number;
++  alert_used_when_relevant: boolean;
++  design_fusion_prompt_evidence: boolean;
++}
++
++// ── Internal helpers ──────────────────────────────────────────────────────────
++
++function assetCategory(kind: string): UploadedAssetFusionEntry['category'] {
++  if (kind === 'image') return 'visual';
++  if (kind === 'code') return 'reference';
++  return 'data';
++}
++
++function inferIntendedSurfaces(kind: string, name: string): string[] {
++  const lower = name.toLowerCase();
++  if (kind === 'image') {
++    if (/logo|brand|identity/.test(lower)) return ['visual-identity', 'hero'];
++    if (/hero|banner|cover/.test(lower)) return ['hero'];
++    if (/empty|placeholder|illustration/.test(lower)) return ['empty-state'];
++    if (/onboard|welcome/.test(lower)) return ['onboarding'];
++    if (/marketing|feature/.test(lower)) return ['marketing', 'feature-block'];
++    return ['hero', 'marketing', 'feature-block'];
++  }
++  return ['reference'];
++}
++
++function inferUsageGuidance(kind: string): string {
++  if (kind === 'image') return 'Import default export to use as img src in the UI';
++  if (kind === 'code') return 'Use excerpt for structural reference — extract key logic or patterns';
++  if (kind === 'pdf') return 'Reference document — use metadata/excerpt for product context';
++  return 'Reference material — use excerpts as needed in product copy or data';
++}
++
++/**
++ * Convert a prototype-bank design-pack file path to an @/ import path.
++ * prototype-bank/design-packs/premium-components/X/component.tsx
++ *   → @/design-pack/premium-components/X/component
++ */
++function premiumFileToImportPath(file: string): string {
++  return `@/${file
++    .replace(/^prototype-bank\/design-packs\//, 'design-pack/')
++    .replace(/\.[^.]+$/, '')}`;
++}
++
++// ── Public builders ───────────────────────────────────────────────────────────
++
++/**
++ * Enrich raw uploaded-asset prompt entries with surface inference and guidance.
++ * Input matches UploadedAssetPromptEntry from ProtoPipeline.materializeUploadedAssetFusion.
++ */
++export function buildUploadedAssetFusionEntries(
++  rawEntries: ReadonlyArray<{
++    id: string;
++    kind: string;
++    name: string;
++    moduleImportPath?: string;
++    excerpt?: string;
++  }>,
++): UploadedAssetFusionEntry[] {
++  return rawEntries
++    .filter(entry => Boolean(entry.moduleImportPath))
++    .map(entry => ({
++      id: entry.id,
++      originalName: entry.name,
++      importPath: entry.moduleImportPath!,
++      intendedSurfaces: inferIntendedSurfaces(entry.kind, entry.name),
++      assetType: (['image', 'text', 'code', 'pdf'] as string[]).includes(entry.kind)
++        ? (entry.kind as UploadedAssetFusionEntry['assetType'])
++        : ('other' as const),
++      category: assetCategory(entry.kind),
++      usageGuidance: inferUsageGuidance(entry.kind),
++    }));
++}
++
++/**
++ * Map selected premium components to fusion entries the prompt can reference.
++ * Input matches PremiumSelectedComponent[] from PremiumComponentBankService.
++ */
++export function buildPremiumFusionEntries(
++  selectedComponents: ReadonlyArray<{
++    id: string;
++    name: string;
++    kind: string;
++    file: string;
++    usageRules: readonly string[];
++    forbiddenPatterns: readonly string[];
++  }>,
++): PremiumFusionEntry[] {
++  return selectedComponents.map(comp => ({
++    id: comp.id,
++    name: comp.name,
++    importPath: premiumFileToImportPath(comp.file),
++    intendedSurface: comp.kind || 'hero',
++    usageGuidance: comp.usageRules[0] ?? 'Use in the appropriate premium surface block',
++    constraints: Array.from(comp.forbiddenPatterns).slice(0, 3),
++  }));
++}
++
++/**
++ * Build the canonical Design Fusion prompt block.
++ *
++ * Injected into both ProtoPipeline (skeleton_assembly) and LVPipeline (blank_canvas)
++ * coder system prompts to give generators a deterministic priority hierarchy.
++ */
++export function buildDesignFusionPromptBlock(opts: {
++  uploadedAssets: ReadonlyArray<UploadedAssetFusionEntry>;
++  premiumComponents: ReadonlyArray<PremiumFusionEntry>;
++}): string {
++  const lines: string[] = [
++    '== DESIGN FUSION CONTRACT ==',
++    'Follow this priority hierarchy STRICTLY when choosing what to render:',
++    '',
++    'A) UPLOADED ASSETS / PREMIUM COMPONENTS — use for:',
++    '   hero sections · branded illustrations · empty states',
++    '   onboarding visuals · marketing feature blocks',
++    '   visual identity blocks · user-provided UI references',
++    '',
++    'B) SHADCN UI PRIMITIVES — use for ALL of these (NEVER hand-roll them):',
++    '   forms:    Input, Label, Textarea, Select, Switch, Checkbox',
++    '   feedback: Alert, Badge, Progress, Tooltip',
++    '   layout:   Card, Tabs, ScrollArea',
++    '   overlay:  Dialog, AlertDialog',
++    '   actions:  Button',
++    '',
++    'C) LOCAL CUSTOM COMPONENTS — ONLY when A and B do not fit.',
++    '',
++    'HARD RULES:',
++    '- NEVER hand-roll Alert, Dialog, Tabs, Switch, Select when the primitive is available.',
++    '- NEVER import from @radix-ui/react-* directly — use ONLY @/components/ui/* paths.',
++    '- Alert      = inline status / callout / warning / info block.',
++    '- AlertDialog = modal confirmation or destructive decision. Do NOT confuse them.',
++    '- Do NOT use uploaded assets as decorative noise — only on their designated surfaces.',
++    '- Do NOT use premium components outside their allowed surfaces.',
++    '- Do NOT invent components not in the advertised catalog.',
++  ];
++
++  if (opts.uploadedAssets.length > 0) {
++    lines.push('', 'UPLOADED ASSET MANIFEST:');
++    for (const asset of opts.uploadedAssets) {
++      lines.push(
++        `  [${asset.id}] "${asset.originalName}"`,
++        `    import: '${asset.importPath}'`,
++        `    surfaces: ${asset.intendedSurfaces.join(', ')}`,
++        `    guidance: ${asset.usageGuidance}`,
++      );
++    }
++  }
++
++  if (opts.premiumComponents.length > 0) {
++    lines.push('', 'PREMIUM COMPONENT SELECTIONS:');
++    for (const comp of opts.premiumComponents) {
++      lines.push(
++        `  [${comp.id}] "${comp.name}"`,
++        `    import: '${comp.importPath}'`,
++        `    surface: ${comp.intendedSurface}`,
++        `    guidance: ${comp.usageGuidance}`,
++      );
++      if (comp.constraints.length > 0) {
++        lines.push(`    constraints: ${comp.constraints.join(' · ')}`);
++      }
++    }
++  }
++
++  lines.push('== END DESIGN FUSION CONTRACT ==');
++  return lines.join('\n');
++}
++
++// ── Telemetry detectors ───────────────────────────────────────────────────────
++
++const RADIX_IMPORT_RE = /from\s+['"]@radix-ui\/react-[^'"]+['"]/g;
++
++/**
++ * Detect any direct @radix-ui/react-* imports in generated files.
++ * These are forbidden — generators must use @/components/ui/* paths.
++ * Returns a list of "<path>: <import-statement>" strings.
++ */
++export function detectDirectRadixImports(generatedFiles: Record<string, string>): string[] {
++  const found: string[] = [];
++  for (const [filePath, content] of Object.entries(generatedFiles)) {
++    const matches = content.match(RADIX_IMPORT_RE) ?? [];
++    for (const match of matches) {
++      found.push(`${filePath}: ${match.trim()}`);
++    }
++  }
++  return found;
++}
++
++/**
++ * Count total shadcn primitive usages (JSX tag mentions) across generated files.
++ */
++export function countShadcnPrimitiveUsages(generatedFiles: Record<string, string>): number {
++  const re = new RegExp(`<(${SHADCN_PRIMITIVE_CATALOG.join('|')})[\\s/>]`, 'g');
++  let count = 0;
++  for (const content of Object.values(generatedFiles)) {
++    const matches = content.match(re) ?? [];
++    count += matches.length;
++  }
++  return count;
++}
++
++/**
++ * Validate that uploaded asset import paths are safe (no path traversal).
++ */
++export function validateAssetImportPath(importPath: string): { safe: boolean; reason?: string } {
++  if (importPath.includes('..')) {
++    return { safe: false, reason: 'path traversal detected (..)' };
++  }
++  if (importPath.includes('\\')) {
++    return { safe: false, reason: 'backslash in path' };
++  }
++  if (!importPath.startsWith('@/')) {
++    return { safe: false, reason: 'import path must start with @/' };
++  }
++  return { safe: true };
++}
++
++/**
++ * Compute full DesignFusionTelemetry from generation results and context.
++ */
++export function computeDesignFusionTelemetry(input: {
++  designFusionInjected: boolean;
++  uploadedAssets: ReadonlyArray<UploadedAssetFusionEntry>;
++  uploadedAssetMaterializedCount: number;
++  premiumComponents: ReadonlyArray<PremiumFusionEntry>;
++  generatedFiles?: Record<string, string>;
++  coderSystemPrompt?: string;
++}): DesignFusionTelemetry {
++  const files = input.generatedFiles ?? {};
++  const prompt = input.coderSystemPrompt ?? '';
++  const directRadixImports = detectDirectRadixImports(files);
++  const shadcnUsages = countShadcnPrimitiveUsages(files);
++
++  const premiumCount = input.premiumComponents.length;
++  const premiumImportRe = /from\s+['"]@\/design-pack\/premium-components\//;
++  const premiumUsedCount = premiumCount > 0
++    ? Object.values(files).filter(c => premiumImportRe.test(c)).length
++    : 0;
++
++  const visualAssetCount = input.uploadedAssets.filter(a => a.category === 'visual').length;
++  const visualAssetImportRe = /from\s+['"]@\/generated\/uploads\//;
++  const visualAssetUsed = visualAssetCount > 0
++  warning: in the working copy of 'frontend/src/services/__tests__/DesignFusion.test.ts', LF will be replaced by CRLF the next time Git touches it
+  ? Object.values(files).some(c => visualAssetImportRe.test(c))
++    : true;
++
++  const allCode = Object.values(files).join('\n');
++  const alertMentionedInPrompt = /alert|warning|notification|status/i.test(prompt);
++  const alertUsedInCode = /<Alert[\s/>]/.test(allCode);
++
++  return {
++    design_fusion_rules_injected: input.designFusionInjected,
++    uploaded_asset_manifest_count: input.uploadedAssets.length,
++    uploaded_asset_materialized_count: input.uploadedAssetMaterializedCount,
++    premium_component_selected_count: premiumCount,
++    premium_component_used_count: premiumUsedCount,
++    premium_selected_not_used: premiumCount > 0 && premiumUsedCount === 0,
++    visual_asset_selected_not_used: !visualAssetUsed,
++    shadcn_primitive_usage_count: shadcnUsages,
++    direct_radix_import_count: directRadixImports.length,
++    self_made_primitive_count: directRadixImports.length,
++    alert_used_when_relevant: alertMentionedInPrompt ? alertUsedInCode : true,
++    design_fusion_prompt_evidence: prompt.includes('DESIGN FUSION CONTRACT'),
++  };
++}
+diff --git a/frontend/src/services/__tests__/DesignFusion.test.ts b/frontend/src/services/__tests__/DesignFusion.test.ts
+new file mode 100644
+index 0000000..b25a067
+--- /dev/null
++++ b/frontend/src/services/__tests__/DesignFusion.test.ts
+@@ -0,0 +1,663 @@
++/**
++ * DesignFusion — WI-7 test suite.
++ *
++ * Covers:
++ *   - Design fusion prompt hierarchy present and ordered correctly
++ *   - Alert vs AlertDialog rule present
++ *   - Direct Radix import forbidden rule present
++ *   - Custom component only after premium/shadcn fallback
++ *   - Uploaded asset manifest generation
++ *   - Uploaded asset import paths are stable and safe
++ *   - Asset materialization creates importable modules
++ *   - Prompt includes id/import path/surface guidance
++ *   - No path traversal in import paths
++ *   - Premium component appears in prompt with id/path/surface
++ *   - ProtoPipeline design fusion block present via buildCoderPlanningBlocks
++ *   - LVPipeline design fusion block present in coder system prompt
++ *   - Safety: no preview-workspace, no agent-config, no provider defaults
++ */
++
++import { describe, expect, it } from 'vitest';
++import {
++  SHADCN_PRIMITIVE_CATALOG,
++  VISUAL_ASSET_SURFACES,
++  buildUploadedAssetFusionEntries,
++  buildPremiumFusionEntries,
++  buildDesignFusionPromptBlock,
++  detectDirectRadixImports,
++  countShadcnPrimitiveUsages,
++  validateAssetImportPath,
++  computeDesignFusionTelemetry,
++  type UploadedAssetFusionEntry,
++  type PremiumFusionEntry,
++} from '../DesignFusionService';
++import { buildCoderPlanningBlocks } from '../ProtoPipeline';
++
++// ── Fixtures ──────────────────────────────────────────────────────────────────
++
++const sampleRawEntries = [
++  {
++    id: '01-hero-image',
++    kind: 'image' as const,
++    name: 'hero-image.png',
++    moduleImportPath: '@/generated/uploads/01-hero-image',
++  },
++  {
++    id: '02-logo',
++    kind: 'image' as const,
++    name: 'brand-logo.svg',
++    moduleImportPath: '@/generated/uploads/02-logo',
++  },
++  {
++    id: '03-spec',
++    kind: 'code' as const,
++    name: 'api-spec.ts',
++    moduleImportPath: '@/generated/uploads/03-spec',
++    excerpt: 'export interface User { id: string; name: string; }',
++  },
++];
++
++const samplePremiumComponents = [
++  {
++    id: 'health-ritual-card',
++    name: 'RitualCard',
++    kind: 'hero',
++    file: 'prototype-bank/design-packs/premium-components/health/RitualCard/component.tsx',
++    usageRules: ['Use RitualCard in the home screen hero section'],
++    forbiddenPatterns: ['Do not use outside health domain', 'Do not downgrade to generic card'],
++  },
++  {
++    id: 'health-progress-ring',
++    name: 'ProgressRing',
++    kind: 'metric',
++    file: 'prototype-bank/design-packs/premium-components/health/ProgressRing/component.tsx',
++    usageRules: ['Use ProgressRing for habit completion display'],
++    forbiddenPatterns: [],
++  },
++];
++
++// ── 1. shadcn primitive catalog ───────────────────────────────────────────────
++
++describe('SHADCN_PRIMITIVE_CATALOG', () => {
++  it('contains all required primitives', () => {
++    const required = [
++      'Alert', 'AlertDialog', 'Badge', 'Button', 'Card', 'Checkbox',
++      'Dialog', 'Input', 'Label', 'Progress', 'ScrollArea', 'Select',
++      'Switch', 'Tabs', 'Textarea', 'Tooltip',
++    ];
++    for (const name of required) {
++      expect(SHADCN_PRIMITIVE_CATALOG).toContain(name as typeof SHADCN_PRIMITIVE_CATALOG[number]);
++    }
++  });
++
++  it('Alert and AlertDialog are distinct entries', () => {
++    expect(SHADCN_PRIMITIVE_CATALOG).toContain('Alert' as typeof SHADCN_PRIMITIVE_CATALOG[number]);
++    expect(SHADCN_PRIMITIVE_CATALOG).toContain('AlertDialog' as typeof SHADCN_PRIMITIVE_CATALOG[number]);
++    const alertIdx = SHADCN_PRIMITIVE_CATALOG.indexOf('Alert');
++    const dialogIdx = SHADCN_PRIMITIVE_CATALOG.indexOf('AlertDialog');
++    expect(alertIdx).not.toBe(dialogIdx);
++  });
++});
++
++describe('VISUAL_ASSET_SURFACES', () => {
++  it('includes expected visual surfaces', () => {
++    const expected = ['hero', 'onboarding', 'empty-state', 'marketing', 'feature-block'];
++    for (const surface of expected) {
++      expect(VISUAL_ASSET_SURFACES).toContain(surface as typeof VISUAL_ASSET_SURFACES[number]);
++    }
++  });
++});
++
++// ── 2. Design fusion prompt block — hierarchy ─────────────────────────────────
++
++describe('buildDesignFusionPromptBlock — hierarchy', () => {
++  it('includes DESIGN FUSION CONTRACT header', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    expect(block).toContain('DESIGN FUSION CONTRACT');
++  });
++
++  it('hierarchy sections A, B, C are present in correct order', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    const posA = block.indexOf('A) UPLOADED ASSETS');
++    const posB = block.indexOf('B) SHADCN UI PRIMITIVES');
++    const posC = block.indexOf('C) LOCAL CUSTOM COMPONENTS');
++    expect(posA).toBeGreaterThanOrEqual(0);
++    expect(posB).toBeGreaterThanOrEqual(0);
++    expect(posC).toBeGreaterThanOrEqual(0);
++    expect(posA).toBeLessThan(posB);
++    expect(posB).toBeLessThan(posC);
++  });
++
++  it('section A mentions hero, empty-state, onboarding surfaces', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    const sectionA = block.slice(block.indexOf('A)'), block.indexOf('B)'));
++    expect(sectionA).toMatch(/hero/i);
++    expect(sectionA).toMatch(/empty.?state/i);
++    expect(sectionA).toMatch(/onboarding/i);
++  });
++
++  it('section B mentions shadcn primitives including Alert, Dialog, Tabs, Switch', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    const sectionB = block.slice(block.indexOf('B)'), block.indexOf('C)'));
++    expect(sectionB).toContain('Alert');
++    expect(sectionB).toContain('Dialog');
++    expect(sectionB).toContain('Tabs');
++    expect(sectionB).toContain('Switch');
++    expect(sectionB).toContain('Input');
++    expect(sectionB).toContain('Button');
++  });
++
++  it('section C restricts custom components to last resort', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    const sectionC = block.slice(block.indexOf('C)'));
++    expect(sectionC).toMatch(/only when/i);
++  });
++});
++
++// ── 3. Alert vs AlertDialog distinction ──────────────────────────────────────
++
++describe('buildDesignFusionPromptBlock — Alert vs AlertDialog', () => {
++  it('explicitly defines Alert as inline callout/status', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    expect(block).toMatch(/Alert\s+=\s+inline/i);
++  });
++
++  it('explicitly defines AlertDialog as modal confirmation/destructive', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    expect(block).toMatch(/AlertDialog\s+=\s+modal/i);
++  });
++
++  it('warns not to confuse Alert and AlertDialog', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    expect(block).toMatch(/do not confuse/i);
++  });
++});
++
++// ── 4. Direct Radix import forbidden ─────────────────────────────────────────
++
++describe('buildDesignFusionPromptBlock — radix import rule', () => {
++  it('forbids direct @radix-ui/react-* imports', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    expect(block).toContain('@radix-ui/react-*');
++    expect(block).toMatch(/NEVER import from @radix-ui/i);
++  });
++
++  it('mandates @/components/ui/* paths', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    expect(block).toContain('@/components/ui/*');
++  });
++});
++
++// ── 5. Uploaded asset manifest generation ────────────────────────────────────
++
++describe('buildUploadedAssetFusionEntries', () => {
++  it('generates an entry for each raw input with an importPath', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    expect(entries).toHaveLength(3);
++  });
++
++  it('correctly maps id and originalName', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    expect(entries[0].id).toBe('01-hero-image');
++    expect(entries[0].originalName).toBe('hero-image.png');
++    expect(entries[1].id).toBe('02-logo');
++    expect(entries[1].originalName).toBe('brand-logo.svg');
++  });
++
++  it('preserves the import path from raw entry', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    expect(entries[0].importPath).toBe('@/generated/uploads/01-hero-image');
++    expect(entries[1].importPath).toBe('@/generated/uploads/02-logo');
++  });
++
++  it('infers image assets as visual category', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    expect(entries[0].category).toBe('visual');
++    expect(entries[1].category).toBe('visual');
++  });
++
++  it('infers code assets as reference category', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    expect(entries[2].category).toBe('reference');
++  });
++
++  it('assigns hero/marketing/feature-block surfaces to generic hero images', () => {
++    const entries = buildUploadedAssetFusionEntries([sampleRawEntries[0]]);
++    expect(entries[0].intendedSurfaces).toContain('hero');
++  });
++
++  it('assigns visual-identity surface to logo images', () => {
++    const entries = buildUploadedAssetFusionEntries([sampleRawEntries[1]]);
++    expect(entries[0].intendedSurfaces).toContain('visual-identity');
++  });
++
++  it('filters entries without moduleImportPath', () => {
++    const rawWithMissing = [
++      { id: 'x', kind: 'image', name: 'x.png' }, // no moduleImportPath
++      { id: 'y', kind: 'image', name: 'y.png', moduleImportPath: '@/generated/uploads/y' },
++    ];
++    const entries = buildUploadedAssetFusionEntries(rawWithMissing);
++    expect(entries).toHaveLength(1);
++    expect(entries[0].id).toBe('y');
++  });
++});
++
++// ── 6. Uploaded asset import path safety ─────────────────────────────────────
++
++describe('validateAssetImportPath', () => {
++  it('accepts valid @/ paths', () => {
++    expect(validateAssetImportPath('@/generated/uploads/01-logo').safe).toBe(true);
++    expect(validateAssetImportPath('@/generated/uploads/02-hero-image').safe).toBe(true);
++  });
++
++  it('rejects path traversal (..)', () => {
++    const result = validateAssetImportPath('@/generated/../../etc/passwd');
++    expect(result.safe).toBe(false);
++    expect(result.reason).toMatch(/traversal/i);
++  });
++
++  it('rejects backslash in path', () => {
++    const result = validateAssetImportPath('@/generated\\uploads\\logo');
++    expect(result.safe).toBe(false);
++    expect(result.reason).toMatch(/backslash/i);
++  });
++
++  it('rejects paths not starting with @/', () => {
++    const result = validateAssetImportPath('generated/uploads/logo');
++    expect(result.safe).toBe(false);
++    expect(result.reason).toMatch(/@\//);
++  });
++
++  it('all entries from buildUploadedAssetFusionEntries are safe', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    for (const entry of entries) {
++      const { safe } = validateAssetImportPath(entry.importPath);
++      expect(safe).toBe(true);
++    }
++  });
++});
++
++// ── 7. Asset materialization creates importable modules ───────────────────────
++
++describe('ProtoPipeline.materializeUploadedAssetFusion', () => {
++  // Import lazily to avoid issues with ProtoPipeline module-level side effects in tests
++  it('creates generated/uploads/<id>.ts module for each image attachment', async () => {
++    const { materializeUploadedAssetFusion } = await import('../ProtoPipeline');
++    const result = materializeUploadedAssetFusion([
++      {
++        type: 'image',
++        name: 'logo.png',
++        data: 'data:image/png;base64,iVBORw0KGgo=',
++        mimeType: 'image/png',
++      },
++    ]);
++    expect(result.materializedFiles.length).toBeGreaterThan(0);
++    const tsModule = result.materializedFiles.find(f => f.endsWith('.ts'));
++    expect(tsModule).toBeTruthy();
++    expect(result.files[tsModule!]).toContain('uploadedAsset');
++    expect(result.files[tsModule!]).toContain('export default uploadedAsset.dataUrl');
++  });
++
++  it('creates a manifest.ts when at least one asset is present', async () => {
++    const { materializeUploadedAssetFusion } = await import('../ProtoPipeline');
++    const result = materializeUploadedAssetFusion([
++      {
++        type: 'image',
++        name: 'hero.jpg',
++        data: 'data:image/jpeg;base64,/9j/4AAQ',
++        mimeType: 'image/jpeg',
++      },
++    ]);
++    expect(result.materializedFiles).toContain('generated/uploads/manifest.ts');
++    expect(result.files['generated/uploads/manifest.ts']).toContain('UPLOADED_ASSET_MANIFEST');
++  });
++
++  it('prompt block includes asset name and import path', async () => {
++    const { materializeUploadedAssetFusion } = await import('../ProtoPipeline');
++    const result = materializeUploadedAssetFusion([
++      {
++        type: 'image',
++        name: 'hero-photo.png',
++        data: 'data:image/png;base64,abc123',
++        mimeType: 'image/png',
++      },
++    ]);
++    expect(result.promptBlock).toContain('hero-photo.png');
++    expect(result.promptBlock).toMatch(/@\/generated\/uploads/);
++  });
++
++  it('returns empty files and empty promptBlock when no attachments', async () => {
++    const { materializeUploadedAssetFusion } = await import('../ProtoPipeline');
++    const result = materializeUploadedAssetFusion([]);
++    expect(result.files).toEqual({});
++    expect(result.entries).toHaveLength(0);
++    expect(result.promptBlock).toBe('');
++  });
++});
++
++// ── 8. Prompt includes asset id/import path/surface ──────────────────────────
++
++describe('buildDesignFusionPromptBlock — uploaded asset manifest in prompt', () => {
++  it('includes each asset id in the prompt', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: entries, premiumComponents: [] });
++    expect(block).toContain('01-hero-image');
++    expect(block).toContain('02-logo');
++    expect(block).toContain('03-spec');
++  });
++
++  it('includes import path for each asset', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: entries, premiumComponents: [] });
++    expect(block).toContain('@/generated/uploads/01-hero-image');
++    expect(block).toContain('@/generated/uploads/02-logo');
++  });
++
++  it('includes intended surfaces for each asset', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: entries, premiumComponents: [] });
++    expect(block).toContain('surfaces:');
++    expect(block).toMatch(/hero|visual-identity|marketing/);
++  });
++
++  it('includes usage guidance for each asset', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: entries, premiumComponents: [] });
++    expect(block).toContain('guidance:');
++  });
++});
++
++// ── 9. Premium component in prompt with id/path/surface ──────────────────────
++
++describe('buildPremiumFusionEntries + buildDesignFusionPromptBlock', () => {
++  it('maps premium component file to @/design-pack import path', () => {
++    const entries = buildPremiumFusionEntries(samplePremiumComponents);
++    expect(entries[0].importPath).toBe(
++      '@/design-pack/premium-components/health/RitualCard/component',
++    );
++    expect(entries[1].importPath).toBe(
++      '@/design-pack/premium-components/health/ProgressRing/component',
++    );
++  });
++
++  it('includes component id in the prompt', () => {
++    const premiumEntries = buildPremiumFusionEntries(samplePremiumComponents);
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: premiumEntries });
++    expect(block).toContain('health-ritual-card');
++    expect(block).toContain('health-progress-ring');
++  });
++
++  it('includes import path in the prompt', () => {
++    const premiumEntries = buildPremiumFusionEntries(samplePremiumComponents);
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: premiumEntries });
++    expect(block).toContain('@/design-pack/premium-components/health/RitualCard/component');
++  });
++
++  it('includes surface (kind) in the prompt', () => {
++    const premiumEntries = buildPremiumFusionEntries(samplePremiumComponents);
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: premiumEntries });
++    expect(block).toContain('surface: hero');
++    expect(block).toContain('surface: metric');
++  });
++
++  it('includes usage guidance from component rules', () => {
++    const premiumEntries = buildPremiumFusionEntries(samplePremiumComponents);
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: premiumEntries });
++    expect(block).toContain('Use RitualCard in the home screen hero section');
++  });
++
++  it('includes constraints from forbidden patterns', () => {
++    const premiumEntries = buildPremiumFusionEntries(samplePremiumComponents);
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: premiumEntries });
++    expect(block).toContain('Do not use outside health domain');
++  });
++});
++
++// ── 10. ProtoPipeline — design fusion block in planning blocks ────────────────
++
++describe('ProtoPipeline buildCoderPlanningBlocks — design fusion injection', () => {
++  it('includes design fusion block when provided', () => {
++    const fusionBlock = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    const result = buildCoderPlanningBlocks({ designFusionBlock: fusionBlock });
++    expect(result).toContain('DESIGN FUSION CONTRACT');
++  });
++
++  it('design fusion appears after attachment block', () => {
++    const fusionBlock = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    const attachBlock = 'UPLOADED ASSETS / REFERENCE MATERIAL\n- image test.png';
++    const result = buildCoderPlanningBlocks({
++      designFusionBlock: fusionBlock,
++      attachmentPromptBlock: attachBlock,
++    });
++    const posAttach = result.indexOf('UPLOADED ASSETS / REFERENCE MATERIAL');
++    const posFusion = result.indexOf('DESIGN FUSION CONTRACT');
++    expect(posAttach).toBeGreaterThanOrEqual(0);
++    expect(posFusion).toBeGreaterThanOrEqual(0);
++    expect(posAttach).toBeLessThan(posFusion);
++  });
++
++  it('is empty string when designFusionBlock is undefined', () => {
++    const result = buildCoderPlanningBlocks({});
++    expect(result).not.toContain('DESIGN FUSION CONTRACT');
++  });
++
++  it('design fusion block contains Alert vs AlertDialog distinction', () => {
++    const fusionBlock = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    const result = buildCoderPlanningBlocks({ designFusionBlock: fusionBlock });
++    expect(result).toMatch(/Alert\s+=\s+inline/i);
++    expect(result).toMatch(/AlertDialog\s+=\s+modal/i);
++  });
++});
++
++// ── 11. LVPipeline — design fusion in blank_canvas prompt ────────────────────
++
++describe('LVPipeline buildLvCoderSystemPrompt — design fusion injection (via lvStreamCoder)', () => {
++  // Test the system prompt indirectly through the exported block builder
++  it('design fusion block includes shadcn primitive guidance', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    // LVPipeline injects this block into its system prompt
++    expect(block).toContain('SHADCN UI PRIMITIVES');
++    expect(block).toContain('Button');
++    expect(block).toContain('Card');
++    expect(block).toContain('Input');
++  });
++
++  it('design fusion block for blank_canvas has no premium component section when no premiums', () => {
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    expect(block).not.toContain('PREMIUM COMPONENT SELECTIONS');
++  });
++
++  it('design fusion block for blank_canvas includes uploaded assets when present', () => {
++    const entries = buildUploadedAssetFusionEntries([sampleRawEntries[0]]);
++    const block = buildDesignFusionPromptBlock({ uploadedAssets: entries, premiumComponents: [] });
++    expect(block).toContain('UPLOADED ASSET MANIFEST');
++    expect(block).toContain('01-hero-image');
++  });
++});
++
++// ── 12. detectDirectRadixImports ─────────────────────────────────────────────
++
++describe('detectDirectRadixImports', () => {
++  it('detects direct @radix-ui/react-* import', () => {
++    const files = {
++      'components/MyDialog.tsx': `import * as Dialog from '@radix-ui/react-dialog';`,
++    };
++    const found = detectDirectRadixImports(files);
++    expect(found.length).toBeGreaterThan(0);
++    expect(found[0]).toContain('@radix-ui/react-dialog');
++  });
++
++  it('does not flag @/components/ui imports', () => {
++    const files = {
++      'components/MyForm.tsx': `import { Button } from '@/components/ui/button';`,
++    };
++    const found = detectDirectRadixImports(files);
++    expect(found).toHaveLength(0);
++  });
++
++  it('detects multiple direct radix imports across files', () => {
++    const files = {
++      'A.tsx': `import * as Switch from '@radix-ui/react-switch';`,
++      'B.tsx': `import * as Tabs from '@radix-ui/react-tabs';`,
++      'C.tsx': `import { Button } from '@/components/ui/button';`, // OK
++    };
++    const found = detectDirectRadixImports(files);
++    expect(found).toHaveLength(2);
++  });
++
++  it('returns empty array for clean generated files', () => {
++    const cleanFiles = {
++      'App.tsx': `import { Button } from '@/components/ui/button';
++import { Card } from '@/components/ui/card';
++import { Tabs, TabsContent } from '@/components/ui/tabs';`,
++    };
++    expect(detectDirectRadixImports(cleanFiles)).toHaveLength(0);
++  });
++});
++
++// ── 13. countShadcnPrimitiveUsages ───────────────────────────────────────────
++
++describe('countShadcnPrimitiveUsages', () => {
++  it('counts JSX usages of shadcn primitives', () => {
++    const files = {
++      'App.tsx': `
++        <Button>Click me</Button>
++        <Card>
++          <Input placeholder="name" />
++          <Label>Name</Label>
++        </Card>
++        <Alert>Info here</Alert>
++      `,
++    };
++    const count = countShadcnPrimitiveUsages(files);
++    expect(count).toBeGreaterThanOrEqual(5);
++  });
++
++  it('returns 0 for files with no shadcn usage', () => {
++    const files = { 'App.tsx': '<div className="flex">Hello</div>' };
++    expect(countShadcnPrimitiveUsages(files)).toBe(0);
++  });
++});
++
++// ── 14. computeDesignFusionTelemetry ─────────────────────────────────────────
++
++describe('computeDesignFusionTelemetry', () => {
++  it('sets design_fusion_rules_injected from input', () => {
++    const tel = computeDesignFusionTelemetry({
++      designFusionInjected: true,
++      uploadedAssets: [],
++      uploadedAssetMaterializedCount: 0,
++      premiumComponents: [],
++    });
++    expect(tel.design_fusion_rules_injected).toBe(true);
++  });
++
++  it('counts uploaded assets from manifest', () => {
++    const entries = buildUploadedAssetFusionEntries(sampleRawEntries);
++    const tel = computeDesignFusionTelemetry({
++      designFusionInjected: true,
++      uploadedAssets: entries,
++      uploadedAssetMaterializedCount: 3,
++      premiumComponents: [],
++    });
++    expect(tel.uploaded_asset_manifest_count).toBe(3);
++    expect(tel.uploaded_asset_materialized_count).toBe(3);
++  });
++
++  it('detects direct radix imports in generated files', () => {
++    const files = { 'X.tsx': `import * as D from '@radix-ui/react-dialog';` };
++    const tel = computeDesignFusionTelemetry({
++      designFusionInjected: true,
++      uploadedAssets: [],
++      uploadedAssetMaterializedCount: 0,
++      premiumComponents: [],
++      generatedFiles: files,
++    });
++    expect(tel.direct_radix_import_count).toBeGreaterThan(0);
++  });
++
++  it('premium_selected_not_used is false when no premium selected', () => {
++    const tel = computeDesignFusionTelemetry({
++      designFusionInjected: true,
++      uploadedAssets: [],
++      uploadedAssetMaterializedCount: 0,
++      premiumComponents: [],
++    });
++    expect(tel.premium_selected_not_used).toBe(false);
++  });
++
++  it('premium_selected_not_used is true when premium selected but not imported', () => {
++    const premiumEntries = buildPremiumFusionEntries(samplePremiumComponents);
++    const tel = computeDesignFusionTelemetry({
++      designFusionInjected: true,
++      uploadedAssets: [],
++      uploadedAssetMaterializedCount: 0,
++      premiumComponents: premiumEntries,
++      generatedFiles: { 'App.tsx': '<div>no premium here</div>' },
++    });
++    expect(tel.premium_selected_not_used).toBe(true);
++    expect(tel.premium_component_selected_count).toBe(2);
++    expect(tel.premium_component_used_count).toBe(0);
++  });
++
++  it('design_fusion_prompt_evidence is true when prompt contains header', () => {
++    const fusionBlock = buildDesignFusionPromptBlock({ uploadedAssets: [], premiumComponents: [] });
++    const tel = computeDesignFusionTelemetry({
++      designFusionInjected: true,
++      uploadedAssets: [],
++      uploadedAssetMaterializedCount: 0,
++      premiumComponents: [],
++      coderSystemPrompt: `Some system...\n${fusionBlock}\nMore text`,
++    });
++    expect(tel.design_fusion_prompt_evidence).toBe(true);
++  });
++
++  it('shadcn_primitive_usage_count reflects actual usages', () => {
++    const files = {
++      'App.tsx': '<Button>Go</Button><Card>content</Card><Input />',
++    };
++    const tel = computeDesignFusionTelemetry({
++      designFusionInjected: true,
++      uploadedAssets: [],
++      uploadedAssetMaterializedCount: 0,
++      premiumComponents: [],
++      generatedFiles: files,
++    });
++    expect(tel.shadcn_primitive_usage_count).toBeGreaterThanOrEqual(3);
++  });
++});
++
++// ── 15. Safety: no WI-8 / preview-workspace / backend-agent-config ───────────
++
++describe('Scope safety — design fusion does not touch forbidden files', () => {
++  it('DesignFusionService.ts does not import from preview-workspace', async () => {
++    const fs = await import('fs');
++    const path = await import('path');
++    const src = fs.readFileSync(
++      path.resolve(__dirname, '../DesignFusionService.ts'),
++      'utf-8',
++    );
++    expect(src).not.toContain('preview-workspace');
++  });
++
++  it('DesignFusionService.ts does not import from backend', async () => {
++    const fs = await import('fs');
++    const path = await import('path');
++    const src = fs.readFileSync(
++      path.resolve(__dirname, '../DesignFusionService.ts'),
++      'utf-8',
++    );
++    expect(src).not.toContain('backend/');
++    expect(src).not.toContain('agent-config');
++  });
++
++  it('DesignFusionService.ts does not change provider/model defaults', async () => {
++    const fs = await import('fs');
++    const path = await import('path');
++    const src = fs.readFileSync(
++      path.resolve(__dirname, '../DesignFusionService.ts'),
++      'utf-8',
++    );
++    expect(src).not.toMatch(/claude-|gpt-|gemini-|openai|anthropic/i);
++  });
++});

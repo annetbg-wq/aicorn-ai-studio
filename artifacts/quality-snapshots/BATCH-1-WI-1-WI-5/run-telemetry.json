@@ -1,0 +1,71 @@
+{
+  "batch": "BATCH-1-WI-1-WI-5",
+  "wi": ["WI-1", "WI-5"],
+  "includedFiles": [
+    "backend/preview-manager.ts (partial: hasUiPrimitiveFile exact-case hunk)",
+    "backend/preview-manager.test.ts (partial: canonical lowercase primitive regression test)",
+    "frontend/src/components/ui/alert.tsx",
+    "frontend/src/services/LiveGenerationUiPrimitives.ts",
+    "frontend/src/services/__tests__/LiveGenerationContractValidator.test.ts",
+    "frontend/src/services/__tests__/ProtoPipeline.test.ts"
+  ],
+  "excludedFiles": [
+    "frontend/src/services/ProtoPipeline.ts",
+    "frontend/src/services/ProductDocumentSet.ts",
+    "frontend/src/services/CompletenessGate.ts",
+    "frontend/src/services/LVPipeline.ts",
+    "frontend/src/services/GenerationEngine.ts",
+    "frontend/src/hooks/useStudio.ts",
+    "frontend/src/services/ProjectStorage.ts",
+    "frontend/src/services/DocumentationPackService.ts",
+    "preview-workspace/tsconfig.json",
+    "preview-workspace/src/components/BottomTabs.tsx",
+    "preview-workspace/src/components/RitualCard.tsx",
+    "preview-workspace/src/components/ui/label.tsx",
+    "preview-workspace/src/components/ui/switch.tsx",
+    "preview-workspace/src/design-pack/premium-components/health/premium-health-calm-insight-01/component.tsx",
+    "preview-workspace/src/design-pack/premium-components/health/premium-health-routine-card-01/component.tsx",
+    "preview-workspace/src/design-pack/premium-components/mobile/premium-mobile-bottom-nav-01/component.tsx",
+    "preview-workspace/src/hooks/useCategories.ts",
+    "preview-workspace/src/hooks/useHabits.ts",
+    "preview-workspace/src/hooks/useRituals.ts",
+    "artifacts/*"
+  ],
+  "excludedHunks": [
+    {
+      "file": "backend/preview-manager.ts",
+      "currentLines": "953-985",
+      "reason": "WI-8 screenshot handshake excluded from Batch 1"
+    },
+    {
+      "file": "backend/preview-manager.test.ts",
+      "currentLines": "233-238",
+      "reason": "WI-8 screenshot test excluded from Batch 1"
+    }
+  ],
+  "alertPrimitivePresent": true,
+  "alertImportPath": "@/components/ui/alert",
+  "alertCatalogAdvertised": true,
+  "alertPreviewMaterializable": true,
+  "canonicalLowercasePrimitiveMaterialization": true,
+  "exactCaseCheckEnabled": true,
+  "caseOnlyDuplicateRisk": false,
+  "coder_invented_primitive_count": 0,
+  "direct_radix_import_count": 0,
+  "frontendTypecheck": "fail",
+  "frontendCatalogTests": "fail",
+  "backendExactCaseTests": "pass",
+  "factoryGatePassed": false,
+  "gitApplyCheckOnCleanHead": "pass",
+  "liveGenerationContractValidatorTest": "pass",
+  "protoPipelineCatalogTest": "fail",
+  "protoPipelineCatalogTestReason": "Fails on clean HEAD and Batch 1 snapshot because frontend test import graph requires Supabase credentials before tests execute.",
+  "frontendTypecheckReason": "Fails on clean HEAD and Batch 1 snapshot because useStudio.ts references excluded DocumentationPackService and StoredProject.generationPath support that are not present on HEAD.",
+  "baselineHeadTypecheck": "fail",
+  "baselineHeadProtoPipelineCatalogTest": "fail",
+  "alertMaterializationProof": {
+    "result": "pass",
+    "materializedPath": "components/ui/alert.tsx",
+    "method": "Isolated tsx script invoking ensureImportedUiPrimitives() with a page importing '@/components/ui/alert'."
+  }
+}

@@ -1,0 +1,52 @@
+BATCH-6-WI-7 — GATE PASS
+Date: 2026-06-19
+
+=== GATE CHECKS ===
+
+[PASS] Design fusion rules injected into ProtoPipeline (buildCoderPlanningBlocks + runCoder)
+[PASS] Design fusion rules injected into LVPipeline (buildLvCoderSystemPrompt)
+[PASS] Priority hierarchy A/B/C present and ordered (uploaded/premium → shadcn → custom)
+[PASS] Alert vs AlertDialog distinction explicit in prompt block
+[PASS] Direct @radix-ui/react-* import forbidden rule explicit
+[PASS] shadcn primitive catalog defined (16 primitives)
+[PASS] Uploaded assets: manifest generated (UPLOADED_ASSET_MANIFEST export)
+[PASS] Uploaded assets: importable .ts modules created per attachment
+[PASS] Uploaded assets: import paths start with @/ (no traversal)
+[PASS] Uploaded assets: overlaid in LVPipeline merge step for compile
+[PASS] Premium components: id/importPath/surface/guidance included in prompt
+[PASS] Premium components: @/design-pack/... import path format correct
+[PASS] directRadixImportCount == 0 (per DesignFusion tests)
+[PASS] selfMadePrimitiveCount not elevated by available primitives
+[PASS] premiumSelectedNotUsed == false when none selected
+[PASS] visualAssetSelectedNotUsed == false when none selected
+[PASS] No WI-8/screenshot hunk
+[PASS] No backend/preview-manager changes
+[PASS] No preview-workspace/* changes
+[PASS] No backend/agent-config.json changes
+[PASS] No provider/model defaults changed
+
+=== TEST RESULTS ===
+
+frontend typecheck:                         PASS (tsc --noEmit --skipLibCheck)
+DesignFusion.test.ts:                       PASS 63/63
+ProductDocumentSet.test.ts:                 PASS 6/6
+CompletenessGate.test.ts:                   PASS 27/27
+Pass2Critic.test.ts + Pass2Implementer.test.ts:  PASS 64/64
+LVPipeline.test.ts:                         PASS 32/32
+ProtoPipeline.test.ts + Diagnostics + Http500: PASS 68/68
+LiveGenerationContractValidator.test.ts:    PASS 32/32
+
+=== INCLUDED FILES ===
+frontend/src/services/DesignFusionService.ts           (NEW)
+frontend/src/services/__tests__/DesignFusion.test.ts   (NEW)
+frontend/src/services/ProtoPipeline.ts                 (MODIFIED — WI-7 hunks only)
+frontend/src/services/LVPipeline.ts                    (MODIFIED — WI-7 hunks only)
+
+=== EXCLUDED FILES (confirmed untouched) ===
+preview-workspace/*
+backend/preview-manager.ts
+backend/preview-manager.test.ts
+backend/agent-config.json
+frontend/src/shared/projectModel.ts (pre-existing modification, not WI-7)
+
+Verdict: GATE_PASS — safe to commit

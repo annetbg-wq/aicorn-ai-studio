@@ -1,0 +1,47 @@
+BATCH-3-WI-3 GATE: PASS
+Generated: 2026-06-18
+
+VERDICT: PASS — all gate conditions satisfied.
+
+GATE CONDITIONS:
+[✓] CompletenessGate exists and is integrated into ProtoPipeline
+[✓] Uses ProductDocumentSet.featureChecklist (primary path)
+[✓] Checks more than file existence (quality + signal + false-positive checks)
+[✓] Blocks empty/stub files
+[✓] Blocks imports-only files
+[✓] Blocks placeholder pages (Coming soon, Feature N, KPI N, TODO, lorem ipsum)
+[✓] Blocks components returning null
+[✓] Blocks missing must-capability signals (backend, analytics, auth, payments, ...)
+[✓] Blocks fake notification (no Notification.requestPermission)
+[✓] Blocks fake paywall (no create-flow gate)
+[✓] Blocks fake reminder (no persisted config)
+[✓] Blocks Coach without message state + send handler
+[✓] coverageRatioMust < 0.8 → ok=false (cannot pass)
+[✓] ProtoPipeline result includes completeness telemetry (stepResults.apply.output.completeness_gate)
+[✓] factoryGatePassed=false when coverageRatioMust < 0.8 (enforced by fail() early return)
+[✓] frontend typecheck: PASS (0 errors)
+[✓] CompletenessGate tests: PASS (27/27)
+[✓] ProductDocumentSet tests: PASS (6/6)
+[✓] ProtoPipeline tests: PASS (68/68)
+[✓] No WI-4/WI-6/WI-7/WI-8 hunks present
+[✓] No preview-workspace/* changes
+[✓] No backend/agent-config.json changes
+[✓] No provider/model defaults added
+
+TEST RESULTS:
+  CompletenessGate.test.ts: 27 passed, 0 failed
+  ProductDocumentSet.test.ts: 6 passed, 0 failed
+  ProtoPipeline.test.ts: 68 passed, 0 failed (3 test files)
+
+COVERAGE METRICS (from positive test):
+  mustTotal: 5
+  mustCovered: 5
+  coverageRatioMust: 1.0
+  coverageRatioAll: 1.0
+  completenessGateStatus: pass
+
+SAFE TO COMMIT: YES
+  - No breaking changes to existing exports
+  - Legacy prebuiltPlan path retained (backward compatible)
+  - All existing tests pass
+  - New fields are additive (optional in StepOutputMetrics)

@@ -1,0 +1,89 @@
+{
+  "batch": "BATCH-3-WI-3",
+  "negativeTestCases": [
+    {
+      "case": "required_file_missing",
+      "description": "targetFile not present in generatedFiles or skeletonFiles",
+      "expectedOutcome": "ok=false, failReason contains 'target file(s) missing'",
+      "testId": "CompletenessGate — required file missing"
+    },
+    {
+      "case": "file_empty",
+      "description": "targetFile exists but content.trim().length === 0",
+      "expectedOutcome": "ok=false, failReason contains 'file is empty'",
+      "testId": "CompletenessGate — empty file"
+    },
+    {
+      "case": "imports_only_file",
+      "description": "targetFile has only import/re-export lines, < 2 meaningful lines",
+      "expectedOutcome": "ok=false, failReason contains 'only imports/exports'",
+      "testId": "CompletenessGate — imports-only file"
+    },
+    {
+      "case": "coming_soon_placeholder",
+      "description": "Component renders 'Coming soon' text",
+      "expectedOutcome": "ok=false, failReason contains 'placeholder content'",
+      "testId": "CompletenessGate — placeholder content (Coming soon)"
+    },
+    {
+      "case": "feature_N_placeholder",
+      "description": "Component renders 'Feature 1', 'Feature 2' placeholder text",
+      "expectedOutcome": "ok=false, failReason contains 'placeholder content'",
+      "testId": "CompletenessGate — placeholder content (Feature N)"
+    },
+    {
+      "case": "kpi_N_placeholder",
+      "description": "Component renders 'KPI 1', 'KPI 2' placeholder text",
+      "expectedOutcome": "ok=false, failReason contains 'placeholder content'",
+      "testId": "CompletenessGate — placeholder content (KPI N)"
+    },
+    {
+      "case": "returns_null",
+      "description": "Component function returns null",
+      "expectedOutcome": "ok=false, failReason contains 'returns null or empty'",
+      "testId": "CompletenessGate — placeholder content (returns null)"
+    },
+    {
+      "case": "capability_signal_missing",
+      "description": "capability-backend item file has no fetch/supabase/persist/api patterns",
+      "expectedOutcome": "ok=false, failReason contains 'signals absent'",
+      "testId": "CompletenessGate — missing capability signal (backend)"
+    },
+    {
+      "case": "analytics_signal_missing",
+      "description": "capability-analytics item file has no analytics/report/metric/dashboard patterns",
+      "expectedOutcome": "ok=false, failReason contains 'signals absent'",
+      "testId": "CompletenessGate — missing capability signal (analytics)"
+    },
+    {
+      "case": "fake_notification_no_requestPermission",
+      "description": "File has notification toggle UI but no Notification.requestPermission",
+      "expectedOutcome": "ok=false, failReason contains 'Notification.requestPermission absent'",
+      "testId": "CompletenessGate — fake notification"
+    },
+    {
+      "case": "fake_paywall_no_create_flow_gate",
+      "description": "File has paywall/subscription banner but no isPremium/subscriptionGate check",
+      "expectedOutcome": "ok=false, failReason contains 'paywall UI present but no create-flow gate'",
+      "testId": "CompletenessGate — fake paywall"
+    },
+    {
+      "case": "fake_reminder_no_persisted_config",
+      "description": "File has reminder UI but no localStorage.setItem/reminderConfig/reminderTime state",
+      "expectedOutcome": "ok=false, failReason contains 'reminder UI present but no persisted reminder config'",
+      "testId": "CompletenessGate — fake reminder"
+    },
+    {
+      "case": "coach_without_message_flow",
+      "description": "File has coach/coaching UI but no useState messages + no send handler",
+      "expectedOutcome": "ok=false, failReason contains 'coach UI present but message state or send interaction missing'",
+      "testId": "CompletenessGate — Coach without message flow (no state, no handler)"
+    },
+    {
+      "case": "coach_message_state_only",
+      "description": "File has coach UI and messages useState but no handleSend/sendMessage/onSend",
+      "expectedOutcome": "ok=false, failReason contains 'send interaction missing'",
+      "testId": "CompletenessGate — Coach without message flow (state only)"
+    }
+  ]
+}

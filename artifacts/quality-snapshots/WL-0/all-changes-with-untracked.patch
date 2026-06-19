@@ -1,0 +1,2074 @@
+diff --git a/backend/preview-manager.test.ts b/backend/preview-manager.test.ts
+index 9d40a3a..0c3be98 100644
+--- a/backend/preview-manager.test.ts
++++ b/backend/preview-manager.test.ts
+@@ -182,6 +182,28 @@ describe('preview-manager UI primitive guard', () => {
+     });
+   });
+ 
++  it('materializes canonical lowercase primitives even when a legacy PascalCase file already exists', async () => {
++    await withTempSrc(async (srcDir) => {
++      await fsPromises.mkdir(path.join(srcDir, 'components', 'ui'), { recursive: true });
++      await fsPromises.mkdir(path.join(srcDir, 'pages'), { recursive: true });
++      await fsPromises.writeFile(
++        path.join(srcDir, 'components', 'ui', 'Button.tsx'),
++        'export const Button = () => null;\n',
++        'utf-8',
++      );
++      await fsPromises.writeFile(
++        path.join(srcDir, 'pages', 'Home.tsx'),
++        "import Button from '@/components/ui/button';\nexport function Home() { return <Button />; }\n",
++        'utf-8',
++      );
++
++      const result = await ensureImportedUiPrimitives(srcDir, 'mobile-app');
++
++      expect(result.materialized).toContain('components/ui/button.tsx');
++      expect(fs.existsSync(path.join(srcDir, 'components', 'ui', 'button.tsx'))).toBe(true);
++    });
++  });
++
+   it('fails unknown UI primitive imports with a clear pre-compile diagnostic', async () => {
+     await withTempSrc(async (srcDir) => {
+       await fsPromises.mkdir(path.join(srcDir, 'pages'), { recursive: true });
+@@ -208,6 +230,13 @@ describe('preview-manager UI primitive guard', () => {
+     expect(src, 'ensureShadcnComponents must not exist').not.toContain('ensureShadcnComponents');
+   });
+ 
++  it('canonical preview main.tsx contains the screenshot capture handshake', async () => {
++    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
++    expect(src).toContain('capture-screenshot');
++    expect(src).toContain('screenshot-result');
++    expect(src).toContain("import('html2canvas')");
++  });
++
+   it('keeps every exported skeleton UI barrel backed by a physical file', async () => {
+     const barrelPaths = [
+       path.resolve('preview-workspace/src/components/ui/index.ts'),
+diff --git a/backend/preview-manager.ts b/backend/preview-manager.ts
+index 0d5a055..799d4e2 100644
+--- a/backend/preview-manager.ts
++++ b/backend/preview-manager.ts
+@@ -584,27 +584,31 @@ export function findUiPrimitiveImportsInSource(source: string, importedBy: strin
+   return imports;
+ }
+ 
+-function toUiPrimitivePascalName(primitive: string): string {
+-  return primitive
+-    .split('-')
+-    .filter(Boolean)
+-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+-    .join('');
+-}
+-
+ function hasUiPrimitiveFile(uiRoot: string, primitive: string): boolean {
+-  const pascalName = toUiPrimitivePascalName(primitive);
+-  const candidates = [
+-    `${primitive}.ts`,
+-    `${primitive}.tsx`,
+-    `${pascalName}.ts`,
+-    `${pascalName}.tsx`,
+-    path.join(primitive, 'index.ts'),
+-    path.join(primitive, 'index.tsx'),
+-    path.join(pascalName, 'index.ts'),
+-    path.join(pascalName, 'index.tsx'),
+-  ];
+-  return candidates.some(candidate => fs.existsSync(path.join(uiRoot, candidate)));
++  let rootEntries: fs.Dirent[];
++  try {
++    rootEntries = fs.readdirSync(uiRoot, { withFileTypes: true });
++  } catch {
++    return false;
++  }
++
++  if (rootEntries.some(entry =>
++    entry.isFile() && (entry.name === `${primitive}.ts` || entry.name === `${primitive}.tsx`)
++  )) {
++    return true;
++  }
++
++  const primitiveDir = rootEntries.find(entry => entry.isDirectory() && entry.name === primitive);
++  if (!primitiveDir) return false;
++
++  try {
++    const nestedEntries = fs.readdirSync(path.join(uiRoot, primitiveDir.name), { withFileTypes: true });
++    return nestedEntries.some(entry =>
++      entry.isFile() && (entry.name === 'index.ts' || entry.name === 'index.tsx')
++    );
++  } catch {
++    return false;
++  }
+ }
+ 
+ function canonicalUiPrimitiveCandidates(primitive: string, skeletonId?: string): string[] {
+@@ -945,6 +949,40 @@ window.addEventListener('unhandledrejection', (e) => {
+     );
+   } catch { /* ignore */ }
+ });
++
++async function captureScreenshot(): Promise<void> {
++  if (typeof window === 'undefined' || window.parent === window) return;
++  try {
++    if ('fonts' in document) {
++      await (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts?.ready;
++    }
++    const { default: html2canvas } = await import('html2canvas');
++    const canvas = await html2canvas(document.documentElement, {
++      backgroundColor: null,
++      logging: false,
++      scale: Math.min(window.devicePixelRatio || 1, 2),
++      useCORS: true,
++    });
++    window.parent.postMessage(
++      { type: 'screenshot-result', buildId: BUILD_ID, dataUrl: canvas.toDataURL('image/png') },
++      '*',
++    );
++  } catch (error) {
++    window.parent.postMessage(
++      {
++        type: 'screenshot-result',
++        buildId: BUILD_ID,
++        error: String(error instanceof Error ? error.message : error ?? 'screenshot failed'),
++      },
++      '*',
++    );
++  }
++}
++
++window.addEventListener('message', (event) => {
++  if (event.data?.type !== 'capture-screenshot') return;
++  void captureScreenshot();
++});
+ `;
+   await fsPromises.writeFile(path.join(srcDir, 'main.tsx'), canonicalMainTsx, 'utf-8');
+ 
+diff --git a/frontend/src/components/ui/alert.tsx b/frontend/src/components/ui/alert.tsx
+new file mode 100644
+index 0000000..e38885e
+--- /dev/null
++++ b/frontend/src/components/ui/alert.tsx
+@@ -0,0 +1,41 @@
++import * as React from 'react'
++import { cn } from '@/lib/utils'
++
++const Alert = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
++  ({ className, ...props }, ref) => (
++    <div
++      ref={ref}
++      role="alert"
++      className={cn(
++        'relative w-full rounded-lg border border-border bg-card px-4 py-3 text-sm text-card-foreground shadow-sm',
++        className,
++      )}
++      {...props}
++    />
++  ),
++)
++Alert.displayName = 'Alert'
++
++const AlertTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLHeadingElement>>(
++  ({ className, ...props }, ref) => (
++    <h5
++      ref={ref}
++      className={cn('mb-1 font-medium leading-none tracking-tight text-foreground', className)}
++      {...props}
++    />
++  ),
++)
++AlertTitle.displayName = 'AlertTitle'
++
++const AlertDescription = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
++  ({ className, ...props }, ref) => (
++    <div
++      ref={ref}
++      className={cn('text-sm leading-relaxed text-muted-foreground [&_p]:leading-relaxed', className)}
++      {...props}
++    />
++  ),
++)
++AlertDescription.displayName = 'AlertDescription'
++
++export { Alert, AlertDescription, AlertTitle }
+diff --git a/frontend/src/hooks/useStudio.ts b/frontend/src/hooks/useStudio.ts
+index fad22fe..c580a1f 100644
+--- a/frontend/src/hooks/useStudio.ts
++++ b/frontend/src/hooks/useStudio.ts
+@@ -28,6 +28,7 @@ import {
+   type UsageData,
+ } from '../services/Orchestrator';
+ import { GenerationEngine } from '../services/GenerationEngine';
++import { LVPipeline } from '../services/LVPipeline';
+ import type { ProjectPlan } from '../services/types/ProjectPlan';
+ import {
+   classifyIdea,
+@@ -3848,6 +3849,10 @@ export const useStudio = () => {
+       autoStartPackagedTrendBuild &&
+       !!prebuiltPlanFromContext &&
+       !savedContinuationPlan;
++    const blankCanvasFastPath = LVPipeline.isBlankCanvasFastPathEligible({
++      generationPath,
++      existingCodeCount: effectiveExistingCodeCount,
++    });
+     const runStartsNewLineage = effectiveExistingCodeCount === 0 || !currentActiveLineageId;
+     let runLineageId = currentActiveLineageId;
+     let runLineageRootMessageId = currentLineageRootMessageId;
+@@ -4159,6 +4164,8 @@ export const useStudio = () => {
+       let designPrompt = '';
+       if (founderFastPath) {
+         addLog('[FounderFlow] Skipped legacy design classification warm-up');
++      } else if (blankCanvasFastPath) {
++        addLog('[LVPipeline] blank_canvas fast path active — skipped legacy design classification warm-up');
+       } else {
+         // Legacy warm-up: retained for non-founder flows until the old prompt path is removed.
+         const classification = devAgentActive || savedContinuationPlan
+@@ -4190,6 +4197,8 @@ export const useStudio = () => {
+       const isGenesisRun = effectiveExistingCodeCount === 0;
+       if (founderFastPath) {
+         addLog('[FounderFlow] Packaged founder brief already contains architecture — skipped kickoff analysis');
++      } else if (blankCanvasFastPath) {
++        addLog('[LVPipeline] blank_canvas fast path active — skipped kickoff analysis');
+       } else if (isGenesisRun && !controller.signal.aborted) {
+         setKickoffPhase('prompt_received');
+         addLog('[Kickoff] kickoff_prompt_received');
+@@ -4278,6 +4287,8 @@ export const useStudio = () => {
+       traceHandle.finishStep(kickoffStepId, {
+         summary: founderFastPath
+           ? 'Using the packaged founder brief and moving directly into the generation pipeline.'
++          : blankCanvasFastPath
++            ? 'Using the blank-canvas fast path and moving directly into live generation.'
+           : savedContinuationPlan
+             ? 'Reused the saved project plan and continuation context for this run.'
+             : `Prepared the run brief${plan.appName ? ` for ${plan.appName}` : ''} and locked the generation context.`,
+@@ -4306,7 +4317,9 @@ export const useStudio = () => {
+         traceStepIds.delete(stepId);
+       };
+ 
+-      const runOnce = (intentArg: string, buildRouteOverride?: AgentExecutionRoute) => GenerationEngine.run({
++      const runOnce = (intentArg: string, buildRouteOverride?: AgentExecutionRoute) => (
++        blankCanvasFastPath ? LVPipeline : GenerationEngine
++      ).run({
+         intent:       intentArg,
+         history,
+         files:        contextWithTheme,
+@@ -4377,7 +4390,7 @@ export const useStudio = () => {
+         },
+         onStepTrack: (() => {
+           // Live step-track state — mutable, not React state (no re-render cascade).
+-          const STEP_ORDER: string[] = founderFastPath
++          const STEP_ORDER: string[] = (founderFastPath || blankCanvasFastPath)
+             ? ['pack','architect','skeleton','coder','build','preview']
+             : ['clarify','pack','architect','skeleton','coder','build','preview'];
+           const STEP_RU: Record<string, string> = {
+@@ -4564,7 +4577,7 @@ export const useStudio = () => {
+           });
+         },
+         signal:   controller.signal,
+-        skipClarify: founderFastPath,
++        skipClarify: founderFastPath || blankCanvasFastPath,
+         onUsage:  (usage: UsageData) => {
+           reqUsage = usage;
+           traceHandle.addTokens(usage.promptTokens, usage.completionTokens);
+diff --git a/frontend/src/services/CompletenessGate.ts b/frontend/src/services/CompletenessGate.ts
+new file mode 100644
+index 0000000..7a8eb2b
+--- /dev/null
++++ b/frontend/src/services/CompletenessGate.ts
+@@ -0,0 +1,170 @@
++import type { ProjectPlan } from './types/ProjectPlan';
++
++export interface CompletenessGateCoverage {
++  requiredPageCount: number;
++  coveredPageCount: number;
++  missingPageFiles: string[];
++  requiredCapabilityCount: number;
++  coveredCapabilityCount: number;
++  missingCapabilities: string[];
++}
++
++export interface CompletenessGateResult {
++  ok: boolean;
++  blockingReasons: string[];
++  repairInstructions: string[];
++  coverage: CompletenessGateCoverage;
++}
++
++export interface CompletenessGateInput {
++  prebuiltPlan?: ProjectPlan | null;
++  generatedFiles: Record<string, string>;
++  skeletonFiles?: readonly string[];
++}
++
++const CAPABILITY_SIGNAL_RULES: Record<string, RegExp[]> = {
++  auth: [
++    /\bauth\b/i,
++    /\blogin\b/i,
++    /\bsign[\s-]?in\b/i,
++    /\bsession\b/i,
++    /\bprotected\b/i,
++  ],
++  backend: [
++    /\bsupabase\b/i,
++    /\bdatabase\b/i,
++    /\bpersist/i,
++    /\bapi\b/i,
++    /\bfetch\s*\(/i,
++  ],
++  ai_chat: [
++    /\bchat\b/i,
++    /\bassistant\b/i,
++    /\bprompt\b/i,
++    /\bcompletion\b/i,
++    /\bllm\b/i,
++  ],
++  ai_generation: [
++    /\bgenerate/i,
++    /\bprompt\b/i,
++    /\bassistant\b/i,
++    /\bllm\b/i,
++    /\bmodel\b/i,
++  ],
++  storage: [
++    /\bupload\b/i,
++    /\bstorage\b/i,
++    /\battachment\b/i,
++    /\basset\b/i,
++  ],
++  payments: [
++    /\bstripe\b/i,
++    /\bcheckout\b/i,
++    /\bpayment\b/i,
++    /\bbilling\b/i,
++  ],
++  analytics: [
++    /\banalytics\b/i,
++    /\breport/i,
++    /\bmetric/i,
++    /\bdashboard\b/i,
++  ],
++};
++
++function normalizeOutputPath(value: string): string {
++  return value
++    .trim()
++    .replace(/\\/g, '/')
++    .replace(/^\.?\/+/, '')
++    .replace(/^src\/+/, '');
++}
++
++function buildCapabilitySignalCorpus(files: Record<string, string>, skeletonFiles: readonly string[]): string {
++  const fileCorpus = Object.entries(files)
++    .map(([filePath, content]) => `${normalizeOutputPath(filePath)}\n${content}`)
++    .join('\n');
++  const skeletonCorpus = skeletonFiles
++    .map(filePath => normalizeOutputPath(filePath))
++    .join('\n');
++  return `${fileCorpus}\n${skeletonCorpus}`;
++}
++
++export function evaluateCompletenessGate(input: CompletenessGateInput): CompletenessGateResult {
++  const prebuiltPlan = input.prebuiltPlan ?? null;
++  if (!prebuiltPlan) {
++    return {
++      ok: true,
++      blockingReasons: [],
++      repairInstructions: [],
++      coverage: {
++        requiredPageCount: 0,
++        coveredPageCount: 0,
++        missingPageFiles: [],
++        requiredCapabilityCount: 0,
++        coveredCapabilityCount: 0,
++        missingCapabilities: [],
++      },
++    };
++  }
++
++  const availableFiles = new Set<string>([
++    ...Object.keys(input.generatedFiles).map(normalizeOutputPath),
++    ...(input.skeletonFiles ?? []).map(normalizeOutputPath),
++  ]);
++  const requiredPageFiles = Array.from(new Set(
++    (prebuiltPlan.pages ?? [])
++      .map(page => normalizeOutputPath(page.file ?? ''))
++      .filter(Boolean),
++  ));
++  const missingPageFiles = requiredPageFiles.filter(filePath => !availableFiles.has(filePath));
++
++  const requiredCapabilities = Array.from(new Set(
++    [
++      ...((prebuiltPlan.kickoffScope as { selectedCapabilityIds?: string[] } | undefined)?.selectedCapabilityIds ?? []),
++      ...((prebuiltPlan.architectKickoff as { selectedCapabilityIds?: string[] } | undefined)?.selectedCapabilityIds ?? []),
++    ]
++      .map(capability => capability.trim())
++      .filter(Boolean),
++  ));
++  const corpus = buildCapabilitySignalCorpus(input.generatedFiles, input.skeletonFiles ?? []);
++  const missingCapabilities = requiredCapabilities.filter(capability => {
++    const explicitRules = CAPABILITY_SIGNAL_RULES[capability];
++    if (explicitRules && explicitRules.some(rule => rule.test(corpus))) return false;
++    return !new RegExp(`\\b${capability.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(corpus);
++  });
++
++  const blockingReasons: string[] = [];
++  const repairInstructions: string[] = [];
++
++  if (missingPageFiles.length > 0) {
++    blockingReasons.push(
++      `Completeness gate: ${missingPageFiles.length} required page file(s) from the saved product plan are missing (${missingPageFiles.join(', ')})`,
++    );
++    repairInstructions.push(
++      `Rebuild the missing required page files from the saved product plan: ${missingPageFiles.join(', ')}.`,
++    );
++  }
++
++  if (missingCapabilities.length > 0) {
++    blockingReasons.push(
++      `Completeness gate: saved must-capabilities are not visible in the generated output (${missingCapabilities.join(', ')})`,
++    );
++    repairInstructions.push(
++      `Make the missing must-capabilities concrete in the shipped prototype, not just in notes (${missingCapabilities.join(', ')}).`,
++    );
++  }
++
++  return {
++    ok: blockingReasons.length === 0,
++    blockingReasons,
++    repairInstructions,
++    coverage: {
++      requiredPageCount: requiredPageFiles.length,
++      coveredPageCount: requiredPageFiles.length - missingPageFiles.length,
++      missingPageFiles,
++      requiredCapabilityCount: requiredCapabilities.length,
++      coveredCapabilityCount: requiredCapabilities.length - missingCapabilities.length,
++      missingCapabilities,
++    },
++  };
++}
+diff --git a/frontend/src/services/DocumentationPackService.ts b/frontend/src/services/DocumentationPackService.ts
+new file mode 100644
+index 0000000..561ccf8
+--- /dev/null
++++ b/frontend/src/services/DocumentationPackService.ts
+@@ -0,0 +1,14 @@
++export interface DocumentationPackFile {
++  path: string;
++  title?: string;
++  content?: string;
++  summary?: string;
++}
++
++export interface DocumentationPack {
++  id?: string;
++  title?: string;
++  summary?: string;
++  files?: DocumentationPackFile[];
++  [key: string]: unknown;
++}
+diff --git a/frontend/src/services/GenerationEngine.ts b/frontend/src/services/GenerationEngine.ts
+index beb0973..e3301b6 100644
+--- a/frontend/src/services/GenerationEngine.ts
++++ b/frontend/src/services/GenerationEngine.ts
+@@ -303,6 +303,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
+             mimeType:    a.mimeType,
+             textContent: a.textContent,
+           })),
++        prebuiltPlan: config.prebuiltPlan,
+         signal: config.signal,
+         skipClarify: config.skipClarify,
+         onLog:  (m) => log(m),
+diff --git a/frontend/src/services/LVPipeline.ts b/frontend/src/services/LVPipeline.ts
+new file mode 100644
+index 0000000..f6e78bf
+--- /dev/null
++++ b/frontend/src/services/LVPipeline.ts
+@@ -0,0 +1,24 @@
++import { GenerationEngine, type PipelineRunConfig } from './GenerationEngine';
++
++export interface LVPipelineEligibilityInput {
++  generationPath?: string | null;
++  existingCodeCount: number;
++}
++
++export function isBlankCanvasFastPathEligible(input: LVPipelineEligibilityInput): boolean {
++  return input.generationPath === 'blank_canvas' && input.existingCodeCount === 0;
++}
++
++export class LVPipeline {
++  static isBlankCanvasFastPathEligible = isBlankCanvasFastPathEligible;
++
++  static async run(config: PipelineRunConfig): Promise<ReturnType<typeof GenerationEngine.run> extends Promise<infer T> ? T : never> {
++    config.onLog?.('[LVPipeline] blank_canvas fast path enabled: skipping clarifier and saved-plan reuse');
++    return GenerationEngine.run({
++      ...config,
++      skipClarify: true,
++      prebuiltPlan: undefined,
++      reuseSavedPlanForContinuation: false,
++    });
++  }
++}
+diff --git a/frontend/src/services/LiveGenerationUiPrimitives.ts b/frontend/src/services/LiveGenerationUiPrimitives.ts
+index 19e4ed1..0040050 100644
+--- a/frontend/src/services/LiveGenerationUiPrimitives.ts
++++ b/frontend/src/services/LiveGenerationUiPrimitives.ts
+@@ -1,4 +1,9 @@
+ const LIVE_GENERATION_UI_PRIMITIVE_SPECS = [
++  {
++    id: 'alert',
++    displayName: 'Alert',
++    importCatalogEntry: "Alert, AlertDescription, AlertTitle from '@/components/ui/alert'",
++  },
+   {
+     id: 'accordion',
+     displayName: 'Accordion',
+@@ -107,6 +112,8 @@ export type UiPrimitiveDisplayName = typeof LIVE_GENERATION_UI_PRIMITIVE_SPECS[n
+ export const LIVE_GENERATION_ALLOWED_UI_PRIMITIVES: CanonicalUiPrimitive[] = LIVE_GENERATION_UI_PRIMITIVE_SPECS
+   .map(spec => spec.id);
+ 
++export const LIVE_GENERATION_MINIMAL_BASELINE_PRIMITIVES: UiPrimitiveDisplayName[] = ['Alert'];
++
+ export const LIVE_GENERATION_UI_IMPORT_CATALOG: Record<UiPrimitiveDisplayName, string> = Object.fromEntries(
+   LIVE_GENERATION_UI_PRIMITIVE_SPECS.map(spec => [spec.displayName, spec.importCatalogEntry]),
+ ) as Record<UiPrimitiveDisplayName, string>;
+@@ -198,7 +205,12 @@ export function uiPrimitiveWorkspaceCandidates(
+ }
+ 
+ export function buildLiveGenerationUiPrimitiveImportCatalog(uiPrimitives: readonly string[]): string {
+-  const lines = filterAdvertisedUiPrimitiveNames(uiPrimitives)
++  const lines = Array.from(new Set(
++    filterAdvertisedUiPrimitiveNames([
++      ...uiPrimitives,
++      ...LIVE_GENERATION_MINIMAL_BASELINE_PRIMITIVES,
++    ]),
++  ))
+     .map(name => LIVE_GENERATION_UI_IMPORT_CATALOG[name])
+     .filter((line): line is string => Boolean(line))
+     .map(line => `  - ${line}`);
+@@ -210,4 +222,4 @@ export function buildLiveGenerationUiPrimitiveImportCatalog(uiPrimitives: readon
+ 
+ export function filterAdvertisedUiPrimitiveNames(uiPrimitives: readonly string[]): UiPrimitiveDisplayName[] {
+   return uiPrimitives.filter((name): name is UiPrimitiveDisplayName => Boolean(LIVE_GENERATION_UI_IMPORT_CATALOG[name as UiPrimitiveDisplayName]));
+-}
+\ No newline at end of file
++}
+diff --git a/frontend/src/services/ProductDocumentSet.ts b/frontend/src/services/ProductDocumentSet.ts
+new file mode 100644
+index 0000000..113a453
+--- /dev/null
++++ b/frontend/src/services/ProductDocumentSet.ts
+@@ -0,0 +1,168 @@
++import type { ProjectPlan } from './types/ProjectPlan';
++import type { SkeletonId } from './SkeletonRegistry';
++import type { ScreenCompositionPlan } from './ScreenCompositionPlanner';
++import type { FunctionalFlowPlan } from './FunctionalFlowPlanner';
++import type { SkeletonIntegrationPlan } from './SkeletonIntegrationPlanner';
++import type { ProductSpecificityPlan } from './ProductSpecificityPlanner';
++
++export interface ProductDocumentSetInput {
++  prompt: string;
++  generatedAt?: string;
++  skeletonId: SkeletonId;
++  architectPlan: {
++    appName: string;
++    summary: string;
++    pages?: Array<{ path: string; name: string; file: string; purpose: string }>;
++    fileTree: Record<string, string>;
++    notes?: string[];
++    dataModel?: string;
++    contextContract?: string;
++  };
++  prebuiltPlan?: ProjectPlan;
++  compositionPlan?: ScreenCompositionPlan;
++  functionalFlowPlan?: FunctionalFlowPlan;
++  skeletonIntegrationPlan?: SkeletonIntegrationPlan;
++  productSpecificityPlan?: ProductSpecificityPlan;
++}
++
++export interface ProductDocumentSetResult {
++  baseDir: string;
++  files: Record<string, string>;
++  materializedFiles: string[];
++}
++
++const PRODUCT_DOCS_DIR = 'docs/architect';
++
++function normalizeDocTimestamp(value?: string): string {
++  return value && value.trim() ? value : new Date().toISOString();
++}
++
++function stableJson(value: unknown): string {
++  return JSON.stringify(value, null, 2) + '\n';
++}
++
++function buildPagesMarkdown(
++  pages: Array<{ path: string; name: string; file: string; purpose: string }> | undefined,
++): string {
++  if (!pages || pages.length === 0) return '- None captured\n';
++  return pages
++    .map(page => `- \`${page.path}\` -> \`${page.file}\` — ${page.name}: ${page.purpose}`)
++    .join('\n') + '\n';
++}
++
++function buildFileTreeMarkdown(fileTree: Record<string, string>): string {
++  const entries = Object.entries(fileTree).sort(([left], [right]) => left.localeCompare(right));
++  if (entries.length === 0) return '- None captured\n';
++  return entries
++    .map(([filePath, purpose]) => `- \`${filePath}\` — ${purpose}`)
++    .join('\n') + '\n';
++}
++
++export function materializeProductDocumentSet(
++  input: ProductDocumentSetInput,
++): ProductDocumentSetResult {
++  const generatedAt = normalizeDocTimestamp(input.generatedAt);
++  const baseDir = PRODUCT_DOCS_DIR;
++  const kickoffScope = input.prebuiltPlan?.kickoffScope as {
++    label?: string;
++    description?: string;
++    selectedCapabilityIds?: string[];
++    deferredCapabilityIds?: string[];
++  } | undefined;
++  const summaryLines = [
++    `# ${input.architectPlan.appName}`,
++    '',
++    `Generated: ${generatedAt}`,
++    `Skeleton: ${input.skeletonId}`,
++    '',
++    '## Product Summary',
++    '',
++    input.architectPlan.summary || input.prompt,
++    '',
++    '## Requested Brief',
++    '',
++    input.prompt,
++    '',
++    '## Routed Screens',
++    '',
++    buildPagesMarkdown(input.architectPlan.pages),
++    '## Delta File Tree',
++    '',
++    buildFileTreeMarkdown(input.architectPlan.fileTree),
++  ];
++
++  if (input.architectPlan.notes && input.architectPlan.notes.length > 0) {
++    summaryLines.push(
++      '## Architect Notes',
++      '',
++      ...input.architectPlan.notes.map(note => `- ${note}`),
++      '',
++    );
++  }
++
++  if (input.architectPlan.dataModel) {
++    summaryLines.push(
++      '## Data Model',
++      '',
++      input.architectPlan.dataModel,
++      '',
++    );
++  }
++
++  if (input.architectPlan.contextContract) {
++    summaryLines.push(
++      '## Context Contract',
++      '',
++      '```text',
++      input.architectPlan.contextContract,
++      '```',
++      '',
++    );
++  }
++
++  if (kickoffScope) {
++    summaryLines.push(
++      '## Kickoff Scope',
++      '',
++      `- Selected: ${kickoffScope.label ?? 'unspecified'}`,
++      `- Description: ${kickoffScope.description ?? 'unspecified'}`,
++      `- Must capabilities: ${(kickoffScope.selectedCapabilityIds ?? []).join(', ') || 'none'}`,
++      `- Deferred capabilities: ${(kickoffScope.deferredCapabilityIds ?? []).join(', ') || 'none'}`,
++      '',
++    );
++  }
++
++  const files: Record<string, string> = {
++    [`${baseDir}/README.md`]: [
++      '# Architect Folder',
++      '',
++      'This folder preserves the product document set that the pipeline used to build the current prototype.',
++      '',
++      '- `product-brief.md` — human-readable summary for the team',
++      '- `product-plan.json` — normalized saved plan from the architect / kickoff flow',
++      '- `technical-blueprint.json` — normalized architect output used by ProtoPipeline',
++      '- `screen-composition.json` — first-screen and zone plan',
++      '- `functional-flow.json` — flow/entity plan',
++      '- `skeleton-integration.json` — skeleton fit and extension plan',
++      '- `product-specificity.json` — specificity guard inputs',
++      '',
++    ].join('\n'),
++    [`${baseDir}/product-brief.md`]: summaryLines.join('\n'),
++    [`${baseDir}/product-plan.json`]: stableJson(input.prebuiltPlan ?? null),
++    [`${baseDir}/technical-blueprint.json`]: stableJson({
++      generatedAt,
++      skeletonId: input.skeletonId,
++      architectPlan: input.architectPlan,
++    }),
++    [`${baseDir}/screen-composition.json`]: stableJson(input.compositionPlan ?? null),
++    [`${baseDir}/functional-flow.json`]: stableJson(input.functionalFlowPlan ?? null),
++    [`${baseDir}/skeleton-integration.json`]: stableJson(input.skeletonIntegrationPlan ?? null),
++    [`${baseDir}/product-specificity.json`]: stableJson(input.productSpecificityPlan ?? null),
++  };
++
++  return {
++    baseDir,
++    files,
++    materializedFiles: Object.keys(files).sort((left, right) => left.localeCompare(right)),
++  };
++}
+diff --git a/frontend/src/services/ProjectStorage.ts b/frontend/src/services/ProjectStorage.ts
+index 6bcb55c..3c80d0e 100644
+--- a/frontend/src/services/ProjectStorage.ts
++++ b/frontend/src/services/ProjectStorage.ts
+@@ -66,6 +66,7 @@ export interface StoredProject {
+   modelId?:        string;
+   durationMs?:     number;
+   generationMode?: string;                        // 'landing' | 'app' | 'superapp'
++  generationPath?: 'skeleton_assembly' | 'blank_canvas';
+   billingCost?:    number;
+   billingTokens?:  number;
+   revisions?:      ProjectRevision[];              // max 5, newest first
+diff --git a/frontend/src/services/ProtoPipeline.ts b/frontend/src/services/ProtoPipeline.ts
+index fb1dacd..6a003a2 100644
+--- a/frontend/src/services/ProtoPipeline.ts
++++ b/frontend/src/services/ProtoPipeline.ts
+@@ -143,6 +143,9 @@ import {
+   measureCoderPromptBlockSizes,
+   recordCoderPromptBlockSizes,
+ } from './CoderPromptBlockSizeDiagnostics';
++import type { ProjectPlan } from './types/ProjectPlan';
++import { materializeProductDocumentSet } from './ProductDocumentSet';
++import { evaluateCompletenessGate } from './CompletenessGate';
+ 
+ // ── Public types ──────────────────────────────────────────────────────────────
+ 
+@@ -400,6 +403,7 @@ export interface ProtoPipelineConfig {
+   skeletonId:   SkeletonId;
+   buildId:      string;
+   attachments?: PipelineAttachment[];
++  prebuiltPlan?: ProjectPlan;
+   skipClarify?: boolean;
+   signal?:      AbortSignal;
+   routeOverrides?: Partial<Record<AgentSlot, ResolvedRoute>>;
+@@ -905,11 +909,409 @@ function isSourceScanFile(path: string): boolean {
+   if (!isCodeFile(path)) return false;
+   if (normalized.startsWith('design-pack/')) return false;
+   if (normalized.startsWith('assets/generated/')) return false;
++  if (normalized.startsWith('generated/uploads/')) return false;
++  if (normalized.startsWith('docs/architect/')) return false;
+   if (normalized.includes('__tests__/')) return false;
+   if (/\.(?:test|spec)\.tsx?$/.test(normalized)) return false;
+   return true;
+ }
+ 
++interface UploadedAssetPromptEntry {
++  id: string;
++  kind: PipelineAttachment['type'];
++  name: string;
++  moduleImportPath?: string;
++  excerpt?: string;
++}
++
++interface UploadedAssetFusionResult {
++  files: Record<string, string>;
++  materializedFiles: string[];
++  promptBlock: string;
++  entries: UploadedAssetPromptEntry[];
++}
++
++function truncatePromptSnippet(value: string, limit = 220): string {
++  const normalized = value.replace(/\s+/g, ' ').trim();
++  if (!normalized) return '';
++  return normalized.length <= limit ? normalized : `${normalized.slice(0, limit - 1)}…`;
++}
++
++function sanitizeAttachmentModuleId(name: string, index: number): string {
++  const stem = name
++    .replace(/\.[^.]+$/, '')
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '');
++  return stem ? `${String(index + 1).padStart(2, '0')}-${stem}` : `attachment-${index + 1}`;
++}
++
++function materializeUploadedAssetFusion(
++  attachments: readonly PipelineAttachment[] | undefined,
++): UploadedAssetFusionResult {
++  const files: Record<string, string> = {};
++  const entries: UploadedAssetPromptEntry[] = [];
++
++  for (const [index, attachment] of (attachments ?? []).entries()) {
++    const id = sanitizeAttachmentModuleId(attachment.name, index);
++    const basePath = `generated/uploads/${id}`;
++    const snippet = truncatePromptSnippet(
++      attachment.textContent ?? (attachment.type === 'image' ? '' : attachment.data),
++    );
++
++    if (attachment.type === 'image') {
++      const dataUrl = attachment.data.startsWith('data:')
++        ? attachment.data
++        : `data:${attachment.mimeType};base64,${attachment.data}`;
++      const modulePath = `${basePath}.ts`;
++      files[modulePath] = [
++        `export const uploadedAsset = ${JSON.stringify({
++          id,
++          name: attachment.name,
++          mimeType: attachment.mimeType,
++          kind: attachment.type,
++          dataUrl,
++        }, null, 2)} as const;`,
++        '',
++        'export default uploadedAsset.dataUrl;',
++        '',
++      ].join('\n');
++      entries.push({
++        id,
++        kind: attachment.type,
++        name: attachment.name,
++        moduleImportPath: `@/${basePath}`,
++      });
++      continue;
++    }
++
++    const modulePath = `${basePath}.ts`;
++    files[modulePath] = [
++      `export const uploadedAsset = ${JSON.stringify({
++        id,
++        name: attachment.name,
++        mimeType: attachment.mimeType,
++        kind: attachment.type,
++        excerpt: snippet,
++      }, null, 2)} as const;`,
++      '',
++      'export default uploadedAsset;',
++      '',
++    ].join('\n');
++    entries.push({
++      id,
++      kind: attachment.type,
++      name: attachment.name,
++      moduleImportPath: `@/${basePath}`,
++      excerpt: snippet,
++    });
++  }
++
++  if (entries.length > 0) {
++    files['generated/uploads/manifest.ts'] = [
++      `export const UPLOADED_ASSET_MANIFEST = ${JSON.stringify(entries, null, 2)} as const;`,
++      '',
++      'export default UPLOADED_ASSET_MANIFEST;',
++      '',
++    ].join('\n');
++  }
++
++  const promptLines = entries.map(entry => {
++    if (entry.kind === 'image') {
++      return `- image \`${entry.name}\` -> import default from '${entry.moduleImportPath}' and use it directly in the UI`;
++    }
++    return `- ${entry.kind} \`${entry.name}\`${entry.moduleImportPath ? ` -> metadata at '${entry.moduleImportPath}'` : ''}${entry.excerpt ? ` | excerpt: "${entry.excerpt}"` : ''}`;
++  });
++
++  return {
++    files,
++    materializedFiles: Object.keys(files).sort((left, right) => left.localeCompare(right)),
++    promptBlock: promptLines.length > 0
++      ? [
++          'UPLOADED ASSETS / REFERENCE MATERIAL',
++          ...promptLines,
++          '- If a provided asset helps the product, fuse it into the shipped UI instead of ignoring it.',
++        ].join('\n')
++      : '',
++    entries,
++  };
++}
++
++function collectRequiredCapabilityIds(prebuiltPlan?: ProjectPlan | null): string[] {
++  if (!prebuiltPlan) return [];
++  const kickoff = (prebuiltPlan.kickoffScope as { selectedCapabilityIds?: string[] } | undefined)?.selectedCapabilityIds ?? [];
++  const architectKickoff = (prebuiltPlan.architectKickoff as { selectedCapabilityIds?: string[] } | undefined)?.selectedCapabilityIds ?? [];
++  return Array.from(new Set(
++    [...kickoff, ...architectKickoff]
++      .map(capability => capability.trim())
++      .filter(Boolean),
++  )).sort((left, right) => left.localeCompare(right));
++}
++
++function mergeSavedPlanRequirements(
++  plan: ArchitectPlan,
++  prebuiltPlan: ProjectPlan | undefined,
++  onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void,
++): ArchitectPlan {
++  if (!prebuiltPlan) return plan;
++
++  const nextFileTree = { ...plan.fileTree };
++  const nextPages = [...(plan.pages ?? [])];
++  const nextNotes = [...(plan.notes ?? [])];
++  const pageFiles = new Set(nextPages.map(page => normalizeOutputPath(page.file)));
++  const requiredCapabilities = collectRequiredCapabilityIds(prebuiltPlan);
++  let injectedPages = 0;
++
++  for (const page of prebuiltPlan.pages ?? []) {
++    const normalizedFile = normalizeOutputPath(page.file ?? '');
++    if (!normalizedFile) continue;
++    if (!nextFileTree[normalizedFile]) {
++      nextFileTree[normalizedFile] = page.purpose?.trim()
++        ? `Saved product-plan requirement: ${page.purpose}`
++        : `Saved product-plan required screen: ${page.name || page.path || normalizedFile}`;
++      injectedPages += 1;
++    }
++    if (!pageFiles.has(normalizedFile)) {
++      nextPages.push({
++        path: page.path,
++        name: page.name,
++        file: normalizedFile,
++        purpose: page.purpose,
++      });
++      pageFiles.add(normalizedFile);
++    }
++  }
++
++  if (requiredCapabilities.length > 0) {
++    nextNotes.push(
++      `Saved plan must-capabilities that must be concrete in the shipped prototype: ${requiredCapabilities.join(', ')}.`,
++    );
++  }
++  if (injectedPages > 0) {
++    nextNotes.push(
++      `Saved product plan added ${injectedPages} required page file(s); they must ship as real routed screens, not notes only.`,
++    );
++    onLog(`[completeness] injected ${injectedPages} required saved-plan page(s) into the architect delta`, 'info');
++  }
++
++  const deltaFiles = Object.entries(nextFileTree)
++    .map(([path, purpose]) => ({ path, purpose }))
++    .sort((left, right) => left.path.localeCompare(right.path));
++
++  return {
++    ...plan,
++    fileTree: nextFileTree,
++    deltaFiles,
++    pages: nextPages,
++    notes: Array.from(new Set(nextNotes)),
++    contextContract: [
++      plan.contextContract?.trim(),
++      requiredCapabilities.length > 0
++        ? `Saved plan scope is authoritative for must-capabilities: ${requiredCapabilities.join(', ')}.`
++        : '',
++    ].filter(Boolean).join('\n'),
++  };
++}
++
++function buildCriticFileDigest(currentFiles: Record<string, string>): string {
++  const prioritizedFiles = Object.keys(currentFiles)
++    .sort((left, right) => left.localeCompare(right))
++    .sort((left, right) => {
++      const leftPriority = /^pages\//.test(left) ? 0 : /^config\//.test(left) ? 1 : /^components\//.test(left) ? 2 : 3;
++      const rightPriority = /^pages\//.test(right) ? 0 : /^config\//.test(right) ? 1 : /^components\//.test(right) ? 2 : 3;
++      return leftPriority - rightPriority || left.localeCompare(right);
++    })
++    .slice(0, 12);
++
++  return prioritizedFiles
++    .map(path => [
++      `FILE: ${path}`,
++      currentFiles[path].slice(0, 900),
++      '---',
++    ].join('\n'))
++    .join('\n');
++}
++
++interface PassTwoCriticResult {
++  verdict: 'pass' | 'revise';
++  reasons: string[];
++  instructions: string[];
++  focusFiles: string[];
++}
++
++async function runPassTwoCritic(input: {
++  prompt: string;
++  plan: ArchitectPlan;
++  prebuiltPlan?: ProjectPlan;
++  currentFiles: Record<string, string>;
++  uploadedAssets?: UploadedAssetFusionResult;
++  signal?: AbortSignal;
++  routeOverrides?: RouteOverrideMap;
++  onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void;
++  onUsage?: (usage: StepLlmMetrics) => void;
++}): Promise<PassTwoCriticResult> {
++  if (!resolveRouteOrSkip('qa', input.routeOverrides)) {
++    return { verdict: 'pass', reasons: [], instructions: [], focusFiles: [] };
++  }
++
++  const requiredPages = (input.prebuiltPlan?.pages ?? [])
++    .map(page => `${page.name} -> ${normalizeOutputPath(page.file)} (${page.purpose})`)
++    .join('\n');
++  const mustCapabilities = collectRequiredCapabilityIds(input.prebuiltPlan);
++  const system = [
++    'You are Pass 2 critic for a prototype pipeline.',
++    'Review the candidate app after the first implementation pass.',
++    'Return ONLY valid JSON with this exact shape:',
++    '{',
++    '  "verdict": "pass" | "revise",',
++    '  "reasons": ["short concrete finding"],',
++    '  "instructions": ["implementer instruction"],',
++    '  "focusFiles": ["pages/Home.tsx"]',
++    '}',
++    'Use "revise" only when there is concrete missing work in the shipped prototype.',
++    'Prioritize saved-plan required pages, must-capabilities, product specificity, uploaded assets, and obvious UI contract misses.',
++    'Do not suggest rebuilding the app from scratch.',
++  ].join('\n');
++  const user = [
++    `Original task: ${input.prompt}`,
++    '',
++    `App name: ${input.plan.appName}`,
++    `Architect summary: ${input.plan.summary}`,
++    '',
++    'Required pages from saved plan:',
++    requiredPages || '(none)',
++    '',
++    `Must capabilities from saved plan: ${mustCapabilities.join(', ') || 'none'}`,
++    '',
++    input.uploadedAssets?.promptBlock || 'UPLOADED ASSETS / REFERENCE MATERIAL\n(none)',
++    '',
++    'Current file inventory:',
++    Object.keys(input.currentFiles).sort((left, right) => left.localeCompare(right)).map(path => `- ${path}`).join('\n'),
++    '',
++    'Candidate file digest:',
++    buildCriticFileDigest(input.currentFiles),
++  ].join('\n');
++
++  const raw = await callOnce({
++    slot: 'qa',
++    system,
++    user,
++    maxTokens: 2500,
++    timeoutMs: 60_000,
++    signal: input.signal,
++    routeOverrides: input.routeOverrides,
++    onUsage: input.onUsage,
++  });
++
++  const parsed = safeParseJson(raw);
++  if (!parsed || typeof parsed !== 'object') {
++    input.onLog('[pass-2] critic returned non-JSON output; skipping critic repair', 'warn');
++    return { verdict: 'pass', reasons: [], instructions: [], focusFiles: [] };
++  }
++  const result = parsed as Record<string, unknown>;
++  const verdict = result.verdict === 'revise' ? 'revise' : 'pass';
++  return {
++    verdict,
++    reasons: Array.isArray(result.reasons)
++      ? result.reasons.filter((item): item is string => typeof item === 'string').slice(0, 6)
++      : [],
++    instructions: Array.isArray(result.instructions)
++      ? result.instructions.filter((item): item is string => typeof item === 'string').slice(0, 8)
++      : [],
++    focusFiles: Array.isArray(result.focusFiles)
++      ? result.focusFiles
++        .filter((item): item is string => typeof item === 'string')
++        .map(path => normalizeOutputPath(path))
++        .slice(0, 12)
++      : [],
++  };
++}
++
++async function runPassTwoImplementer(input: {
++  prompt: string;
++  skeletonId: SkeletonId;
++  plan: ArchitectPlan;
++  currentFiles: Record<string, string>;
++  critic: PassTwoCriticResult;
++  uploadedAssets?: UploadedAssetFusionResult;
++  signal?: AbortSignal;
++  routeOverrides?: RouteOverrideMap;
++  onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void;
++  onUsage?: (usage: StepLlmMetrics) => void;
++  designCtx?: DesignContext;
++  mediaHints?: MediaHint[];
++}): Promise<Record<string, string>> {
++  const allowedNewPaths = new Set(input.plan.deltaFiles.map(file => normalizeOutputPath(file.path)));
++  const targets = Object.entries(input.currentFiles)
++    .map(([path, content]) => `<<<FILE: ${path}>>>\n${content}\n<<<END>>>`)
++    .join('\n\n');
++  const system = [
++    'You are the pass-2 implementer. Apply critic feedback to the current prototype candidate.',
++    'Re-emit only the files you changed plus any missing required files from the allowed delta list.',
++    'Use the same <<<FILE: path>>> ... <<<END>>> format.',
++    'Do not modify skeleton-locked paths.',
++    '',
++    'CRITIC REASONS:',
++    ...input.critic.reasons.map(reason => `- ${reason}`),
++    '',
++    'CRITIC INSTRUCTIONS:',
++    ...input.critic.instructions.map(instruction => `- ${instruction}`),
++    '',
++    `ALLOWED DELTA FILES: ${Array.from(allowedNewPaths).sort((left, right) => left.localeCompare(right)).join(', ')}`,
++    input.uploadedAssets?.promptBlock ?? '',
++    input.designCtx ? `\n${designContractForCoder(input.designCtx, input.mediaHints)}` : '',
++    '',
++    'SELF-CHECK BEFORE RETURNING:',
++    '- Preserve working structure and only patch what is needed.',
++    '- Missing saved-plan pages must ship as real files when they are in the allowed delta list.',
++    '- Must-capabilities must be visible in the shipped UI/flows, not hidden in notes.',
++  ].filter(Boolean).join('\n');
++
++  let body = '';
++  await streamCall({
++    slot: 'fix',
++    system,
++    user: `Original task: ${input.prompt}\n\nCurrent candidate files:\n\n${targets}`,
++    maxTokens: STEP_BUDGET.repair.maxTokens,
++    timeoutMs: STEP_BUDGET.repair.timeoutMs,
++    signal: input.signal,
++    routeOverrides: input.routeOverrides,
++    onChunk: (delta) => { body += delta; },
++    onUsage: input.onUsage,
++  });
++
++  const patches = parseFileMarkers(body);
++  if (Object.keys(patches).length === 0) {
++    throw new Error('Pass-2 implementer produced no FILE/END blocks');
++  }
++
++  const merged: Record<string, string> = { ...input.currentFiles };
++  const dropped: string[] = [];
++  for (const [patchPath, patchContent] of Object.entries(patches)) {
++    if (patchPath in input.currentFiles || allowedNewPaths.has(normalizeOutputPath(patchPath))) {
++      merged[patchPath] = patchContent;
++    } else {
++      dropped.push(patchPath);
++    }
++  }
++  if (dropped.length > 0) {
++    input.onLog(`[pass-2] dropped ${dropped.length} unexpected pass-2 file(s): ${dropped.join(', ')}`, 'warn');
++  }
++  return merged;
++}
++
++function filterCompletenessFiles(files: Record<string, string>): Record<string, string> {
++  return Object.fromEntries(
++    Object.entries(files).filter(([path]) => {
++      const normalized = normalizeOutputPath(path);
++      return !normalized.startsWith('docs/architect/')
++        && !normalized.startsWith('generated/uploads/')
++        && !normalized.startsWith('design-pack/')
++        && !normalized.startsWith('assets/generated/');
++    }),
++  );
++}
++
+ function isMeaningfulScreenFile(path: string): boolean {
+   const normalized = normalizeOutputPath(path);
+   if (!/\.tsx$/.test(normalized)) return false;
+@@ -1599,6 +2001,14 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+       log('[clarify] skipped for packaged founder fast path');
+     }
+ 
++    const uploadedAssetFusion = materializeUploadedAssetFusion(config.attachments);
++    if (uploadedAssetFusion.entries.length > 0) {
++      log(
++        `[attachments] fused ${uploadedAssetFusion.entries.length} uploaded asset(s): ` +
++        uploadedAssetFusion.entries.map(entry => entry.name).join(', '),
++      );
++    }
++
+     // ── Step 2 — Resolve pack + materialise theme (deterministic, no LLM) ──
+     emit('pack', 'active');
+     let designCtx: DesignContext;
+@@ -1660,11 +2070,13 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+           onLog:      log,
+           onUsage:    (usage) => { architectUsage = usage; },
+           designCtx,
++          attachmentPromptBlock: uploadedAssetFusion.promptBlock,
+       });
+     } catch (err) {
+       if (isAbort(err)) return fail('architect', 'aborted');
+       return fail('architect', (err as Error).message);
+     }
++    plan = mergeSavedPlanRequirements(plan, config.prebuiltPlan, log);
+     capturedPlan = plan;
+ 
+     // ── Controlled adapter fallback (rescue before pipeline guard) ────────────
+@@ -1837,6 +2249,27 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+     log(
+       `[product-specificity] domain="${productSpecificityPlan.inferredDomain}" entities=${productSpecificityPlan.domainEntities.length} metrics=${productSpecificityPlan.productMetrics.length}`,
+     );
++    const productDocumentSet = materializeProductDocumentSet({
++      prompt: clarifiedPrompt,
++      skeletonId: config.skeletonId,
++      architectPlan: {
++        appName: plan.appName,
++        summary: plan.summary,
++        pages: plan.pages,
++        fileTree: plan.fileTree,
++        notes: plan.notes,
++        dataModel: plan.dataModel,
++        contextContract: plan.contextContract,
++      },
++      prebuiltPlan: config.prebuiltPlan,
++      compositionPlan,
++      functionalFlowPlan,
++      skeletonIntegrationPlan,
++      productSpecificityPlan,
++    });
++    log(
++      `[docs] materialized architect folder (${productDocumentSet.materializedFiles.length} file(s)) at ${productDocumentSet.baseDir}`,
++    );
+ 
+     // ── Market-aware builder brief diagnostics (advisory only, no blocking) ──
+     // Wired before runCoder to provide visibility into market context coverage.
+@@ -1924,7 +2357,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+     let coderUsage: StepLlmMetrics | undefined;
+     const coderStartedAt = Date.now();
+     try {
+-        deltaFiles = await runCoder({
++       deltaFiles = await runCoder({
+           prompt:     clarifiedPrompt,
+           plan,
+           skeletonId: config.skeletonId,
+@@ -1940,6 +2373,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+          skeletonIntegrationPlan,
+          productSpecificityPlan,
+          marketAwareBuilderBrief: marketBrief,
++         attachmentPromptBlock: uploadedAssetFusion.promptBlock,
+        });
+     } catch (err) {
+       if (isAbort(err)) return fail('coder', 'aborted');
+@@ -1966,6 +2400,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+     const premiumMaterialization = materializePremiumComponents(designCtx);
+     Object.assign(deltaFiles, premiumMaterialization.files);
+     Object.assign(deltaFiles, mediaMaterialization.files);
++    Object.assign(deltaFiles, uploadedAssetFusion.files);
+     const appPath = Object.keys(deltaFiles).find(path => normalizePreviewPath(path) === 'App.tsx');
+     const appSource =
+       (appPath ? deltaFiles[appPath] : null) ??
+@@ -2066,6 +2501,61 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+         log(`[apply] export-integrity retry failed: ${(err as Error).message}`, 'warn');
+       }
+     }
++
++    try {
++      const passTwoCritic = await runPassTwoCritic({
++        prompt: clarifiedPrompt,
++        plan,
++        prebuiltPlan: config.prebuiltPlan,
++        currentFiles: filteredFiles,
++        uploadedAssets: uploadedAssetFusion,
++        signal: config.signal,
++        routeOverrides: config.routeOverrides,
++        onLog: log,
++      });
++      if (passTwoCritic.verdict === 'revise') {
++        log(
++          `[pass-2] critic requested implementer follow-up: ${passTwoCritic.reasons.join(' | ') || 'unspecified revision'}`,
++          'warn',
++        );
++        filteredFiles = await runPassTwoImplementer({
++          prompt: clarifiedPrompt,
++          skeletonId: config.skeletonId,
++          plan,
++          currentFiles: filteredFiles,
++          critic: passTwoCritic,
++          uploadedAssets: uploadedAssetFusion,
++          signal: config.signal,
++          routeOverrides: config.routeOverrides,
++          onLog: log,
++          designCtx,
++          mediaHints: mediaMaterialization.mediaHints,
++        });
++      } else {
++        log('[pass-2] critic passed the candidate without implementer follow-up');
++      }
++    } catch (err) {
++      if (isAbort(err)) return fail('apply', 'aborted');
++      log(`[pass-2] critic/implementer failed: ${(err as Error).message}`, 'warn');
++    }
++
++    const completenessGate = evaluateCompletenessGate({
++      prebuiltPlan: config.prebuiltPlan,
++      generatedFiles: filterCompletenessFiles(filteredFiles),
++      skeletonFiles: getSkeletonInstalledFiles(config.skeletonId),
++    });
++    if (!completenessGate.ok) {
++      return fail('apply', completenessGate.blockingReasons.join(' | '));
++    }
++    if (completenessGate.coverage.requiredPageCount > 0 || completenessGate.coverage.requiredCapabilityCount > 0) {
++      log(
++        `[completeness] pages ${completenessGate.coverage.coveredPageCount}/${completenessGate.coverage.requiredPageCount}, ` +
++        `capabilities ${completenessGate.coverage.coveredCapabilityCount}/${completenessGate.coverage.requiredCapabilityCount}`,
++      );
++    }
++
++    Object.assign(filteredFiles, productDocumentSet.files);
++
+     const selectedPremiumComponentIds = designCtx.premiumComponentSelection.selectedComponents
+       .map(component => component.id)
+       .sort((a, b) => a.localeCompare(b));
+@@ -2539,6 +3029,7 @@ async function runArchitect(input: {
+   onLog:      (msg: string, level?: 'info' | 'warn' | 'error') => void;
+   onUsage?:   (usage: StepLlmMetrics) => void;
+   designCtx?: DesignContext;
++  attachmentPromptBlock?: string;
+ }): Promise<ArchitectPlan> {
+   const skeleton = SKELETON_REGISTRY[input.skeletonId];
+   const architectRoute = resolveRouteOrSkip('primary', input.routeOverrides);
+@@ -2618,6 +3109,7 @@ ${editableExistingLines || '- (none)'}
+ SKELETON SNAPSHOT (already on disk; use this to avoid duplicates):
+ ${installedList}
+ ${input.designCtx ? archetypeContextForArchitect(input.designCtx) : ''}
++${input.attachmentPromptBlock ? `\n${input.attachmentPromptBlock}\n` : ''}
+ ${architectureQualityRules}
+ YOUR TASK: Return fileTree with ONLY the delta files this specific app needs.
+ The skeleton is already installed. You MAY include editable skeleton files in fileTree when they need meaningful product-specific rewrites.
+@@ -2816,6 +3308,7 @@ export function buildCoderPlanningBlocks(input: {
+   skeletonIntegrationPlan?: SkeletonIntegrationPlan;
+   productSpecificityPlan?: ProductSpecificityPlan;
+   marketAwareBuilderBrief?: MarketAwareBuilderBrief;
++  attachmentPromptBlock?: string;
+ }): string {
+   return [
+     input.designCtx ? designContractForCoder(input.designCtx, input.mediaHints) : '',
+@@ -2824,6 +3317,7 @@ export function buildCoderPlanningBlocks(input: {
+     input.skeletonIntegrationPlan ? buildSkeletonIntegrationPromptBlock(input.skeletonIntegrationPlan) : '',
+     input.productSpecificityPlan ? buildProductSpecificityPromptBlock(input.productSpecificityPlan) : '',
+     input.marketAwareBuilderBrief ? serializeMarketAwareBuilderBriefForCoder(input.marketAwareBuilderBrief) : '',
++    input.attachmentPromptBlock ?? '',
+     // Product Identity Substitution Contract — injected when a market-aware brief is present.
+     // Must appear after the brief (so the coder has product context) and before the
+     // self-plan instructions (so the substitution rules are in scope during planning).
+@@ -2852,6 +3346,7 @@ async function runCoder(input: {
+   skeletonIntegrationPlan?: SkeletonIntegrationPlan;
+   productSpecificityPlan?: ProductSpecificityPlan;
+   marketAwareBuilderBrief?: MarketAwareBuilderBrief;
++  attachmentPromptBlock?: string;
+ }): Promise<Record<string, string>>{
+   const skeleton = SKELETON_REGISTRY[input.skeletonId];
+   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
+@@ -2897,6 +3392,7 @@ async function runCoder(input: {
+       skeletonIntegrationPlan: input.skeletonIntegrationPlan,
+       productSpecificityPlan: input.productSpecificityPlan,
+       marketAwareBuilderBrief: input.marketAwareBuilderBrief,
++      attachmentPromptBlock: input.attachmentPromptBlock,
+     });
+   const advertisedUiPrimitives = filterAdvertisedUiPrimitiveNames(skeleton.uiPrimitives);
+   const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(advertisedUiPrimitives);
+diff --git a/frontend/src/services/__tests__/CompletenessGate.test.ts b/frontend/src/services/__tests__/CompletenessGate.test.ts
+new file mode 100644
+index 0000000..f23fa60
+--- /dev/null
++++ b/frontend/src/services/__tests__/CompletenessGate.test.ts
+@@ -0,0 +1,68 @@
++import { describe, expect, it } from 'vitest';
++import { evaluateCompletenessGate } from '../CompletenessGate';
++import type { ProjectPlan } from '../types/ProjectPlan';
++
++function createPlan(): ProjectPlan {
++  return {
++    appName: 'OpsCanvas',
++    description: 'Internal command center.',
++    theme: 'graphite',
++    layout: { type: 'app', navigation: 'sidebar' },
++    pages: [
++      {
++        path: '/dashboard',
++        name: 'Dashboard',
++        file: 'pages/Dashboard.tsx',
++        purpose: 'Main ops overview.',
++        isMainScreen: true,
++      },
++      {
++        path: '/reports',
++        name: 'Reports',
++        file: 'pages/Reports.tsx',
++        purpose: 'Analytics and export workflow.',
++        isMainScreen: false,
++      },
++    ],
++    shadcnComponents: ['Button', 'Card'],
++    icons: ['BarChart3'],
++    kickoffScope: {
++      id: 'core_backend_ai',
++      label: 'Core + backend + AI',
++      description: 'Command center with real persistence and reporting.',
++      selectedCapabilityIds: ['backend', 'analytics'],
++      deferredCapabilityIds: [],
++    },
++  } as ProjectPlan;
++}
++
++describe('CompletenessGate', () => {
++  it('passes when required pages and must-capabilities are visible in the output', () => {
++    const result = evaluateCompletenessGate({
++      prebuiltPlan: createPlan(),
++      generatedFiles: {
++        'pages/Dashboard.tsx': 'export function Dashboard() { return <div>Analytics dashboard</div>; }',
++        'pages/Reports.tsx': 'export function Reports() { return <div>Metrics report export</div>; }',
++        'services/api.ts': 'export async function load() { return fetch("/api/reports"); }',
++      },
++    });
++
++    expect(result.ok).toBe(true);
++    expect(result.coverage.coveredPageCount).toBe(2);
++    expect(result.coverage.coveredCapabilityCount).toBe(2);
++  });
++
++  it('fails when required pages or capabilities are still missing', () => {
++    const result = evaluateCompletenessGate({
++      prebuiltPlan: createPlan(),
++      generatedFiles: {
++        'pages/Dashboard.tsx': 'export function Dashboard() { return <div>Overview</div>; }',
++      },
++    });
++
++    expect(result.ok).toBe(false);
++    expect(result.coverage.missingPageFiles).toContain('pages/Reports.tsx');
++    expect(result.coverage.missingCapabilities).toContain('backend');
++    expect(result.blockingReasons.length).toBeGreaterThan(0);
++  });
++});
+diff --git a/frontend/src/services/__tests__/LVPipeline.test.ts b/frontend/src/services/__tests__/LVPipeline.test.ts
+new file mode 100644
+index 0000000..42c71d2
+--- /dev/null
++++ b/frontend/src/services/__tests__/LVPipeline.test.ts
+@@ -0,0 +1,46 @@
++import { describe, expect, it, vi } from 'vitest';
++import { LVPipeline, isBlankCanvasFastPathEligible } from '../LVPipeline';
++import { GenerationEngine, type PipelineRunConfig } from '../GenerationEngine';
++
++describe('LVPipeline', () => {
++  it('detects the blank-canvas fast path only for empty projects', () => {
++    expect(isBlankCanvasFastPathEligible({
++      generationPath: 'blank_canvas',
++      existingCodeCount: 0,
++    })).toBe(true);
++
++    expect(isBlankCanvasFastPathEligible({
++      generationPath: 'blank_canvas',
++      existingCodeCount: 3,
++    })).toBe(false);
++  });
++
++  it('delegates to GenerationEngine with clarifier and saved-plan reuse disabled', async () => {
++    const runSpy = vi.spyOn(GenerationEngine, 'run').mockResolvedValue({ status: 'completed' } as any);
++
++    const config = {
++      intent: 'Build a fresh workspace',
++      history: [],
++      files: {},
++      primaryRoute: {} as any,
++      buildRoute: {} as any,
++      apiKey: 'test',
++      modelId: 'test-model',
++      onStream: vi.fn(),
++      onFiles: vi.fn(),
++      onPhase: vi.fn(),
++      onLog: vi.fn(),
++      onPlan: vi.fn(),
++      prebuiltPlan: { appName: 'Should be dropped' } as any,
++      reuseSavedPlanForContinuation: true,
++    } satisfies PipelineRunConfig;
++
++    await LVPipeline.run(config);
++
++    expect(runSpy).toHaveBeenCalledWith(expect.objectContaining({
++      skipClarify: true,
++      prebuiltPlan: undefined,
++      reuseSavedPlanForContinuation: false,
++    }));
++  });
++});
+diff --git a/frontend/src/services/__tests__/LiveGenerationContractValidator.test.ts b/frontend/src/services/__tests__/LiveGenerationContractValidator.test.ts
+index eb9c4bd..9102624 100644
+--- a/frontend/src/services/__tests__/LiveGenerationContractValidator.test.ts
++++ b/frontend/src/services/__tests__/LiveGenerationContractValidator.test.ts
+@@ -556,6 +556,7 @@ describe('LiveGenerationContractValidator UI primitive catalog contract', () =>
+ 
+     expect(advertisedKeys).toEqual([
+       'Accordion',
++      'Alert',
+       'AlertDialog',
+       'Avatar',
+       'Badge',
+diff --git a/frontend/src/services/__tests__/ProductDocumentSet.test.ts b/frontend/src/services/__tests__/ProductDocumentSet.test.ts
+new file mode 100644
+index 0000000..2d7b590
+--- /dev/null
++++ b/frontend/src/services/__tests__/ProductDocumentSet.test.ts
+@@ -0,0 +1,66 @@
++import { describe, expect, it } from 'vitest';
++import { materializeProductDocumentSet } from '../ProductDocumentSet';
++import type { ProjectPlan } from '../types/ProjectPlan';
++
++function createPlan(): ProjectPlan {
++  return {
++    appName: 'SprintBoard',
++    description: 'Track weekly delivery rituals.',
++    theme: 'warm-minimal',
++    layout: { type: 'app', navigation: 'sidebar' },
++    pages: [
++      {
++        path: '/dashboard',
++        name: 'Dashboard',
++        file: 'pages/Dashboard.tsx',
++        purpose: 'Weekly delivery overview.',
++        isMainScreen: true,
++      },
++    ],
++    shadcnComponents: ['Button', 'Card'],
++    icons: ['Calendar'],
++    kickoffScope: {
++      id: 'core_backend',
++      label: 'Core + backend',
++      description: 'Ship the core workflows with persistence.',
++      selectedCapabilityIds: ['backend', 'analytics'],
++      deferredCapabilityIds: ['payments'],
++    },
++  } as ProjectPlan;
++}
++
++describe('ProductDocumentSet', () => {
++  it('materializes the architect folder with normalized product docs', () => {
++    const result = materializeProductDocumentSet({
++      prompt: 'Build a sprint planning cockpit.',
++      skeletonId: 'saas-dashboard',
++      prebuiltPlan: createPlan(),
++      architectPlan: {
++        appName: 'SprintBoard',
++        summary: 'A delivery cockpit for weekly planning and review.',
++        pages: [
++          {
++            path: '/dashboard',
++            name: 'Dashboard',
++            file: 'pages/Dashboard.tsx',
++            purpose: 'Weekly delivery overview.',
++          },
++        ],
++        fileTree: {
++          'pages/Dashboard.tsx': 'Main planning dashboard.',
++          'components/BurnupCard.tsx': 'Sprint burn-up summary.',
++        },
++        notes: ['Keep the narrative focused on weekly rituals.'],
++        dataModel: 'Sprint: { id, name, velocity, burnup[] }',
++        contextContract: 'Builder owns implementation details.',
++      },
++    });
++
++    expect(result.baseDir).toBe('docs/architect');
++    expect(result.materializedFiles).toContain('docs/architect/README.md');
++    expect(result.materializedFiles).toContain('docs/architect/product-plan.json');
++    expect(result.materializedFiles).toContain('docs/architect/technical-blueprint.json');
++    expect(result.files['docs/architect/product-brief.md']).toContain('# SprintBoard');
++    expect(result.files['docs/architect/product-brief.md']).toContain('Must capabilities: backend, analytics');
++  });
++});
+diff --git a/frontend/src/services/__tests__/ProtoPipeline.test.ts b/frontend/src/services/__tests__/ProtoPipeline.test.ts
+index cd2919e..d68aa28 100644
+--- a/frontend/src/services/__tests__/ProtoPipeline.test.ts
++++ b/frontend/src/services/__tests__/ProtoPipeline.test.ts
+@@ -86,6 +86,7 @@ describe('ProtoPipeline coder UI primitive catalog', () => {
+   it('lists exact physical import paths and does not advertise unlisted primitives', () => {
+     const catalog = buildUiPrimitiveImportCatalog(['Button', 'ScrollArea']);
+ 
++    expect(catalog).toContain("Alert, AlertDescription, AlertTitle from '@/components/ui/alert'");
+     expect(catalog).toContain("Button from '@/components/ui/button'");
+     expect(catalog).toContain("ScrollArea, ScrollBar from '@/components/ui/scroll-area'");
+     expect(catalog).not.toContain('DropdownMenu');
+diff --git a/preview-workspace/src/components/BottomTabs.tsx b/preview-workspace/src/components/BottomTabs.tsx
+new file mode 100644
+index 0000000..4b4cf2e
+--- /dev/null
++++ b/preview-workspace/src/components/BottomTabs.tsx
+@@ -0,0 +1,40 @@
++import { NavLink } from 'react-router-dom';
++import { BOTTOM_TABS } from '@/config/navigation';
++import { cn } from '@/lib/cn';
++
++export function BottomTabs(): JSX.Element {
++  return (
++    <nav
++      aria-label="Primary"
++      className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-border bg-card/95 backdrop-blur"
++      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
++    >
++      <ul className={cn('grid px-2 pt-1.5 pb-1', `grid-cols-${BOTTOM_TABS.length}`)}>
++        {BOTTOM_TABS.map((tab) => (
++          <li key={tab.to}>
++            <NavLink
++              to={tab.to}
++              className={({ isActive }) =>
++                cn(
++                  'flex flex-col items-center gap-0.5 rounded-md py-1.5 text-[10px] font-medium',
++                  'transition-colors',
++                  isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
++                )
++              }
++            >
++              {({ isActive }) => (
++                <>
++                  <tab.icon
++                    className={cn('h-5 w-5 transition-transform', isActive && 'scale-110')}
++                    strokeWidth={isActive ? 2.4 : 2}
++                  />
++                  <span>{tab.label}</span>
++                </>
++              )}
++            </NavLink>
++          </li>
++        ))}
++      </ul>
++    </nav>
++  );
++}
+diff --git a/preview-workspace/src/components/RitualCard.tsx b/preview-workspace/src/components/RitualCard.tsx
+new file mode 100644
+index 0000000..9b4ab18
+--- /dev/null
++++ b/preview-workspace/src/components/RitualCard.tsx
+@@ -0,0 +1,89 @@
++import { CheckCircle2, Clock, Flame, ChevronRight } from 'lucide-react';
++import { Card, CardContent } from '@/components/ui/card';
++import type { Ritual } from '@/data/types';
++
++interface RitualCardProps {
++  ritual: Ritual;
++  onComplete: (id: string) => void;
++  onDetail: (id: string) => void;
++  isAnimating: boolean;
++}
++
++const CATEGORY_ICONS: Record<string, string> = {
++  physical: '💪',
++  mental: '🧠',
++  nutrition: '🥗',
++  hygiene: '🚿',
++  creativity: '🎨',
++  social: '👥',
++};
++
++export function RitualCard({ ritual, onComplete, onDetail, isAnimating }: RitualCardProps) {
++  const today = new Date().toISOString().split('T')[0];
++  const isCompleted = ritual.completedDates.includes(today);
++  const categoryIcon = CATEGORY_ICONS[ritual.category] ?? '📋';
++
++  return (
++    <Card className="bg-card rounded-[12px] overflow-hidden transition-all duration-200 hover:shadow-md">
++      <CardContent className="p-[16px]">
++        <div className="flex items-center gap-3">
++          <button
++            type="button"
++            onClick={() => onComplete(ritual.id)}
++            disabled={isCompleted || isAnimating}
++            aria-label={isCompleted ? 'Выполнено' : 'Отметить выполнение'}
++            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 shrink-0 border-2 ${
++              isCompleted
++                ? 'bg-primary border-primary text-primary-foreground'
++                : isAnimating
++                  ? 'border-primary/50 text-primary/50'
++                  : 'border-border text-muted-foreground hover:border-primary/50 hover:text-primary/70 active:scale-95'
++            }`}
++          >
++            {isAnimating ? (
++              <span className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin block" />
++            ) : isCompleted ? (
++              <CheckCircle2 className="w-5 h-5" />
++            ) : (
++              <span className="text-lg leading-none">{categoryIcon}</span>
++            )}
++          </button>
++
++          <div className="flex-1 min-w-0">
++            <p
++              className={`font-semibold text-sm leading-tight ${
++                isCompleted ? 'line-through text-muted-foreground' : 'text-foreground'
++              }`}
++            >
++              {ritual.name}
++            </p>
++            <div className="flex items-center gap-2.5 mt-1">
++              <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
++                <Clock className="w-3 h-3" />
++                {ritual.duration} мин
++              </span>
++              {ritual.streak > 0 && (
++                <span className="flex items-center gap-0.5 text-xs text-amber-500 font-medium">
++                  <Flame className="w-3 h-3" />
++                  {ritual.streak} дн
++                </span>
++              )}
++              {isCompleted && (
++                <span className="text-xs text-primary font-medium">✓ Сделано</span>
++              )}
++            </div>
++          </div>
++
++          <button
++            type="button"
++            onClick={() => onDetail(ritual.id)}
++            aria-label="Подробнее"
++            className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md hover:bg-muted"
++          >
++            <ChevronRight className="w-4 h-4" />
++          </button>
++        </div>
++      </CardContent>
++    </Card>
++  );
++}
+diff --git a/preview-workspace/src/components/ui/label.tsx b/preview-workspace/src/components/ui/label.tsx
+new file mode 100644
+index 0000000..954f926
+--- /dev/null
++++ b/preview-workspace/src/components/ui/label.tsx
+@@ -0,0 +1,18 @@
++import { forwardRef, type ComponentPropsWithoutRef, type ElementRef } from 'react';
++import * as LabelPrimitive from '@radix-ui/react-label';
++import { cn } from '@/lib/cn';
++
++export const Label = forwardRef<
++  ElementRef<typeof LabelPrimitive.Root>,
++  ComponentPropsWithoutRef<typeof LabelPrimitive.Root>
++>(({ className, ...props }, ref) => (
++  <LabelPrimitive.Root
++    ref={ref}
++    className={cn(
++      'text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70',
++      className,
++    )}
++    {...props}
++  />
++));
++Label.displayName = LabelPrimitive.Root.displayName;
+diff --git a/preview-workspace/src/components/ui/switch.tsx b/preview-workspace/src/components/ui/switch.tsx
+new file mode 100644
+index 0000000..5256713
+--- /dev/null
++++ b/preview-workspace/src/components/ui/switch.tsx
+@@ -0,0 +1,28 @@
++import { forwardRef, type ComponentPropsWithoutRef, type ElementRef } from 'react';
++import * as SwitchPrimitive from '@radix-ui/react-switch';
++import { cn } from '@/lib/cn';
++
++export const Switch = forwardRef<
++  ElementRef<typeof SwitchPrimitive.Root>,
++  ComponentPropsWithoutRef<typeof SwitchPrimitive.Root>
++>(({ className, ...props }, ref) => (
++  <SwitchPrimitive.Root
++    ref={ref}
++    className={cn(
++      'peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent',
++      'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
++      'disabled:cursor-not-allowed disabled:opacity-50',
++      'data-[state=checked]:bg-primary data-[state=unchecked]:bg-input',
++      className,
++    )}
++    {...props}
++  >
++    <SwitchPrimitive.Thumb
++      className={cn(
++        'pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0',
++        'transition-transform data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0',
++      )}
++    />
++  </SwitchPrimitive.Root>
++));
++Switch.displayName = SwitchPrimitive.Root.displayName;
+diff --git a/preview-workspace/src/design-pack/premium-components/health/premium-health-calm-insight-01/component.tsx b/preview-workspace/src/design-pack/premium-components/health/premium-health-calm-insight-01/component.tsx
+new file mode 100644
+index 0000000..5c1b86b
+--- /dev/null
++++ b/preview-workspace/src/design-pack/premium-components/health/premium-health-calm-insight-01/component.tsx
+@@ -0,0 +1,33 @@
++import { Leaf } from 'lucide-react';
++
++interface Props {
++  title: string;
++  subtitle: string;
++}
++
++export function PremiumHealthCalmInsight01({ title, subtitle }: Props) {
++  const bars = [40, 65, 50, 80, 70, 90, 85];
++
++  return (
++    <div className="relative overflow-hidden rounded-[12px] bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-cyan-500/10 border border-emerald-500/20 p-[16px]">
++      <div className="flex items-start gap-3">
++        <div className="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
++          <Leaf className="w-4 h-4 text-emerald-600" />
++        </div>
++        <div className="flex-1 min-w-0">
++          <p className="font-semibold text-foreground text-sm leading-tight">{title}</p>
++          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{subtitle}</p>
++          <div className="flex items-end gap-1 mt-3 h-8">
++            {bars.map((h, i) => (
++              <div
++                key={i}
++                className="flex-1 rounded-t-sm bg-emerald-500/60"
++                style={{ height: `${h}%` }}
++              />
++            ))}
++          </div>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/preview-workspace/src/design-pack/premium-components/health/premium-health-routine-card-01/component.tsx b/preview-workspace/src/design-pack/premium-components/health/premium-health-routine-card-01/component.tsx
+new file mode 100644
+index 0000000..3d97197
+--- /dev/null
++++ b/preview-workspace/src/design-pack/premium-components/health/premium-health-routine-card-01/component.tsx
+@@ -0,0 +1,25 @@
++import { Sunrise, Star } from 'lucide-react';
++
++interface Props {
++  title: string;
++  subtitle: string;
++}
++
++export function PremiumHealthRoutineCard01({ title, subtitle }: Props) {
++  return (
++    <div className="relative overflow-hidden rounded-[12px] bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/20 p-[16px]">
++      <div className="flex items-center gap-3">
++        <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
++          <Sunrise className="w-5 h-5 text-amber-600" />
++        </div>
++        <div className="flex-1 min-w-0">
++          <div className="flex items-center gap-1.5">
++            <p className="font-semibold text-foreground text-sm">{title}</p>
++            <Star className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0" />
++          </div>
++          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{subtitle}</p>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/preview-workspace/src/design-pack/premium-components/mobile/premium-mobile-bottom-nav-01/component.tsx b/preview-workspace/src/design-pack/premium-components/mobile/premium-mobile-bottom-nav-01/component.tsx
+new file mode 100644
+index 0000000..87e42c1
+--- /dev/null
++++ b/preview-workspace/src/design-pack/premium-components/mobile/premium-mobile-bottom-nav-01/component.tsx
+@@ -0,0 +1,35 @@
++import { Home, PlusCircle, BarChart3, User } from 'lucide-react';
++import { cn } from '@/lib/cn';
++
++interface Props {
++  title: string;
++  subtitle: string;
++}
++
++const NAV_ITEMS = [
++  { icon: Home, label: 'Ритуалы', active: false },
++  { icon: PlusCircle, label: 'Добавить', active: false },
++  { icon: BarChart3, label: 'Прогресс', active: false },
++  { icon: User, label: 'Профиль', active: true },
++] as const;
++
++export function PremiumMobileBottomNav01({ title: _title, subtitle: _subtitle }: Props) {
++  return (
++    <div className="rounded-[12px] bg-card border border-border overflow-hidden">
++      <div className="flex items-center justify-around px-2 pt-2 pb-1">
++        {NAV_ITEMS.map(({ icon: Icon, label, active }) => (
++          <div
++            key={label}
++            className={cn(
++              'flex flex-col items-center gap-0.5 px-3 py-1 rounded-md',
++              active ? 'text-primary' : 'text-muted-foreground',
++            )}
++          >
++            <Icon className="w-5 h-5" strokeWidth={active ? 2.4 : 2} />
++            <span className="text-[10px] font-medium">{label}</span>
++          </div>
++        ))}
++      </div>
++    </div>
++  );
++}
+diff --git a/preview-workspace/src/hooks/useCategories.ts b/preview-workspace/src/hooks/useCategories.ts
+new file mode 100644
+index 0000000..183006e
+--- /dev/null
++++ b/preview-workspace/src/hooks/useCategories.ts
+@@ -0,0 +1,53 @@
++import type { Category } from '@/data/types';
++
++const CATEGORIES: Category[] = [
++  { id: 'physical', name: 'Физическая активность', icon: '💪', color: 'amber' },
++  { id: 'mental', name: 'Ментальное развитие', icon: '🧠', color: 'violet' },
++  { id: 'nutrition', name: 'Питание', icon: '🥗', color: 'green' },
++  { id: 'hygiene', name: 'Гигиена и уход', icon: '🚿', color: 'blue' },
++  { id: 'creativity', name: 'Творчество', icon: '🎨', color: 'rose' },
++  { id: 'social', name: 'Социальное', icon: '👥', color: 'orange' },
++];
++
++const RECOMMENDATIONS: Record<string, string[]> = {
++  physical: [
++    'Начните с 5 минут утренней зарядки — постепенно увеличивайте нагрузку',
++    'Добавьте растяжку после физической нагрузки для восстановления',
++    'Попробуйте йогу для начинающих — 10 минут меняют всё',
++  ],
++  mental: [
++    'Читайте 10 страниц каждое утро — за год это 12 книг',
++    'Медитация 5 минут снижает кортизол на 15% по данным исследований',
++    'Ведите дневник благодарности — 3 вещи за которые вы благодарны',
++  ],
++  nutrition: [
++    'Завтракайте в течение часа после пробуждения для метаболизма',
++    'Добавьте белок в утренний приём — яйца, творог, греческий йогурт',
++    'Стакан воды сразу после сна — гидратация после 8 часов сна',
++  ],
++  hygiene: [
++    'Контрастный душ: 30 сек горячего → 30 сек холодного × 3 цикла',
++    'Уход за кожей утром — 5 минут для долгосрочного результата',
++    'Зубная нить каждый день снижает риск сердечно-сосудистых болезней',
++  ],
++  creativity: [
++    'Рисуйте 5 минут каждое утро без цели — просто для потока',
++    'Записывайте идеи в момент пробуждения — они самые свежие',
++    'Слушайте вдохновляющую музыку без слов во время утреннего ритуала',
++  ],
++  social: [
++    'Напишите сообщение близкому человеку — просто "привет"',
++    'Запланируйте одну встречу с другом на эту неделю',
++    'Выразите благодарность кому-нибудь искренне — это мощно',
++  ],
++};
++
++export function useCategories() {
++  const getCategoryById = (id: string): Category | null =>
++    CATEGORIES.find((c) => c.id === id) ?? null;
++
++  const getRecommendationsForCategory = (id: string): string[] =>
++    RECOMMENDATIONS[id] ?? [];
++
++  return { categories: CATEGORIES, getCategoryById, getRecommendationsForCategory };
++}
+diff --git a/preview-workspace/src/hooks/useHabits.ts b/preview-workspace/src/hooks/useHabits.ts
+new file mode 100644
+index 0000000..261f044
+--- /dev/null
++++ b/preview-workspace/src/hooks/useHabits.ts
+@@ -0,0 +1,15 @@
++import { useLocalStorage } from '@/hooks/useLocalStorage';
++import { SEED_RITUALS } from '@/data/seed';
++import { getWeeklyProgress, getMonthlyProgress } from '@/data/habits';
++import type { Ritual } from '@/data/types';
++
++export function useHabits() {
++  const [rituals] = useLocalStorage<Ritual[]>('ritualflow.rituals', SEED_RITUALS);
++
++  const weeklyProgress = getWeeklyProgress(rituals, []);
++  const monthlyProgress = getMonthlyProgress(rituals, []);
++  const bestStreak =
++    rituals.length > 0 ? Math.max(...rituals.map((r) => r.bestStreak), 0) : 0;
++
++  return { weeklyProgress, monthlyProgress, bestStreak };
++}
+diff --git a/preview-workspace/src/hooks/useRituals.ts b/preview-workspace/src/hooks/useRituals.ts
+new file mode 100644
+index 0000000..7fd6ce3
+--- /dev/null
++++ b/preview-workspace/src/hooks/useRituals.ts
+@@ -0,0 +1,82 @@
++import { useState, useCallback } from 'react';
++import { useLocalStorage } from '@/hooks/useLocalStorage';
++import { SEED_RITUALS } from '@/data/seed';
++import { calculateStreak } from '@/data/habits';
++import type { Ritual } from '@/data/types';
++
++interface AddRitualInput {
++  name: string;
++  category: string;
++  duration: number;
++}
++
++export function useRituals() {
++  const [rituals, setRituals] = useLocalStorage<Ritual[]>('ritualflow.rituals', SEED_RITUALS);
++  const [animatingId, setAnimatingId] = useState<string | null>(null);
++
++  const today = new Date().toISOString().split('T')[0];
++
++  const completeRitual = useCallback((id: string) => {
++    setAnimatingId(id);
++    setTimeout(() => {
++      setRituals((prev) =>
++        prev.map((r) => {
++          if (r.id !== id) return r;
++          if (r.completedDates.includes(today)) return r;
++          const completedDates = [...r.completedDates, today];
++          const updated = { ...r, completedDates };
++          const streak = calculateStreak(updated);
++          return { ...updated, streak, bestStreak: Math.max(streak, r.bestStreak) };
++        }),
++      );
++      setAnimatingId(null);
++    }, 500);
++  }, [today, setRituals]);
++
++  const addRitual = useCallback(
++    (input: AddRitualInput) => {
++      const newRitual: Ritual = {
++        id: `ritual-${Date.now()}`,
++        name: input.name,
++        category: input.category,
++        duration: input.duration,
++        completedDates: [],
++        recommendations: [],
++        createdAt: new Date().toISOString(),
++        streak: 0,
++        bestStreak: 0,
++      };
++      setRituals((prev) => [...prev, newRitual]);
++    },
++    [setRituals],
++  );
++
++  const removeRitual = useCallback(
++    (id: string) => {
++      setRituals((prev) => prev.filter((r) => r.id !== id));
++    },
++    [setRituals],
++  );
++
++  const getRitualById = useCallback(
++    (id: string): Ritual | null => rituals.find((r) => r.id === id) ?? null,
++    [rituals],
++  );
++
++  const todayCompleted = rituals.filter((r) => r.completedDates.includes(today)).length;
++  const totalRituals = rituals.length;
++  const currentStreak =
++    rituals.length > 0 ? Math.max(...rituals.map((r) => r.streak), 0) : 0;
++
++  return {
++    rituals,
++    animatingId,
++    todayCompleted,
++    totalRituals,
++    currentStreak,
++    completeRitual,
++    addRitual,
++    removeRitual,
++    getRitualById,
++  };
++}
+diff --git a/preview-workspace/tsconfig.json b/preview-workspace/tsconfig.json
+index 27ae0e6..1e12a38 100644
+--- a/preview-workspace/tsconfig.json
++++ b/preview-workspace/tsconfig.json
+@@ -7,6 +7,7 @@
+     "strict": false,
+     "esModuleInterop": true,
+     "skipLibCheck": true,
++    "forceConsistentCasingInFileNames": false,
+     "paths": { "@/*": ["./src/*"] }
+   },
+   "include": ["src"]

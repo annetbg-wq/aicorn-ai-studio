@@ -1,0 +1,46 @@
+BATCH-6-WI-7 — Design Fusion / Uploaded Assets + Premium + shadcn
+Generated: 2026-06-19
+
+=== CREATED (new files) ===
+frontend/src/services/DesignFusionService.ts
+frontend/src/services/__tests__/DesignFusion.test.ts
+
+=== MODIFIED (existing files) ===
+frontend/src/services/ProtoPipeline.ts
+  - Export UploadedAssetPromptEntry, UploadedAssetFusionResult interfaces
+  - Export materializeUploadedAssetFusion function
+  - Import buildDesignFusionPromptBlock, buildUploadedAssetFusionEntries, buildPremiumFusionEntries from DesignFusionService
+  - Add designFusionBlock? to buildCoderPlanningBlocks input + assembled output
+  - Add designFusionBlock? to runCoder input interface
+  - Pass designFusionBlock into buildCoderPlanningBlocks call inside runCoder
+  - Build WI-7 design fusion context before runCoder call in main pipeline
+
+frontend/src/services/LVPipeline.ts
+  - Import materializeUploadedAssetFusion from ProtoPipeline
+  - Import buildDesignFusionPromptBlock, buildUploadedAssetFusionEntries from DesignFusionService
+  - Add designFusionBlock? parameter to buildLvCoderSystemPrompt
+  - Add shadcn note to TECH STACK section
+  - Add designFusionBlock injection into system prompt lines
+  - Add @radix-ui forbidden rule to RULES section
+  - Add designFusionBlock? parameter to lvStreamCoder
+  - In LVPipeline.run(): materialize uploaded assets + build design fusion block
+  - Overlay materialized uploaded asset files in the merged files map
+
+=== EXCLUDED (per WI-7 scope rules) ===
+preview-workspace/*                   — untouched
+backend/preview-manager.ts            — untouched
+backend/preview-manager.test.ts       — untouched
+backend/agent-config.json             — untouched
+frontend/src/shared/projectModel.ts   — no WI-7 changes (pre-existing modification)
+preview-workspace/tsconfig.json       — no WI-7 changes (pre-existing modification)
+
+=== TEST FILES (all pass) ===
+frontend/src/services/__tests__/DesignFusion.test.ts         — 63 tests PASS
+frontend/src/services/__tests__/ProductDocumentSet.test.ts   — 6 tests  PASS
+frontend/src/services/__tests__/CompletenessGate.test.ts     — 27 tests PASS
+frontend/src/services/__tests__/Pass2Critic.test.ts          — 14 tests PASS
+frontend/src/services/__tests__/Pass2Implementer.test.ts     — 50 tests PASS
+frontend/src/services/__tests__/LVPipeline.test.ts           — 32 tests PASS
+frontend/src/services/__tests__/ProtoPipeline.test.ts        — 13 tests PASS
+frontend/src/services/__tests__/ProtoPipelineDiagnostics.test.ts — 11 tests PASS
+frontend/src/services/__tests__/LiveGenerationContractValidator.test.ts — 32 tests PASS

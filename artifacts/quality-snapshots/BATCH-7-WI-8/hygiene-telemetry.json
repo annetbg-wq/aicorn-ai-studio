@@ -1,0 +1,34 @@
+{
+  "batch": "BATCH-7-WI-8",
+  "hygieneCheck": true,
+  "generatedAt": "2026-06-19T17:20:00Z",
+  "rootPackageLockChanged": false,
+  "rootPackageJsonChanged": false,
+  "frontendPackageLockChanged": false,
+  "nodeModulesTracked": false,
+  "dependencyChangesIntentional": false,
+  "lockfileNoiseRestored": true,
+  "vitestConfigChanged": true,
+  "vitestConfigChangeNeeded": true,
+  "vitestConfigChangeNotes": "Added '../backend/preview-manager.test.ts' to test.include — minimum required for gate command. Removed '../backend' from server.fs.allow (was unnecessary). Narrowed backend include from '../backend/**/*.test.ts' to '../backend/preview-manager.test.ts' to avoid scope expansion.",
+  "emptyCanvasTestNoLongerCommentDependent": true,
+  "emptyCanvasTestFixNotes": "Replaced slice-based check (depended on comment placement) with structural position-ordering assertions. Removed production code comment that existed only to game the test.",
+  "allGateCommandsPass": true,
+  "gateResults": {
+    "typecheck": "PASS",
+    "Pass2": "PASS (64 tests)",
+    "ProtoPipeline": "PASS (68 tests)",
+    "LVPipeline": "PASS (32 tests)",
+    "CompletenessGate": "PASS (27 tests)",
+    "ProductDocumentSet": "PASS (6 tests)",
+    "DesignFusion": "PASS (63 tests)",
+    "previewManagerBackend": "PASS (63 tests)"
+  },
+  "excludedFiles": {
+    "previewWorkspace": true,
+    "backendAgentConfig": true,
+    "providerModelDefaults": true
+  },
+  "safeToCommit": true,
+  "finalVerdict": "PASS"
+}

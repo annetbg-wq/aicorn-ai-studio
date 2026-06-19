@@ -1,0 +1,624 @@
+diff --git a/frontend/src/services/ProtoPipeline.ts b/frontend/src/services/ProtoPipeline.ts
+index fb1dacd..6a003a2 100644
+--- a/frontend/src/services/ProtoPipeline.ts
++++ b/frontend/src/services/ProtoPipeline.ts
+@@ -143,6 +143,9 @@ import {
+   measureCoderPromptBlockSizes,
+   recordCoderPromptBlockSizes,
+ } from './CoderPromptBlockSizeDiagnostics';
++import type { ProjectPlan } from './types/ProjectPlan';
++import { materializeProductDocumentSet } from './ProductDocumentSet';
++import { evaluateCompletenessGate } from './CompletenessGate';
+ 
+ // ── Public types ──────────────────────────────────────────────────────────────
+ 
+@@ -400,6 +403,7 @@ export interface ProtoPipelineConfig {
+   skeletonId:   SkeletonId;
+   buildId:      string;
+   attachments?: PipelineAttachment[];
++  prebuiltPlan?: ProjectPlan;
+   skipClarify?: boolean;
+   signal?:      AbortSignal;
+   routeOverrides?: Partial<Record<AgentSlot, ResolvedRoute>>;
+@@ -905,11 +909,409 @@ function isSourceScanFile(path: string): boolean {
+   if (!isCodeFile(path)) return false;
+   if (normalized.startsWith('design-pack/')) return false;
+   if (normalized.startsWith('assets/generated/')) return false;
++  if (normalized.startsWith('generated/uploads/')) return false;
++  if (normalized.startsWith('docs/architect/')) return false;
+   if (normalized.includes('__tests__/')) return false;
+   if (/\.(?:test|spec)\.tsx?$/.test(normalized)) return false;
+   return true;
+ }
+ 
++interface UploadedAssetPromptEntry {
++  id: string;
++  kind: PipelineAttachment['type'];
++  name: string;
++  moduleImportPath?: string;
++  excerpt?: string;
++}
++
++interface UploadedAssetFusionResult {
++  files: Record<string, string>;
++  materializedFiles: string[];
++  promptBlock: string;
++  entries: UploadedAssetPromptEntry[];
++}
++
++function truncatePromptSnippet(value: string, limit = 220): string {
++  const normalized = value.replace(/\s+/g, ' ').trim();
++  if (!normalized) return '';
++  return normalized.length <= limit ? normalized : `${normalized.slice(0, limit - 1)}…`;
++}
++
++function sanitizeAttachmentModuleId(name: string, index: number): string {
++  const stem = name
++    .replace(/\.[^.]+$/, '')
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '');
++  return stem ? `${String(index + 1).padStart(2, '0')}-${stem}` : `attachment-${index + 1}`;
++}
++
++function materializeUploadedAssetFusion(
++  attachments: readonly PipelineAttachment[] | undefined,
++): UploadedAssetFusionResult {
++  const files: Record<string, string> = {};
++  const entries: UploadedAssetPromptEntry[] = [];
++
++  for (const [index, attachment] of (attachments ?? []).entries()) {
++    const id = sanitizeAttachmentModuleId(attachment.name, index);
++    const basePath = `generated/uploads/${id}`;
++    const snippet = truncatePromptSnippet(
++      attachment.textContent ?? (attachment.type === 'image' ? '' : attachment.data),
++    );
++
++    if (attachment.type === 'image') {
++      const dataUrl = attachment.data.startsWith('data:')
++        ? attachment.data
++        : `data:${attachment.mimeType};base64,${attachment.data}`;
++      const modulePath = `${basePath}.ts`;
++      files[modulePath] = [
++        `export const uploadedAsset = ${JSON.stringify({
++          id,
++          name: attachment.name,
++          mimeType: attachment.mimeType,
++          kind: attachment.type,
++          dataUrl,
++        }, null, 2)} as const;`,
++        '',
++        'export default uploadedAsset.dataUrl;',
++        '',
++      ].join('\n');
++      entries.push({
++        id,
++        kind: attachment.type,
++        name: attachment.name,
++        moduleImportPath: `@/${basePath}`,
++      });
++      continue;
++    }
++
++    const modulePath = `${basePath}.ts`;
++    files[modulePath] = [
++      `export const uploadedAsset = ${JSON.stringify({
++        id,
++        name: attachment.name,
++        mimeType: attachment.mimeType,
++        kind: attachment.type,
++        excerpt: snippet,
++      }, null, 2)} as const;`,
++      '',
++      'export default uploadedAsset;',
++      '',
++    ].join('\n');
++    entries.push({
++      id,
++      kind: attachment.type,
++      name: attachment.name,
++      moduleImportPath: `@/${basePath}`,
++      excerpt: snippet,
++    });
++  }
++
++  if (entries.length > 0) {
++    files['generated/uploads/manifest.ts'] = [
++      `export const UPLOADED_ASSET_MANIFEST = ${JSON.stringify(entries, null, 2)} as const;`,
++      '',
++      'export default UPLOADED_ASSET_MANIFEST;',
++      '',
++    ].join('\n');
++  }
++
++  const promptLines = entries.map(entry => {
++    if (entry.kind === 'image') {
++      return `- image \`${entry.name}\` -> import default from '${entry.moduleImportPath}' and use it directly in the UI`;
++    }
++    return `- ${entry.kind} \`${entry.name}\`${entry.moduleImportPath ? ` -> metadata at '${entry.moduleImportPath}'` : ''}${entry.excerpt ? ` | excerpt: "${entry.excerpt}"` : ''}`;
++  });
++
++  return {
++    files,
++    materializedFiles: Object.keys(files).sort((left, right) => left.localeCompare(right)),
++    promptBlock: promptLines.length > 0
++      ? [
++          'UPLOADED ASSETS / REFERENCE MATERIAL',
++          ...promptLines,
++          '- If a provided asset helps the product, fuse it into the shipped UI instead of ignoring it.',
++        ].join('\n')
++      : '',
++    entries,
++  };
++}
++
++function collectRequiredCapabilityIds(prebuiltPlan?: ProjectPlan | null): string[] {
++  if (!prebuiltPlan) return [];
++  const kickoff = (prebuiltPlan.kickoffScope as { selectedCapabilityIds?: string[] } | undefined)?.selectedCapabilityIds ?? [];
++  const architectKickoff = (prebuiltPlan.architectKickoff as { selectedCapabilityIds?: string[] } | undefined)?.selectedCapabilityIds ?? [];
++  return Array.from(new Set(
++    [...kickoff, ...architectKickoff]
++      .map(capability => capability.trim())
++      .filter(Boolean),
++  )).sort((left, right) => left.localeCompare(right));
++}
++
++function mergeSavedPlanRequirements(
++  plan: ArchitectPlan,
++  prebuiltPlan: ProjectPlan | undefined,
++  onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void,
++): ArchitectPlan {
++  if (!prebuiltPlan) return plan;
++
++  const nextFileTree = { ...plan.fileTree };
++  const nextPages = [...(plan.pages ?? [])];
++  const nextNotes = [...(plan.notes ?? [])];
++  const pageFiles = new Set(nextPages.map(page => normalizeOutputPath(page.file)));
++  const requiredCapabilities = collectRequiredCapabilityIds(prebuiltPlan);
++  let injectedPages = 0;
++
++  for (const page of prebuiltPlan.pages ?? []) {
++    const normalizedFile = normalizeOutputPath(page.file ?? '');
++    if (!normalizedFile) continue;
++    if (!nextFileTree[normalizedFile]) {
++      nextFileTree[normalizedFile] = page.purpose?.trim()
++        ? `Saved product-plan requirement: ${page.purpose}`
++        : `Saved product-plan required screen: ${page.name || page.path || normalizedFile}`;
++      injectedPages += 1;
++    }
++    if (!pageFiles.has(normalizedFile)) {
++      nextPages.push({
++        path: page.path,
++        name: page.name,
++        file: normalizedFile,
++        purpose: page.purpose,
++      });
++      pageFiles.add(normalizedFile);
++    }
++  }
++
++  if (requiredCapabilities.length > 0) {
++    nextNotes.push(
++      `Saved plan must-capabilities that must be concrete in the shipped prototype: ${requiredCapabilities.join(', ')}.`,
++    );
++  }
++  if (injectedPages > 0) {
++    nextNotes.push(
++      `Saved product plan added ${injectedPages} required page file(s); they must ship as real routed screens, not notes only.`,
++    );
++    onLog(`[completeness] injected ${injectedPages} required saved-plan page(s) into the architect delta`, 'info');
++  }
++
++  const deltaFiles = Object.entries(nextFileTree)
++    .map(([path, purpose]) => ({ path, purpose }))
++    .sort((left, right) => left.path.localeCompare(right.path));
++
++  return {
++    ...plan,
++    fileTree: nextFileTree,
++    deltaFiles,
++    pages: nextPages,
++    notes: Array.from(new Set(nextNotes)),
++    contextContract: [
++      plan.contextContract?.trim(),
++      requiredCapabilities.length > 0
++        ? `Saved plan scope is authoritative for must-capabilities: ${requiredCapabilities.join(', ')}.`
++        : '',
++    ].filter(Boolean).join('\n'),
++  };
++}
++
++function buildCriticFileDigest(currentFiles: Record<string, string>): string {
++  const prioritizedFiles = Object.keys(currentFiles)
++    .sort((left, right) => left.localeCompare(right))
++    .sort((left, right) => {
++      const leftPriority = /^pages\//.test(left) ? 0 : /^config\//.test(left) ? 1 : /^components\//.test(left) ? 2 : 3;
++      const rightPriority = /^pages\//.test(right) ? 0 : /^config\//.test(right) ? 1 : /^components\//.test(right) ? 2 : 3;
++      return leftPriority - rightPriority || left.localeCompare(right);
++    })
++    .slice(0, 12);
++
++  return prioritizedFiles
++    .map(path => [
++      `FILE: ${path}`,
++      currentFiles[path].slice(0, 900),
++      '---',
++    ].join('\n'))
++    .join('\n');
++}
++
++interface PassTwoCriticResult {
++  verdict: 'pass' | 'revise';
++  reasons: string[];
++  instructions: string[];
++  focusFiles: string[];
++}
++
++async function runPassTwoCritic(input: {
++  prompt: string;
++  plan: ArchitectPlan;
++  prebuiltPlan?: ProjectPlan;
++  currentFiles: Record<string, string>;
++  uploadedAssets?: UploadedAssetFusionResult;
++  signal?: AbortSignal;
++  routeOverrides?: RouteOverrideMap;
++  onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void;
++  onUsage?: (usage: StepLlmMetrics) => void;
++}): Promise<PassTwoCriticResult> {
++  if (!resolveRouteOrSkip('qa', input.routeOverrides)) {
++    return { verdict: 'pass', reasons: [], instructions: [], focusFiles: [] };
++  }
++
++  const requiredPages = (input.prebuiltPlan?.pages ?? [])
++    .map(page => `${page.name} -> ${normalizeOutputPath(page.file)} (${page.purpose})`)
++    .join('\n');
++  const mustCapabilities = collectRequiredCapabilityIds(input.prebuiltPlan);
++  const system = [
++    'You are Pass 2 critic for a prototype pipeline.',
++    'Review the candidate app after the first implementation pass.',
++    'Return ONLY valid JSON with this exact shape:',
++    '{',
++    '  "verdict": "pass" | "revise",',
++    '  "reasons": ["short concrete finding"],',
++    '  "instructions": ["implementer instruction"],',
++    '  "focusFiles": ["pages/Home.tsx"]',
++    '}',
++    'Use "revise" only when there is concrete missing work in the shipped prototype.',
++    'Prioritize saved-plan required pages, must-capabilities, product specificity, uploaded assets, and obvious UI contract misses.',
++    'Do not suggest rebuilding the app from scratch.',
++  ].join('\n');
++  const user = [
++    `Original task: ${input.prompt}`,
++    '',
++    `App name: ${input.plan.appName}`,
++    `Architect summary: ${input.plan.summary}`,
++    '',
++    'Required pages from saved plan:',
++    requiredPages || '(none)',
++    '',
++    `Must capabilities from saved plan: ${mustCapabilities.join(', ') || 'none'}`,
++    '',
++    input.uploadedAssets?.promptBlock || 'UPLOADED ASSETS / REFERENCE MATERIAL\n(none)',
++    '',
++    'Current file inventory:',
++    Object.keys(input.currentFiles).sort((left, right) => left.localeCompare(right)).map(path => `- ${path}`).join('\n'),
++    '',
++    'Candidate file digest:',
++    buildCriticFileDigest(input.currentFiles),
++  ].join('\n');
++
++  const raw = await callOnce({
++    slot: 'qa',
++    system,
++    user,
++    maxTokens: 2500,
++    timeoutMs: 60_000,
++    signal: input.signal,
++    routeOverrides: input.routeOverrides,
++    onUsage: input.onUsage,
++  });
++
++  const parsed = safeParseJson(raw);
++  if (!parsed || typeof parsed !== 'object') {
++    input.onLog('[pass-2] critic returned non-JSON output; skipping critic repair', 'warn');
++    return { verdict: 'pass', reasons: [], instructions: [], focusFiles: [] };
++  }
++  const result = parsed as Record<string, unknown>;
++  const verdict = result.verdict === 'revise' ? 'revise' : 'pass';
++  return {
++    verdict,
++    reasons: Array.isArray(result.reasons)
++      ? result.reasons.filter((item): item is string => typeof item === 'string').slice(0, 6)
++      : [],
++    instructions: Array.isArray(result.instructions)
++      ? result.instructions.filter((item): item is string => typeof item === 'string').slice(0, 8)
++      : [],
++    focusFiles: Array.isArray(result.focusFiles)
++      ? result.focusFiles
++        .filter((item): item is string => typeof item === 'string')
++        .map(path => normalizeOutputPath(path))
++        .slice(0, 12)
++      : [],
++  };
++}
++
++async function runPassTwoImplementer(input: {
++  prompt: string;
++  skeletonId: SkeletonId;
++  plan: ArchitectPlan;
++  currentFiles: Record<string, string>;
++  critic: PassTwoCriticResult;
++  uploadedAssets?: UploadedAssetFusionResult;
++  signal?: AbortSignal;
++  routeOverrides?: RouteOverrideMap;
++  onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void;
++  onUsage?: (usage: StepLlmMetrics) => void;
++  designCtx?: DesignContext;
++  mediaHints?: MediaHint[];
++}): Promise<Record<string, string>> {
++  const allowedNewPaths = new Set(input.plan.deltaFiles.map(file => normalizeOutputPath(file.path)));
++  const targets = Object.entries(input.currentFiles)
++    .map(([path, content]) => `<<<FILE: ${path}>>>\n${content}\n<<<END>>>`)
++    .join('\n\n');
++  const system = [
++    'You are the pass-2 implementer. Apply critic feedback to the current prototype candidate.',
++    'Re-emit only the files you changed plus any missing required files from the allowed delta list.',
++    'Use the same <<<FILE: path>>> ... <<<END>>> format.',
++    'Do not modify skeleton-locked paths.',
++    '',
++    'CRITIC REASONS:',
++    ...input.critic.reasons.map(reason => `- ${reason}`),
++    '',
++    'CRITIC INSTRUCTIONS:',
++    ...input.critic.instructions.map(instruction => `- ${instruction}`),
++    '',
++    `ALLOWED DELTA FILES: ${Array.from(allowedNewPaths).sort((left, right) => left.localeCompare(right)).join(', ')}`,
++    input.uploadedAssets?.promptBlock ?? '',
++    input.designCtx ? `\n${designContractForCoder(input.designCtx, input.mediaHints)}` : '',
++    '',
++    'SELF-CHECK BEFORE RETURNING:',
++    '- Preserve working structure and only patch what is needed.',
++    '- Missing saved-plan pages must ship as real files when they are in the allowed delta list.',
++    '- Must-capabilities must be visible in the shipped UI/flows, not hidden in notes.',
++  ].filter(Boolean).join('\n');
++
++  let body = '';
++  await streamCall({
++    slot: 'fix',
++    system,
++    user: `Original task: ${input.prompt}\n\nCurrent candidate files:\n\n${targets}`,
++    maxTokens: STEP_BUDGET.repair.maxTokens,
++    timeoutMs: STEP_BUDGET.repair.timeoutMs,
++    signal: input.signal,
++    routeOverrides: input.routeOverrides,
++    onChunk: (delta) => { body += delta; },
++    onUsage: input.onUsage,
++  });
++
++  const patches = parseFileMarkers(body);
++  if (Object.keys(patches).length === 0) {
++    throw new Error('Pass-2 implementer produced no FILE/END blocks');
++  }
++
++  const merged: Record<string, string> = { ...input.currentFiles };
++  const dropped: string[] = [];
++  for (const [patchPath, patchContent] of Object.entries(patches)) {
++    if (patchPath in input.currentFiles || allowedNewPaths.has(normalizeOutputPath(patchPath))) {
++      merged[patchPath] = patchContent;
++    } else {
++      dropped.push(patchPath);
++    }
++  }
++  if (dropped.length > 0) {
++    input.onLog(`[pass-2] dropped ${dropped.length} unexpected pass-2 file(s): ${dropped.join(', ')}`, 'warn');
++  }
++  return merged;
++}
++
++function filterCompletenessFiles(files: Record<string, string>): Record<string, string> {
++  return Object.fromEntries(
++    Object.entries(files).filter(([path]) => {
++      const normalized = normalizeOutputPath(path);
++      return !normalized.startsWith('docs/architect/')
++        && !normalized.startsWith('generated/uploads/')
++        && !normalized.startsWith('design-pack/')
++        && !normalized.startsWith('assets/generated/');
++    }),
++  );
++}
++
+ function isMeaningfulScreenFile(path: string): boolean {
+   const normalized = normalizeOutputPath(path);
+   if (!/\.tsx$/.test(normalized)) return false;
+@@ -1599,6 +2001,14 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+       log('[clarify] skipped for packaged founder fast path');
+     }
+ 
++    const uploadedAssetFusion = materializeUploadedAssetFusion(config.attachments);
++    if (uploadedAssetFusion.entries.length > 0) {
++      log(
++        `[attachments] fused ${uploadedAssetFusion.entries.length} uploaded asset(s): ` +
++        uploadedAssetFusion.entries.map(entry => entry.name).join(', '),
++      );
++    }
++
+     // ── Step 2 — Resolve pack + materialise theme (deterministic, no LLM) ──
+     emit('pack', 'active');
+     let designCtx: DesignContext;
+@@ -1660,11 +2070,13 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+           onLog:      log,
+           onUsage:    (usage) => { architectUsage = usage; },
+           designCtx,
++          attachmentPromptBlock: uploadedAssetFusion.promptBlock,
+       });
+     } catch (err) {
+       if (isAbort(err)) return fail('architect', 'aborted');
+       return fail('architect', (err as Error).message);
+     }
++    plan = mergeSavedPlanRequirements(plan, config.prebuiltPlan, log);
+     capturedPlan = plan;
+ 
+     // ── Controlled adapter fallback (rescue before pipeline guard) ────────────
+@@ -1837,6 +2249,27 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+     log(
+       `[product-specificity] domain="${productSpecificityPlan.inferredDomain}" entities=${productSpecificityPlan.domainEntities.length} metrics=${productSpecificityPlan.productMetrics.length}`,
+     );
++    const productDocumentSet = materializeProductDocumentSet({
++      prompt: clarifiedPrompt,
++      skeletonId: config.skeletonId,
++      architectPlan: {
++        appName: plan.appName,
++        summary: plan.summary,
++        pages: plan.pages,
++        fileTree: plan.fileTree,
++        notes: plan.notes,
++        dataModel: plan.dataModel,
++        contextContract: plan.contextContract,
++      },
++      prebuiltPlan: config.prebuiltPlan,
++      compositionPlan,
++      functionalFlowPlan,
++      skeletonIntegrationPlan,
++      productSpecificityPlan,
++    });
++    log(
++      `[docs] materialized architect folder (${productDocumentSet.materializedFiles.length} file(s)) at ${productDocumentSet.baseDir}`,
++    );
+ 
+     // ── Market-aware builder brief diagnostics (advisory only, no blocking) ──
+     // Wired before runCoder to provide visibility into market context coverage.
+@@ -1924,7 +2357,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+     let coderUsage: StepLlmMetrics | undefined;
+     const coderStartedAt = Date.now();
+     try {
+-        deltaFiles = await runCoder({
++       deltaFiles = await runCoder({
+           prompt:     clarifiedPrompt,
+           plan,
+           skeletonId: config.skeletonId,
+@@ -1940,6 +2373,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+          skeletonIntegrationPlan,
+          productSpecificityPlan,
+          marketAwareBuilderBrief: marketBrief,
++         attachmentPromptBlock: uploadedAssetFusion.promptBlock,
+        });
+     } catch (err) {
+       if (isAbort(err)) return fail('coder', 'aborted');
+@@ -1966,6 +2400,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+     const premiumMaterialization = materializePremiumComponents(designCtx);
+     Object.assign(deltaFiles, premiumMaterialization.files);
+     Object.assign(deltaFiles, mediaMaterialization.files);
++    Object.assign(deltaFiles, uploadedAssetFusion.files);
+     const appPath = Object.keys(deltaFiles).find(path => normalizePreviewPath(path) === 'App.tsx');
+     const appSource =
+       (appPath ? deltaFiles[appPath] : null) ??
+@@ -2066,6 +2501,61 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+         log(`[apply] export-integrity retry failed: ${(err as Error).message}`, 'warn');
+       }
+     }
++
++    try {
++      const passTwoCritic = await runPassTwoCritic({
++        prompt: clarifiedPrompt,
++        plan,
++        prebuiltPlan: config.prebuiltPlan,
++        currentFiles: filteredFiles,
++        uploadedAssets: uploadedAssetFusion,
++        signal: config.signal,
++        routeOverrides: config.routeOverrides,
++        onLog: log,
++      });
++      if (passTwoCritic.verdict === 'revise') {
++        log(
++          `[pass-2] critic requested implementer follow-up: ${passTwoCritic.reasons.join(' | ') || 'unspecified revision'}`,
++          'warn',
++        );
++        filteredFiles = await runPassTwoImplementer({
++          prompt: clarifiedPrompt,
++          skeletonId: config.skeletonId,
++          plan,
++          currentFiles: filteredFiles,
++          critic: passTwoCritic,
++          uploadedAssets: uploadedAssetFusion,
++          signal: config.signal,
++          routeOverrides: config.routeOverrides,
++          onLog: log,
++          designCtx,
++          mediaHints: mediaMaterialization.mediaHints,
++        });
++      } else {
++        log('[pass-2] critic passed the candidate without implementer follow-up');
++      }
++    } catch (err) {
++      if (isAbort(err)) return fail('apply', 'aborted');
++      log(`[pass-2] critic/implementer failed: ${(err as Error).message}`, 'warn');
++    }
++
++    const completenessGate = evaluateCompletenessGate({
++      prebuiltPlan: config.prebuiltPlan,
++      generatedFiles: filterCompletenessFiles(filteredFiles),
++      skeletonFiles: getSkeletonInstalledFiles(config.skeletonId),
++    });
++    if (!completenessGate.ok) {
++      return fail('apply', completenessGate.blockingReasons.join(' | '));
++    }
++    if (completenessGate.coverage.requiredPageCount > 0 || completenessGate.coverage.requiredCapabilityCount > 0) {
++      log(
++        `[completeness] pages ${completenessGate.coverage.coveredPageCount}/${completenessGate.coverage.requiredPageCount}, ` +
++        `capabilities ${completenessGate.coverage.coveredCapabilityCount}/${completenessGate.coverage.requiredCapabilityCount}`,
++      );
++    }
++
++    Object.assign(filteredFiles, productDocumentSet.files);
++
+     const selectedPremiumComponentIds = designCtx.premiumComponentSelection.selectedComponents
+       .map(component => component.id)
+       .sort((a, b) => a.localeCompare(b));
+@@ -2539,6 +3029,7 @@ async function runArchitect(input: {
+   onLog:      (msg: string, level?: 'info' | 'warn' | 'error') => void;
+   onUsage?:   (usage: StepLlmMetrics) => void;
+   designCtx?: DesignContext;
++  attachmentPromptBlock?: string;
+ }): Promise<ArchitectPlan> {
+   const skeleton = SKELETON_REGISTRY[input.skeletonId];
+   const architectRoute = resolveRouteOrSkip('primary', input.routeOverrides);
+@@ -2618,6 +3109,7 @@ ${editableExistingLines || '- (none)'}
+ SKELETON SNAPSHOT (already on disk; use this to avoid duplicates):
+ ${installedList}
+ ${input.designCtx ? archetypeContextForArchitect(input.designCtx) : ''}
++${input.attachmentPromptBlock ? `\n${input.attachmentPromptBlock}\n` : ''}
+ ${architectureQualityRules}
+ YOUR TASK: Return fileTree with ONLY the delta files this specific app needs.
+ The skeleton is already installed. You MAY include editable skeleton files in fileTree when they need meaningful product-specific rewrites.
+@@ -2816,6 +3308,7 @@ export function buildCoderPlanningBlocks(input: {
+   skeletonIntegrationPlan?: SkeletonIntegrationPlan;
+   productSpecificityPlan?: ProductSpecificityPlan;
+   marketAwareBuilderBrief?: MarketAwareBuilderBrief;
++  attachmentPromptBlock?: string;
+ }): string {
+   return [
+     input.designCtx ? designContractForCoder(input.designCtx, input.mediaHints) : '',
+@@ -2824,6 +3317,7 @@ export function buildCoderPlanningBlocks(input: {
+     input.skeletonIntegrationPlan ? buildSkeletonIntegrationPromptBlock(input.skeletonIntegrationPlan) : '',
+     input.productSpecificityPlan ? buildProductSpecificityPromptBlock(input.productSpecificityPlan) : '',
+     input.marketAwareBuilderBrief ? serializeMarketAwareBuilderBriefForCoder(input.marketAwareBuilderBrief) : '',
++    input.attachmentPromptBlock ?? '',
+     // Product Identity Substitution Contract — injected when a market-aware brief is present.
+     // Must appear after the brief (so the coder has product context) and before the
+     // self-plan instructions (so the substitution rules are in scope during planning).
+@@ -2852,6 +3346,7 @@ async function runCoder(input: {
+   skeletonIntegrationPlan?: SkeletonIntegrationPlan;
+   productSpecificityPlan?: ProductSpecificityPlan;
+   marketAwareBuilderBrief?: MarketAwareBuilderBrief;
++  attachmentPromptBlock?: string;
+ }): Promise<Record<string, string>>{
+   const skeleton = SKELETON_REGISTRY[input.skeletonId];
+   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
+@@ -2897,6 +3392,7 @@ async function runCoder(input: {
+       skeletonIntegrationPlan: input.skeletonIntegrationPlan,
+       productSpecificityPlan: input.productSpecificityPlan,
+       marketAwareBuilderBrief: input.marketAwareBuilderBrief,
++      attachmentPromptBlock: input.attachmentPromptBlock,
+     });
+   const advertisedUiPrimitives = filterAdvertisedUiPrimitiveNames(skeleton.uiPrimitives);
+   const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(advertisedUiPrimitives);

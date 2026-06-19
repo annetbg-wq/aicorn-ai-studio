@@ -1,0 +1,6 @@
+{
+  "attempted": false,
+  "succeeded": false,
+  "source": "none",
+  "unavailableReason": "no_browser_environment: static validation run — browser required for screenshot"
+}

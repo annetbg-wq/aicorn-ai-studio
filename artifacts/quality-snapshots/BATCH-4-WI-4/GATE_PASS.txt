@@ -1,0 +1,32 @@
+BATCH-4 WI-4 — GATE PASS
+Generated: 2026-06-19
+
+CRITERIA                                              RESULT
+─────────────────────────────────────────────────────────────────────
+tsc --noEmit exits 0                                  PASS
+Pass2Critic tests pass (26/26)                        PASS
+Pass2Implementer tests pass (38/38)                   PASS
+CompletenessGate tests pass (27/27)                   PASS
+ProtoPipeline tests pass (68/68)                      PASS
+ProductDocumentSet tests pass (6/6)                   PASS
+Loose schema {verdict,reasons,instructions,focusFiles} PASS (rejected)
+  rejected with loose_schema_rejected error
+parseGapArray accepts clean Gap[] JSON                 PASS
+parseGapArray strips ```json fences                   PASS
+buildDeterministicGaps: source='completeness'         PASS
+buildDeterministicGaps: status='missing'              PASS
+isPass2SafeTargetFile rejects backend/agent-config    PASS
+isPass2SafeTargetFile rejects package.json            PASS
+isPass2SafeTargetFile rejects .env*                   PASS
+isPass2SafeTargetFile rejects tsconfig/vite/tailwind  PASS
+isPass2SafeTargetFile rejects node_modules/           PASS
+isPass2SafeTargetFile allows src/pages/Coach.tsx      PASS
+partial outcome → factoryGatePassed=false             PASS
+done outcome → factoryGatePassed=true (>=0.8)         PASS
+pass2_unavailable → structured telemetry, no crash    PASS
+LVPipeline.ts untouched                               PASS
+preview-workspace/* untouched                         PASS
+backend/agent-config.json untouched                   PASS
+No hardcoded provider/model defaults                  PASS
+
+TOTAL TESTS: 165 passed, 0 failed

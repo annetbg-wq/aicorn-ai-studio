@@ -1,0 +1,367 @@
+diff --git a/backend/preview-manager.test.ts b/backend/preview-manager.test.ts
+index 0c3be98..0012f3f 100644
+--- a/backend/preview-manager.test.ts
++++ b/backend/preview-manager.test.ts
+@@ -660,6 +660,75 @@ describe('preview-manager build status', () => {
+   });
+ });
+ 
++// ── WI-8: Screenshot handshake tests ─────────────────────────────────────────
++
++describe('preview-manager screenshot handshake (WI-8)', () => {
++  it('canonical main.tsx responds to capture-screenshot by invoking captureScreenshot', async () => {
++    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
++    expect(src).toContain("event.data?.type !== 'capture-screenshot'");
++    expect(src).toContain('captureScreenshot()');
++  });
++
++  it('canonical main.tsx posts screenshot-result with dataUrl on success', async () => {
++    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
++    expect(src).toContain("type: 'screenshot-result'");
++    expect(src).toContain('dataUrl: canvas.toDataURL');
++  });
++
++  it('canonical main.tsx posts screenshot-result with explicit error reason on failure', async () => {
++    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
++    // Error is always a string reason — not a raw Error object
++    expect(src).toContain('error: String(error instanceof Error');
++  });
++
++  it('canonical main.tsx blocks empty/0x0 canvas — width=0 or height=0 produces failure result', async () => {
++    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
++    expect(src).toMatch(/canvas\.width\s*===\s*0\s*\|\|\s*canvas\.height\s*===\s*0/);
++    expect(src).toContain('empty_canvas');
++  });
++
++  it('empty_canvas failure posts screenshot-result with error field (not dataUrl)', async () => {
++    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
++    // Verify structural ordering: guard → error message → early return → success dataUrl
++    // This does not depend on any comment placement or first-occurrence of canvas.toDataURL.
++    const emptyGuardIdx    = src.indexOf('canvas.width === 0 || canvas.height === 0');
++    const emptyErrorIdx    = src.indexOf("error: 'empty_canvas:");
++    const earlyReturnIdx   = src.indexOf('return;', emptyGuardIdx);
++    const successDataUrlIdx = src.indexOf('dataUrl: canvas.toDataURL');
++    expect(emptyGuardIdx).toBeGreaterThan(-1);
++    // error message appears inside the guard block (after the check)
++    expect(emptyErrorIdx).toBeGreaterThan(emptyGuardIdx);
++    // early return follows the error message
++    expect(earlyReturnIdx).toBeGreaterThan(emptyErrorIdx);
++    // success dataUrl branch appears only AFTER the early return — guard is actually early
++    expect(successDataUrlIdx).toBeGreaterThan(earlyReturnIdx);
++  });
++
++  it('canonical main.tsx has a timeout guard so html2canvas failure does not hang', async () => {
++    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
++    expect(src).toContain('Promise.race');
++    expect(src).toContain('screenshot_timeout');
++  });
++
++  it('timeout rejection becomes the error reason in the catch branch', async () => {
++    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
++    // The timeout rejects with an Error whose message starts with screenshot_timeout.
++    // The catch block stringifies it as the reason.
++    expect(src).toContain("new Error('screenshot_timeout:");
++    expect(src).toContain('String(error instanceof Error');
++  });
++
++  it('SCREENSHOT_TIMEOUT_MS is defined so the timeout duration is explicit', async () => {
++    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
++    expect(src).toContain('SCREENSHOT_TIMEOUT_MS');
++  });
++
++  it('html2canvas is still dynamically imported (not statically bundled)', async () => {
++    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
++    expect(src).toContain("import('html2canvas')");
++  });
++});
++
+ describe('preview-manager skeleton-only compile section preservation', () => {
+   it('source contains isSkeletonOnlyCompile guard for files={}', () => {
+     const src = fs.readFileSync(path.resolve('backend/preview-manager.ts'), 'utf-8');
+diff --git a/backend/preview-manager.ts b/backend/preview-manager.ts
+index 799d4e2..c501991 100644
+--- a/backend/preview-manager.ts
++++ b/backend/preview-manager.ts
+@@ -957,12 +957,35 @@ async function captureScreenshot(): Promise<void> {
+       await (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts?.ready;
+     }
+     const { default: html2canvas } = await import('html2canvas');
+-    const canvas = await html2canvas(document.documentElement, {
+-      backgroundColor: null,
+-      logging: false,
+-      scale: Math.min(window.devicePixelRatio || 1, 2),
+-      useCORS: true,
++    // WI-8: Timeout guard — html2canvas must not hang capture indefinitely.
++    const SCREENSHOT_TIMEOUT_MS = 10_000;
++    const timeoutPromise = new Promise<never>((_, reject) => {
++      setTimeout(
++        () => reject(new Error('screenshot_timeout: html2canvas did not complete in time')),
++        SCREENSHOT_TIMEOUT_MS,
++      );
+     });
++    const canvas = await Promise.race([
++      html2canvas(document.documentElement, {
++        backgroundColor: null,
++        logging: false,
++        scale: Math.min(window.devicePixelRatio || 1, 2),
++        useCORS: true,
++      }),
++      timeoutPromise,
++    ]);
++    // WI-8: Empty canvas guard — a 0x0 screenshot is not a valid capture.
++    if (canvas.width === 0 || canvas.height === 0) {
++      window.parent.postMessage(
++        {
++          type: 'screenshot-result',
++          buildId: BUILD_ID,
++          error: 'empty_canvas: 0x0 dimensions, screenshot not captured',
++        },
++        '*',
++      );
++      return;
++    }
+     window.parent.postMessage(
+       { type: 'screenshot-result', buildId: BUILD_ID, dataUrl: canvas.toDataURL('image/png') },
+       '*',
+@@ -972,7 +995,7 @@ async function captureScreenshot(): Promise<void> {
+       {
+         type: 'screenshot-result',
+         buildId: BUILD_ID,
+-        error: String(error instanceof Error ? error.message : error ?? 'screenshot failed'),
++        error: String(error instanceof Error ? error.message : error ?? 'screenshot_failed'),
+       },
+       '*',
+     );
+diff --git a/frontend/src/hooks/useProjectScreenshot.ts b/frontend/src/hooks/useProjectScreenshot.ts
+index 073718b..3a5f3eb 100644
+--- a/frontend/src/hooks/useProjectScreenshot.ts
++++ b/frontend/src/hooks/useProjectScreenshot.ts
+@@ -5,8 +5,13 @@
+  * Flow:
+  *   1. Call captureFromViteIframe(iframeEl, projectId)
+  *   2. Sends postMessage { type: 'capture-screenshot' } to the iframe
+- *   3. preview-workspace/main.tsx responds with { type: 'screenshot-result', dataUrl }
+- *   4. We compress and persist via screenshotCache.saveScreenshot()
++ *   3. preview-workspace/main.tsx responds with { type: 'screenshot-result', dataUrl } (success)
++ *      or { type: 'screenshot-result', error: '<reason>' } (failure)
++ *   4. resolveScreenshotStatus() converts the raw message to a typed ScreenshotStatus
++ *   5. On success: compress and persist via screenshotCache.saveScreenshot()
++ *
++ * Returns a structured ScreenshotStatus so callers can distinguish between
++ * success, failure, timeout, and empty-canvas blocks (WI-8).
+  */
+ 
+ import { useCallback, useEffect, useRef } from 'react';
+@@ -16,20 +21,28 @@ import {
+   saveRevisionThumbnail,
+   getRevisionThumbnail,
+ } from '../lib/screenshotCache';
++import {
++  resolveScreenshotStatus,
++  type ScreenshotStatus,
++} from '../services/ScreenshotService';
+ 
+ const CAPTURE_TIMEOUT_MS = 8_000;
+ 
+ export function useProjectScreenshot() {
+-  const pendingRef = useRef<Map<string, (dataUrl: string | null) => void>>(new Map());
++  const pendingRef = useRef<Map<string, (status: ScreenshotStatus) => void>>(new Map());
+ 
+-  // Listen for screenshot-result messages from the preview iframe
++  // Listen for screenshot-result messages from the preview iframe.
++  // Handles both success (dataUrl) and failure (error) branches (WI-8).
+   useEffect(() => {
+     const handler = (e: MessageEvent) => {
+       if (e.data?.type !== 'screenshot-result') return;
+-      const dataUrl: string | null = e.data.dataUrl ?? null;
++      const status = resolveScreenshotStatus({
++        dataUrl: typeof e.data.dataUrl === 'string' ? e.data.dataUrl : null,
++        error: typeof e.data.error === 'string' ? e.data.error : null,
++        source: 'html2canvas',
++      });
+ 
+-      // Resolve all pending captures (there should only be one at a time)
+-      for (const [, resolve] of pendingRef.current) resolve(dataUrl);
++      for (const [, resolve] of pendingRef.current) resolve(status);
+       pendingRef.current.clear();
+     };
+     window.addEventListener('message', handler);
+@@ -38,36 +51,51 @@ export function useProjectScreenshot() {
+ 
+   /**
+    * Request a screenshot from the Vite preview iframe and save it.
+-   * Saves as both the project-level screenshot and (optionally) a revision thumbnail.
+-   * Resolves with the data-URL, or null on timeout/error.
++   *
++   * Returns a structured ScreenshotStatus (WI-8):
++   *   - succeeded=true  → dataUrl captured and saved
++   *   - succeeded=false → unavailableReason explains why (timeout, error, empty canvas, no iframe)
++   *
++   * Saves as both the project-level screenshot and (optionally) a revision thumbnail on success.
+    */
+   const captureFromViteIframe = useCallback(
+     async (
+       iframe:     HTMLIFrameElement | null,
+       projectId:  string,
+       revisionId?: string | null,
+-    ): Promise<string | null> => {
+-      if (!iframe?.contentWindow) return null;
++    ): Promise<ScreenshotStatus> => {
++      if (!iframe?.contentWindow) {
++        return {
++          attempted: false,
++          succeeded: false,
++          source: 'html2canvas',
++          unavailableReason: 'no_iframe: iframe or contentWindow not available',
++        };
++      }
+ 
+       return new Promise(resolve => {
+         const key = projectId;
+         let timer: ReturnType<typeof setTimeout>;
+ 
+-        pendingRef.current.set(key, async (dataUrl) => {
++        pendingRef.current.set(key, async (status) => {
+           clearTimeout(timer);
+-          if (dataUrl) {
+-            await saveScreenshot(projectId, dataUrl);
+-            // Also persist as a revision thumbnail when a revision is active
++          if (status.dataUrl) {
++            await saveScreenshot(projectId, status.dataUrl);
+             if (revisionId) {
+-              void saveRevisionThumbnail(revisionId, dataUrl);
++              void saveRevisionThumbnail(revisionId, status.dataUrl);
+             }
+           }
+-          resolve(dataUrl);
++          resolve(status);
+         });
+ 
+         timer = setTimeout(() => {
+           pendingRef.current.delete(key);
+-          resolve(null);
++          resolve({
++            attempted: true,
++            succeeded: false,
++            source: 'html2canvas',
++            unavailableReason: 'screenshot_timeout: capture timed out after 8s',
++          });
+         }, CAPTURE_TIMEOUT_MS);
+ 
+         iframe.contentWindow!.postMessage({ type: 'capture-screenshot' }, '*');
+diff --git a/frontend/src/services/ProtoPipeline.ts b/frontend/src/services/ProtoPipeline.ts
+index a55fe9a..95e9ca8 100644
+--- a/frontend/src/services/ProtoPipeline.ts
++++ b/frontend/src/services/ProtoPipeline.ts
+@@ -151,6 +151,7 @@ import {
+   buildUploadedAssetFusionEntries,
+   buildPremiumFusionEntries,
+ } from './DesignFusionService';
++import type { ScreenshotStatus } from './ScreenshotService';
+ 
+ // ── Public types ──────────────────────────────────────────────────────────────
+ 
+@@ -200,6 +201,33 @@ export interface Pass2Telemetry {
+   pass2_build_ok: boolean;
+   outcome: 'done' | 'partial' | 'pass2_unavailable' | 'route_unresolved';
+   factoryGatePassed: boolean;
++  // ── WI-8: Vision health fields ────────────────────────────────────────────
++  /** Whether a screenshot capture was attempted before Pass 2 ran. */
++  screenshotAttempted?: boolean;
++  /** Whether the screenshot capture succeeded. False → critic is vision-blind. */
++  screenshotSucceeded?: boolean;
++  /** Capture method that produced (or attempted) the screenshot. */
++  screenshotSource?: 'html2canvas' | 'playwright' | 'manual' | 'none';
++  /** True when the screenshot dataUrl was present in the status. */
++  screenshotDataPresent?: boolean;
++  /** Reason the screenshot was unavailable (when screenshotSucceeded=false). */
++  screenshotUnavailableReason?: string;
++  /**
++   * True when the critic is operating on code only — no visual evidence exists.
++   * Hard rule: when critic_vision_blind=true, visualGateStatus cannot be 'pass'.
++   */
++  critic_vision_blind?: boolean;
++  /** Reason the critic cannot access visual evidence. Set when critic_vision_blind=true. */
++  visionUnavailableReason?: string;
++  /**
++   * Visual quality gate status — separate from the code completeness gate.
++   * Cannot be 'pass' without a successful screenshot (critic_vision_blind=false).
++   */
++  visualGateStatus?: 'pass' | 'partial' | 'skipped' | 'fail';
++  /** True when the code-only critic is blocked from claiming visual acceptance. */
++  codeOnlyVisualPassBlocked?: boolean;
++  /** True when an empty/0x0 canvas was detected and blocked from being counted as success. */
++  screenshotEmptyBlocked?: boolean;
+ }
+ 
+ export interface StepLlmMetrics {
+@@ -474,6 +502,12 @@ export interface ProtoPipelineConfig {
+   onCoderStream?: (delta: string) => void;
+   /** Fired exactly once after a successful build. */
+   onPreviewReady?: (url: string, buildId: string) => void;
++  /**
++   * Optional screenshot status from a prior capture (e.g. from a previous preview).
++   * Used by the Pass 2 vision gate (WI-8) to record whether visual evidence exists.
++   * When absent, the critic is assumed vision-blind (code-only analysis).
++   */
++  screenshotStatus?: ScreenshotStatus;
+ }
+ 
+ export interface ProtoPipelineResult {
+@@ -2797,6 +2831,44 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+       factoryGatePassed: false,
+     };
+ 
++    // ── WI-8: Vision health — thread screenshot status into Pass 2 telemetry ──
++    // When no screenshot is provided, the critic is vision-blind (code-only analysis).
++    // Hard rule: visualGateStatus cannot be 'pass' when critic_vision_blind is true.
++    {
++      const ssStatus: ScreenshotStatus = config.screenshotStatus ?? {
++        attempted: false,
++        succeeded: false,
++        source: 'none',
++        unavailableReason: 'screenshot_not_provided: no screenshot available at Pass 2 time',
++      };
++      const visionBlind = !ssStatus.succeeded;
++      pass2Telemetry.screenshotAttempted = ssStatus.attempted;
++      pass2Telemetry.screenshotSucceeded = ssStatus.succeeded;
++      pass2Telemetry.screenshotSource = ssStatus.source;
++      pass2Telemetry.screenshotDataPresent = Boolean(ssStatus.dataUrl);
++      pass2Telemetry.screenshotUnavailableReason = ssStatus.unavailableReason;
++      pass2Telemetry.critic_vision_blind = visionBlind;
++      pass2Telemetry.visionUnavailableReason = visionBlind
++        ? (ssStatus.unavailableReason ?? 'screenshot_not_available')
++        : undefined;
++      // Screenshot captured but no vision model check in this pipeline → 'partial'
++      // No screenshot → gate cannot pass → 'skipped'
++      pass2Telemetry.visualGateStatus = ssStatus.succeeded ? 'partial' : 'skipped';
++      pass2Telemetry.codeOnlyVisualPassBlocked = visionBlind;
++      pass2Telemetry.screenshotEmptyBlocked =
++        ssStatus.attempted &&
++        !ssStatus.succeeded &&
++        Boolean(
++          ssStatus.unavailableReason?.startsWith('empty_canvas') ||
++            ssStatus.unavailableReason?.startsWith('empty_dataUrl'),
++        );
++      log(
++        `[pass2] vision: critic_vision_blind=${visionBlind}, visualGateStatus=${pass2Telemetry.visualGateStatus}` +
++          (visionBlind ? ` (${ssStatus.unavailableReason})` : ''),
++        visionBlind ? 'warn' : 'info',
++      );
++    }
++
+     if (completenessGate.ok) {
+       pass2Telemetry.outcome = 'done';
+       pass2Telemetry.factoryGatePassed = true;
+diff --git a/vitest.config.ts b/vitest.config.ts
+index f1c0014..ac278c0 100644
+--- a/vitest.config.ts
++++ b/vitest.config.ts
+@@ -42,6 +42,7 @@ export default defineConfig({
+     },
+   },
+   test: {
++    include: ['**/*.{test,spec}.?(c|m)[jt]s?(x)', '../backend/preview-manager.test.ts'],
+     setupFiles: [path.resolve(__dirname, 'frontend/src/setupTests.ts')],
+     exclude: ['**/node_modules/**', '**/e2e/**', '**/*.spec.cjs'],
+     testTimeout: 15_000,

@@ -1,0 +1,12 @@
+ backend/preview-manager.test.ts                    |  29 ++
+ backend/preview-manager.ts                         |  78 +++-
+ dialog-after-brief.png                             | Bin 99889 -> 0 bytes
+ frontend/src/hooks/useStudio.ts                    |  19 +-
+ frontend/src/services/GenerationEngine.ts          |   1 +
+ .../src/services/LiveGenerationUiPrimitives.ts     |  16 +-
+ frontend/src/services/ProjectStorage.ts            |   1 +
+ frontend/src/services/ProtoPipeline.ts             | 498 ++++++++++++++++++++-
+ .../LiveGenerationContractValidator.test.ts        |   1 +
+ .../src/services/__tests__/ProtoPipeline.test.ts   |   1 +
+ preview-workspace/tsconfig.json                    |   1 +
+ 11 files changed, 619 insertions(+), 26 deletions(-)

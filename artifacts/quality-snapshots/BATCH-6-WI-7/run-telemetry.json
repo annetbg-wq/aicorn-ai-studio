@@ -1,0 +1,44 @@
+{
+  "batch": "BATCH-6-WI-7",
+  "wi": ["WI-7"],
+  "generatedAt": "2026-06-19",
+  "scope": {
+    "containsWI8": false,
+    "containsPreviewWorkspace": false,
+    "containsBackendPreviewManager": false,
+    "containsBackendAgentConfig": false,
+    "containsProviderModelDefaults": false
+  },
+  "designFusion": {
+    "rulesInjectedProtoPipeline": true,
+    "rulesInjectedLVPipeline": true,
+    "hierarchyPresent": true,
+    "alertVsAlertDialogRulePresent": true,
+    "uploadedAssetManifestCount": 0,
+    "uploadedAssetMaterializedCount": 0,
+    "premiumComponentSelectedCount": 0,
+    "premiumComponentUsedCount": 0,
+    "premiumSelectedNotUsed": false,
+    "visualAssetSelectedNotUsed": false,
+    "shadcnPrimitiveUsageCount": 0,
+    "directRadixImportCount": 0,
+    "selfMadePrimitiveCount": 0
+  },
+  "tests": {
+    "frontendTypecheck": "pass",
+    "designFusionTests": "pass",
+    "productDocumentSetTests": "pass",
+    "completenessGateTests": "pass",
+    "pass2Tests": "pass",
+    "lvPipelineTests": "pass",
+    "protoPipelineTests": "pass",
+    "liveGenerationContractTests": "pass"
+  },
+  "factoryGatePassed": true,
+  "notes": {
+    "designFusionService": "New service at frontend/src/services/DesignFusionService.ts — 9 exports, 63 tests",
+    "protoPipeline": "materializeUploadedAssetFusion exported; designFusionBlock injected in buildCoderPlanningBlocks + runCoder",
+    "lvPipeline": "materializeUploadedAssetFusion called; design fusion block injected into buildLvCoderSystemPrompt; uploaded asset files overlaid in merge step",
+    "testCount": 63
+  }
+}

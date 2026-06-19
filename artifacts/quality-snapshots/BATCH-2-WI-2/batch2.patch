@@ -1,0 +1,2037 @@
+
+diff --git a/frontend/src/services/ProductDocumentSet.ts b/frontend/src/services/ProductDocumentSet.ts
+index 113a453..bcfa6a9 100644
+--- a/frontend/src/services/ProductDocumentSet.ts
++++ b/frontend/src/services/ProductDocumentSet.ts
+@@ -5,9 +5,17 @@ import type { FunctionalFlowPlan } from './FunctionalFlowPlanner';
+ import type { SkeletonIntegrationPlan } from './SkeletonIntegrationPlanner';
+ import type { ProductSpecificityPlan } from './ProductSpecificityPlanner';
+ 
++export type ProductDocumentGenerationPath = 'skeleton_assembly' | 'blank_canvas';
++export type ProductDocumentSetStatus = 'materialized';
++export type ProductDocumentPersistenceTarget = 'project_snapshot' | 'project_storage' | 'run_report';
++
+ export interface ProductDocumentSetInput {
+   prompt: string;
+   generatedAt?: string;
++  projectId?: string;
++  revisionId?: string;
++  runId?: string;
++  generationPath?: ProductDocumentGenerationPath;
+   skeletonId: SkeletonId;
+   architectPlan: {
+     appName: string;
+@@ -25,13 +33,225 @@ export interface ProductDocumentSetInput {
+   productSpecificityPlan?: ProductSpecificityPlan;
+ }
+ 
++export interface ProductDocumentSource {
++  kind: 'proto_pipeline' | 'saved_plan_pipeline';
++  brief: string;
++  skeletonId: SkeletonId;
++  hasPrebuiltPlan: boolean;
++  plannerArtifacts: string[];
++}
++
++export interface ProductVision {
++  appName: string;
++  summary: string;
++  requestedBrief: string;
++  description?: string;
++  targetUser?: string;
++  theme?: string;
++  layoutType?: string;
++  navigationPattern?: string;
++  domain?: string;
++  primaryJobToBeDone?: string;
++  notes: string[];
++  contextContract?: string;
++}
++
++export interface ProductPersona {
++  id: string;
++  name: string;
++  role: string;
++  needs: string[];
++  contexts: string[];
++  source: string[];
++}
++
++export interface FeatureChecklistItem {
++  id: string;
++  briefPoint: string;
++  priority: 'must' | 'should' | 'nice';
++  surface: string;
++  targetFiles: string[];
++  acceptanceSignal: string[];
++  codeSignals: string[];
++  uiSignals: string[];
++  dataSignals: string[];
++  interactionSignals: string[];
++  source: string[];
++}
++
++export interface ProductScreenSpecEntry {
++  id: string;
++  title: string;
++  routeHint?: string;
++  file?: string;
++  purpose?: string;
++  role?: string;
++  priority: 'must' | 'should' | 'nice';
++  layoutIntent?: string;
++  zones: string[];
++  requiredInteractions: string[];
++  stateRequirements: string[];
++  contentRequirements: string[];
++  source: string[];
++}
++
++export interface ProductScreenSpec {
++  firstScreenId?: string;
++  screens: ProductScreenSpecEntry[];
++  globalLayoutRules: string[];
++  compositionNotes: string[];
++}
++
++export interface ProductFunctionalFlow {
++  id: string;
++  title: string;
++  screenId: string;
++  userIntent: string;
++  triggerElements: string[];
++  stateChanges: string[];
++  affectedEntities: string[];
++  visibleFeedback: string[];
++  navigationTarget?: string;
++  requiredImplementation: string[];
++}
++
++export interface ProductFunctionalFlows {
++  primaryUserGoal?: string;
++  flows: ProductFunctionalFlow[];
++  navigationRules: Array<{
++    from: string;
++    to: string;
++    trigger: string;
++    expectedBehavior: string;
++  }>;
++  globalStateRequirements: string[];
++  nonDecorativeRules: string[];
++  notes: string[];
++}
++
++export interface ProductDataEntity {
++  id: string;
++  label: string;
++  fields: string[];
++  examples: string[];
++  source: string[];
++}
++
++export interface ProductDataModel {
++  architectDataModelText?: string;
++  sharedState?: string;
++  entities: ProductDataEntity[];
++  metrics: string[];
++  statuses: string[];
++}
++
++export interface ProductDesignBrief {
++  skeletonId: SkeletonId;
++  skeletonFit?: string;
++  skeletonFitReason?: string;
++  reuseStrategy: string[];
++  extensionStrategy: Array<{
++    area: string;
++    targetFiles: string[];
++    reason: string;
++  }>;
++  codeQualityRules: string[];
++  avoidPatterns: string[];
++  toneNotes: string[];
++  copywritingRules: string[];
++  forbiddenGenericPatterns: string[];
++  notes: string[];
++}
++
++export interface ProductUiInventory {
++  routedScreens: Array<{
++    id: string;
++    title: string;
++    routeHint?: string;
++    file?: string;
++  }>;
++  deltaFileTree: Array<{
++    path: string;
++    purpose: string;
++  }>;
++  shadcnComponents: string[];
++  icons: string[];
++  customModules: Array<{
++    id: string;
++    recommendedPath: string;
++    purpose: string;
++    moduleType: string;
++  }>;
++  premiumTargets: string[];
++}
++
++export interface ProductDocumentSet {
++  id: string;
++  projectId: string;
++  revisionId?: string;
++  runId: string;
++  generationPath: ProductDocumentGenerationPath;
++  source: ProductDocumentSource;
++  productVision: ProductVision;
++  personas: ProductPersona[];
++  featureChecklist: FeatureChecklistItem[];
++  screenSpec: ProductScreenSpec;
++  functionalFlows: ProductFunctionalFlows;
++  dataModel: ProductDataModel;
++  designBrief: ProductDesignBrief;
++  uiInventory: ProductUiInventory;
++  markdownBundle: Record<string, string>;
++  status: ProductDocumentSetStatus;
++  generatedAt: string;
++  updatedAt: string;
++}
++
++export interface ProductDocumentSetTelemetry {
++  built: boolean;
++  saved: boolean;
++  id: string;
++  persistenceTarget: ProductDocumentPersistenceTarget;
++  featureChecklistItemCount: number;
++  featureChecklistMustCount: number;
++  markdownBundleFiles: string[];
++}
++
+ export interface ProductDocumentSetResult {
+   baseDir: string;
+   files: Record<string, string>;
+   materializedFiles: string[];
++  productDocs: ProductDocumentSet;
++  telemetry: ProductDocumentSetTelemetry;
+ }
+ 
+ const PRODUCT_DOCS_DIR = 'docs/architect';
++const PRODUCT_DOCS_JSON_PATH = `${PRODUCT_DOCS_DIR}/product-document-set.json`;
++const REQUIRED_MARKDOWN_FILES = [
++  'vision.md',
++  'feature-checklist.md',
++  'screens.md',
++  'flows.md',
++  'data-model.md',
++  'design-brief.md',
++  'implementation-brief.md',
++  'acceptance.md',
++] as const;
++
++type ScreenSeed = {
++  id: string;
++  title: string;
++  routeHint?: string;
++  file?: string;
++  purpose?: string;
++  role?: string;
++  priority: 'must' | 'should' | 'nice';
++  layoutIntent?: string;
++  zones: string[];
++  requiredInteractions: string[];
++  stateRequirements: string[];
++  contentRequirements: string[];
++  source: string[];
++};
+ 
+ function normalizeDocTimestamp(value?: string): string {
+   return value && value.trim() ? value : new Date().toISOString();
+@@ -41,116 +261,1052 @@ function stableJson(value: unknown): string {
+   return JSON.stringify(value, null, 2) + '\n';
+ }
+ 
+-function buildPagesMarkdown(
+-  pages: Array<{ path: string; name: string; file: string; purpose: string }> | undefined,
+-): string {
+-  if (!pages || pages.length === 0) return '- None captured\n';
+-  return pages
+-    .map(page => `- \`${page.path}\` -> \`${page.file}\` — ${page.name}: ${page.purpose}`)
+-    .join('\n') + '\n';
++function hashText(value: string): string {
++  let hash = 5381;
++  for (let index = 0; index < value.length; index += 1) {
++    hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
++  }
++  return (hash >>> 0).toString(36);
++}
++
++function slugify(value: string): string {
++  return value
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '');
+ }
+ 
+-function buildFileTreeMarkdown(fileTree: Record<string, string>): string {
+-  const entries = Object.entries(fileTree).sort(([left], [right]) => left.localeCompare(right));
+-  if (entries.length === 0) return '- None captured\n';
+-  return entries
+-    .map(([filePath, purpose]) => `- \`${filePath}\` — ${purpose}`)
+-    .join('\n') + '\n';
++function normalizePath(value?: string): string | undefined {
++  const trimmed = value?.trim();
++  return trimmed ? trimmed.replace(/\\/g, '/') : undefined;
+ }
+ 
+-export function materializeProductDocumentSet(
+-  input: ProductDocumentSetInput,
+-): ProductDocumentSetResult {
+-  const generatedAt = normalizeDocTimestamp(input.generatedAt);
+-  const baseDir = PRODUCT_DOCS_DIR;
+-  const kickoffScope = input.prebuiltPlan?.kickoffScope as {
+-    label?: string;
+-    description?: string;
+-    selectedCapabilityIds?: string[];
+-    deferredCapabilityIds?: string[];
+-  } | undefined;
+-  const summaryLines = [
+-    `# ${input.architectPlan.appName}`,
++function uniqueStrings(values: Array<string | null | undefined>): string[] {
++  return Array.from(
++    new Set(
++      values
++        .map(value => value?.trim())
++        .filter((value): value is string => Boolean(value)),
++    ),
++  );
++}
++
++function sortStrings(values: readonly string[]): string[] {
++  return [...values].sort((left, right) => left.localeCompare(right));
++}
++
++function sortRecordEntries(record: Record<string, string>): Array<[string, string]> {
++  return Object.entries(record).sort(([left], [right]) => left.localeCompare(right));
++}
++
++function collectRequiredCapabilityIds(prebuiltPlan?: ProjectPlan | null): string[] {
++  if (!prebuiltPlan) return [];
++  const kickoff = (prebuiltPlan.kickoffScope as { selectedCapabilityIds?: string[] } | undefined)?.selectedCapabilityIds ?? [];
++  const architectKickoff = (prebuiltPlan.architectKickoff as { selectedCapabilityIds?: string[] } | undefined)?.selectedCapabilityIds ?? [];
++  return sortStrings(uniqueStrings([...kickoff, ...architectKickoff]));
++}
++
++function priorityRank(priority: FeatureChecklistItem['priority']): number {
++  switch (priority) {
++    case 'must':
++      return 0;
++    case 'should':
++      return 1;
++    default:
++      return 2;
++  }
++}
++
++function sortChecklist(items: FeatureChecklistItem[]): FeatureChecklistItem[] {
++  return [...items].sort((left, right) => (
++    priorityRank(left.priority) - priorityRank(right.priority)
++    || left.surface.localeCompare(right.surface)
++    || left.briefPoint.localeCompare(right.briefPoint)
++  ));
++}
++
++function ensureSignals(values: string[], fallback: string): string[] {
++  const normalized = uniqueStrings(values);
++  return normalized.length > 0 ? normalized : [fallback];
++}
++
++function buildPersonas(input: ProductDocumentSetInput): ProductPersona[] {
++  const roleHints = uniqueStrings([
++    input.productSpecificityPlan?.targetUserRole,
++    input.prebuiltPlan?.targetUser,
++    input.prebuiltPlan?.description,
++  ]);
++
++  if (roleHints.length === 0) {
++    return [{
++      id: 'persona-primary',
++      name: 'Primary user',
++      role: 'Primary user',
++      needs: ['Complete the core product workflow without guesswork'],
++      contexts: ['Derived from the requested brief and architect plan'],
++      source: ['prompt', 'architectPlan.summary'],
++    }];
++  }
++
++  return roleHints.map((role, index) => ({
++    id: `persona-${index + 1}`,
++    name: role.split(/[.,]/)[0] || `Persona ${index + 1}`,
++    role,
++    needs: uniqueStrings([
++      input.productSpecificityPlan?.primaryJobToBeDone,
++      input.architectPlan.summary,
++    ]),
++    contexts: uniqueStrings([
++      input.prebuiltPlan?.description,
++      input.productSpecificityPlan?.inferredDomain,
++    ]),
++    source: uniqueStrings([
++      index === 0 ? 'productSpecificityPlan.targetUserRole' : 'prebuiltPlan.targetUser',
++      'architectPlan.summary',
++    ]),
++  }));
++}
++
++function buildScreenSpec(input: ProductDocumentSetInput): ProductScreenSpec {
++  const screenMap = new Map<string, ScreenSeed>();
++
++  const upsertScreen = (seed: ScreenSeed) => {
++    const key = normalizePath(seed.file) ?? seed.routeHint ?? seed.id;
++    const existing = screenMap.get(key);
++    if (!existing) {
++      screenMap.set(key, {
++        ...seed,
++        file: normalizePath(seed.file),
++        routeHint: normalizePath(seed.routeHint),
++        zones: sortStrings(seed.zones),
++        requiredInteractions: sortStrings(seed.requiredInteractions),
++        stateRequirements: sortStrings(seed.stateRequirements),
++        contentRequirements: sortStrings(seed.contentRequirements),
++        source: sortStrings(seed.source),
++      });
++      return;
++    }
++
++    const rank = (priority: ScreenSeed['priority']) => (
++      priority === 'must' ? 0 : priority === 'should' ? 1 : 2
++    );
++    const nextPriority = rank(seed.priority) < rank(existing.priority) ? seed.priority : existing.priority;
++
++    screenMap.set(key, {
++      ...existing,
++      id: existing.id || seed.id,
++      title: existing.title || seed.title,
++      routeHint: existing.routeHint || normalizePath(seed.routeHint),
++      file: existing.file || normalizePath(seed.file),
++      purpose: existing.purpose || seed.purpose,
++      role: existing.role || seed.role,
++      priority: nextPriority,
++      layoutIntent: existing.layoutIntent || seed.layoutIntent,
++      zones: sortStrings([...existing.zones, ...seed.zones]),
++      requiredInteractions: sortStrings([...existing.requiredInteractions, ...seed.requiredInteractions]),
++      stateRequirements: sortStrings([...existing.stateRequirements, ...seed.stateRequirements]),
++      contentRequirements: sortStrings([...existing.contentRequirements, ...seed.contentRequirements]),
++      source: sortStrings([...existing.source, ...seed.source]),
++    });
++  };
++
++  for (const page of input.prebuiltPlan?.pages ?? []) {
++    upsertScreen({
++      id: slugify(page.name || page.path || page.file || 'screen'),
++      title: page.name || page.path || page.file,
++      routeHint: page.path,
++      file: page.file,
++      purpose: page.purpose,
++      priority: page.isMainScreen ? 'must' : 'should',
++      layoutIntent: page.uiSpec,
++      zones: page.keyElements ?? [],
++      requiredInteractions: [],
++      stateRequirements: [],
++      contentRequirements: [page.purpose],
++      source: ['prebuiltPlan.pages'],
++    });
++  }
++
++  for (const page of input.architectPlan.pages ?? []) {
++    upsertScreen({
++      id: slugify(page.name || page.path || page.file || 'screen'),
++      title: page.name || page.path || page.file,
++      routeHint: page.path,
++      file: page.file,
++      purpose: page.purpose,
++      priority: 'should',
++      zones: [],
++      requiredInteractions: [],
++      stateRequirements: [],
++      contentRequirements: [page.purpose],
++      source: ['architectPlan.pages'],
++    });
++  }
++
++  for (const screen of input.compositionPlan?.screens ?? []) {
++    upsertScreen({
++      id: screen.id,
++      title: screen.title,
++      routeHint: screen.routeHint,
++      purpose: screen.layoutIntent,
++      role: screen.role,
++      priority: screen.priority === 'primary' ? 'must' : 'should',
++      layoutIntent: screen.layoutIntent,
++      zones: screen.zones.map(zone => `${zone.role}: ${zone.intent}`),
++      requiredInteractions: screen.requiredInteractions,
++      stateRequirements: screen.stateRequirements,
++      contentRequirements: screen.contentRequirements,
++      source: ['screenCompositionPlan.screens'],
++    });
++  }
++
++  const screens = [...screenMap.values()]
++    .map(screen => ({
++      ...screen,
++      zones: sortStrings(screen.zones),
++      requiredInteractions: sortStrings(screen.requiredInteractions),
++      stateRequirements: sortStrings(screen.stateRequirements),
++      contentRequirements: sortStrings(screen.contentRequirements),
++      source: sortStrings(screen.source),
++    }))
++    .sort((left, right) => (
++      priorityRank(left.priority) - priorityRank(right.priority)
++      || left.title.localeCompare(right.title)
++    ));
++
++  return {
++    firstScreenId: input.compositionPlan?.firstScreenId ?? screens[0]?.id,
++    screens,
++    globalLayoutRules: sortStrings(input.compositionPlan?.globalLayoutRules ?? []),
++    compositionNotes: sortStrings(input.compositionPlan?.compositionNotes ?? []),
++  };
++}
++
++function buildFunctionalFlows(input: ProductDocumentSetInput): ProductFunctionalFlows {
++  return {
++    primaryUserGoal: input.functionalFlowPlan?.primaryUserGoal,
++    flows: (input.functionalFlowPlan?.flows ?? [])
++      .map(flow => ({
++        id: flow.id,
++        title: flow.title,
++        screenId: flow.screenId,
++        userIntent: flow.userIntent,
++        triggerElements: sortStrings(flow.triggerElements),
++        stateChanges: sortStrings(flow.stateChanges),
++        affectedEntities: sortStrings(flow.affectedEntities),
++        visibleFeedback: sortStrings(flow.visibleFeedback),
++        navigationTarget: flow.navigationTarget,
++        requiredImplementation: sortStrings(flow.requiredImplementation),
++      }))
++      .sort((left, right) => left.title.localeCompare(right.title)),
++    navigationRules: [...(input.functionalFlowPlan?.navigationRules ?? [])]
++      .sort((left, right) => (
++        left.from.localeCompare(right.from)
++        || left.to.localeCompare(right.to)
++      )),
++    globalStateRequirements: sortStrings(input.functionalFlowPlan?.globalStateRequirements ?? []),
++    nonDecorativeRules: sortStrings(input.functionalFlowPlan?.nonDecorativeRules ?? []),
++    notes: sortStrings(input.functionalFlowPlan?.functionalNotes ?? []),
++  };
++}
++
++function buildDataModel(input: ProductDocumentSetInput): ProductDataModel {
++  const entityMap = new Map<string, ProductDataEntity>();
++
++  const upsertEntity = (
++    id: string,
++    label: string,
++    fields: string[],
++    examples: string[],
++    source: string,
++  ) => {
++    const key = slugify(id || label || source || 'entity');
++    const existing = entityMap.get(key);
++    if (!existing) {
++      entityMap.set(key, {
++        id: key,
++        label: label || id || 'Entity',
++        fields: sortStrings(fields),
++        examples: sortStrings(examples),
++        source: [source],
++      });
++      return;
++    }
++
++    entityMap.set(key, {
++      ...existing,
++      label: existing.label || label,
++      fields: sortStrings([...existing.fields, ...fields]),
++      examples: sortStrings([...existing.examples, ...examples]),
++      source: sortStrings([...existing.source, source]),
++    });
++  };
++
++  for (const entity of input.prebuiltPlan?.dataModel?.entities ?? []) {
++    upsertEntity(
++      entity.name,
++      entity.name,
++      entity.fields
++        .split(',')
++        .map(field => field.trim())
++        .filter(Boolean),
++      [],
++      'prebuiltPlan.dataModel.entities',
++    );
++  }
++
++  for (const entity of input.functionalFlowPlan?.entities ?? []) {
++    upsertEntity(
++      entity.id,
++      entity.label,
++      entity.fields.map(field => `${field.name}: ${field.type}`),
++      entity.fields.map(field => field.example),
++      'functionalFlowPlan.entities',
++    );
++  }
++
++  for (const entity of input.productSpecificityPlan?.domainEntities ?? []) {
++    upsertEntity(
++      entity.id,
++      entity.label,
++      entity.fields.map(field => `${field.name}: ${field.type}`),
++      entity.sampleNames,
++      'productSpecificityPlan.domainEntities',
++    );
++  }
++
++  return {
++    architectDataModelText: input.architectPlan.dataModel,
++    sharedState: input.prebuiltPlan?.dataModel?.sharedState,
++    entities: [...entityMap.values()].sort((left, right) => left.label.localeCompare(right.label)),
++    metrics: sortStrings((input.productSpecificityPlan?.productMetrics ?? []).map(metric => metric.label)),
++    statuses: sortStrings((input.productSpecificityPlan?.productStatuses ?? []).map(status => status.label)),
++  };
++}
++
++function buildDesignBrief(input: ProductDocumentSetInput): ProductDesignBrief {
++  return {
++    skeletonId: input.skeletonId,
++    skeletonFit: input.skeletonIntegrationPlan?.skeletonFit,
++    skeletonFitReason: input.skeletonIntegrationPlan?.skeletonFitReason,
++    reuseStrategy: sortStrings(
++      (input.skeletonIntegrationPlan?.reuseStrategy ?? [])
++        .map(strategy => `${strategy.area}: ${strategy.reuseMode} (${strategy.reason})`),
++    ),
++    extensionStrategy: (input.skeletonIntegrationPlan?.extensionStrategy ?? [])
++      .map(strategy => ({
++        area: strategy.area,
++        targetFiles: sortStrings(strategy.targetFiles.map(path => normalizePath(path) ?? path)),
++        reason: strategy.reason,
++      }))
++      .sort((left, right) => left.area.localeCompare(right.area)),
++    codeQualityRules: sortStrings(input.skeletonIntegrationPlan?.codeQualityRules ?? []),
++    avoidPatterns: sortStrings([
++      ...(input.compositionPlan?.avoidPatterns ?? []),
++      ...(input.skeletonIntegrationPlan?.forbiddenPatterns ?? []),
++    ]),
++    toneNotes: sortStrings(input.productSpecificityPlan?.vocabulary.toneNotes ?? []),
++    copywritingRules: sortStrings(input.productSpecificityPlan?.copywritingRules ?? []),
++    forbiddenGenericPatterns: sortStrings(input.productSpecificityPlan?.forbiddenGenericPatterns ?? []),
++    notes: sortStrings([
++      ...(input.skeletonIntegrationPlan?.integrationNotes ?? []),
++      ...(input.productSpecificityPlan?.specificityNotes ?? []),
++    ]),
++  };
++}
++
++function buildUiInventory(input: ProductDocumentSetInput, screenSpec: ProductScreenSpec): ProductUiInventory {
++  return {
++    routedScreens: screenSpec.screens.map(screen => ({
++      id: screen.id,
++      title: screen.title,
++      routeHint: screen.routeHint,
++      file: screen.file,
++    })),
++    deltaFileTree: sortRecordEntries(input.architectPlan.fileTree).map(([path, purpose]) => ({
++      path: normalizePath(path) ?? path,
++      purpose,
++    })),
++    shadcnComponents: sortStrings(input.prebuiltPlan?.shadcnComponents ?? []),
++    icons: sortStrings(input.prebuiltPlan?.icons ?? []),
++    customModules: (input.skeletonIntegrationPlan?.customModules ?? [])
++      .map(module => ({
++        id: module.id,
++        recommendedPath: normalizePath(module.recommendedPath) ?? module.recommendedPath,
++        purpose: module.purpose,
++        moduleType: module.moduleType,
++      }))
++      .sort((left, right) => left.recommendedPath.localeCompare(right.recommendedPath)),
++    premiumTargets: sortStrings(
++      (input.compositionPlan?.screens ?? []).flatMap(screen => screen.premiumComponentTargets ?? []),
++    ),
++  };
++}
++
++function buildFeatureChecklist(input: ProductDocumentSetInput, screenSpec: ProductScreenSpec, functionalFlows: ProductFunctionalFlows, dataModel: ProductDataModel, designBrief: ProductDesignBrief): FeatureChecklistItem[] {
++  const items: FeatureChecklistItem[] = [];
++  const capabilityIds = collectRequiredCapabilityIds(input.prebuiltPlan);
++  const defaultTargetFiles = screenSpec.screens
++    .map(screen => screen.file)
++    .filter((value): value is string => Boolean(value))
++    .slice(0, 4);
++  const fallbackTargetFiles = defaultTargetFiles.length > 0
++    ? defaultTargetFiles
++    : sortRecordEntries(input.architectPlan.fileTree).map(([path]) => path).slice(0, 4);
++
++  for (const screen of screenSpec.screens) {
++    items.push({
++      id: `screen-${hashText(`${screen.id}|${screen.file ?? screen.routeHint ?? screen.title}`)}`,
++      briefPoint: `${screen.title} ships as a concrete product surface`,
++      priority: screen.priority,
++      surface: screen.title,
++      targetFiles: ensureSignals(uniqueStrings([screen.file]), 'App.tsx'),
++      acceptanceSignal: ensureSignals(
++        uniqueStrings([
++          screen.purpose,
++          screen.layoutIntent,
++          `Route ${screen.routeHint ?? screen.id} renders meaningful product content`,
++        ]),
++        'The screen is visible and meaningful in the shipped prototype.',
++      ),
++      codeSignals: ensureSignals(
++        uniqueStrings([screen.file, ...screen.source]),
++        'A concrete routed implementation file exists.',
++      ),
++      uiSignals: ensureSignals(
++        [...screen.zones, ...screen.contentRequirements],
++        'The surface shows product-specific UI instead of placeholders.',
++      ),
++      dataSignals: ensureSignals(
++        screen.stateRequirements,
++        'Local state or mock data is wired for the surface.',
++      ),
++      interactionSignals: ensureSignals(
++        screen.requiredInteractions,
++        'Primary actions change visible state on the surface.',
++      ),
++      source: ensureSignals(screen.source, 'screenSpec'),
++    });
++  }
++
++  for (const flow of functionalFlows.flows) {
++    items.push({
++      id: `flow-${hashText(`${flow.id}|${flow.screenId}|${flow.title}`)}`,
++      briefPoint: `${flow.title} is implemented end-to-end`,
++      priority: 'must',
++      surface: flow.screenId,
++      targetFiles: fallbackTargetFiles.length > 0 ? fallbackTargetFiles : ['App.tsx'],
++      acceptanceSignal: ensureSignals(
++        [...flow.requiredImplementation, ...flow.visibleFeedback],
++        'The flow completes with visible feedback.',
++      ),
++      codeSignals: ensureSignals(
++        [...flow.requiredImplementation, ...flow.stateChanges],
++        'State transitions are implemented in code.',
++      ),
++      uiSignals: ensureSignals(
++        flow.visibleFeedback,
++        'The UI communicates the result of the user action.',
++      ),
++      dataSignals: ensureSignals(
++        [...flow.affectedEntities, ...flow.stateChanges],
++        'Local data updates reflect the flow outcome.',
++      ),
++      interactionSignals: ensureSignals(
++        flow.triggerElements,
++        'A visible control triggers the flow.',
++      ),
++      source: ['functionalFlowPlan.flows'],
++    });
++  }
++
++  for (const capabilityId of capabilityIds) {
++    items.push({
++      id: `capability-${slugify(capabilityId)}`,
++      briefPoint: `Must-capability "${capabilityId}" is visible in the shipped prototype`,
++      priority: 'must',
++      surface: capabilityId,
++      targetFiles: fallbackTargetFiles.length > 0 ? fallbackTargetFiles : ['App.tsx'],
++      acceptanceSignal: [
++        `The prototype makes the "${capabilityId}" capability testable without reading notes.`,
++      ],
++      codeSignals: [
++        `Implementation contains concrete code paths for ${capabilityId}.`,
++      ],
++      uiSignals: [
++        `The UI exposes ${capabilityId} through visible product affordances.`,
++      ],
++      dataSignals: [
++        `Local data or state reflects the ${capabilityId} capability.`,
++      ],
++      interactionSignals: [
++        `A user action can trigger or inspect ${capabilityId}.`,
++      ],
++      source: ['prebuiltPlan.kickoffScope.selectedCapabilityIds'],
++    });
++  }
++
++  for (const entity of dataModel.entities.slice(0, 3)) {
++    items.push({
++      id: `entity-${entity.id}`,
++      briefPoint: `${entity.label} is represented in mock data and UI copy`,
++      priority: 'should',
++      surface: entity.label,
++      targetFiles: fallbackTargetFiles.length > 0 ? fallbackTargetFiles : ['App.tsx'],
++      acceptanceSignal: [
++        `${entity.label} appears in the product as structured mock data or derived state.`,
++      ],
++      codeSignals: ensureSignals(entity.fields, 'The entity has named fields in the code.'),
++      uiSignals: [
++        `${entity.label} labels and details are visible in the UI.`,
++      ],
++      dataSignals: ensureSignals(entity.examples, 'Example values exist for the entity.'),
++      interactionSignals: [
++        `At least one flow reads or updates ${entity.label}.`,
++      ],
++      source: entity.source,
++    });
++  }
++
++  items.push({
++    id: `design-${hashText(`${input.skeletonId}|${designBrief.skeletonFit ?? 'unknown'}`)}`,
++    briefPoint: 'The prototype follows the selected skeleton and design brief',
++    priority: 'should',
++    surface: 'design-system',
++    targetFiles: fallbackTargetFiles.length > 0 ? fallbackTargetFiles : ['App.tsx'],
++    acceptanceSignal: ensureSignals(
++      uniqueStrings([designBrief.skeletonFitReason, ...designBrief.notes.slice(0, 2)]),
++      'The selected skeleton remains the product foundation.',
++    ),
++    codeSignals: ensureSignals(
++      designBrief.codeQualityRules.slice(0, 3),
++      'Code respects the selected skeleton boundaries.',
++    ),
++    uiSignals: ensureSignals(
++      [...designBrief.toneNotes.slice(0, 2), ...designBrief.copywritingRules.slice(0, 2)],
++      'The UI matches the requested design direction.',
++    ),
++    dataSignals: [
++      'Content stays product-specific and avoids generic placeholder language.',
++    ],
++    interactionSignals: [
++      'Core interactions remain consistent with the selected skeleton patterns.',
++    ],
++    source: ['skeletonIntegrationPlan', 'productSpecificityPlan'],
++  });
++
++  if (items.length === 0) {
++    items.push({
++      id: `fallback-${hashText(input.prompt)}`,
++      briefPoint: 'Ship a concrete prototype for the requested brief',
++      priority: 'must',
++      surface: input.architectPlan.appName || 'prototype',
++      targetFiles: fallbackTargetFiles.length > 0 ? fallbackTargetFiles : ['App.tsx'],
++      acceptanceSignal: ['The prototype is testable without relying on notes-only explanations.'],
++      codeSignals: ['Core implementation files exist and compile.'],
++      uiSignals: ['The UI contains product-specific content.'],
++      dataSignals: ['Local state or mock data is present.'],
++      interactionSignals: ['Primary actions change visible state.'],
++      source: ['prompt'],
++    });
++  }
++
++  return sortChecklist(items);
++}
++
++function buildVisionMarkdown(productDocs: Omit<ProductDocumentSet, 'markdownBundle'>): string {
++  const lines = [
++    `# ${productDocs.productVision.appName}`,
+     '',
+-    `Generated: ${generatedAt}`,
+-    `Skeleton: ${input.skeletonId}`,
++    `- Product docs id: \`${productDocs.id}\``,
++    `- Project id: \`${productDocs.projectId}\``,
++    `- Run id: \`${productDocs.runId}\``,
++    `- Generation path: \`${productDocs.generationPath}\``,
+     '',
+-    '## Product Summary',
++    '## Summary',
+     '',
+-    input.architectPlan.summary || input.prompt,
++    productDocs.productVision.summary,
+     '',
+     '## Requested Brief',
+     '',
+-    input.prompt,
++    productDocs.productVision.requestedBrief,
+     '',
+-    '## Routed Screens',
++    '## Product Shape',
+     '',
+-    buildPagesMarkdown(input.architectPlan.pages),
+-    '## Delta File Tree',
++    `- Theme: ${productDocs.productVision.theme ?? 'not specified'}`,
++    `- Layout: ${productDocs.productVision.layoutType ?? 'not specified'}`,
++    `- Navigation: ${productDocs.productVision.navigationPattern ?? 'not specified'}`,
++    `- Target user: ${productDocs.productVision.targetUser ?? 'not specified'}`,
++    `- Domain: ${productDocs.productVision.domain ?? 'not specified'}`,
++    `- Primary job to be done: ${productDocs.productVision.primaryJobToBeDone ?? 'not specified'}`,
+     '',
+-    buildFileTreeMarkdown(input.architectPlan.fileTree),
+-  ];
+-
+-  if (input.architectPlan.notes && input.architectPlan.notes.length > 0) {
+-    summaryLines.push(
+-      '## Architect Notes',
++    '## Personas',
++    '',
++    ...productDocs.personas.flatMap(persona => [
++      `### ${persona.name}`,
+       '',
+-      ...input.architectPlan.notes.map(note => `- ${note}`),
++      `- Role: ${persona.role}`,
++      `- Needs: ${persona.needs.join('; ') || 'not specified'}`,
++      `- Context: ${persona.contexts.join('; ') || 'not specified'}`,
++      `- Source: ${persona.source.join(', ')}`,
+       '',
+-    );
++    ]),
++  ];
++
++  if (productDocs.productVision.notes.length > 0) {
++    lines.push('## Notes', '', ...productDocs.productVision.notes.map(note => `- ${note}`), '');
++  }
++
++  if (productDocs.productVision.contextContract) {
++    lines.push('## Context Contract', '', '```text', productDocs.productVision.contextContract, '```', '');
+   }
+ 
+-  if (input.architectPlan.dataModel) {
+-    summaryLines.push(
+-      '## Data Model',
++  return lines.join('\n').trim() + '\n';
++}
++
++function buildFeatureChecklistMarkdown(productDocs: Omit<ProductDocumentSet, 'markdownBundle'>): string {
++  const lines = [
++    '# Feature Checklist',
++    '',
++    `Total items: ${productDocs.featureChecklist.length}`,
++    `Must items: ${productDocs.featureChecklist.filter(item => item.priority === 'must').length}`,
++    '',
++  ];
++
++  for (const item of productDocs.featureChecklist) {
++    lines.push(
++      `## ${item.briefPoint}`,
+       '',
+-      input.architectPlan.dataModel,
++      `- Priority: ${item.priority}`,
++      `- Surface: ${item.surface}`,
++      `- Target files: ${item.targetFiles.join(', ')}`,
++      `- Acceptance: ${item.acceptanceSignal.join('; ')}`,
++      `- Code signals: ${item.codeSignals.join('; ')}`,
++      `- UI signals: ${item.uiSignals.join('; ')}`,
++      `- Data signals: ${item.dataSignals.join('; ')}`,
++      `- Interaction signals: ${item.interactionSignals.join('; ')}`,
++      `- Source: ${item.source.join(', ')}`,
+       '',
+     );
+   }
+ 
+-  if (input.architectPlan.contextContract) {
+-    summaryLines.push(
+-      '## Context Contract',
++  return lines.join('\n').trim() + '\n';
++}
++
++function buildScreensMarkdown(productDocs: Omit<ProductDocumentSet, 'markdownBundle'>): string {
++  const lines = [
++    '# Screens',
++    '',
++    `First screen id: ${productDocs.screenSpec.firstScreenId ?? 'not specified'}`,
++    '',
++  ];
++
++  for (const screen of productDocs.screenSpec.screens) {
++    lines.push(
++      `## ${screen.title}`,
+       '',
+-      '```text',
+-      input.architectPlan.contextContract,
+-      '```',
++      `- Id: ${screen.id}`,
++      `- Priority: ${screen.priority}`,
++      `- Route: ${screen.routeHint ?? 'not specified'}`,
++      `- File: ${screen.file ?? 'not specified'}`,
++      `- Role: ${screen.role ?? 'not specified'}`,
++      `- Purpose: ${screen.purpose ?? screen.layoutIntent ?? 'not specified'}`,
++      `- Zones: ${screen.zones.join('; ') || 'not specified'}`,
++      `- Required interactions: ${screen.requiredInteractions.join('; ') || 'not specified'}`,
++      `- State requirements: ${screen.stateRequirements.join('; ') || 'not specified'}`,
++      `- Content requirements: ${screen.contentRequirements.join('; ') || 'not specified'}`,
++      `- Source: ${screen.source.join(', ')}`,
+       '',
+     );
+   }
+ 
+-  if (kickoffScope) {
+-    summaryLines.push(
+-      '## Kickoff Scope',
++  if (productDocs.screenSpec.globalLayoutRules.length > 0) {
++    lines.push('## Global Layout Rules', '', ...productDocs.screenSpec.globalLayoutRules.map(rule => `- ${rule}`), '');
++  }
++
++  if (productDocs.screenSpec.compositionNotes.length > 0) {
++    lines.push('## Composition Notes', '', ...productDocs.screenSpec.compositionNotes.map(note => `- ${note}`), '');
++  }
++
++  return lines.join('\n').trim() + '\n';
++}
++
++function buildFlowsMarkdown(productDocs: Omit<ProductDocumentSet, 'markdownBundle'>): string {
++  const lines = [
++    '# Functional Flows',
++    '',
++    `Primary user goal: ${productDocs.functionalFlows.primaryUserGoal ?? 'not specified'}`,
++    '',
++  ];
++
++  for (const flow of productDocs.functionalFlows.flows) {
++    lines.push(
++      `## ${flow.title}`,
+       '',
+-      `- Selected: ${kickoffScope.label ?? 'unspecified'}`,
+-      `- Description: ${kickoffScope.description ?? 'unspecified'}`,
+-      `- Must capabilities: ${(kickoffScope.selectedCapabilityIds ?? []).join(', ') || 'none'}`,
+-      `- Deferred capabilities: ${(kickoffScope.deferredCapabilityIds ?? []).join(', ') || 'none'}`,
++      `- Screen id: ${flow.screenId}`,
++      `- User intent: ${flow.userIntent}`,
++      `- Trigger elements: ${flow.triggerElements.join('; ') || 'not specified'}`,
++      `- State changes: ${flow.stateChanges.join('; ') || 'not specified'}`,
++      `- Affected entities: ${flow.affectedEntities.join('; ') || 'not specified'}`,
++      `- Visible feedback: ${flow.visibleFeedback.join('; ') || 'not specified'}`,
++      `- Navigation target: ${flow.navigationTarget ?? 'not specified'}`,
++      `- Required implementation: ${flow.requiredImplementation.join('; ') || 'not specified'}`,
+       '',
+     );
+   }
+ 
++  if (productDocs.functionalFlows.navigationRules.length > 0) {
++    lines.push('## Navigation Rules', '');
++    for (const rule of productDocs.functionalFlows.navigationRules) {
++      lines.push(`- ${rule.from} -> ${rule.to} via ${rule.trigger}: ${rule.expectedBehavior}`);
++    }
++    lines.push('');
++  }
++
++  if (productDocs.functionalFlows.globalStateRequirements.length > 0) {
++    lines.push('## Global State Requirements', '', ...productDocs.functionalFlows.globalStateRequirements.map(rule => `- ${rule}`), '');
++  }
++
++  if (productDocs.functionalFlows.nonDecorativeRules.length > 0) {
++    lines.push('## Non-decorative Rules', '', ...productDocs.functionalFlows.nonDecorativeRules.map(rule => `- ${rule}`), '');
++  }
++
++  return lines.join('\n').trim() + '\n';
++}
++
++function buildDataModelMarkdown(productDocs: Omit<ProductDocumentSet, 'markdownBundle'>): string {
++  const lines = ['# Data Model', ''];
++
++  if (productDocs.dataModel.architectDataModelText) {
++    lines.push('## Architect Data Model', '', productDocs.dataModel.architectDataModelText, '');
++  }
++
++  if (productDocs.dataModel.sharedState) {
++    lines.push('## Shared State', '', productDocs.dataModel.sharedState, '');
++  }
++
++  if (productDocs.dataModel.entities.length > 0) {
++    lines.push('## Entities', '');
++    for (const entity of productDocs.dataModel.entities) {
++      lines.push(
++        `### ${entity.label}`,
++        '',
++        `- Fields: ${entity.fields.join('; ') || 'not specified'}`,
++        `- Examples: ${entity.examples.join('; ') || 'not specified'}`,
++        `- Source: ${entity.source.join(', ')}`,
++        '',
++      );
++    }
++  } else {
++    lines.push('No structured entities were captured, but the prototype should still expose meaningful local state.', '');
++  }
++
++  lines.push(
++    '## Metrics',
++    '',
++    productDocs.dataModel.metrics.length > 0
++      ? productDocs.dataModel.metrics.map(metric => `- ${metric}`).join('\n')
++      : '- No explicit metrics were captured',
++    '',
++    '## Statuses',
++    '',
++    productDocs.dataModel.statuses.length > 0
++      ? productDocs.dataModel.statuses.map(status => `- ${status}`).join('\n')
++      : '- No explicit statuses were captured',
++    '',
++  );
++
++  return lines.join('\n').trim() + '\n';
++}
++
++function buildDesignBriefMarkdown(productDocs: Omit<ProductDocumentSet, 'markdownBundle'>): string {
++  const lines = [
++    '# Design Brief',
++    '',
++    `- Skeleton id: ${productDocs.designBrief.skeletonId}`,
++    `- Skeleton fit: ${productDocs.designBrief.skeletonFit ?? 'not specified'}`,
++    `- Skeleton fit reason: ${productDocs.designBrief.skeletonFitReason ?? 'not specified'}`,
++    '',
++  ];
++
++  lines.push(
++    '## Reuse Strategy',
++    '',
++    productDocs.designBrief.reuseStrategy.length > 0
++      ? productDocs.designBrief.reuseStrategy.map(item => `- ${item}`).join('\n')
++      : '- No reuse strategy captured',
++    '',
++    '## Extension Strategy',
++    '',
++  );
++
++  if (productDocs.designBrief.extensionStrategy.length > 0) {
++    for (const item of productDocs.designBrief.extensionStrategy) {
++      lines.push(`- ${item.area}: ${item.targetFiles.join(', ') || 'no files'} (${item.reason})`);
++    }
++  } else {
++    lines.push('- No extension strategy captured');
++  }
++
++  lines.push(
++    '',
++    '## Code Quality Rules',
++    '',
++    productDocs.designBrief.codeQualityRules.length > 0
++      ? productDocs.designBrief.codeQualityRules.map(rule => `- ${rule}`).join('\n')
++      : '- No explicit code quality rules captured',
++    '',
++    '## Avoid Patterns',
++    '',
++    productDocs.designBrief.avoidPatterns.length > 0
++      ? productDocs.designBrief.avoidPatterns.map(rule => `- ${rule}`).join('\n')
++      : '- No avoid patterns captured',
++    '',
++    '## Tone Notes',
++    '',
++    productDocs.designBrief.toneNotes.length > 0
++      ? productDocs.designBrief.toneNotes.map(note => `- ${note}`).join('\n')
++      : '- No tone notes captured',
++    '',
++    '## Copywriting Rules',
++    '',
++    productDocs.designBrief.copywritingRules.length > 0
++      ? productDocs.designBrief.copywritingRules.map(rule => `- ${rule}`).join('\n')
++      : '- No copywriting rules captured',
++    '',
++  );
++
++  return lines.join('\n').trim() + '\n';
++}
++
++function buildImplementationBriefMarkdown(productDocs: Omit<ProductDocumentSet, 'markdownBundle'>): string {
++  const mustCapabilities = productDocs.featureChecklist
++    .filter(item => item.priority === 'must')
++    .map(item => item.briefPoint);
++
++  const lines = [
++    '# Implementation Brief',
++    '',
++    `- Product docs id: \`${productDocs.id}\``,
++    `- Status: \`${productDocs.status}\``,
++    `- Generated at: ${productDocs.generatedAt}`,
++    '',
++    '## Must Ship',
++    '',
++    mustCapabilities.length > 0
++      ? mustCapabilities.map(item => `- ${item}`).join('\n')
++      : '- No explicit must items were captured',
++    '',
++    '## Routed Screens',
++    '',
++  ];
++
++  if (productDocs.uiInventory.routedScreens.length > 0) {
++    for (const screen of productDocs.uiInventory.routedScreens) {
++      lines.push(`- ${screen.title} -> ${screen.routeHint ?? screen.id} (${screen.file ?? 'no file captured'})`);
++    }
++  } else {
++    lines.push('- No routed screens captured');
++  }
++
++  lines.push(
++    '',
++    '## Delta File Tree',
++    '',
++  );
++
++  if (productDocs.uiInventory.deltaFileTree.length > 0) {
++    for (const entry of productDocs.uiInventory.deltaFileTree) {
++      lines.push(`- ${entry.path}: ${entry.purpose}`);
++    }
++  } else {
++    lines.push('- No delta file tree captured');
++  }
++
++  lines.push(
++    '',
++    '## UI Inventory',
++    '',
++    `- shadcn components: ${productDocs.uiInventory.shadcnComponents.join(', ') || 'none'}`,
++    `- icons: ${productDocs.uiInventory.icons.join(', ') || 'none'}`,
++    `- premium targets: ${productDocs.uiInventory.premiumTargets.join(', ') || 'none'}`,
++    '',
++  );
++
++  if (productDocs.uiInventory.customModules.length > 0) {
++    lines.push('## Custom Modules', '');
++    for (const module of productDocs.uiInventory.customModules) {
++      lines.push(`- ${module.recommendedPath}: ${module.purpose} (${module.moduleType})`);
++    }
++    lines.push('');
++  }
++
++  return lines.join('\n').trim() + '\n';
++}
++
++function buildAcceptanceMarkdown(productDocs: Omit<ProductDocumentSet, 'markdownBundle'>): string {
++  const mustItems = productDocs.featureChecklist.filter(item => item.priority === 'must');
++  const lines = [
++    '# Acceptance',
++    '',
++    `- Total checklist items: ${productDocs.featureChecklist.length}`,
++    `- Must checklist items: ${mustItems.length}`,
++    `- Structured persistence target: run_telemetry`,
++    '',
++    '## Must Feature Signals',
++    '',
++  ];
++
++  if (mustItems.length > 0) {
++    for (const item of mustItems) {
++      lines.push(`- ${item.briefPoint}: ${item.acceptanceSignal.join('; ')}`);
++    }
++  } else {
++    lines.push('- No explicit must items were captured');
++  }
++
++  lines.push(
++    '',
++    '## Bundle Files',
++    '',
++    ...REQUIRED_MARKDOWN_FILES.map(fileName => `- ${fileName}`),
++    '',
++  );
++
++  return lines.join('\n').trim() + '\n';
++}
++
++function buildMarkdownBundle(productDocs: Omit<ProductDocumentSet, 'markdownBundle'>): Record<string, string> {
++  const bundle: Record<string, string> = {
++    'vision.md': buildVisionMarkdown(productDocs),
++    'feature-checklist.md': buildFeatureChecklistMarkdown(productDocs),
++    'screens.md': buildScreensMarkdown(productDocs),
++    'flows.md': buildFlowsMarkdown(productDocs),
++    'data-model.md': buildDataModelMarkdown(productDocs),
++    'design-brief.md': buildDesignBriefMarkdown(productDocs),
++    'implementation-brief.md': buildImplementationBriefMarkdown(productDocs),
++    'acceptance.md': buildAcceptanceMarkdown(productDocs),
++  };
++
++  for (const fileName of REQUIRED_MARKDOWN_FILES) {
++    if (!bundle[fileName]?.trim()) {
++      bundle[fileName] = `# ${fileName}\n\nNo content captured.\n`;
++    }
++  }
++
++  return Object.fromEntries(
++    Object.entries(bundle).sort(([left], [right]) => left.localeCompare(right)),
++  );
++}
++
++export function buildProductDocumentSet(input: ProductDocumentSetInput): ProductDocumentSet {
++  const generatedAt = normalizeDocTimestamp(input.generatedAt);
++  const screenSpec = buildScreenSpec(input);
++  const functionalFlows = buildFunctionalFlows(input);
++  const dataModel = buildDataModel(input);
++  const designBrief = buildDesignBrief(input);
++  const uiInventory = buildUiInventory(input, screenSpec);
++  const personas = buildPersonas(input);
++  const projectId = input.projectId?.trim()
++    || `preview-${slugify(input.architectPlan.appName || input.skeletonId) || 'project'}`;
++  const runIdSeed = uniqueStrings([
++    input.runId,
++    input.revisionId,
++    input.architectPlan.appName,
++    input.prompt,
++    input.skeletonId,
++  ]).join('|');
++  const runId = input.runId?.trim() || `run-${hashText(runIdSeed)}`;
++  const draftId = `pds-${slugify(input.architectPlan.appName || input.skeletonId) || 'product'}-${hashText([
++    projectId,
++    input.revisionId ?? '',
++    runId,
++    input.skeletonId,
++    input.prompt,
++    input.architectPlan.summary,
++  ].join('|'))}`;
++
++  const productVision: ProductVision = {
++    appName: input.architectPlan.appName,
++    summary: input.architectPlan.summary || input.prompt,
++    requestedBrief: input.prompt,
++    description: input.prebuiltPlan?.description,
++    targetUser: input.prebuiltPlan?.targetUser,
++    theme: input.prebuiltPlan?.theme,
++    layoutType: input.prebuiltPlan?.layout.type,
++    navigationPattern: input.prebuiltPlan?.layout.navigation,
++    domain: input.productSpecificityPlan?.inferredDomain,
++    primaryJobToBeDone: input.productSpecificityPlan?.primaryJobToBeDone,
++    notes: sortStrings(input.architectPlan.notes ?? []),
++    contextContract: input.architectPlan.contextContract,
++  };
++
++  const featureChecklist = buildFeatureChecklist(input, screenSpec, functionalFlows, dataModel, designBrief);
++
++  const baseDoc: Omit<ProductDocumentSet, 'markdownBundle'> = {
++    id: draftId,
++    projectId,
++    revisionId: input.revisionId?.trim() || undefined,
++    runId,
++    generationPath: input.generationPath ?? 'skeleton_assembly',
++    source: {
++      kind: input.prebuiltPlan ? 'saved_plan_pipeline' : 'proto_pipeline',
++      brief: input.prompt,
++      skeletonId: input.skeletonId,
++      hasPrebuiltPlan: Boolean(input.prebuiltPlan),
++      plannerArtifacts: sortStrings([
++        input.prebuiltPlan ? 'prebuiltPlan' : '',
++        input.compositionPlan ? 'screenCompositionPlan' : '',
++        input.functionalFlowPlan ? 'functionalFlowPlan' : '',
++        input.skeletonIntegrationPlan ? 'skeletonIntegrationPlan' : '',
++        input.productSpecificityPlan ? 'productSpecificityPlan' : '',
++      ]),
++    },
++    productVision,
++    personas,
++    featureChecklist,
++    screenSpec,
++    functionalFlows,
++    dataModel,
++    designBrief,
++    uiInventory,
++    status: 'materialized',
++    generatedAt,
++    updatedAt: generatedAt,
++  };
++
++  return {
++    ...baseDoc,
++    markdownBundle: buildMarkdownBundle(baseDoc),
++  };
++}
++
++export function materializeProductDocumentSet(
++  input: ProductDocumentSetInput,
++): ProductDocumentSetResult {
++  const productDocs = buildProductDocumentSet(input);
++  const baseDir = PRODUCT_DOCS_DIR;
+   const files: Record<string, string> = {
+     [`${baseDir}/README.md`]: [
+-      '# Architect Folder',
++      '# Product Document Set',
+       '',
+-      'This folder preserves the product document set that the pipeline used to build the current prototype.',
++      'This folder captures the deterministic product-doc bundle assembled before implementation.',
+       '',
+-      '- `product-brief.md` — human-readable summary for the team',
+-      '- `product-plan.json` — normalized saved plan from the architect / kickoff flow',
+-      '- `technical-blueprint.json` — normalized architect output used by ProtoPipeline',
+-      '- `screen-composition.json` — first-screen and zone plan',
+-      '- `functional-flow.json` — flow/entity plan',
+-      '- `skeleton-integration.json` — skeleton fit and extension plan',
+-      '- `product-specificity.json` — specificity guard inputs',
++      '- `product-document-set.json` — structured source of truth for the batch',
++      '- `vision.md` — product vision and personas',
++      '- `feature-checklist.md` — must/should/nice feature contract',
++      '- `screens.md` — screen-by-screen brief',
++      '- `flows.md` — functional flows and navigation rules',
++      '- `data-model.md` — entities, metrics, and statuses',
++      '- `design-brief.md` — skeleton fit, guardrails, and design notes',
++      '- `implementation-brief.md` — target files and UI inventory',
++      '- `acceptance.md` — acceptance signals for the shipped prototype',
+       '',
+     ].join('\n'),
+-    [`${baseDir}/product-brief.md`]: summaryLines.join('\n'),
++    [`${baseDir}/product-brief.md`]: productDocs.markdownBundle['vision.md'],
+     [`${baseDir}/product-plan.json`]: stableJson(input.prebuiltPlan ?? null),
+     [`${baseDir}/technical-blueprint.json`]: stableJson({
+-      generatedAt,
++      generatedAt: productDocs.generatedAt,
+       skeletonId: input.skeletonId,
+       architectPlan: input.architectPlan,
+     }),
+@@ -158,11 +1314,29 @@ export function materializeProductDocumentSet(
+     [`${baseDir}/functional-flow.json`]: stableJson(input.functionalFlowPlan ?? null),
+     [`${baseDir}/skeleton-integration.json`]: stableJson(input.skeletonIntegrationPlan ?? null),
+     [`${baseDir}/product-specificity.json`]: stableJson(input.productSpecificityPlan ?? null),
++    [PRODUCT_DOCS_JSON_PATH]: stableJson(productDocs),
++  };
++
++  for (const [fileName, content] of Object.entries(productDocs.markdownBundle)) {
++    files[`${baseDir}/${fileName}`] = content;
++  }
++
++  const materializedFiles = Object.keys(files).sort((left, right) => left.localeCompare(right));
++  const telemetry: ProductDocumentSetTelemetry = {
++    built: true,
++    saved: true,
++    id: productDocs.id,
++    persistenceTarget: 'project_storage',
++    featureChecklistItemCount: productDocs.featureChecklist.length,
++    featureChecklistMustCount: productDocs.featureChecklist.filter(item => item.priority === 'must').length,
++    markdownBundleFiles: Object.keys(productDocs.markdownBundle).sort((left, right) => left.localeCompare(right)),
+   };
+ 
+   return {
+     baseDir,
+     files,
+-    materializedFiles: Object.keys(files).sort((left, right) => left.localeCompare(right)),
++    materializedFiles,
++    productDocs,
++    telemetry,
+   };
+ }
+
+
+
+diff --git a/frontend/src/services/GenerationEngine.ts b/frontend/src/services/GenerationEngine.ts
+index e3301b6..ed59e7c 100644
+--- a/frontend/src/services/GenerationEngine.ts
++++ b/frontend/src/services/GenerationEngine.ts
+@@ -303,6 +303,8 @@ Return ONLY JSON, no markdown, matching this exact shape:
+             mimeType:    a.mimeType,
+             textContent: a.textContent,
+           })),
++        projectId: config.projectId,
++        revisionId: config.revisionId,
+         prebuiltPlan: config.prebuiltPlan,
+         signal: config.signal,
+         skipClarify: config.skipClarify,
+
+
+
+diff --git a/frontend/src/services/ProtoPipeline.ts b/frontend/src/services/ProtoPipeline.ts
+index 6a003a2..ba0952c 100644
+--- a/frontend/src/services/ProtoPipeline.ts
++++ b/frontend/src/services/ProtoPipeline.ts
+@@ -402,6 +402,8 @@ export interface ProtoPipelineConfig {
+   prompt:       string;
+   skeletonId:   SkeletonId;
+   buildId:      string;
++  projectId?:   string;
++  revisionId?:  string;
+   attachments?: PipelineAttachment[];
+   prebuiltPlan?: ProjectPlan;
+   skipClarify?: boolean;
+@@ -2251,6 +2253,10 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+     );
+     const productDocumentSet = materializeProductDocumentSet({
+       prompt: clarifiedPrompt,
++      projectId: config.projectId,
++      revisionId: config.revisionId,
++      runId: config.runId,
++      generationPath: 'skeleton_assembly',
+       skeletonId: config.skeletonId,
+       architectPlan: {
+         appName: plan.appName,
+@@ -2919,6 +2925,17 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
+         `${visualMaterialization.linkedComponentFiles.length} component presets, ` +
+         `${visualMaterialization.materializedFiles.length} materialized files; ` +
+         `fallbackVisualSelection=${designCtx.visualSelection.fallbackVisualSelection}.`,
++      productDocs: {
++        built: productDocumentSet.telemetry.built,
++        saved: productDocumentSet.telemetry.saved,
++        id: productDocumentSet.productDocs.id,
++        status: productDocumentSet.productDocs.status,
++        generationPath: productDocumentSet.productDocs.generationPath,
++        persistenceTarget: productDocumentSet.telemetry.persistenceTarget,
++        featureChecklistItemCount: productDocumentSet.telemetry.featureChecklistItemCount,
++        featureChecklistMustCount: productDocumentSet.telemetry.featureChecklistMustCount,
++        markdownBundleFiles: productDocumentSet.telemetry.markdownBundleFiles,
++      },
+       steps: stepTimeline,
+       compileCount,
+       finalPreviewMounted,
+
+
+
+diff --git a/frontend/src/services/ProjectStorage.ts b/frontend/src/services/ProjectStorage.ts
+index 3c80d0e..e047ace 100644
+--- a/frontend/src/services/ProjectStorage.ts
++++ b/frontend/src/services/ProjectStorage.ts
+@@ -7,6 +7,7 @@
+ import { scanBeforePreviewLoad } from './projectCorruptionScan';
+ import { revisionManager, PRELOAD_SKIP_OWNED_MSG } from './RevisionManager';
+ import { previewLog } from './PreviewController';
++import type { ProductDocumentSet } from './ProductDocumentSet';
+ import {
+   DEFAULT_PROJECT_BRANCH_ID,
+   createProjectBranchArchitecture,
+@@ -67,6 +68,7 @@ export interface StoredProject {
+   durationMs?:     number;
+   generationMode?: string;                        // 'landing' | 'app' | 'superapp'
+   generationPath?: 'skeleton_assembly' | 'blank_canvas';
++  productDocs?:     ProductDocumentSet;
+   billingCost?:    number;
+   billingTokens?:  number;
+   revisions?:      ProjectRevision[];              // max 5, newest first
+@@ -76,6 +78,42 @@ export interface StoredProject {
+ export type { ProjectMeta } from '../shared/projectModel';
+ 
+ const PROJECT_KEY_PREFIX = 'aic-proj-';
++const PRODUCT_DOCS_JSON_PATHS = [
++  'docs/architect/product-document-set.json',
++  'src/docs/architect/product-document-set.json',
++] as const;
++
++function isStoredProductDocumentSet(value: unknown): value is ProductDocumentSet {
++  if (!value || typeof value !== 'object') return false;
++  const record = value as Record<string, unknown>;
++  return typeof record.id === 'string'
++    && typeof record.projectId === 'string'
++    && typeof record.runId === 'string'
++    && record.markdownBundle !== null
++    && typeof record.markdownBundle === 'object';
++}
++
++function parseStoredProductDocs(raw: unknown): ProductDocumentSet | undefined {
++  if (typeof raw !== 'string' || !raw.trim()) return undefined;
++  try {
++    const parsed = JSON.parse(raw) as unknown;
++    return isStoredProductDocumentSet(parsed) ? parsed : undefined;
++  } catch {
++    return undefined;
++  }
++}
++
++function resolveStoredProductDocs(
++  existing: unknown,
++  files: Record<string, string> | undefined,
++): ProductDocumentSet | undefined {
++  if (isStoredProductDocumentSet(existing)) return existing;
++  for (const path of PRODUCT_DOCS_JSON_PATHS) {
++    const parsed = parseStoredProductDocs(files?.[path]);
++    if (parsed) return parsed;
++  }
++  return undefined;
++}
+ 
+ function readCanonicalName(raw: unknown, fallback = 'New Project'): string {
+   if (!raw || typeof raw !== 'object') return fallback;
+@@ -241,16 +279,18 @@ export class ProjectStorage {
+       const canonicalName = readCanonicalName(parsed);
+       const { activeBranchId, branches } = normalizeStoredProjectBranches(parsed);
+       const activeBranch = branches[activeBranchId];
++      const files = parsed.files ?? {};
+       return {
+         ...parsed,
+         name: canonicalName,
+         activeBranchId,
+         branches,
+-        files: parsed.files ?? {},
++        files,
+         chatHistory: (activeBranch?.chatHistory as Array<{ role: string; content: string; type?: string }>)
+           ?? parsed.chatHistory
+           ?? [],
+         revisions: (activeBranch?.revisions as ProjectRevision[]) ?? parsed.revisions,
++        productDocs: resolveStoredProductDocs(parsed.productDocs, files),
+       };
+     } catch { return null; }
+   }
+@@ -280,6 +320,7 @@ export class ProjectStorage {
+       const mergedProjectFiles = activeBranch
+         ? { ...(project.files ?? {}), ...(activeBranch.files ?? {}) }
+         : (project.files ?? {});
++      const productDocs = resolveStoredProductDocs(project.productDocs, mergedProjectFiles);
+       const materializedProject: StoredProject = {
+         ...project,
+         name: canonicalName,
+@@ -290,6 +331,7 @@ export class ProjectStorage {
+           ?? project.chatHistory
+           ?? [],
+         revisions: (activeBranch?.revisions as ProjectRevision[]) ?? project.revisions,
++        productDocs,
+       };
+ 
+       localStorage.setItem(`${PROJECT_KEY_PREFIX}${project.id}`, JSON.stringify(materializedProject));
+
+
+
+diff --git a/frontend/src/shared/projectModel.ts b/frontend/src/shared/projectModel.ts
+index 9851cc5..595f768 100644
+--- a/frontend/src/shared/projectModel.ts
++++ b/frontend/src/shared/projectModel.ts
+@@ -804,6 +804,17 @@ export interface GenerationRunTelemetry {
+   designIntent: string[];
+   architectSummary?: string;
+   designSummary?: string;
++  productDocs?: {
++    built: boolean;
++    saved: boolean;
++    id: string;
++    status: string;
++    generationPath: 'skeleton_assembly' | 'blank_canvas';
++    persistenceTarget: 'project_snapshot' | 'project_storage' | 'run_report';
++    featureChecklistItemCount: number;
++    featureChecklistMustCount: number;
++    markdownBundleFiles: string[];
++  };
+   steps: GenerationRunStepTelemetry[];
+   compileCount: number;
+   finalPreviewMounted: boolean;
+
+
+
+diff --git a/frontend/src/services/__tests__/ProductDocumentSet.test.ts b/frontend/src/services/__tests__/ProductDocumentSet.test.ts
+index 2d7b590..ab271b2 100644
+--- a/frontend/src/services/__tests__/ProductDocumentSet.test.ts
++++ b/frontend/src/services/__tests__/ProductDocumentSet.test.ts
+@@ -1,12 +1,27 @@
+-import { describe, expect, it } from 'vitest';
+-import { materializeProductDocumentSet } from '../ProductDocumentSet';
++// @vitest-environment jsdom
++import { beforeEach, describe, expect, it } from 'vitest';
++import { buildProductDocumentSet, materializeProductDocumentSet } from '../ProductDocumentSet';
++import { ProjectStorage, type StoredProject } from '../ProjectStorage';
+ import type { ProjectPlan } from '../types/ProjectPlan';
++import type { ProductDocumentSetInput } from '../ProductDocumentSet';
++
++const REQUIRED_MARKDOWN_FILES = [
++  'vision.md',
++  'feature-checklist.md',
++  'screens.md',
++  'flows.md',
++  'data-model.md',
++  'design-brief.md',
++  'implementation-brief.md',
++  'acceptance.md',
++] as const;
+ 
+ function createPlan(): ProjectPlan {
+   return {
+     appName: 'SprintBoard',
+     description: 'Track weekly delivery rituals.',
+     theme: 'warm-minimal',
++    targetUser: 'Engineering leads running weekly sprint rituals',
+     layout: { type: 'app', navigation: 'sidebar' },
+     pages: [
+       {
+@@ -15,52 +30,374 @@ function createPlan(): ProjectPlan {
+         file: 'pages/Dashboard.tsx',
+         purpose: 'Weekly delivery overview.',
+         isMainScreen: true,
++        keyElements: ['Delivery scorecard', 'Risk radar', 'Primary CTA'],
++      },
++      {
++        path: '/projects',
++        name: 'Projects',
++        file: 'pages/Projects.tsx',
++        purpose: 'Inspect current sprint projects.',
++        isMainScreen: false,
+       },
+     ],
+-    shadcnComponents: ['Button', 'Card'],
+-    icons: ['Calendar'],
++    dataModel: {
++      entities: [
++        { name: 'Sprint', fields: 'id, name, velocity, burnup' },
++        { name: 'Risk', fields: 'id, title, severity, owner' },
++      ],
++      sharedState: 'selectedSprintId, filters, highlightedRiskId',
++    },
++    shadcnComponents: ['Alert', 'Button', 'Card', 'Tabs'],
++    icons: ['Calendar', 'Flag'],
+     kickoffScope: {
+       id: 'core_backend',
+       label: 'Core + backend',
+       description: 'Ship the core workflows with persistence.',
+-      selectedCapabilityIds: ['backend', 'analytics'],
++      selectedCapabilityIds: ['analytics', 'backend'],
+       deferredCapabilityIds: ['payments'],
+     },
+   } as ProjectPlan;
+ }
+ 
+-describe('ProductDocumentSet', () => {
+-  it('materializes the architect folder with normalized product docs', () => {
+-    const result = materializeProductDocumentSet({
+-      prompt: 'Build a sprint planning cockpit.',
++function createInput(): ProductDocumentSetInput {
++  return {
++    prompt: 'Build a sprint planning cockpit for engineering leads.',
++    projectId: 'project-sprintboard',
++    revisionId: 'revision-001',
++    runId: 'run-001',
++    skeletonId: 'saas-dashboard' as const,
++    prebuiltPlan: createPlan(),
++    architectPlan: {
++      appName: 'SprintBoard',
++      summary: 'A delivery cockpit for weekly planning and review.',
++      pages: [
++        {
++          path: '/dashboard',
++          name: 'Dashboard',
++          file: 'pages/Dashboard.tsx',
++          purpose: 'Weekly delivery overview.',
++        },
++        {
++          path: '/projects',
++          name: 'Projects',
++          file: 'pages/Projects.tsx',
++          purpose: 'Project-level drilldown.',
++        },
++      ],
++      fileTree: {
++        'pages/Dashboard.tsx': 'Main planning dashboard.',
++        'pages/Projects.tsx': 'Project drilldown and ownership view.',
++        'components/RiskRadar.tsx': 'Risk radar summary card.',
++      },
++      notes: ['Keep the narrative focused on weekly delivery rituals.'],
++      dataModel: 'Sprint: { id, name, velocity, burnup[] }; Risk: { id, severity, owner }',
++      contextContract: 'Builder owns implementation details but must ship the required sprint surfaces.',
++    },
++    compositionPlan: {
+       skeletonId: 'saas-dashboard',
+-      prebuiltPlan: createPlan(),
+-      architectPlan: {
+-        appName: 'SprintBoard',
+-        summary: 'A delivery cockpit for weekly planning and review.',
+-        pages: [
+-          {
+-            path: '/dashboard',
+-            name: 'Dashboard',
+-            file: 'pages/Dashboard.tsx',
+-            purpose: 'Weekly delivery overview.',
+-          },
+-        ],
+-        fileTree: {
+-          'pages/Dashboard.tsx': 'Main planning dashboard.',
+-          'components/BurnupCard.tsx': 'Sprint burn-up summary.',
++      firstScreenId: 'dashboard',
++      screens: [
++        {
++          id: 'dashboard',
++          title: 'Dashboard',
++          routeHint: '/dashboard',
++          role: 'dashboard',
++          priority: 'primary',
++          layoutIntent: 'Delivery command center with scorecards and a risk rail.',
++          zones: [
++            {
++              id: 'hero-scorecard',
++              role: 'hero',
++              priority: 'primary',
++              intent: 'Show sprint health and momentum at a glance.',
++              suggestedComponents: ['Card'],
++              suggestedMedia: [],
++              interactions: ['view sprint health'],
++              contentRules: ['Use real sprint metrics'],
++            },
++          ],
++          premiumComponentTargets: ['velocity-ring'],
++          mediaTargets: [],
++          requiredInteractions: ['filter sprint', 'open project detail'],
++          stateRequirements: ['selected sprint filter'],
++          contentRequirements: ['delivery scorecard', 'risk radar'],
++        },
++      ],
++      globalLayoutRules: ['Keep the main scorecards above the fold.'],
++      avoidPatterns: ['placeholder-only KPI cards'],
++      compositionNotes: ['Use one primary CTA for weekly planning.'],
++    },
++    functionalFlowPlan: {
++      skeletonId: 'saas-dashboard',
++      primaryUserGoal: 'Review sprint health and unblock risky projects quickly.',
++      entities: [
++        {
++          id: 'sprint',
++          label: 'Sprint',
++          fields: [
++            { name: 'name', type: 'string', example: 'Sprint 28' },
++            { name: 'velocity', type: 'number', example: '34' },
++          ],
++          sampleCount: 3,
++        },
++      ],
++      flows: [
++        {
++          id: 'review-health',
++          title: 'Review sprint health',
++          screenId: 'dashboard',
++          userIntent: 'Understand whether the sprint is on track.',
++          triggerElements: ['Sprint filter', 'Health card'],
++          stateChanges: ['selected sprint changes', 'health summary recalculates'],
++          affectedEntities: ['sprint'],
++          visibleFeedback: ['Scorecard updates', 'Risk radar refreshes'],
++          navigationTarget: '/dashboard',
++          requiredImplementation: ['Derived KPI state', 'Filter handler', 'Visible scorecard diff'],
++        },
++      ],
++      globalStateRequirements: ['Selected sprint persists while navigating locally.'],
++      navigationRules: [
++        {
++          from: '/dashboard',
++          to: '/projects',
++          trigger: 'Open project drilldown',
++          expectedBehavior: 'Navigate to the selected project context.',
+         },
+-        notes: ['Keep the narrative focused on weekly rituals.'],
+-        dataModel: 'Sprint: { id, name, velocity, burnup[] }',
+-        contextContract: 'Builder owns implementation details.',
++      ],
++      nonDecorativeRules: ['Primary CTA must open the weekly planning flow.'],
++      functionalNotes: ['Use deterministic local mock data only.'],
++    },
++    skeletonIntegrationPlan: {
++      skeletonId: 'saas-dashboard',
++      skeletonFit: 'strong',
++      skeletonFitReason: 'The dashboard skeleton already matches a multi-panel operations cockpit.',
++      skeletonBypassAllowed: false,
++      skeletonBypassRule: 'Do not replace the selected shell.',
++      reuseStrategy: [
++        {
++          area: 'navigation shell',
++          reuseMode: 'use_as_is',
++          reason: 'The sidebar and layout already fit the product.',
++        },
++      ],
++      extensionStrategy: [
++        {
++          area: 'risk drilldown',
++          extensionMode: 'add_component',
++          targetFiles: ['components/RiskRadar.tsx'],
++          reason: 'The product needs a dedicated risk summary component.',
++        },
++      ],
++      customModules: [
++        {
++          id: 'risk-radar',
++          purpose: 'Surface high-risk projects in one compact module.',
++          recommendedPath: 'components/RiskRadar.tsx',
++          moduleType: 'component',
++          shouldImportFromSkeleton: true,
++          shouldUsePremiumComponents: false,
++          shouldUseMediaAssets: false,
++          dependencies: ['pages/Dashboard.tsx'],
++        },
++      ],
++      fileOwnershipRules: [],
++      codeQualityRules: ['Keep Dashboard focused on composition and derived state.'],
++      forbiddenPatterns: ['one massive App.tsx'],
++      integrationNotes: ['Wrap skeleton cards instead of replacing the shell.'],
++    },
++    productSpecificityPlan: {
++      skeletonId: 'saas-dashboard',
++      inferredDomain: 'delivery operations',
++      targetUserRole: 'Engineering lead',
++      primaryJobToBeDone: 'Know whether the team can ship the sprint without surprises.',
++      domainEntities: [
++        {
++          id: 'risk',
++          label: 'Risk',
++          description: 'A project issue threatening sprint delivery.',
++          fields: [
++            { name: 'severity', type: 'string', example: 'High' },
++            { name: 'owner', type: 'string', example: 'Pavel' },
++          ],
++          sampleNames: ['API timeout risk', 'Blocked dependency'],
++        },
++      ],
++      productMetrics: [
++        {
++          id: 'velocity',
++          label: 'Velocity',
++          meaning: 'Points completed this sprint.',
++          exampleValue: '34 points',
++          shouldAppearOnScreens: ['dashboard'],
++        },
++      ],
++      productStatuses: [
++        {
++          id: 'at-risk',
++          label: 'At risk',
++          meaning: 'The sprint may slip if the issue stays unresolved.',
++          exampleUsage: 'Project Apollo is at risk.',
++        },
++      ],
++      productActions: [
++        {
++          id: 'open-planning',
++          label: 'Open weekly planning',
++          userIntent: 'Launch the main sprint planning workflow.',
++          expectedVisibleResult: 'The planning view opens with the chosen sprint.',
++          shouldAppearOnScreens: ['dashboard'],
++        },
++      ],
++      vocabulary: {
++        preferredTerms: ['sprint health', 'risk radar', 'velocity'],
++        avoidTerms: ['generic dashboard'],
++        toneNotes: ['Clear and operational, not abstract.'],
+       },
+-    });
++      screenSpecificContent: [
++        {
++          screenId: 'dashboard',
++          concreteTitleSuggestions: ['Sprint health', 'Weekly delivery cockpit'],
++          requiredEntities: ['sprint', 'risk'],
++          requiredMetrics: ['velocity'],
++          requiredActions: ['open-planning'],
++          copyHints: ['Explain what changed this week.'],
++          avoidOnThisScreen: ['placeholder metrics'],
++        },
++      ],
++      sampleDataRules: ['Use real-seeming sprint names and point totals.'],
++      copywritingRules: ['Prefer product-specific delivery language.'],
++      forbiddenGenericPatterns: ['Feature 1', 'Feature 2'],
++      specificityNotes: ['Keep the product anchored in weekly engineering rituals.'],
++    },
++  };
++}
++
++describe('ProductDocumentSet', () => {
++  beforeEach(() => {
++    localStorage.clear();
++  });
++
++  it('builds a structured PDS with non-empty checklist items and required fields', () => {
++    const result = buildProductDocumentSet(createInput());
++
++    expect(result.id).toBeTruthy();
++    expect(result.projectId).toBe('project-sprintboard');
++    expect(result.revisionId).toBe('revision-001');
++    expect(result.runId).toBe('run-001');
++    expect(result.generationPath).toBe('skeleton_assembly');
++    expect(result.featureChecklist.length).toBeGreaterThan(0);
++    expect(result.featureChecklist.some(item => item.priority === 'must')).toBe(true);
++
++    for (const item of result.featureChecklist) {
++      expect(item.id).toBeTruthy();
++      expect(item.briefPoint).toBeTruthy();
++      expect(['must', 'should', 'nice']).toContain(item.priority);
++      expect(item.surface).toBeTruthy();
++      expect(item.targetFiles.length).toBeGreaterThan(0);
++      expect(item.acceptanceSignal.length).toBeGreaterThan(0);
++      expect(item.codeSignals.length).toBeGreaterThan(0);
++      expect(item.uiSignals.length).toBeGreaterThan(0);
++      expect(item.dataSignals.length).toBeGreaterThan(0);
++      expect(item.interactionSignals.length).toBeGreaterThan(0);
++      expect(item.source.length).toBeGreaterThan(0);
++    }
++  });
++
++  it('materializes the markdown bundle and structured JSON output', () => {
++    const result = materializeProductDocumentSet(createInput());
+ 
+     expect(result.baseDir).toBe('docs/architect');
+-    expect(result.materializedFiles).toContain('docs/architect/README.md');
+-    expect(result.materializedFiles).toContain('docs/architect/product-plan.json');
+-    expect(result.materializedFiles).toContain('docs/architect/technical-blueprint.json');
+-    expect(result.files['docs/architect/product-brief.md']).toContain('# SprintBoard');
+-    expect(result.files['docs/architect/product-brief.md']).toContain('Must capabilities: backend, analytics');
++    expect(result.files['docs/architect/product-document-set.json']).toContain('"featureChecklist"');
++    expect(result.telemetry.built).toBe(true);
++    expect(result.telemetry.saved).toBe(true);
++    expect(result.telemetry.featureChecklistItemCount).toBe(result.productDocs.featureChecklist.length);
++
++    for (const fileName of REQUIRED_MARKDOWN_FILES) {
++      expect(result.productDocs.markdownBundle[fileName]).toBeTruthy();
++      expect(result.productDocs.markdownBundle[fileName].trim().length).toBeGreaterThan(0);
++      expect(result.files[`docs/architect/${fileName}`]).toBe(result.productDocs.markdownBundle[fileName]);
++    }
++  });
++
++  it('serializes and deserializes the product docs without losing required sections', () => {
++    const result = buildProductDocumentSet(createInput());
++    const roundTrip = JSON.parse(JSON.stringify(result));
++
++    expect(roundTrip.id).toBe(result.id);
++    expect(roundTrip.featureChecklist.length).toBe(result.featureChecklist.length);
++    expect(roundTrip.markdownBundle['vision.md']).toContain('SprintBoard');
++    expect(roundTrip.markdownBundle['acceptance.md']).toContain('Must checklist items');
++  });
++
++  it('persists structured product docs outside generated files via ProjectStorage', () => {
++    const materialized = materializeProductDocumentSet(createInput());
++    const project: StoredProject = {
++      id: 'stored-product-docs',
++      name: 'SprintBoard',
++      description: 'Weekly delivery cockpit',
++      theme: 'warm-minimal',
++      createdAt: '2026-06-18T10:00:00.000Z',
++      updatedAt: '2026-06-18T10:00:00.000Z',
++      files: materialized.files,
++      chatHistory: [],
++    };
++
++    expect(ProjectStorage.saveProject(project)).toBe(true);
++
++    const raw = localStorage.getItem('aic-proj-stored-product-docs');
++    expect(raw).toBeTruthy();
++    const parsed = JSON.parse(raw!);
++    expect(parsed.productDocs.id).toBe(materialized.productDocs.id);
++    expect(parsed.productDocs.markdownBundle['implementation-brief.md']).toContain('Must Ship');
++
++    const restored = ProjectStorage.getProject('stored-product-docs');
++    expect(restored?.productDocs?.id).toBe(materialized.productDocs.id);
++    expect(restored?.productDocs?.featureChecklist.length).toBeGreaterThan(0);
++  });
++
++  it('restores structured product docs from src-prefixed snapshot files used by normal generation runs', () => {
++    const materialized = materializeProductDocumentSet(createInput());
++    const srcPrefixedFiles = Object.fromEntries(
++      Object.entries(materialized.files).map(([path, content]) => [`src/${path}`, content]),
++    );
++
++    expect(ProjectStorage.saveProject({
++      id: 'stored-product-docs-src',
++      name: 'SprintBoard',
++      description: 'Weekly delivery cockpit',
++      theme: 'warm-minimal',
++      createdAt: '2026-06-18T10:00:00.000Z',
++      updatedAt: '2026-06-18T10:00:00.000Z',
++      files: srcPrefixedFiles,
++      chatHistory: [],
++    })).toBe(true);
++
++    const restored = ProjectStorage.getProject('stored-product-docs-src');
++
++    expect(restored?.productDocs?.id).toBe(materialized.productDocs.id);
++    expect(restored?.productDocs?.markdownBundle['vision.md']).toContain('SprintBoard');
++  });
++
++  it('keeps old projects loadable when productDocs is absent', () => {
++    const legacyProject = {
++      id: 'legacy-project',
++      name: 'Legacy Project',
++      description: 'Pre-WI-2 project',
++      theme: 'dark-slate',
++      createdAt: '2026-06-18T09:00:00.000Z',
++      updatedAt: '2026-06-18T09:00:00.000Z',
++      files: {
++        'App.tsx': 'export default function App() { return null; }',
++      },
++      chatHistory: [],
++    };
++
++    localStorage.setItem('aic-proj-legacy-project', JSON.stringify(legacyProject));
++
++    const restored = ProjectStorage.getProject('legacy-project');
++
++    expect(restored).not.toBeNull();
++    expect(restored?.name).toBe('Legacy Project');
++    expect(restored?.productDocs).toBeUndefined();
+   });
+ });
+
+
+

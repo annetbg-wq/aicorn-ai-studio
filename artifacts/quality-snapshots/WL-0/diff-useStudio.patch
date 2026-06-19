@@ -1,0 +1,79 @@
+diff --git a/frontend/src/hooks/useStudio.ts b/frontend/src/hooks/useStudio.ts
+index fad22fe..c580a1f 100644
+--- a/frontend/src/hooks/useStudio.ts
++++ b/frontend/src/hooks/useStudio.ts
+@@ -28,6 +28,7 @@ import {
+   type UsageData,
+ } from '../services/Orchestrator';
+ import { GenerationEngine } from '../services/GenerationEngine';
++import { LVPipeline } from '../services/LVPipeline';
+ import type { ProjectPlan } from '../services/types/ProjectPlan';
+ import {
+   classifyIdea,
+@@ -3848,6 +3849,10 @@ export const useStudio = () => {
+       autoStartPackagedTrendBuild &&
+       !!prebuiltPlanFromContext &&
+       !savedContinuationPlan;
++    const blankCanvasFastPath = LVPipeline.isBlankCanvasFastPathEligible({
++      generationPath,
++      existingCodeCount: effectiveExistingCodeCount,
++    });
+     const runStartsNewLineage = effectiveExistingCodeCount === 0 || !currentActiveLineageId;
+     let runLineageId = currentActiveLineageId;
+     let runLineageRootMessageId = currentLineageRootMessageId;
+@@ -4159,6 +4164,8 @@ export const useStudio = () => {
+       let designPrompt = '';
+       if (founderFastPath) {
+         addLog('[FounderFlow] Skipped legacy design classification warm-up');
++      } else if (blankCanvasFastPath) {
++        addLog('[LVPipeline] blank_canvas fast path active — skipped legacy design classification warm-up');
+       } else {
+         // Legacy warm-up: retained for non-founder flows until the old prompt path is removed.
+         const classification = devAgentActive || savedContinuationPlan
+@@ -4190,6 +4197,8 @@ export const useStudio = () => {
+       const isGenesisRun = effectiveExistingCodeCount === 0;
+       if (founderFastPath) {
+         addLog('[FounderFlow] Packaged founder brief already contains architecture — skipped kickoff analysis');
++      } else if (blankCanvasFastPath) {
++        addLog('[LVPipeline] blank_canvas fast path active — skipped kickoff analysis');
+       } else if (isGenesisRun && !controller.signal.aborted) {
+         setKickoffPhase('prompt_received');
+         addLog('[Kickoff] kickoff_prompt_received');
+@@ -4278,6 +4287,8 @@ export const useStudio = () => {
+       traceHandle.finishStep(kickoffStepId, {
+         summary: founderFastPath
+           ? 'Using the packaged founder brief and moving directly into the generation pipeline.'
++          : blankCanvasFastPath
++            ? 'Using the blank-canvas fast path and moving directly into live generation.'
+           : savedContinuationPlan
+             ? 'Reused the saved project plan and continuation context for this run.'
+             : `Prepared the run brief${plan.appName ? ` for ${plan.appName}` : ''} and locked the generation context.`,
+@@ -4306,7 +4317,9 @@ export const useStudio = () => {
+         traceStepIds.delete(stepId);
+       };
+ 
+-      const runOnce = (intentArg: string, buildRouteOverride?: AgentExecutionRoute) => GenerationEngine.run({
++      const runOnce = (intentArg: string, buildRouteOverride?: AgentExecutionRoute) => (
++        blankCanvasFastPath ? LVPipeline : GenerationEngine
++      ).run({
+         intent:       intentArg,
+         history,
+         files:        contextWithTheme,
+@@ -4377,7 +4390,7 @@ export const useStudio = () => {
+         },
+         onStepTrack: (() => {
+           // Live step-track state — mutable, not React state (no re-render cascade).
+-          const STEP_ORDER: string[] = founderFastPath
++          const STEP_ORDER: string[] = (founderFastPath || blankCanvasFastPath)
+             ? ['pack','architect','skeleton','coder','build','preview']
+             : ['clarify','pack','architect','skeleton','coder','build','preview'];
+           const STEP_RU: Record<string, string> = {
+@@ -4564,7 +4577,7 @@ export const useStudio = () => {
+           });
+         },
+         signal:   controller.signal,
+-        skipClarify: founderFastPath,
++        skipClarify: founderFastPath || blankCanvasFastPath,
+         onUsage:  (usage: UsageData) => {
+           reqUsage = usage;
+           traceHandle.addTokens(usage.promptTokens, usage.completionTokens);

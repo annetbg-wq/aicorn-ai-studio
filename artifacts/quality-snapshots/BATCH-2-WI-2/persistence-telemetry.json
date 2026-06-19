@@ -1,0 +1,43 @@
+{
+  "batch": "BATCH-2",
+  "wi": [
+    "WI-2"
+  ],
+  "scope": {
+    "containsWI3": false,
+    "containsWI4": false,
+    "containsWI6": false,
+    "containsWI7": false,
+    "containsWI8": false,
+    "containsPreviewWorkspace": false,
+    "containsBackendAgentConfig": false
+  },
+  "product_docs_built": true,
+  "product_docs_saved": true,
+  "product_docs_id": "pds-sprintboard-7xfwrg",
+  "product_docs_persistence_target": "project_storage",
+  "feature_checklist_item_count": 9,
+  "feature_checklist_must_count": 5,
+  "markdown_bundle_files": [
+    "acceptance.md",
+    "data-model.md",
+    "design-brief.md",
+    "feature-checklist.md",
+    "flows.md",
+    "implementation-brief.md",
+    "screens.md",
+    "vision.md"
+  ],
+  "survives_page_reload": true,
+  "exists_outside_generated_app_files": true,
+  "exists_outside_gate_artifacts": true,
+  "oldProjectBackwardCompatible": true,
+  "pdsIdAvailableInRunResultReport": true,
+  "markdownBundleAvailableAfterRun": true,
+  "tests": {
+    "typecheck": "passed",
+    "productDocumentSet": "passed",
+    "protoPipeline": "passed"
+  },
+  "factoryGatePassed": true
+}

@@ -1,0 +1,34 @@
+{
+  "batch": "BATCH-1-WI-1-WI-5",
+  "basePatch": "BASELINE-GATE-UNBLOCK",
+  "patchApply": {
+    "baselineUnblock": "pass",
+    "batch1OnTop": "pass"
+  },
+  "scope": {
+    "containsWI2": false,
+    "containsWI3": false,
+    "containsWI4": false,
+    "containsWI6": false,
+    "containsWI7": false,
+    "containsWI8": false,
+    "containsPreviewWorkspace": false,
+    "containsPreviewTsconfig": false,
+    "containsBackendAgentConfig": false,
+    "containsScreenshotHunk": false
+  },
+  "alertPrimitivePresent": true,
+  "alertCatalogAdvertised": true,
+  "alertImportPath": "@/components/ui/alert",
+  "alertPreviewMaterializable": true,
+  "canonicalLowercasePrimitiveMaterialization": true,
+  "exactCaseCheckEnabled": true,
+  "caseOnlyDuplicateRisk": false,
+  "coder_invented_primitive_count": 0,
+  "direct_radix_import_count": 0,
+  "frontendTypecheck": "pass",
+  "frontendCatalogTests": "pass",
+  "frontendProtoPipelineTests": "pass",
+  "backendExactCaseTests": "pass",
+  "factoryGatePassed": true
+}

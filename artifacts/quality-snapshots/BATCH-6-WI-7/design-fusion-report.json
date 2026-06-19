@@ -1,0 +1,66 @@
+{
+  "version": "1.0",
+  "batch": "BATCH-6-WI-7",
+  "contract": "Design Fusion Contract",
+  "priorityHierarchy": {
+    "A": {
+      "label": "Uploaded Assets / FileVisualBank / Premium Components",
+      "surfaces": ["hero", "onboarding", "empty-state", "marketing", "feature-block", "branded-illustration", "visual-identity"],
+      "implemented": true
+    },
+    "B": {
+      "label": "shadcn UI Primitives",
+      "primitives": ["Alert", "AlertDialog", "Badge", "Button", "Card", "Checkbox", "Dialog", "Input", "Label", "Progress", "ScrollArea", "Select", "Switch", "Tabs", "Textarea", "Tooltip"],
+      "implemented": true
+    },
+    "C": {
+      "label": "Local Custom Components",
+      "constraint": "Only when A and B do not fit",
+      "implemented": true
+    }
+  },
+  "hardRules": [
+    "NEVER hand-roll Alert, Dialog, Tabs, Switch, Select when primitive is available",
+    "NEVER import from @radix-ui/react-* directly — use ONLY @/components/ui/* paths",
+    "Alert = inline status/callout/warning/info block",
+    "AlertDialog = modal confirmation or destructive decision — do NOT confuse them",
+    "Do NOT use uploaded assets as decorative noise",
+    "Do NOT use premium components outside allowed surfaces",
+    "Do NOT invent components not in advertised catalog"
+  ],
+  "injection": {
+    "protoPipeline": {
+      "mechanism": "buildCoderPlanningBlocks({ designFusionBlock })",
+      "position": "after attachmentPromptBlock, before identity substitution contract",
+      "includesUploadedAssets": true,
+      "includesPremiumComponents": true
+    },
+    "lvPipeline": {
+      "mechanism": "buildLvCoderSystemPrompt(prompt, checklist, designFusionBlock)",
+      "position": "after SHOULD IMPLEMENT block, before OUTPUT FORMAT",
+      "includesUploadedAssets": true,
+      "includesPremiumComponents": false
+    }
+  },
+  "assetMaterialization": {
+    "uploadedImages": "generated/uploads/<id>.ts with export const uploadedAsset + export default dataUrl",
+    "uploadedOther": "generated/uploads/<id>.ts with export const uploadedAsset metadata + export default",
+    "manifest": "generated/uploads/manifest.ts with export const UPLOADED_ASSET_MANIFEST",
+    "importStyle": "@/generated/uploads/<id>",
+    "lvPipelineOverlay": "Materialized files overlaid in merged map before compile"
+  },
+  "telemetryFields": {
+    "design_fusion_rules_injected": "boolean",
+    "uploaded_asset_manifest_count": "number",
+    "uploaded_asset_materialized_count": "number",
+    "premium_component_selected_count": "number",
+    "premium_component_used_count": "number",
+    "premium_selected_not_used": "boolean",
+    "visual_asset_selected_not_used": "boolean",
+    "shadcn_primitive_usage_count": "number",
+    "direct_radix_import_count": "number",
+    "self_made_primitive_count": "number",
+    "alert_used_when_relevant": "boolean",
+    "design_fusion_prompt_evidence": "boolean"
+  }
+}

@@ -1,0 +1,89 @@
+BATCH 5 — WI-6 GATE PASS
+========================
+Date: 2026-06-19
+
+ACCEPTANCE CHECK OUTCOME:
+  NEEDS PATCH → PATCH APPLIED → PASS
+
+PATCH SUMMARY:
+  Risk 1 (Skeleton Leakage):
+    DEFECT: lvCompile() sent skeletonId:'landing-page' to backend, causing
+            src/ wipe + skeleton file install + index.css force-restore +
+            contract validator requiring route-manifest.json (never generated → compile always failed)
+    FIX:    Removed skeletonId from compile POST body → legacy/no-skeleton mode
+
+  Risk 2 (Existing Project Safety):
+    FINDING: generationPath is user-explicit; old projects safe (default skeleton_assembly)
+    FIX:     Added blankCanvasExistingProjectMode / existingFileCount / overwriteExplicit telemetry
+
+FILES PATCHED:
+  frontend/src/services/LVPipeline.ts
+    - lvCompile: body: JSON.stringify({ files, sessionId })  [removed skeletonId]
+    - runTelemetry: +blankCanvasExistingProjectMode, +existingFileCount, +overwriteExplicit
+    - LV_NEUTRAL_SKELETON_ID comment: clarified PDS-only use, not compile
+  frontend/src/shared/projectModel.ts
+    - GenerationRunTelemetry: +3 optional fields (blankCanvas*)
+
+CHECKLIST:
+
+[x] Routing correct
+    - blank_canvas → LVPipeline.run()
+    - skeleton_assembly → GenerationEngine.run()
+    - generationMode (AUTO/APP/SUPER) does NOT select pipeline
+    - existingCodeCount removed from routing decision
+
+[x] LVPipeline is NOT a wrapper
+    - Does not call ProtoPipeline.run()
+    - Does not call GenerationEngine.run()
+    - Self-contained 7-step pipeline
+
+[x] LVPipeline uses ProductDocumentSet
+    - buildProductDocumentSet() called deterministically (no LLM)
+    - featureChecklist passed to CompletenessGate and Pass 2
+
+[x] LVPipeline uses CompletenessGate
+    - evaluateCompletenessGate() called on generated files
+    - coverageRatioMust < 0.8 triggers Pass 2
+
+[x] LVPipeline uses Pass 2
+    - buildDeterministicGaps() always available
+    - Optional LLM critic via qaRoute
+    - Implementer via fixRoute (streaming)
+    - isPass2SafeTargetFile() scope guard
+    - Max 2 iterations
+
+[x] coverageRatioMust < 0.8 cannot gate PASS
+    - Pass 2 runs when gate fails; pipeline continues regardless
+    - outcome='partial' logged but not a hard failure
+
+[x] No skeleton leakage
+    - lvCompile does NOT pass skeletonId to backend
+    - Backend runs in legacy/no-skeleton mode
+    - Landing-page files never installed
+    - index.css never force-restored
+    - route-manifest.json not required by contract validator
+
+[x] Existing project safety
+    - generationPath is user-explicit (initialized to skeleton_assembly)
+    - generationMode does not select pipeline
+    - Old projects default to skeleton_assembly (backward safe)
+    - blankCanvasExistingProjectMode/existingFileCount/overwriteExplicit telemetry present
+
+[x] Frontend typecheck passes
+    - npm run typecheck: 0 errors
+
+[x] All tests pass
+    - LVPipeline:             32/32
+    - useStudioGenerationPath: 3/3
+    - ProductDocumentSet:      6/6
+    - CompletenessGate:       27/27
+    - Pass2Critic:            64/64
+    - ProtoPipeline:          68/68
+
+[x] No WI-7/WI-8 changes
+[x] No preview-workspace/* changes
+[x] No backend/agent-config.json changes
+[x] No backend/preview-manager.ts changes
+[x] No provider/model defaults hardcoded
+
+RESULT: GATE PASS

@@ -1,0 +1,27 @@
+Scope: BASELINE-GATE-UNBLOCK
+Verdict: PASS
+
+What changed:
+- Added a baseline-only DocumentationPackService typing shim.
+- Added backward-compatible optional StoredProject.generationPath typing.
+- Added test-only Supabase mocks to ProtoPipeline frontend suites so import-time env is no longer required.
+
+What did not change:
+- No preview-workspace files.
+- No backend/agent-config.json.
+- No ProductDocumentSet implementation.
+- No LVPipeline implementation.
+- No screenshot handshake.
+
+Verification:
+- Baseline HEAD + baseline-unblock patch: frontend typecheck passed.
+- Baseline HEAD + baseline-unblock patch: ProtoPipeline tests passed.
+- Baseline HEAD + baseline-unblock patch: LiveGenerationContractValidator passed.
+- Baseline-unblock + Batch 1 patch: frontend typecheck passed.
+- Baseline-unblock + Batch 1 patch: LiveGenerationContractValidator passed.
+- Baseline-unblock + Batch 1 patch: ProtoPipeline tests passed.
+- Baseline-unblock + Batch 1 patch: backend exact-case regression passed.
+
+Result:
+- Batch 1 gate can now be re-run for real acceptance.
+- This does not claim Batch 1 PASS by itself.

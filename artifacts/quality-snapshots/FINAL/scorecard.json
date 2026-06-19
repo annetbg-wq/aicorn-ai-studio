@@ -1,0 +1,177 @@
+{
+  "generatedAt": "2026-06-19T14:46:51.916Z",
+  "testSuiteResult": {
+    "testFiles": 105,
+    "testsPassed": 2005,
+    "testsFailed": 0
+  },
+  "runsEvaluated": 10,
+  "thresholds": {
+    "routing": {
+      "status": "pass",
+      "allRoutingCorrect": true,
+      "generationModeIndependent": true,
+      "noSkeletonLeakage": true
+    },
+    "productDocs": {
+      "status": "pass",
+      "allBuilt": true,
+      "allSaved": true,
+      "allHaveItems": true
+    },
+    "build": {
+      "status": "pass",
+      "allBuildsOk": true
+    },
+    "completeness": {
+      "status": "pass",
+      "avgCoverageRatioMust": 0.9333333333333333,
+      "threshold": 0.85,
+      "noGatePassBelowThreshold": true
+    },
+    "pass2": {
+      "status": "pass",
+      "partialIsNotGatePass": true,
+      "coverageNeverRegresses": true
+    },
+    "uiContract": {
+      "status": "pass",
+      "noInventedPrimitives": true,
+      "noDirectRadix": true,
+      "shadcnUsedInAllRuns": true
+    },
+    "designFusion": {
+      "status": "pass",
+      "rulesInjectedAllRuns": true,
+      "alertUsedAllRuns": true
+    },
+    "vision": {
+      "status": "pass",
+      "noFalseVisualPass": true,
+      "codeOnlyBlockedAllRuns": true,
+      "visionBlindHonest": true
+    },
+    "stability": {
+      "status": "pass"
+    },
+    "scopeSafety": {
+      "status": "pass",
+      "noBackendChanges": true,
+      "noProviderDefaults": true,
+      "noPreviewWorkspaceResidue": true
+    }
+  },
+  "verdict": "FINAL_PASS",
+  "perRunSummary": [
+    {
+      "run": "g-mobile-rituals/skeleton_assembly",
+      "pipeline": "ProtoPipeline",
+      "pdsBuilt": true,
+      "mustCoverage": 1,
+      "pass2Ran": false,
+      "fusionInjected": true,
+      "visionBlind": true,
+      "visualGateStatus": "skipped",
+      "outcome": "done"
+    },
+    {
+      "run": "g-mobile-rituals/blank_canvas",
+      "pipeline": "LVPipeline",
+      "pdsBuilt": true,
+      "mustCoverage": 1,
+      "pass2Ran": false,
+      "fusionInjected": true,
+      "visionBlind": true,
+      "visualGateStatus": "skipped",
+      "outcome": "done"
+    },
+    {
+      "run": "g-saas-analytics/skeleton_assembly",
+      "pipeline": "ProtoPipeline",
+      "pdsBuilt": true,
+      "mustCoverage": 1,
+      "pass2Ran": false,
+      "fusionInjected": true,
+      "visionBlind": true,
+      "visualGateStatus": "skipped",
+      "outcome": "done"
+    },
+    {
+      "run": "g-saas-analytics/blank_canvas",
+      "pipeline": "LVPipeline",
+      "pdsBuilt": true,
+      "mustCoverage": 1,
+      "pass2Ran": false,
+      "fusionInjected": true,
+      "visionBlind": true,
+      "visualGateStatus": "skipped",
+      "outcome": "done"
+    },
+    {
+      "run": "g-shop-store/skeleton_assembly",
+      "pipeline": "ProtoPipeline",
+      "pdsBuilt": true,
+      "mustCoverage": 0.6666666666666666,
+      "pass2Ran": true,
+      "fusionInjected": true,
+      "visionBlind": true,
+      "visualGateStatus": "skipped",
+      "outcome": "partial"
+    },
+    {
+      "run": "g-shop-store/blank_canvas",
+      "pipeline": "LVPipeline",
+      "pdsBuilt": true,
+      "mustCoverage": 0.6666666666666666,
+      "pass2Ran": true,
+      "fusionInjected": true,
+      "visionBlind": true,
+      "visualGateStatus": "skipped",
+      "outcome": "partial"
+    },
+    {
+      "run": "g-b2b-ops/skeleton_assembly",
+      "pipeline": "ProtoPipeline",
+      "pdsBuilt": true,
+      "mustCoverage": 1,
+      "pass2Ran": false,
+      "fusionInjected": true,
+      "visionBlind": true,
+      "visualGateStatus": "skipped",
+      "outcome": "done"
+    },
+    {
+      "run": "g-land-launch/skeleton_assembly",
+      "pipeline": "ProtoPipeline",
+      "pdsBuilt": true,
+      "mustCoverage": 1,
+      "pass2Ran": false,
+      "fusionInjected": true,
+      "visionBlind": true,
+      "visualGateStatus": "skipped",
+      "outcome": "done"
+    },
+    {
+      "run": "g-land-launch/blank_canvas",
+      "pipeline": "LVPipeline",
+      "pdsBuilt": true,
+      "mustCoverage": 1,
+      "pass2Ran": false,
+      "fusionInjected": true,
+      "visionBlind": true,
+      "visualGateStatus": "skipped",
+      "outcome": "done"
+    },
+    {
+      "run": "g-lv-freeform/blank_canvas",
+      "pipeline": "LVPipeline",
+      "pdsBuilt": true,
+      "mustCoverage": 1,
+      "pass2Ran": false,
+      "fusionInjected": true,
+      "visionBlind": true,
+      "visualGateStatus": "skipped",
+      "outcome": "done"
+    }
+  ]
+}

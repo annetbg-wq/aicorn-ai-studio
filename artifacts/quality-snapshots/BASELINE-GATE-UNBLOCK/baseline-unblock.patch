@@ -1,0 +1,107 @@
+diff --git a/frontend/src/services/DocumentationPackService.ts b/frontend/src/services/DocumentationPackService.ts
+new file mode 100644
+--- /dev/null
++++ b/frontend/src/services/DocumentationPackService.ts
+@@ -0,0 +1,16 @@
++// Baseline compatibility shim for useStudio typing.
++// This intentionally provides only shared types and no persistence behavior.
++export interface DocumentationPackFile {
++  path: string;
++  title?: string;
++  content?: string;
++  summary?: string;
++}
++
++export interface DocumentationPack {
++  id?: string;
++  title?: string;
++  summary?: string;
++  files?: DocumentationPackFile[];
++  [key: string]: unknown;
++}
+diff --git a/frontend/src/services/ProjectStorage.ts b/frontend/src/services/ProjectStorage.ts
+index 6bcb55c..3c80d0e 100644
+--- a/frontend/src/services/ProjectStorage.ts
++++ b/frontend/src/services/ProjectStorage.ts
+@@ -66,6 +66,7 @@ export interface StoredProject {
+   modelId?:        string;
+   durationMs?:     number;
+   generationMode?: string;                        // 'landing' | 'app' | 'superapp'
++  generationPath?: 'skeleton_assembly' | 'blank_canvas';
+   billingCost?:    number;
+   billingTokens?:  number;
+   revisions?:      ProjectRevision[];              // max 5, newest first
+diff --git a/frontend/src/services/__tests__/ProtoPipeline.test.ts b/frontend/src/services/__tests__/ProtoPipeline.test.ts
+index cd2919e..c1c0145 100644
+--- a/frontend/src/services/__tests__/ProtoPipeline.test.ts
++++ b/frontend/src/services/__tests__/ProtoPipeline.test.ts
+@@ -1,5 +1,5 @@
+ // @vitest-environment jsdom
+-import { describe, expect, it } from 'vitest';
++import { describe, expect, it, vi } from 'vitest';
+ import {
+   extractJsonObjectFromModelText,
+   validateArchitectJsonShape,
+@@ -11,6 +11,25 @@ import {
+   materializeMediaAssets,
+ } from '../ProtoPipeline';
+ 
++vi.mock('../../lib/supabase', () => {
++  const unavailable = new Error('Supabase is intentionally disabled in ProtoPipeline unit tests.');
++  const fallback = { data: null, error: unavailable };
++  const query = {
++    data: null,
++    error: unavailable,
++    eq: () => ({ single: async () => fallback }),
++    single: async () => fallback,
++  };
++
++  return {
++    supabase: {
++      from: () => ({
++        select: () => query,
++      }),
++    },
++  };
++});
++
+ describe('ProtoPipeline premium materialization', () => {
+   it('copies selected premium component files and the shared registry into preview design-pack paths', async () => {
+     const ctx = await resolveDesignContext('wellness mobile app with habit routine tracking', 'mobile-app');
+diff --git a/frontend/src/services/__tests__/ProtoPipelineDiagnostics.test.ts b/frontend/src/services/__tests__/ProtoPipelineDiagnostics.test.ts
+index f709f23..a8f18ea 100644
+--- a/frontend/src/services/__tests__/ProtoPipelineDiagnostics.test.ts
++++ b/frontend/src/services/__tests__/ProtoPipelineDiagnostics.test.ts
+@@ -1,5 +1,5 @@
+ // @vitest-environment jsdom
+-import { beforeEach, describe, expect, it } from 'vitest';
++import { beforeEach, describe, expect, it, vi } from 'vitest';
+ import { resolveDesignContext } from '../DesignContract';
+ import { clearFileVisualSelectionMemory } from '../FileVisualBankService';
+ import { materializeMediaAssets } from '../ProtoPipeline';
+@@ -10,6 +10,25 @@ import {
+   serializeVisualUsageDiagnostics,
+ } from '../ProtoPipeline';
+ 
++vi.mock('../../lib/supabase', () => {
++  const unavailable = new Error('Supabase is intentionally disabled in ProtoPipeline unit tests.');
++  const fallback = { data: null, error: unavailable };
++  const query = {
++    data: null,
++    error: unavailable,
++    eq: () => ({ single: async () => fallback }),
++    single: async () => fallback,
++  };
++
++  return {
++    supabase: {
++      from: () => ({
++        select: () => query,
++      }),
++    },
++  };
++});
++
+ describe('ProtoPipeline diagnostics', () => {
+   beforeEach(() => {
+     clearFileVisualSelectionMemory();

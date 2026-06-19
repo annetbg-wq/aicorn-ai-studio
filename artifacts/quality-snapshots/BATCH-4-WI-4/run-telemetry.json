@@ -1,0 +1,19 @@
+{
+  "batch": "BATCH-4-WI-4",
+  "generated": "2026-06-19",
+  "typecheck": "pass",
+  "tests": {
+    "Pass2Critic": { "total": 26, "passed": 26, "failed": 0 },
+    "Pass2Implementer": { "total": 38, "passed": 38, "failed": 0 },
+    "CompletenessGate": { "total": 27, "passed": 27, "failed": 0 },
+    "ProductDocumentSet": { "total": 6, "passed": 6, "failed": 0 },
+    "ProtoPipeline": { "total": 68, "passed": 68, "failed": 0 }
+  },
+  "totals": { "total": 165, "passed": 165, "failed": 0 },
+  "pass2_schema": "Gap[]",
+  "loose_schema_rejected": true,
+  "PASS2_MAX_ITERATIONS": 2,
+  "factoryGatePassed_requires_coverage_gte_0.8": true,
+  "partial_is_not_GATE_PASS": true,
+  "pass2_unavailable_does_not_crash": true
+}

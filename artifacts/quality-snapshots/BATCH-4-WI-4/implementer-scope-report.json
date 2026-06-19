@@ -1,0 +1,30 @@
+{
+  "scope_guard": "isPass2SafeTargetFile()",
+  "normalizer": "normalizeOutputPath() strips src/ prefix before pattern matching",
+  "allowed_examples": [
+    "pages/Dashboard.tsx",
+    "src/pages/Coach.tsx → normalized to pages/Coach.tsx",
+    "components/RiskRadar.tsx",
+    "hooks/useData.ts",
+    "styles/global.css",
+    "context/AppContext.tsx",
+    "lib/utils.ts",
+    "services/apiClient.ts",
+    "App.tsx",
+    "index.css"
+  ],
+  "rejected_patterns": [
+    { "pattern": "^backend/", "examples": ["backend/agent-config.json", "backend/server.ts"] },
+    { "pattern": "package(-lock)?.json$", "examples": ["package.json", "package-lock.json"] },
+    { "pattern": "yarn.lock$", "examples": ["yarn.lock"] },
+    { "pattern": "pnpm-lock.yaml$", "examples": ["pnpm-lock.yaml"] },
+    { "pattern": "\\.env(\\.|$)", "examples": [".env", ".env.local", ".env.production"] },
+    { "pattern": "agent-config\\.json$", "examples": ["agent-config.json", "backend/agent-config.json"] },
+    { "pattern": "tsconfig(\\..*)?\\json$", "examples": ["tsconfig.json", "tsconfig.app.json"] },
+    { "pattern": "vite\\.config\\.", "examples": ["vite.config.ts", "vite.config.js"] },
+    { "pattern": "tailwind\\.config\\.", "examples": ["tailwind.config.ts", "tailwind.config.js"] },
+    { "pattern": "postcss\\.config\\.", "examples": ["postcss.config.js"] },
+    { "pattern": "node_modules/", "examples": ["node_modules/react/index.js"] },
+    { "pattern": "secrets?\\.", "examples": ["secrets.json", "src/secrets.ts"] }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "pipeline": "lv_pipeline",
+  "version": 2,
+  "description": "LVPipeline blank_canvas run telemetry shape (as emitted by LVPipeline.run) — updated after acceptance-check patch",
+  "fields": {
+    "brief": "string — user prompt",
+    "appName": "string — first 40 chars of prompt",
+    "planSummary": "string — 'blank_canvas: <prompt>'",
+    "skeletonId": "'landing-page' (PDS nominal label only — NOT passed to compile endpoint)",
+    "skeletonLabel": "'Blank Canvas'",
+    "skeletonFiles": "[] (no skeleton files injected)",
+    "deltaFiles": "string[] — all generated file paths",
+    "designIntent": "['blank_canvas']",
+    "productDocs": {
+      "built": "boolean",
+      "generationPath": "'blank_canvas'",
+      "featureChecklistItemCount": "number",
+      "featureChecklistMustCount": "number"
+    },
+    "steps": [
+      {
+        "id": "coder",
+        "label": "Generated application",
+        "status": "done",
+        "durationMs": "number",
+        "llm": {
+          "model": "string — buildRoute.modelId (from config, no default)",
+          "prompt_tokens": "number",
+          "completion_tokens": "number",
+          "total_tokens": "number"
+        }
+      },
+      {
+        "id": "build",
+        "label": "Compiled | Build failed",
+        "status": "done | error",
+        "durationMs": "number",
+        "output": {
+          "pass2_telemetry": "Pass2Telemetry | undefined"
+        }
+      }
+    ],
+    "compileCount": "0 | 1",
+    "finalPreviewMounted": "boolean",
+    "blankCanvasExistingProjectMode": "'fresh' | 'overwrite' — 'overwrite' when config.files is non-empty",
+    "existingFileCount": "number — Object.keys(config.files).length at run start",
+    "overwriteExplicit": "true — always; blank_canvas is user-explicit"
+  },
+  "compile_mode": "legacy/no-skeleton — no skeletonId sent to backend",
+  "stages_NOT_in_lv_pipeline": [
+    "clarify",
+    "skeleton",
+    "pack",
+    "architect"
+  ]
+}

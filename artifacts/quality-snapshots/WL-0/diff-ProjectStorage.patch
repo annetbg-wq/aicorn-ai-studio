@@ -1,0 +1,12 @@
+diff --git a/frontend/src/services/ProjectStorage.ts b/frontend/src/services/ProjectStorage.ts
+index 6bcb55c..3c80d0e 100644
+--- a/frontend/src/services/ProjectStorage.ts
++++ b/frontend/src/services/ProjectStorage.ts
+@@ -66,6 +66,7 @@ export interface StoredProject {
+   modelId?:        string;
+   durationMs?:     number;
+   generationMode?: string;                        // 'landing' | 'app' | 'superapp'
++  generationPath?: 'skeleton_assembly' | 'blank_canvas';
+   billingCost?:    number;
+   billingTokens?:  number;
+   revisions?:      ProjectRevision[];              // max 5, newest first

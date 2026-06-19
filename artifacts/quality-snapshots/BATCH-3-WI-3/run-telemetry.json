@@ -1,0 +1,56 @@
+{
+  "batch": "BATCH-3-WI-3",
+  "wi": ["WI-3"],
+  "scope": {
+    "containsWI4": false,
+    "containsWI6": false,
+    "containsWI7": false,
+    "containsWI8": false,
+    "containsPreviewWorkspace": false,
+    "containsBackendAgentConfig": false
+  },
+  "completenessGateImplemented": true,
+  "mustTotal": 5,
+  "mustCovered": 5,
+  "coverageRatioMust": 1.0,
+  "coverageRatioAll": 1.0,
+  "emptyPageFalsePositiveBlocked": true,
+  "placeholderFalsePositiveBlocked": true,
+  "missingCapabilityBlocked": true,
+  "fakeNotificationBlocked": true,
+  "fakePaywallBlocked": true,
+  "fakeReminderBlocked": true,
+  "coachWithoutMessageFlowBlocked": true,
+  "factoryGatePassRequiresCoverage": true,
+  "frontendTypecheck": "pass",
+  "completenessGateTests": "pass",
+  "productDocumentSetTests": "pass",
+  "protoPipelineTests": "pass",
+  "factoryGatePassed": true,
+  "notes": {
+    "totalTests": 27,
+    "newPositiveCases": 2,
+    "newNegativeCases": 14,
+    "integrationCases": 3,
+    "backwardCompatCases": 3,
+    "gateThreshold": 0.8,
+    "coverageRatioMustThresholdEnforced": true,
+    "featureChecklistPrimaryPath": true,
+    "legacyPrebuiltPlanFallbackRetained": true,
+    "protoPipelineChanges": [
+      "evaluateCompletenessGate receives featureChecklist from productDocumentSet.productDocs",
+      "log message updated to use mustCovered/mustTotal/coverageRatioMust/uncoveredMust",
+      "StepOutputMetrics.completeness_gate field added",
+      "stepResults.apply.output.completeness_gate includes full telemetry + factoryGatePassed"
+    ],
+    "excludedHunks": [
+      "No Pass 2 critic/implementer hunks (WI-4)",
+      "No LVPipeline (WI-6)",
+      "No uploaded asset/design fusion (WI-7)",
+      "No screenshot/vision (WI-8)",
+      "No preview-workspace/* changes",
+      "No backend/agent-config.json changes",
+      "No provider/model defaults"
+    ]
+  }
+}

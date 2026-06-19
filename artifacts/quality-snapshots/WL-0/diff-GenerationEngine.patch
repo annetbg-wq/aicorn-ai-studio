@@ -1,0 +1,12 @@
+diff --git a/frontend/src/services/GenerationEngine.ts b/frontend/src/services/GenerationEngine.ts
+index beb0973..e3301b6 100644
+--- a/frontend/src/services/GenerationEngine.ts
++++ b/frontend/src/services/GenerationEngine.ts
+@@ -303,6 +303,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
+             mimeType:    a.mimeType,
+             textContent: a.textContent,
+           })),
++        prebuiltPlan: config.prebuiltPlan,
+         signal: config.signal,
+         skipClarify: config.skipClarify,
+         onLog:  (m) => log(m),

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "gap-001",
+    "briefPoint": "Dashboard shows metrics",
+    "status": "missing",
+    "evidence": "CompletenessGate: feature not covered. Target file(s): pages/Dashboard.tsx",
+    "targetFile": "pages/Dashboard.tsx",
+    "requiredAction": "Implement \"Dashboard shows metrics\" with concrete code in pages/Dashboard.tsx",
+    "priority": "must",
+    "source": "completeness"
+  },
+  {
+    "id": "gap-002",
+    "briefPoint": "Coach page has message flow",
+    "status": "fake",
+    "evidence": "CompletenessGate: feature not covered. Target file(s): pages/Coach.tsx",
+    "targetFile": "pages/Coach.tsx",
+    "requiredAction": "Implement \"Coach page has message flow\" with concrete code in pages/Coach.tsx",
+    "priority": "must",
+    "source": "completeness"
+  }
+]

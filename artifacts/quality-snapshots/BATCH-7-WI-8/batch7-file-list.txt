@@ -1,0 +1,68 @@
+BATCH-7 WI-8 — Screenshot / Vision Health
+Generated: 2026-06-19
+
+## INCLUDED FILES (modified or created)
+
+NEW  frontend/src/services/ScreenshotService.ts
+     - ScreenshotSource type: 'html2canvas' | 'playwright' | 'manual' | 'none'
+     - ScreenshotStatus interface: attempted, succeeded, source, path?, dataUrl?, unavailableReason?
+     - VisualGateStatus type: 'pass' | 'partial' | 'skipped' | 'fail'
+     - VisualGateDiagnostics interface (11 fields)
+     - noScreenshotStatus(reason): ScreenshotStatus factory
+     - resolveScreenshotStatus(raw): converts postMessage payload to typed status
+     - buildVisualGateDiagnostics(status, opts?): derives vision gate verdict
+
+NEW  frontend/src/services/__tests__/ScreenshotService.test.ts
+     - 42 tests across 6 describe blocks
+     - Covers: noScreenshotStatus, resolveScreenshotStatus success/failure,
+       buildVisualGateDiagnostics (screenshot succeeded / failed / empty canvas / not attempted),
+       vision gate hard rule (pass requires succeeded=true)
+
+MOD  frontend/src/hooks/useProjectScreenshot.ts
+     - Return type: Promise<string | null> → Promise<ScreenshotStatus>
+     - pendingRef element type: (dataUrl) → (status: ScreenshotStatus)
+     - Handler: calls resolveScreenshotStatus({ dataUrl, error, source:'html2canvas' })
+     - Timeout: returns structured ScreenshotStatus (unavailableReason: 'screenshot_timeout:...')
+     - No-iframe: returns structured ScreenshotStatus (unavailableReason: 'no_iframe:...')
+
+MOD  frontend/src/services/ProtoPipeline.ts
+     - Pass2Telemetry: +10 optional WI-8 fields (screenshotAttempted, screenshotSucceeded,
+       screenshotSource, screenshotDataPresent, screenshotUnavailableReason,
+       critic_vision_blind, visionUnavailableReason, visualGateStatus,
+       codeOnlyVisualPassBlocked, screenshotEmptyBlocked)
+     - ProtoPipelineConfig: +screenshotStatus?: ScreenshotStatus
+     - Vision telemetry block after pass2Telemetry init
+
+MOD  backend/preview-manager.ts (canonicalMainTsx string only)
+     - captureScreenshot(): added Promise.race with 10s timeout
+     - captureScreenshot(): added empty canvas guard (canvas.width===0 || canvas.height===0)
+     - Empty canvas posts error:'empty_canvas:...' and returns early
+     - Timeout uses new Error('screenshot_timeout:...'), catch stringifies via String(error instanceof Error)
+
+MOD  backend/preview-manager.test.ts
+     - New describe 'preview-manager screenshot handshake (WI-8)' — 8 tests
+     - Source-inspection tests: handshake wiring, dataUrl on success, error reason on failure,
+       empty canvas block, empty_canvas posts error not dataUrl, timeout guard, timeout reason, SCREENSHOT_TIMEOUT_MS
+
+MOD  vitest.config.ts (root)
+     - test.include: added '../backend/**/*.test.ts' so npx vitest run backend/preview-manager.test.ts works
+     - server.fs.allow: added '../backend'
+
+## EXCLUDED FILES (per WI-8 spec)
+
+preview-workspace/*           (excluded — preview workspace files)
+preview-workspace/tsconfig.json (excluded)
+backend/agent-config.json     (excluded)
+frontend/src/shared/projectModel.ts (excluded — WI-8 does not touch project model)
+
+## GATE RESULTS
+
+typecheck:            PASS (0 errors)
+npm test -- Pass2:    PASS (64 tests)
+npm test -- ProtoPipeline: PASS (68 tests)
+npm test -- LVPipeline:    PASS (32 tests)
+npm test -- CompletenessGate: PASS (27 tests)
+npm test -- ProductDocumentSet: PASS (6 tests)
+npm test -- DesignFusion:  PASS (63 tests)
+npx vitest run backend/preview-manager.test.ts: PASS (63 tests)
+npm test -- ScreenshotService: PASS (42 tests)

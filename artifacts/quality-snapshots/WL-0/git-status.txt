@@ -1,0 +1,27 @@
+ M backend/preview-manager.test.ts
+ M backend/preview-manager.ts
+ D dialog-after-brief.png
+ M frontend/src/hooks/useStudio.ts
+ M frontend/src/services/GenerationEngine.ts
+ M frontend/src/services/LiveGenerationUiPrimitives.ts
+ M frontend/src/services/ProjectStorage.ts
+ M frontend/src/services/ProtoPipeline.ts
+ M frontend/src/services/__tests__/LiveGenerationContractValidator.test.ts
+ M frontend/src/services/__tests__/ProtoPipeline.test.ts
+ M preview-workspace/tsconfig.json
+?? frontend/src/components/ui/alert.tsx
+?? frontend/src/services/CompletenessGate.ts
+?? frontend/src/services/DocumentationPackService.ts
+?? frontend/src/services/LVPipeline.ts
+?? frontend/src/services/ProductDocumentSet.ts
+?? frontend/src/services/__tests__/CompletenessGate.test.ts
+?? frontend/src/services/__tests__/LVPipeline.test.ts
+?? frontend/src/services/__tests__/ProductDocumentSet.test.ts
+?? preview-workspace/src/components/BottomTabs.tsx
+?? preview-workspace/src/components/RitualCard.tsx
+?? preview-workspace/src/components/ui/label.tsx
+?? preview-workspace/src/components/ui/switch.tsx
+?? preview-workspace/src/design-pack/
+?? preview-workspace/src/hooks/useCategories.ts
+?? preview-workspace/src/hooks/useHabits.ts
+?? preview-workspace/src/hooks/useRituals.ts

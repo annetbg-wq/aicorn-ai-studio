@@ -1,0 +1,44 @@
+diff --git a/frontend/src/services/LiveGenerationUiPrimitives.ts b/frontend/src/services/LiveGenerationUiPrimitives.ts
+index 19e4ed1..0040050 100644
+--- a/frontend/src/services/LiveGenerationUiPrimitives.ts
++++ b/frontend/src/services/LiveGenerationUiPrimitives.ts
+@@ -1,4 +1,9 @@
+ const LIVE_GENERATION_UI_PRIMITIVE_SPECS = [
++  {
++    id: 'alert',
++    displayName: 'Alert',
++    importCatalogEntry: "Alert, AlertDescription, AlertTitle from '@/components/ui/alert'",
++  },
+   {
+     id: 'accordion',
+     displayName: 'Accordion',
+@@ -107,6 +112,8 @@ export type UiPrimitiveDisplayName = typeof LIVE_GENERATION_UI_PRIMITIVE_SPECS[n
+ export const LIVE_GENERATION_ALLOWED_UI_PRIMITIVES: CanonicalUiPrimitive[] = LIVE_GENERATION_UI_PRIMITIVE_SPECS
+   .map(spec => spec.id);
+ 
++export const LIVE_GENERATION_MINIMAL_BASELINE_PRIMITIVES: UiPrimitiveDisplayName[] = ['Alert'];
++
+ export const LIVE_GENERATION_UI_IMPORT_CATALOG: Record<UiPrimitiveDisplayName, string> = Object.fromEntries(
+   LIVE_GENERATION_UI_PRIMITIVE_SPECS.map(spec => [spec.displayName, spec.importCatalogEntry]),
+ ) as Record<UiPrimitiveDisplayName, string>;
+@@ -198,7 +205,12 @@ export function uiPrimitiveWorkspaceCandidates(
+ }
+ 
+ export function buildLiveGenerationUiPrimitiveImportCatalog(uiPrimitives: readonly string[]): string {
+-  const lines = filterAdvertisedUiPrimitiveNames(uiPrimitives)
++  const lines = Array.from(new Set(
++    filterAdvertisedUiPrimitiveNames([
++      ...uiPrimitives,
++      ...LIVE_GENERATION_MINIMAL_BASELINE_PRIMITIVES,
++    ]),
++  ))
+     .map(name => LIVE_GENERATION_UI_IMPORT_CATALOG[name])
+     .filter((line): line is string => Boolean(line))
+     .map(line => `  - ${line}`);
+@@ -210,4 +222,4 @@ export function buildLiveGenerationUiPrimitiveImportCatalog(uiPrimitives: readon
+ 
+ export function filterAdvertisedUiPrimitiveNames(uiPrimitives: readonly string[]): UiPrimitiveDisplayName[] {
+   return uiPrimitives.filter((name): name is UiPrimitiveDisplayName => Boolean(LIVE_GENERATION_UI_IMPORT_CATALOG[name as UiPrimitiveDisplayName]));
+-}
+\ No newline at end of file
++}

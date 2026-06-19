@@ -1,0 +1,85 @@
+{
+  "batch": "BATCH-5-WI-6",
+  "check_date": "2026-06-19",
+  "verdict": "PASS (after patch)",
+
+  "risk_1_skeleton_leakage": {
+    "result": "FAIL → PATCHED → PASS",
+    "defect": "lvCompile() passed skeletonId:'landing-page' in POST /api/preview/:buildId/compile body",
+    "consequence": [
+      "backend.compileBuild wiped src/ and installed landing-page skeleton files",
+      "backend force-restored landing-page index.css AFTER user file writes",
+      "LiveGenerationContractValidator required route-manifest.json (landing-page has it; LV never generates it) → compile always failed"
+    ],
+    "fix": "Removed skeletonId from lvCompile POST body — backend runs in legacy/no-skeleton mode",
+    "evidence": {
+      "backend_wipe_lines": "preview-manager.ts:763-781",
+      "css_force_restore_lines": "preview-manager.ts:855-860",
+      "contract_validator_fn": "LiveGenerationContractValidator.ts:resolveRouteManifestExpectation()",
+      "compile_fix_line": "LVPipeline.ts:lvCompile — body: JSON.stringify({ files, sessionId })"
+    },
+    "questions_answered": {
+      "calls_skeleton_selection": false,
+      "installs_skeleton_files": "false after patch",
+      "uses_protected_or_delta_files": false,
+      "uses_design_product_assumptions": false,
+      "skeleton_id_only_compile_compat": "false — was also used as compile substrate; now only PDS label + telemetry"
+    }
+  },
+
+  "risk_2_existing_project_safety": {
+    "result": "CONDITIONAL PASS → PASS (telemetry added)",
+    "findings": {
+      "generation_path_controlled_by": "user explicit action only — useState initialized to skeleton_assembly",
+      "generation_mode_influences_pipeline": false,
+      "old_projects_backward_compatible": true,
+      "backward_compat_evidence": "restoreGenerationPath() defaults null/missing to skeleton_assembly",
+      "blank_canvas_overwrite_behavior": "upserts LV-generated files; non-overlapping files remain (dead code)",
+      "overwrite_is_user_explicit": true
+    },
+    "missing_telemetry_added": [
+      "blankCanvasExistingProjectMode: 'fresh' | 'overwrite'",
+      "existingFileCount: number",
+      "overwriteExplicit: true"
+    ],
+    "questions_answered": {
+      "replaces_all_files_on_existing_project": "partial — only files LV generates",
+      "merge_behavior": "no merge; old unreferenced files may persist as dead code in preserved dirs",
+      "overwrite_explicit_in_telemetry": "yes after patch",
+      "ui_controls_generation_path": true,
+      "generation_mode_does_not_choose_pipeline": true,
+      "old_projects_compatible": true
+    }
+  },
+
+  "patch_summary": {
+    "files_changed": [
+      "frontend/src/services/LVPipeline.ts",
+      "frontend/src/shared/projectModel.ts"
+    ],
+    "change_1": "LVPipeline.ts:LV_NEUTRAL_SKELETON_ID comment updated — clarifies usage is PDS+telemetry only",
+    "change_2": "LVPipeline.ts:lvCompile — removed skeletonId from POST body (legacy mode)",
+    "change_3": "LVPipeline.ts:runTelemetry — added blankCanvasExistingProjectMode, existingFileCount, overwriteExplicit",
+    "change_4": "projectModel.ts:GenerationRunTelemetry — added 3 optional telemetry fields"
+  },
+
+  "test_results": {
+    "typecheck": "0 errors",
+    "LVPipeline": "32/32",
+    "useStudioGenerationPath": "3/3",
+    "ProductDocumentSet": "6/6",
+    "CompletenessGate": "27/27",
+    "Pass2Critic": "64/64",
+    "ProtoPipeline": "68/68"
+  },
+
+  "constraints_verified": {
+    "no_generation_path_rename": true,
+    "generation_mode_does_not_choose_pipeline": true,
+    "no_hardcoded_model_provider_defaults": true,
+    "no_wi7_wi8_changes": true,
+    "no_preview_workspace_changes": true,
+    "no_backend_preview_manager_changes": true,
+    "no_commit": true
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "reportType": "vision-status",
+  "batch": "BATCH-7-WI-8",
+  "generatedAt": "2026-06-19T17:00:00Z",
+  "visionGateSemantics": {
+    "hardRule": "visualGateStatus cannot be 'pass' when critic_vision_blind=true",
+    "statusValues": {
+      "pass": "screenshot succeeded AND visualCheckPassed=true from vision model",
+      "partial": "screenshot succeeded but no vision model check performed",
+      "skipped": "screenshot not available (not attempted or failed)",
+      "fail": "screenshot succeeded AND visualCheckPassed=false from vision model"
+    },
+    "blindCondition": "critic_vision_blind = !screenshotStatus.succeeded"
+  },
+  "pass2Integration": {
+    "file": "frontend/src/services/ProtoPipeline.ts",
+    "configField": "screenshotStatus?: ScreenshotStatus in ProtoPipelineConfig",
+    "telemetryFields": [
+      "screenshotAttempted",
+      "screenshotSucceeded",
+      "screenshotSource",
+      "screenshotDataPresent",
+      "screenshotUnavailableReason",
+      "critic_vision_blind",
+      "visionUnavailableReason",
+      "visualGateStatus",
+      "codeOnlyVisualPassBlocked",
+      "screenshotEmptyBlocked"
+    ],
+    "defaultBehavior": "no screenshotStatus in config → treated as not-provided, critic_vision_blind=true, visualGateStatus=skipped"
+  },
+  "emptyCanvasBlock": {
+    "implemented": true,
+    "reason": "A 0×0 canvas produces an unusable empty image; it's misleading to report success",
+    "behavior": "posts error:'empty_canvas: 0x0 dimensions, screenshot not captured', returns early",
+    "doesNotPostDataUrl": true
+  },
+  "timeoutBlock": {
+    "implemented": true,
+    "timeoutMs": 10000,
+    "reason": "html2canvas can hang on complex pages; hanging indefinitely blocks the critic loop",
+    "behavior": "Promise.race rejects after SCREENSHOT_TIMEOUT_MS with screenshot_timeout error",
+    "catchStringification": "String(error instanceof Error ? error.message : error)"
+  },
+  "codeOnlyPassBlocked": {
+    "description": "When screenshot is unavailable (codeOnlyVisualPassBlocked=true), the critic cannot claim a visual acceptance",
+    "rationale": "Code-only analysis cannot substitute for visual evidence; marking visual pass without evidence is misleading"
+  }
+}

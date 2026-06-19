@@ -1,0 +1,14 @@
+{
+  "intentId": "g-mobile-rituals",
+  "generationPath": "skeleton_assembly",
+  "runsCount": 3,
+  "coverageRatios": [
+    1,
+    1,
+    1
+  ],
+  "variance": 0,
+  "allBuildsOk": true,
+  "noPrimitiveFailure": true,
+  "stable": true
+}

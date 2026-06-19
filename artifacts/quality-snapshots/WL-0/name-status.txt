@@ -1,0 +1,11 @@
+M	backend/preview-manager.test.ts
+M	backend/preview-manager.ts
+D	dialog-after-brief.png
+M	frontend/src/hooks/useStudio.ts
+M	frontend/src/services/GenerationEngine.ts
+M	frontend/src/services/LiveGenerationUiPrimitives.ts
+M	frontend/src/services/ProjectStorage.ts
+M	frontend/src/services/ProtoPipeline.ts
+M	frontend/src/services/__tests__/LiveGenerationContractValidator.test.ts
+M	frontend/src/services/__tests__/ProtoPipeline.test.ts
+M	preview-workspace/tsconfig.json

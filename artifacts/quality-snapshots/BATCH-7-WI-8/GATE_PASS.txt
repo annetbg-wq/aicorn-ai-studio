@@ -1,0 +1,27 @@
+BATCH-7 WI-8 — Screenshot / Vision Health
+GATE: PASS
+Date: 2026-06-19
+
+All required gate commands passed:
+
+  PASS  npm run typecheck --prefix frontend        (0 errors)
+  PASS  npm test --prefix frontend -- Pass2        (64 tests, 2 files)
+  PASS  npm test --prefix frontend -- ProtoPipeline (68 tests, 3 files)
+  PASS  npm test --prefix frontend -- LVPipeline   (32 tests, 1 file)
+  PASS  npm test --prefix frontend -- CompletenessGate (27 tests, 1 file)
+  PASS  npm test --prefix frontend -- ProductDocumentSet (6 tests, 1 file)
+  PASS  npm test --prefix frontend -- DesignFusion (63 tests, 1 file)
+  PASS  npx vitest run backend/preview-manager.test.ts (63 tests, 1 file)
+
+New tests added this batch:
+  +42  frontend/src/services/__tests__/ScreenshotService.test.ts
+  +8   backend/preview-manager.test.ts (WI-8 describe block)
+  ────
+  +50  total new tests
+
+Infrastructure notes:
+  - Root npm install was required (node_modules was empty)
+  - vitest.config.ts updated: test.include now covers '../backend/**/*.test.ts'
+    so `npx vitest run backend/preview-manager.test.ts` works from repo root
+
+DO NOT COMMIT (per batch spec).

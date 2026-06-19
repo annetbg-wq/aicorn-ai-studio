@@ -1,0 +1,21 @@
+[
+  {
+    "id": "01-hero-banner",
+    "kind": "image",
+    "name": "hero-banner.png",
+    "moduleImportPath": "@/generated/uploads/01-hero-banner"
+  },
+  {
+    "id": "02-brand-logo",
+    "kind": "image",
+    "name": "brand-logo.svg",
+    "moduleImportPath": "@/generated/uploads/02-brand-logo"
+  },
+  {
+    "id": "03-api-spec",
+    "kind": "code",
+    "name": "api-spec.ts",
+    "moduleImportPath": "@/generated/uploads/03-api-spec",
+    "excerpt": "export interface User { id: string; name: string; }"
+  }
+]

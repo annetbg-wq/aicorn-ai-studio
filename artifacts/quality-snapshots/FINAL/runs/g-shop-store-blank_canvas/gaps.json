@@ -1,0 +1,39 @@
+[
+  {
+    "id": "gap-001",
+    "briefPoint": {
+      "id": "design-5uo6dk",
+      "briefPoint": "The prototype follows the selected skeleton and design brief",
+      "priority": "should",
+      "surface": "design-system",
+      "targetFiles": [
+        "App.tsx"
+      ],
+      "acceptanceSignal": [
+        "The selected skeleton remains the product foundation."
+      ],
+      "codeSignals": [
+        "Code respects the selected skeleton boundaries."
+      ],
+      "uiSignals": [
+        "The UI matches the requested design direction."
+      ],
+      "dataSignals": [
+        "Content stays product-specific and avoids generic placeholder language."
+      ],
+      "interactionSignals": [
+        "Core interactions remain consistent with the selected skeleton patterns."
+      ],
+      "source": [
+        "skeletonIntegrationPlan",
+        "productSpecificityPlan"
+      ]
+    },
+    "status": "missing",
+    "evidence": "CompletenessGate: feature absent from generated output",
+    "targetFile": "pages/Home.tsx",
+    "requiredAction": "Implement \"[object Object]\" with concrete code",
+    "priority": "must",
+    "source": "completeness"
+  }
+]

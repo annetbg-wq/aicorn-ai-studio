@@ -1,0 +1,66 @@
+{
+  "intentId": "g-shop-store",
+  "generationPath": "skeleton_assembly",
+  "pipelineName": "ProtoPipeline",
+  "buildOk": true,
+  "factoryGatePassed": false,
+  "outcome": "partial",
+  "productDocs": {
+    "built": true,
+    "saved": true,
+    "id": "pds-shop-store-qtyj04",
+    "persistenceTarget": "project_snapshot",
+    "featureChecklistItemCount": 5,
+    "featureChecklistMustCount": 3
+  },
+  "completeness": {
+    "mustTotal": 3,
+    "mustCovered": 2,
+    "coverageRatioMust": 0.6666666666666666,
+    "coverageRatioAll": 0.8,
+    "uncoveredMustCount": 1,
+    "factoryGatePassRequiresCoverage": true
+  },
+  "pass2": {
+    "ran": true,
+    "available": true,
+    "iterations": 1,
+    "criticSchema": "Gap[]",
+    "criticGapCount": 5,
+    "coverageBefore": 0.6666666666666666,
+    "coverageAfter": 0.7666666666666666,
+    "coverageImproved": true,
+    "partialIsNotGatePass": true
+  },
+  "routing": {
+    "skeletonAssemblyToProtoPipeline": true,
+    "blankCanvasToLVPipeline": false,
+    "generationModeDoesNotChoosePipeline": true,
+    "noSkeletonLeakageInBlankCanvas": false
+  },
+  "designFusion": {
+    "rulesInjected": true,
+    "uploadedAssetManifestCount": 0,
+    "premiumComponentSelectedCount": 0,
+    "premiumSelectedNotUsed": false,
+    "visualAssetSelectedNotUsed": false,
+    "shadcnPrimitiveUsageCount": 9,
+    "directRadixImportCount": 0,
+    "selfMadePrimitiveCount": 0,
+    "alertUsedWhenRelevant": true
+  },
+  "vision": {
+    "screenshotAttempted": false,
+    "screenshotSucceeded": false,
+    "screenshotSource": "none",
+    "criticVisionBlind": true,
+    "visionUnavailableReason": "no_browser_environment: static validation run",
+    "visualGateStatus": "skipped",
+    "codeOnlyVisualPassBlocked": true
+  },
+  "uiContract": {
+    "coderInventedPrimitiveCount": 0,
+    "directRadixImportCount": 0,
+    "caseOnlyDuplicateRisk": false
+  }
+}

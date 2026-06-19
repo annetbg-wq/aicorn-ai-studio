@@ -1,0 +1,38 @@
+{
+  "implementation": "frontend/src/services/LVPipeline.ts",
+  "type": "self-contained pipeline, NOT a wrapper over ProtoPipeline or GenerationEngine",
+  "stages": [
+    "1. buildProductDocumentSet() — deterministic, no LLM",
+    "2. lvStreamCoder() — single streaming coder LLM call (build slot)",
+    "3. parseLvFileMarkers() + merge with NEUTRAL_SCAFFOLD",
+    "4. evaluateCompletenessGate() — featureChecklist from PDS",
+    "5. runLvPass2() — if coverageRatioMust < 0.8 (up to 2 iterations)",
+    "6. lvCompile() — POST /api/preview/:buildId/compile (legacy/no-skeleton mode)",
+    "7. return GenerationResult"
+  ],
+  "neutral_scaffold": {
+    "files": ["App.tsx", "main.tsx", "index.css"],
+    "compile_mode": "legacy — no skeletonId sent to backend",
+    "note": "LV_NEUTRAL_SKELETON_ID is used ONLY in PDS input (nominal label) and run telemetry. It is NOT passed to the compile endpoint. The compile call uses body: JSON.stringify({ files, sessionId }) so no skeleton files are installed and no index.css is force-restored."
+  },
+  "pass2": {
+    "critic": "buildDeterministicGaps() always; optional LLM enrichment via qaRoute",
+    "implementer": "lvStreamCoder-like call via fixRoute",
+    "scope_guard": "isPass2SafeTargetFile() — rejects backend/config/secrets paths",
+    "max_iterations": 2,
+    "gate": "coverageRatioMust >= 0.8 required to exit early"
+  },
+  "not_in_lv_pipeline": [
+    "ProtoPipeline.run() — never called",
+    "GenerationEngine.run() — never called",
+    "selectSkeleton / SkeletonRegistry selection",
+    "architect LLM call",
+    "clarify LLM call",
+    "design pack selection",
+    "visual polish loop"
+  ],
+  "model_resolution": "strictly from config.buildRoute (no hardcoded defaults)",
+  "test_file": "frontend/src/services/__tests__/LVPipeline.test.ts",
+  "test_count": 32,
+  "test_result": "all pass"
+}

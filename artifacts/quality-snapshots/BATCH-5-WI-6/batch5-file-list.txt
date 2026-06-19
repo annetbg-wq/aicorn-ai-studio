@@ -1,0 +1,20 @@
+Batch 5 — WI-6 LVPipeline / blank_canvas Fast Path
+Files changed:
+
+REWRITTEN:
+  frontend/src/services/LVPipeline.ts
+  frontend/src/services/__tests__/LVPipeline.test.ts
+
+MODIFIED (minimal hunk):
+  frontend/src/hooks/useStudio.ts
+    - isBlankCanvasFastPathEligible call: removed existingCodeCount param
+
+NOT TOUCHED (by spec):
+  preview-workspace/*
+  backend/preview-manager.ts
+  backend/agent-config.json
+  frontend/src/services/ProtoPipeline.ts
+  frontend/src/services/GenerationEngine.ts
+  frontend/src/services/ProductDocumentSet.ts
+  frontend/src/services/CompletenessGate.ts
+  frontend/src/hooks/useStudioGenerationPath.ts

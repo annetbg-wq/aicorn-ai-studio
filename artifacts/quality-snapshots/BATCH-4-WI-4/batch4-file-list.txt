@@ -1,0 +1,16 @@
+BATCH-4 WI-4 — Pass 2 Critic → Implementer
+Generated: 2026-06-19
+
+MODIFIED
+  frontend/src/services/ProtoPipeline.ts
+
+ADDED
+  frontend/src/services/__tests__/Pass2Critic.test.ts
+  frontend/src/services/__tests__/Pass2Implementer.test.ts
+
+UNCHANGED (do not touch)
+  frontend/src/services/LVPipeline.ts
+  frontend/src/services/CompletenessGate.ts
+  frontend/src/services/ProductDocumentSet.ts
+  preview-workspace/*
+  backend/agent-config.json

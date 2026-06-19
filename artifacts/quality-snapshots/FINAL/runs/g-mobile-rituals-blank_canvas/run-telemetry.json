@@ -1,0 +1,66 @@
+{
+  "intentId": "g-mobile-rituals",
+  "generationPath": "blank_canvas",
+  "pipelineName": "LVPipeline",
+  "buildOk": true,
+  "factoryGatePassed": true,
+  "outcome": "done",
+  "productDocs": {
+    "built": true,
+    "saved": true,
+    "id": "pds-mobile-rituals-7x16t5",
+    "persistenceTarget": "project_snapshot",
+    "featureChecklistItemCount": 7,
+    "featureChecklistMustCount": 3
+  },
+  "completeness": {
+    "mustTotal": 3,
+    "mustCovered": 3,
+    "coverageRatioMust": 1,
+    "coverageRatioAll": 1,
+    "uncoveredMustCount": 0,
+    "factoryGatePassRequiresCoverage": true
+  },
+  "pass2": {
+    "ran": false,
+    "available": true,
+    "iterations": 0,
+    "criticSchema": "Gap[]",
+    "criticGapCount": 7,
+    "coverageBefore": 1,
+    "coverageAfter": 1,
+    "coverageImproved": false,
+    "partialIsNotGatePass": true
+  },
+  "routing": {
+    "skeletonAssemblyToProtoPipeline": false,
+    "blankCanvasToLVPipeline": true,
+    "generationModeDoesNotChoosePipeline": true,
+    "noSkeletonLeakageInBlankCanvas": true
+  },
+  "designFusion": {
+    "rulesInjected": true,
+    "uploadedAssetManifestCount": 0,
+    "premiumComponentSelectedCount": 0,
+    "premiumSelectedNotUsed": false,
+    "visualAssetSelectedNotUsed": false,
+    "shadcnPrimitiveUsageCount": 9,
+    "directRadixImportCount": 0,
+    "selfMadePrimitiveCount": 0,
+    "alertUsedWhenRelevant": true
+  },
+  "vision": {
+    "screenshotAttempted": false,
+    "screenshotSucceeded": false,
+    "screenshotSource": "none",
+    "criticVisionBlind": true,
+    "visionUnavailableReason": "no_browser_environment: static validation run",
+    "visualGateStatus": "skipped",
+    "codeOnlyVisualPassBlocked": true
+  },
+  "uiContract": {
+    "coderInventedPrimitiveCount": 0,
+    "directRadixImportCount": 0,
+    "caseOnlyDuplicateRisk": false
+  }
+}

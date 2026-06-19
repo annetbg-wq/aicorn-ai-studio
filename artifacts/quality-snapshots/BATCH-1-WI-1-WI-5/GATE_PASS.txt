@@ -1,0 +1,29 @@
+Batch: BATCH-1-WI-1-WI-5
+Verdict: PASS
+Base patch: BASELINE-GATE-UNBLOCK
+
+Why this gate passes now:
+- baseline-unblock.patch applies cleanly to fresh HEAD
+- batch1.patch applies cleanly on top of baseline-unblock
+- frontend typecheck passes
+- LiveGenerationContractValidator passes
+- ProtoPipeline tests pass
+- backend exact-case regression passes
+- Alert exists, is advertised through "@/components/ui/alert", and materializes into preview/generated workspace
+- exact-case primitive materialization is enabled
+- caseOnlyDuplicateRisk = false
+- coder_invented_primitive_count = 0
+- direct_radix_import_count = 0
+- batch1.patch contains no WI-2/WI-3/WI-4/WI-6/WI-7/WI-8 hunks
+- no preview-workspace files
+- no preview-workspace/tsconfig.json
+- no backend/agent-config.json
+- no screenshot hunk
+
+Commit safety:
+- batch1.patch is safe to commit on top of BASELINE-GATE-UNBLOCK
+- do not fold it into the baseline-unblock commit
+
+Important:
+- This PASS covers Batch 1 only
+- it does not imply WI-2..WI-8 PASS

@@ -1,0 +1,45 @@
+BATCH-3-WI-3 — CompletenessGate / Must-feature Coverage
+
+CREATED:
+  frontend/src/services/CompletenessGate.ts
+    - Full rewrite: featureChecklist-based evaluation (primary path)
+    - Legacy prebuiltPlan path kept for backward compatibility
+    - isEmptyFile / isImportsOnlyFile / returnsNullOrEmpty / hasPlaceholderContent
+    - hasFakeNotification / hasFakePaywall / hasFakeReminder / hasCoachWithoutMessageFlow
+    - evaluateItemCoverage: per-item coverage with quality + false-positive checks
+    - evaluateFeatureChecklist: mustTotal/mustCovered/shouldTotal/shouldCovered/coverageRatioMust/coverageRatioAll
+    - completenessGateStatus: 'pass' | 'fail'
+    - coverageRatioMust < 0.8 → blocking (ok=false)
+    - Legacy CompletenessGateCoverage fields retained
+
+  frontend/src/services/__tests__/CompletenessGate.test.ts
+    - 27 tests across 8 describe blocks
+    - Positive: 5 must features fully implemented → coverageRatioMust = 1.0, pass
+    - Negative: file missing, empty, imports-only, placeholder ("Coming soon", "Feature 1", "KPI 1"), returns null
+    - Negative: capability signal missing (backend, analytics)
+    - Negative: fake notification (no Notification.requestPermission)
+    - Negative: fake paywall (no create-flow gate)
+    - Negative: fake reminder (no persisted config)
+    - Negative: Coach without message state + send handler
+    - Integration: ProductDocumentSet.featureChecklist → CompletenessGate telemetry
+    - Integration: factoryGatePassed cannot be true when coverageRatioMust < 0.8
+    - Backward compat: legacy prebuiltPlan path still works
+
+MODIFIED:
+  frontend/src/services/ProtoPipeline.ts
+    - evaluateCompletenessGate call: added featureChecklist from productDocumentSet.productDocs
+    - Updated log message to use mustCovered/mustTotal/coverageRatioMust/uncoveredMust
+    - Added completeness_gate field to StepOutputMetrics interface
+    - stepResults.apply.output now includes completeness_gate telemetry with factoryGatePassed
+
+EXCLUDED (not in this batch):
+  - No WI-4 Pass 2 hunks
+  - No WI-6 LVPipeline hunks
+  - No WI-7 uploaded asset/design fusion hunks
+  - No WI-8 screenshot/vision hunks
+  - No preview-workspace/* changes
+  - No preview-workspace/tsconfig.json changes
+  - No backend/agent-config.json changes
+  - No provider/model defaults added
+  - No ProductDocumentSet implementation changes
+    (uses Batch 2 API as accepted: FeatureChecklistItem, buildProductDocumentSet)

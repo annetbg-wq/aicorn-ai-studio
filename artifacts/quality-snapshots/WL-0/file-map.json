@@ -1,0 +1,414 @@
+{
+  "mainDiffSource": "artifacts/quality-snapshots/WL-0/all-changes-with-untracked.patch",
+  "currentBranch": "p2/generation-path-persistence-shelved",
+  "gitState": {
+    "stagedChangesPresent": false,
+    "notes": [
+      "git diff --cached --name-status returned empty output.",
+      "Current A-status paths are worktree additions surfaced through intent-to-add / untracked capture, not staged content.",
+      "artifacts/quality-snapshots/WL-0/ is itself an untracked generated-artifact directory."
+    ]
+  },
+  "dialogAfterBriefPng": {
+    "present": true,
+    "gitTracked": true,
+    "activeDiff": false,
+    "status": "restored"
+  },
+  "agentConfig": {
+    "path": "backend/agent-config.json",
+    "changed": false,
+    "containsHardcodedDefaultsInCurrentRepoState": true,
+    "blockerForCurrentDiff": false,
+    "note": "The file was not changed by the current diff. Existing defaults still merit a separate audit, but WL-0R found no new agent-config delta."
+  },
+  "files": [
+    {
+      "path": "backend/preview-manager.ts",
+      "status": "modified",
+      "wi": "unknown",
+      "reason": "Mixed file: exact-case UI primitive presence check (WI-1) and screenshot capture handshake in canonical preview main.tsx (WI-8).",
+      "changedResponsibility": "Preview compile/materialization backend and preview iframe runtime contract.",
+      "canCommitIndependently": false,
+      "dependsOn": [
+        "backend/preview-manager.test.ts",
+        "frontend/src/services/LiveGenerationUiPrimitives.ts"
+      ],
+      "requiredGate": "Split into WI-1 exact-case materialization gate and WI-8 screenshot-health gate before acceptance.",
+      "risk": "medium"
+    },
+    {
+      "path": "backend/preview-manager.test.ts",
+      "status": "modified",
+      "wi": "unknown",
+      "reason": "Mixed test coverage for the same two preview-manager concerns: lowercase/case-sensitive primitive materialization (WI-1) and screenshot handshake (WI-8).",
+      "changedResponsibility": "Backend preview contract regression tests.",
+      "canCommitIndependently": false,
+      "dependsOn": [
+        "backend/preview-manager.ts"
+      ],
+      "requiredGate": "Keep only the assertions that match the batch being accepted.",
+      "risk": "low"
+    },
+    {
+      "path": "frontend/src/hooks/useStudio.ts",
+      "status": "modified",
+      "wi": "WI-6",
+      "reason": "Adds real blank_canvas fast-path routing to LVPipeline and skips legacy warmups/kickoff in that path.",
+      "changedResponsibility": "Studio runtime route selection and generation kickoff orchestration.",
+      "canCommitIndependently": false,
+      "dependsOn": [
+        "frontend/src/services/LVPipeline.ts",
+        "frontend/src/services/ProjectStorage.ts"
+      ],
+      "requiredGate": "Prove skeleton_assembly -> ProtoPipeline and blank_canvas -> LVPipeline with explicit path telemetry.",
+      "risk": "medium"
+    },
+    {
+      "path": "frontend/src/services/GenerationEngine.ts",
+      "status": "modified",
+      "wi": "WI-2",
+      "reason": "Passes prebuiltPlan through to ProtoPipeline. This is saved-plan plumbing used by ProductDocumentSet and later completeness logic.",
+      "changedResponsibility": "GenerationEngine -> ProtoPipeline adapter surface.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/services/ProtoPipeline.ts"
+      ],
+      "requiredGate": "Saved-plan propagation integration snapshot.",
+      "risk": "low"
+    },
+    {
+      "path": "frontend/src/services/LiveGenerationUiPrimitives.ts",
+      "status": "modified",
+      "wi": "WI-5",
+      "reason": "Adds canonical Alert primitive and injects a minimal shadcn baseline into the prompt-side import catalog.",
+      "changedResponsibility": "Canonical live-generation UI primitive contract.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/components/ui/alert.tsx",
+        "frontend/src/services/__tests__/LiveGenerationContractValidator.test.ts",
+        "frontend/src/services/__tests__/ProtoPipeline.test.ts"
+      ],
+      "requiredGate": "UI primitive catalog snapshot and preview materialization proof for Alert.",
+      "risk": "low"
+    },
+    {
+      "path": "frontend/src/services/ProjectStorage.ts",
+      "status": "modified",
+      "wi": "WI-6",
+      "reason": "Adds generationPath to StoredProject, which is path-selection persistence rather than ProductDocumentSet persistence.",
+      "changedResponsibility": "Stored project schema/persistence.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/hooks/useStudio.ts"
+      ],
+      "requiredGate": "Persist/restore generationPath snapshot; do not use this file as evidence for WI-2.",
+      "risk": "low"
+    },
+    {
+      "path": "frontend/src/services/ProtoPipeline.ts",
+      "status": "modified",
+      "wi": "unknown",
+      "reason": "Large mixed diff spanning ProductDocumentSet plumbing (WI-2), completeness gate (WI-3), Pass 2 critic/implementer (WI-4), and uploaded-asset/design fusion (WI-7).",
+      "changedResponsibility": "Core generation pipeline sequencing, prompt construction, and apply/build gating.",
+      "canCommitIndependently": false,
+      "dependsOn": [
+        "frontend/src/services/ProductDocumentSet.ts",
+        "frontend/src/services/CompletenessGate.ts",
+        "frontend/src/services/LVPipeline.ts",
+        "frontend/src/services/GenerationEngine.ts"
+      ],
+      "requiredGate": "Split by logical section and prove each section with its own WI-specific integration gate.",
+      "risk": "high"
+    },
+    {
+      "path": "frontend/src/services/CompletenessGate.ts",
+      "status": "added",
+      "wi": "WI-3",
+      "reason": "New helper that validates saved-plan page coverage and must-capability signals.",
+      "changedResponsibility": "Completeness gate helper.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/services/ProtoPipeline.ts",
+        "frontend/src/services/__tests__/CompletenessGate.test.ts"
+      ],
+      "requiredGate": "Positive + negative completeness tests, including empty-file negative coverage which is currently missing.",
+      "risk": "medium"
+    },
+    {
+      "path": "frontend/src/services/DocumentationPackService.ts",
+      "status": "added",
+      "wi": "unrelated",
+      "reason": "Type-only shim created to satisfy existing useStudio imports; not part of WI-1..WI-8 feature scope.",
+      "changedResponsibility": "Documentation-pack typing only.",
+      "canCommitIndependently": true,
+      "dependsOn": [],
+      "requiredGate": "Typecheck only.",
+      "risk": "low"
+    },
+    {
+      "path": "frontend/src/services/LVPipeline.ts",
+      "status": "added",
+      "wi": "WI-6",
+      "reason": "Introduces the blank_canvas fast-path wrapper over GenerationEngine.",
+      "changedResponsibility": "Alternative generation-path runtime entrypoint.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/hooks/useStudio.ts",
+        "frontend/src/services/__tests__/LVPipeline.test.ts"
+      ],
+      "requiredGate": "Blank-canvas routing unit test plus integration proof from useStudio.",
+      "risk": "medium"
+    },
+    {
+      "path": "frontend/src/services/ProductDocumentSet.ts",
+      "status": "added",
+      "wi": "WI-2",
+      "reason": "Introduces ProductDocumentSet document generation under docs/architect/*.",
+      "changedResponsibility": "Architect/product document materialization helper.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/services/ProtoPipeline.ts",
+        "frontend/src/services/__tests__/ProductDocumentSet.test.ts"
+      ],
+      "requiredGate": "PDS content snapshot and persistence proof beyond generated src/docs/architect/*.",
+      "risk": "medium"
+    },
+    {
+      "path": "frontend/src/components/ui/alert.tsx",
+      "status": "added",
+      "wi": "WI-5",
+      "reason": "New canonical Alert primitive backing the minimal shadcn baseline.",
+      "changedResponsibility": "Canonical frontend UI primitive implementation.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/services/LiveGenerationUiPrimitives.ts"
+      ],
+      "requiredGate": "Alert import-catalog + preview materialization gate.",
+      "risk": "low"
+    },
+    {
+      "path": "frontend/src/services/__tests__/CompletenessGate.test.ts",
+      "status": "added",
+      "wi": "WI-3",
+      "reason": "Unit coverage for completeness helper positive/negative paths.",
+      "changedResponsibility": "Completeness gate regression tests.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/services/CompletenessGate.ts"
+      ],
+      "requiredGate": "Add missing empty-page-file negative assertion before final acceptance.",
+      "risk": "low"
+    },
+    {
+      "path": "frontend/src/services/__tests__/LVPipeline.test.ts",
+      "status": "added",
+      "wi": "WI-6",
+      "reason": "Unit coverage for blank_canvas fast-path eligibility and delegation behavior.",
+      "changedResponsibility": "LVPipeline regression tests.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/services/LVPipeline.ts"
+      ],
+      "requiredGate": "Pair with useStudioGenerationPath/useStudio integration gate.",
+      "risk": "low"
+    },
+    {
+      "path": "frontend/src/services/__tests__/ProductDocumentSet.test.ts",
+      "status": "added",
+      "wi": "WI-2",
+      "reason": "Unit coverage for ProductDocumentSet file generation.",
+      "changedResponsibility": "PDS helper regression tests.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/services/ProductDocumentSet.ts"
+      ],
+      "requiredGate": "Add snapshot/persistence gate for project snapshot or run-report storage before acceptance.",
+      "risk": "low"
+    },
+    {
+      "path": "frontend/src/services/__tests__/LiveGenerationContractValidator.test.ts",
+      "status": "modified",
+      "wi": "WI-5",
+      "reason": "Extends the prompt-side canonical UI primitive list to include Alert.",
+      "changedResponsibility": "Catalog contract regression test.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/services/LiveGenerationUiPrimitives.ts"
+      ],
+      "requiredGate": "Catalog snapshot stays aligned with allowed primitives.",
+      "risk": "low"
+    },
+    {
+      "path": "frontend/src/services/__tests__/ProtoPipeline.test.ts",
+      "status": "modified",
+      "wi": "WI-5",
+      "reason": "Asserts that Alert is present in the coder UI primitive import catalog.",
+      "changedResponsibility": "ProtoPipeline UI primitive catalog test.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "frontend/src/services/LiveGenerationUiPrimitives.ts"
+      ],
+      "requiredGate": "ProtoPipeline import-catalog snapshot.",
+      "risk": "low"
+    },
+    {
+      "path": "preview-workspace/tsconfig.json",
+      "status": "modified",
+      "wi": "unrelated",
+      "reason": "Disables forceConsistentCasingInFileNames, which directly weakens the case-sensitivity parity invariant instead of fixing it.",
+      "changedResponsibility": "Preview workspace TypeScript compiler settings.",
+      "canCommitIndependently": false,
+      "dependsOn": [],
+      "requiredGate": "Reject from all WI batches unless there is a separately approved reason; default recommendation is exclude.",
+      "risk": "high"
+    },
+    {
+      "path": "preview-workspace/src/components/BottomTabs.tsx",
+      "status": "added",
+      "wi": "preview-repair",
+      "reason": "Concrete RitualFlow mobile bottom-tab navigation component, not a core studio/factory scaffold change.",
+      "changedResponsibility": "Prototype-specific preview UI.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "preview-workspace/src/hooks/useRituals.ts",
+        "preview-workspace/src/design-pack/premium-components/mobile/premium-mobile-bottom-nav-01/component.tsx"
+      ],
+      "requiredGate": "Preview-only RitualFlow compile gate.",
+      "risk": "medium"
+    },
+    {
+      "path": "preview-workspace/src/components/RitualCard.tsx",
+      "status": "added",
+      "wi": "preview-repair",
+      "reason": "Concrete RitualFlow ritual card for a health/morning-routine prototype.",
+      "changedResponsibility": "Prototype-specific preview UI.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "preview-workspace/src/hooks/useRituals.ts"
+      ],
+      "requiredGate": "Preview-only RitualFlow compile gate.",
+      "risk": "medium"
+    },
+    {
+      "path": "preview-workspace/src/components/ui/label.tsx",
+      "status": "added",
+      "wi": "preview-repair",
+      "reason": "Generic primitive was added only inside the concrete preview workspace, not in the canonical studio UI contract. Treat as preview repair residue, not factory proof.",
+      "changedResponsibility": "Prototype-local UI primitive.",
+      "canCommitIndependently": true,
+      "dependsOn": [],
+      "requiredGate": "Only include if Batch 8 needs it for the RitualFlow preview to compile.",
+      "risk": "medium"
+    },
+    {
+      "path": "preview-workspace/src/components/ui/switch.tsx",
+      "status": "added",
+      "wi": "preview-repair",
+      "reason": "Same classification as preview label.tsx: concrete preview workspace primitive, not evidence of a core studio contract change.",
+      "changedResponsibility": "Prototype-local UI primitive.",
+      "canCommitIndependently": true,
+      "dependsOn": [],
+      "requiredGate": "Only include if Batch 8 needs it for the RitualFlow preview to compile.",
+      "risk": "medium"
+    },
+    {
+      "path": "preview-workspace/src/design-pack/premium-components/health/premium-health-calm-insight-01/component.tsx",
+      "status": "added",
+      "wi": "preview-repair",
+      "reason": "Concrete health/ritual premium component materialized into the live preview workspace.",
+      "changedResponsibility": "Prototype-specific design-pack residue.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "preview-workspace/src/components/RitualCard.tsx"
+      ],
+      "requiredGate": "Preview-only RitualFlow visual compile gate.",
+      "risk": "medium"
+    },
+    {
+      "path": "preview-workspace/src/design-pack/premium-components/health/premium-health-routine-card-01/component.tsx",
+      "status": "added",
+      "wi": "preview-repair",
+      "reason": "Concrete health/ritual premium component materialized into the live preview workspace.",
+      "changedResponsibility": "Prototype-specific design-pack residue.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "preview-workspace/src/components/RitualCard.tsx"
+      ],
+      "requiredGate": "Preview-only RitualFlow visual compile gate.",
+      "risk": "medium"
+    },
+    {
+      "path": "preview-workspace/src/design-pack/premium-components/mobile/premium-mobile-bottom-nav-01/component.tsx",
+      "status": "added",
+      "wi": "preview-repair",
+      "reason": "Concrete mobile premium component materialized into the live preview workspace.",
+      "changedResponsibility": "Prototype-specific design-pack residue.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "preview-workspace/src/components/BottomTabs.tsx"
+      ],
+      "requiredGate": "Preview-only RitualFlow visual compile gate.",
+      "risk": "medium"
+    },
+    {
+      "path": "preview-workspace/src/hooks/useCategories.ts",
+      "status": "added",
+      "wi": "preview-repair",
+      "reason": "Concrete RitualFlow category/recommendation hook with Russian ritual-health copy.",
+      "changedResponsibility": "Prototype-specific preview state/domain layer.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "preview-workspace/src/hooks/useRituals.ts"
+      ],
+      "requiredGate": "Preview-only RitualFlow compile gate.",
+      "risk": "medium"
+    },
+    {
+      "path": "preview-workspace/src/hooks/useHabits.ts",
+      "status": "added",
+      "wi": "preview-repair",
+      "reason": "Concrete RitualFlow habit-progress hook; this is not a factory studio change.",
+      "changedResponsibility": "Prototype-specific preview state/domain layer.",
+      "canCommitIndependently": true,
+      "dependsOn": [
+        "preview-workspace/src/hooks/useRituals.ts"
+      ],
+      "requiredGate": "Preview-only RitualFlow compile gate.",
+      "risk": "medium"
+    },
+    {
+      "path": "preview-workspace/src/hooks/useRituals.ts",
+      "status": "added",
+      "wi": "preview-repair",
+      "reason": "Concrete RitualFlow rituals hook storing ritualflow.rituals and using ritual-specific seed data.",
+      "changedResponsibility": "Prototype-specific preview state/domain layer.",
+      "canCommitIndependently": true,
+      "dependsOn": [],
+      "requiredGate": "Preview-only RitualFlow compile gate.",
+      "risk": "medium"
+    },
+    {
+      "path": "dialog-after-brief.png",
+      "status": "restored",
+      "wi": "unrelated",
+      "reason": "The file is present again and has no active diff. WL-0R records it as restored so it does not block recovery.",
+      "changedResponsibility": "Tracked non-source artifact.",
+      "canCommitIndependently": false,
+      "dependsOn": [],
+      "requiredGate": "No gate; keep restored state and do not re-delete accidentally.",
+      "risk": "low"
+    },
+    {
+      "path": "artifacts/quality-snapshots/WL-0/*",
+      "status": "untracked",
+      "wi": "unrelated",
+      "reason": "Generated recovery/preflight artifacts, including diff snapshots and WL-0R reports.",
+      "changedResponsibility": "Audit/report output only.",
+      "canCommitIndependently": true,
+      "dependsOn": [],
+      "requiredGate": "None for product acceptance; optional if the team wants to preserve audit evidence.",
+      "risk": "low"
+    }
+  ]
+}

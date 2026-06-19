@@ -1,0 +1,36 @@
+{
+  "scope": "BASELINE-GATE-UNBLOCK",
+  "fixes": {
+    "documentationPackShim": true,
+    "generationPathTyping": true,
+    "supabaseImportTimeIsolation": true
+  },
+  "changedFiles": [
+    "frontend/src/services/DocumentationPackService.ts",
+    "frontend/src/services/ProjectStorage.ts",
+    "frontend/src/services/__tests__/ProtoPipeline.test.ts",
+    "frontend/src/services/__tests__/ProtoPipelineDiagnostics.test.ts"
+  ],
+  "forbiddenScopeTouched": {
+    "previewWorkspace": false,
+    "backendAgentConfig": false,
+    "productDocsImplementation": false,
+    "lvPipelineImplementation": false,
+    "screenshotHandshake": false
+  },
+  "baselineFrontendTypecheck": "pass",
+  "baselineProtoPipelineTest": "pass",
+  "baselineLiveGenerationContractValidator": "pass",
+  "batch1PatchApplyCheck": "pass",
+  "batch1FrontendTypecheckAfterUnblock": "pass",
+  "batch1CatalogTestsAfterUnblock": "pass",
+  "batch1ProtoPipelineTestAfterUnblock": "pass",
+  "batch1BackendExactCaseAfterUnblock": "pass",
+  "batch1GateCanBeReevaluated": true,
+  "factoryGatePassed": true,
+  "verificationSandbox": {
+    "headWorktreePath": "C:\\Users\\PAVELK~1\\AppData\\Local\\Temp\\ai_studio_baseline_unblock_20260618-160110",
+    "frontendDependenciesInstalled": true,
+    "rootDependenciesInstalled": true
+  }
+}

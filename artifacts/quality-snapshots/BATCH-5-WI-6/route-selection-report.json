@@ -1,0 +1,24 @@
+{
+  "routing_predicate": "isBlankCanvasFastPathEligible",
+  "decision_field": "generationPath",
+  "valid_values": {
+    "blank_canvas": "LVPipeline.run()",
+    "skeleton_assembly": "GenerationEngine.run()"
+  },
+  "explicitly_NOT_considered": [
+    "existingCodeCount (removed from routing check)",
+    "generationMode (AUTO/APP/SUPER — not used for pipeline routing)",
+    "modelId",
+    "provider"
+  ],
+  "call_site": "frontend/src/hooks/useStudio.ts",
+  "call_site_pattern": "(blankCanvasFastPath ? LVPipeline : GenerationEngine).run({...config})",
+  "test_coverage": [
+    "isBlankCanvasFastPathEligible: blank_canvas → true (any existingCodeCount)",
+    "isBlankCanvasFastPathEligible: skeleton_assembly → false",
+    "isBlankCanvasFastPathEligible: null/undefined → false",
+    "generationMode does not select pipeline",
+    "restoreGenerationPath: blank_canvas restores correctly",
+    "restoreGenerationPath: legacy projects default to skeleton_assembly"
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "reportType": "screenshot-health",
+  "batch": "BATCH-7-WI-8",
+  "generatedAt": "2026-06-19T17:00:00Z",
+  "implementation": {
+    "screenshotService": {
+      "file": "frontend/src/services/ScreenshotService.ts",
+      "status": "implemented",
+      "exports": [
+        "ScreenshotSource",
+        "ScreenshotStatus",
+        "VisualGateStatus",
+        "VisualGateDiagnostics",
+        "noScreenshotStatus",
+        "resolveScreenshotStatus",
+        "buildVisualGateDiagnostics"
+      ]
+    },
+    "useProjectScreenshot": {
+      "file": "frontend/src/hooks/useProjectScreenshot.ts",
+      "returnType": "Promise<ScreenshotStatus>",
+      "handlesError": true,
+      "handlesTimeout": true,
+      "handlesNoIframe": true,
+      "timeoutMs": 8000
+    },
+    "backendCaptureScreenshot": {
+      "file": "backend/preview-manager.ts",
+      "location": "canonicalMainTsx string",
+      "timeoutMs": 10000,
+      "timeoutGuard": "Promise.race with SCREENSHOT_TIMEOUT_MS",
+      "emptyCanvasGuard": "canvas.width === 0 || canvas.height === 0",
+      "emptyCanvasReason": "empty_canvas: 0x0 dimensions, screenshot not captured",
+      "timeoutReason": "screenshot_timeout: html2canvas did not complete in time",
+      "errorStringification": "String(error instanceof Error ? error.message : error)"
+    }
+  },
+  "postMessageHandshake": {
+    "requestType": "capture-screenshot",
+    "responseType": "screenshot-result",
+    "successFields": ["type", "buildId", "dataUrl"],
+    "failureFields": ["type", "buildId", "error"],
+    "emptyCanvasPostsError": true,
+    "timeoutPostsError": true
+  },
+  "testCoverage": {
+    "ScreenshotService.test.ts": {
+      "total": 42,
+      "covers": [
+        "noScreenshotStatus factory",
+        "resolveScreenshotStatus success (dataUrl present)",
+        "resolveScreenshotStatus failure (error field)",
+        "resolveScreenshotStatus failure (null/empty/whitespace dataUrl)",
+        "buildVisualGateDiagnostics screenshot succeeded",
+        "buildVisualGateDiagnostics screenshot failed",
+        "buildVisualGateDiagnostics empty canvas",
+        "buildVisualGateDiagnostics no screenshot attempted",
+        "vision gate hard rule (pass requires succeeded=true)"
+      ]
+    },
+    "preview-manager.test.ts (WI-8)": {
+      "total": 8,
+      "covers": [
+        "handshake wiring (capture-screenshot → captureScreenshot)",
+        "dataUrl on success",
+        "error reason on failure",
+        "empty canvas guard present",
+        "empty_canvas block posts error not dataUrl",
+        "timeout guard (Promise.race)",
+        "timeout reason stringified in catch",
+        "SCREENSHOT_TIMEOUT_MS constant defined"
+      ]
+    }
+  }
+}
