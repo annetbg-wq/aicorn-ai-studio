@@ -28,12 +28,17 @@ import {
   buildDeterministicGaps,
   parseGapArray,
   isPass2SafeTargetFile,
+  materializeUploadedAssetFusion,
   type Gap,
   type Pass2Telemetry,
   type StepId,
   type StepStatus,
   type StepEvent,
 } from './ProtoPipeline';
+import {
+  buildDesignFusionPromptBlock,
+  buildUploadedAssetFusionEntries,
+} from './DesignFusionService';
 import {
   appendPreviewSessionToUrl,
   getPreviewSessionToken,
@@ -158,6 +163,7 @@ function parseLvFileMarkers(raw: string): Record<string, string> {
 function buildLvCoderSystemPrompt(
   prompt: string,
   featureChecklist: FeatureChecklistItem[],
+  designFusionBlock?: string,
 ): string {
   const mustFeatures = featureChecklist.filter(f => f.priority === 'must');
   const shouldFeatures = featureChecklist.filter(f => f.priority === 'should');
@@ -179,11 +185,14 @@ function buildLvCoderSystemPrompt(
     '- React 18 + TypeScript + Vite',
     '- Tailwind CSS with semantic tokens only (bg-background, text-foreground, bg-primary, bg-card, bg-muted, text-muted-foreground, border)',
     '- lucide-react for icons',
+    '- shadcn/ui primitives via @/components/ui/* (Button, Card, Input, Dialog, Alert, AlertDialog, Tabs, etc.)',
     '',
     'MUST IMPLEMENT (all required):',
     mustBlock,
     ...(shouldBlock ? ['', 'SHOULD IMPLEMENT:', shouldBlock] : []),
     '',
+    // WI-7: Design Fusion Contract — injected when available
+    ...(designFusionBlock ? [designFusionBlock, ''] : []),
     'OUTPUT FORMAT — CRITICAL:',
     'Emit EACH file using these exact plain-text markers:',
     '',
@@ -200,10 +209,10 @@ function buildLvCoderSystemPrompt(
     '- Always emit index.css with @tailwind directives',
     '- Use ONLY semantic Tailwind tokens: bg-background, text-foreground, bg-primary, etc.',
     '- Do NOT use hardcoded hex colours or bg-blue-500 / text-gray-700 etc.',
-    '- Imports: from lucide-react, react. Use simple HTML elements + Tailwind for UI.',
+    '- Use shadcn primitives from @/components/ui/* — NEVER from @radix-ui/react-* directly.',
+    '- Imports: from lucide-react, react, @/components/ui/*. No skeleton dependencies.',
     '- Complete working code — no TODOs, no placeholder comments',
     '- TypeScript with proper type annotations',
-    '- No skeleton dependencies — generate everything from scratch',
   ].join('\n');
 }
 
@@ -220,9 +229,10 @@ async function lvStreamCoder(
   featureChecklist: FeatureChecklistItem[],
   onChunk: (delta: string) => void,
   signal?: AbortSignal,
+  designFusionBlock?: string,
 ): Promise<LvCoderCallResult> {
   const startMs = Date.now();
-  const system = buildLvCoderSystemPrompt(prompt, featureChecklist);
+  const system = buildLvCoderSystemPrompt(prompt, featureChecklist, designFusionBlock);
   const provider = (route as { provider?: string }).provider || 'openrouter';
   const endpoint = Orchestrator.getEndpoint(provider);
   const headers: Record<string, string> = {
@@ -876,6 +886,25 @@ export class LVPipeline {
       config.onPlan(['Generate', 'Quality check', 'Compile'], config.intent.slice(0, 40) || 'My App');
     } catch { /* ignore */ }
 
+    // ── WI-7: Materialize uploaded assets + build Design Fusion block ─────────
+    const lvUploadedAssetFusion = materializeUploadedAssetFusion(
+      (config.attachments ?? []).map(a => ({
+        type: (a.type as 'image' | 'text' | 'code' | 'pdf'),
+        name: a.name,
+        data: a.data,
+        mimeType: a.mimeType,
+        textContent: a.textContent,
+      })),
+    );
+    const lvFusionEntries = buildUploadedAssetFusionEntries(lvUploadedAssetFusion.entries);
+    const lvDesignFusionBlock = buildDesignFusionPromptBlock({
+      uploadedAssets: lvFusionEntries,
+      premiumComponents: [], // blank_canvas does not use premium components
+    });
+    if (lvUploadedAssetFusion.entries.length > 0) {
+      log(`[LVPipeline] design fusion: ${lvUploadedAssetFusion.entries.length} uploaded asset(s) materialized`);
+    }
+
     // ── 2. Single streaming coder LLM call ───────────────────────────────────
     emitPhase('code', 40);
 
@@ -898,6 +927,7 @@ export class LVPipeline {
         featureChecklist,
         (delta) => { try { config.onStream(delta); } catch { /* ignore */ } },
         config.signal,
+        lvDesignFusionBlock,
       );
     } catch (err) {
       if (lvIsAbort(err)) {
@@ -924,7 +954,12 @@ export class LVPipeline {
     log(`[LVPipeline] parsed ${parsedCount} file(s) from coder output`);
 
     // Overlay AI output on neutral scaffold; normalise all keys to strip src/
-    const merged: Record<string, string> = { ...NEUTRAL_SCAFFOLD, ...parsed };
+    // Also overlay materialized uploaded asset modules so generated imports resolve.
+    const merged: Record<string, string> = {
+      ...NEUTRAL_SCAFFOLD,
+      ...lvUploadedAssetFusion.files,
+      ...parsed,
+    };
     const normalisedFiles: Record<string, string> = {};
     for (const [key, value] of Object.entries(merged)) {
       const normed = normaliseLvDeltaPath(key);

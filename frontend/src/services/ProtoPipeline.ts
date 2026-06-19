@@ -146,6 +146,11 @@ import {
 import type { ProjectPlan } from './types/ProjectPlan';
 import { materializeProductDocumentSet, type FeatureChecklistItem } from './ProductDocumentSet';
 import { evaluateCompletenessGate } from './CompletenessGate';
+import {
+  buildDesignFusionPromptBlock,
+  buildUploadedAssetFusionEntries,
+  buildPremiumFusionEntries,
+} from './DesignFusionService';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -969,7 +974,7 @@ function isSourceScanFile(path: string): boolean {
   return true;
 }
 
-interface UploadedAssetPromptEntry {
+export interface UploadedAssetPromptEntry {
   id: string;
   kind: PipelineAttachment['type'];
   name: string;
@@ -977,7 +982,7 @@ interface UploadedAssetPromptEntry {
   excerpt?: string;
 }
 
-interface UploadedAssetFusionResult {
+export interface UploadedAssetFusionResult {
   files: Record<string, string>;
   materializedFiles: string[];
   promptBlock: string;
@@ -999,7 +1004,7 @@ function sanitizeAttachmentModuleId(name: string, index: number): string {
   return stem ? `${String(index + 1).padStart(2, '0')}-${stem}` : `attachment-${index + 1}`;
 }
 
-function materializeUploadedAssetFusion(
+export function materializeUploadedAssetFusion(
   attachments: readonly PipelineAttachment[] | undefined,
 ): UploadedAssetFusionResult {
   const files: Record<string, string> = {};
@@ -2604,6 +2609,16 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     let coderUsage: StepLlmMetrics | undefined;
     const coderStartedAt = Date.now();
     try {
+       // WI-7: Build Design Fusion block before coder call using already-resolved context.
+       const _dfUploadedEntries = buildUploadedAssetFusionEntries(uploadedAssetFusion.entries);
+       const _dfPremiumEntries = designCtx
+         ? buildPremiumFusionEntries(designCtx.premiumComponentSelection.selectedComponents)
+         : [];
+       const _designFusionBlock = buildDesignFusionPromptBlock({
+         uploadedAssets: _dfUploadedEntries,
+         premiumComponents: _dfPremiumEntries,
+       });
+
        deltaFiles = await runCoder({
           prompt:     clarifiedPrompt,
           plan,
@@ -2621,6 +2636,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
          productSpecificityPlan,
          marketAwareBuilderBrief: marketBrief,
          attachmentPromptBlock: uploadedAssetFusion.promptBlock,
+         designFusionBlock: _designFusionBlock,
        });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
@@ -3693,6 +3709,8 @@ export function buildCoderPlanningBlocks(input: {
   productSpecificityPlan?: ProductSpecificityPlan;
   marketAwareBuilderBrief?: MarketAwareBuilderBrief;
   attachmentPromptBlock?: string;
+  /** WI-7: Design Fusion Contract block — injected after attachment context. */
+  designFusionBlock?: string;
 }): string {
   return [
     input.designCtx ? designContractForCoder(input.designCtx, input.mediaHints) : '',
@@ -3702,6 +3720,8 @@ export function buildCoderPlanningBlocks(input: {
     input.productSpecificityPlan ? buildProductSpecificityPromptBlock(input.productSpecificityPlan) : '',
     input.marketAwareBuilderBrief ? serializeMarketAwareBuilderBriefForCoder(input.marketAwareBuilderBrief) : '',
     input.attachmentPromptBlock ?? '',
+    // WI-7: Design Fusion Contract — priority hierarchy for visual assets vs shadcn vs custom.
+    input.designFusionBlock ?? '',
     // Product Identity Substitution Contract — injected when a market-aware brief is present.
     // Must appear after the brief (so the coder has product context) and before the
     // self-plan instructions (so the substitution rules are in scope during planning).
@@ -3731,6 +3751,8 @@ async function runCoder(input: {
   productSpecificityPlan?: ProductSpecificityPlan;
   marketAwareBuilderBrief?: MarketAwareBuilderBrief;
   attachmentPromptBlock?: string;
+  /** WI-7: Design Fusion Contract block for this coder call. */
+  designFusionBlock?: string;
 }): Promise<Record<string, string>>{
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
@@ -3777,6 +3799,7 @@ async function runCoder(input: {
       productSpecificityPlan: input.productSpecificityPlan,
       marketAwareBuilderBrief: input.marketAwareBuilderBrief,
       attachmentPromptBlock: input.attachmentPromptBlock,
+      designFusionBlock: input.designFusionBlock,
     });
   const advertisedUiPrimitives = filterAdvertisedUiPrimitiveNames(skeleton.uiPrimitives);
   const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(advertisedUiPrimitives);
