@@ -151,6 +151,7 @@ import {
   buildUploadedAssetFusionEntries,
   buildPremiumFusionEntries,
 } from './DesignFusionService';
+import type { ScreenshotStatus } from './ScreenshotService';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -200,6 +201,33 @@ export interface Pass2Telemetry {
   pass2_build_ok: boolean;
   outcome: 'done' | 'partial' | 'pass2_unavailable' | 'route_unresolved';
   factoryGatePassed: boolean;
+  // ── WI-8: Vision health fields ────────────────────────────────────────────
+  /** Whether a screenshot capture was attempted before Pass 2 ran. */
+  screenshotAttempted?: boolean;
+  /** Whether the screenshot capture succeeded. False → critic is vision-blind. */
+  screenshotSucceeded?: boolean;
+  /** Capture method that produced (or attempted) the screenshot. */
+  screenshotSource?: 'html2canvas' | 'playwright' | 'manual' | 'none';
+  /** True when the screenshot dataUrl was present in the status. */
+  screenshotDataPresent?: boolean;
+  /** Reason the screenshot was unavailable (when screenshotSucceeded=false). */
+  screenshotUnavailableReason?: string;
+  /**
+   * True when the critic is operating on code only — no visual evidence exists.
+   * Hard rule: when critic_vision_blind=true, visualGateStatus cannot be 'pass'.
+   */
+  critic_vision_blind?: boolean;
+  /** Reason the critic cannot access visual evidence. Set when critic_vision_blind=true. */
+  visionUnavailableReason?: string;
+  /**
+   * Visual quality gate status — separate from the code completeness gate.
+   * Cannot be 'pass' without a successful screenshot (critic_vision_blind=false).
+   */
+  visualGateStatus?: 'pass' | 'partial' | 'skipped' | 'fail';
+  /** True when the code-only critic is blocked from claiming visual acceptance. */
+  codeOnlyVisualPassBlocked?: boolean;
+  /** True when an empty/0x0 canvas was detected and blocked from being counted as success. */
+  screenshotEmptyBlocked?: boolean;
 }
 
 export interface StepLlmMetrics {
@@ -474,6 +502,12 @@ export interface ProtoPipelineConfig {
   onCoderStream?: (delta: string) => void;
   /** Fired exactly once after a successful build. */
   onPreviewReady?: (url: string, buildId: string) => void;
+  /**
+   * Optional screenshot status from a prior capture (e.g. from a previous preview).
+   * Used by the Pass 2 vision gate (WI-8) to record whether visual evidence exists.
+   * When absent, the critic is assumed vision-blind (code-only analysis).
+   */
+  screenshotStatus?: ScreenshotStatus;
 }
 
 export interface ProtoPipelineResult {
@@ -2796,6 +2830,44 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       outcome: 'pass2_unavailable',
       factoryGatePassed: false,
     };
+
+    // ── WI-8: Vision health — thread screenshot status into Pass 2 telemetry ──
+    // When no screenshot is provided, the critic is vision-blind (code-only analysis).
+    // Hard rule: visualGateStatus cannot be 'pass' when critic_vision_blind is true.
+    {
+      const ssStatus: ScreenshotStatus = config.screenshotStatus ?? {
+        attempted: false,
+        succeeded: false,
+        source: 'none',
+        unavailableReason: 'screenshot_not_provided: no screenshot available at Pass 2 time',
+      };
+      const visionBlind = !ssStatus.succeeded;
+      pass2Telemetry.screenshotAttempted = ssStatus.attempted;
+      pass2Telemetry.screenshotSucceeded = ssStatus.succeeded;
+      pass2Telemetry.screenshotSource = ssStatus.source;
+      pass2Telemetry.screenshotDataPresent = Boolean(ssStatus.dataUrl);
+      pass2Telemetry.screenshotUnavailableReason = ssStatus.unavailableReason;
+      pass2Telemetry.critic_vision_blind = visionBlind;
+      pass2Telemetry.visionUnavailableReason = visionBlind
+        ? (ssStatus.unavailableReason ?? 'screenshot_not_available')
+        : undefined;
+      // Screenshot captured but no vision model check in this pipeline → 'partial'
+      // No screenshot → gate cannot pass → 'skipped'
+      pass2Telemetry.visualGateStatus = ssStatus.succeeded ? 'partial' : 'skipped';
+      pass2Telemetry.codeOnlyVisualPassBlocked = visionBlind;
+      pass2Telemetry.screenshotEmptyBlocked =
+        ssStatus.attempted &&
+        !ssStatus.succeeded &&
+        Boolean(
+          ssStatus.unavailableReason?.startsWith('empty_canvas') ||
+            ssStatus.unavailableReason?.startsWith('empty_dataUrl'),
+        );
+      log(
+        `[pass2] vision: critic_vision_blind=${visionBlind}, visualGateStatus=${pass2Telemetry.visualGateStatus}` +
+          (visionBlind ? ` (${ssStatus.unavailableReason})` : ''),
+        visionBlind ? 'warn' : 'info',
+      );
+    }
 
     if (completenessGate.ok) {
       pass2Telemetry.outcome = 'done';

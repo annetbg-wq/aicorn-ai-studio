@@ -660,6 +660,75 @@ describe('preview-manager build status', () => {
   });
 });
 
+// ── WI-8: Screenshot handshake tests ─────────────────────────────────────────
+
+describe('preview-manager screenshot handshake (WI-8)', () => {
+  it('canonical main.tsx responds to capture-screenshot by invoking captureScreenshot', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toContain("event.data?.type !== 'capture-screenshot'");
+    expect(src).toContain('captureScreenshot()');
+  });
+
+  it('canonical main.tsx posts screenshot-result with dataUrl on success', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toContain("type: 'screenshot-result'");
+    expect(src).toContain('dataUrl: canvas.toDataURL');
+  });
+
+  it('canonical main.tsx posts screenshot-result with explicit error reason on failure', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    // Error is always a string reason — not a raw Error object
+    expect(src).toContain('error: String(error instanceof Error');
+  });
+
+  it('canonical main.tsx blocks empty/0x0 canvas — width=0 or height=0 produces failure result', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toMatch(/canvas\.width\s*===\s*0\s*\|\|\s*canvas\.height\s*===\s*0/);
+    expect(src).toContain('empty_canvas');
+  });
+
+  it('empty_canvas failure posts screenshot-result with error field (not dataUrl)', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    // Verify structural ordering: guard → error message → early return → success dataUrl
+    // This does not depend on any comment placement or first-occurrence of canvas.toDataURL.
+    const emptyGuardIdx    = src.indexOf('canvas.width === 0 || canvas.height === 0');
+    const emptyErrorIdx    = src.indexOf("error: 'empty_canvas:");
+    const earlyReturnIdx   = src.indexOf('return;', emptyGuardIdx);
+    const successDataUrlIdx = src.indexOf('dataUrl: canvas.toDataURL');
+    expect(emptyGuardIdx).toBeGreaterThan(-1);
+    // error message appears inside the guard block (after the check)
+    expect(emptyErrorIdx).toBeGreaterThan(emptyGuardIdx);
+    // early return follows the error message
+    expect(earlyReturnIdx).toBeGreaterThan(emptyErrorIdx);
+    // success dataUrl branch appears only AFTER the early return — guard is actually early
+    expect(successDataUrlIdx).toBeGreaterThan(earlyReturnIdx);
+  });
+
+  it('canonical main.tsx has a timeout guard so html2canvas failure does not hang', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toContain('Promise.race');
+    expect(src).toContain('screenshot_timeout');
+  });
+
+  it('timeout rejection becomes the error reason in the catch branch', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    // The timeout rejects with an Error whose message starts with screenshot_timeout.
+    // The catch block stringifies it as the reason.
+    expect(src).toContain("new Error('screenshot_timeout:");
+    expect(src).toContain('String(error instanceof Error');
+  });
+
+  it('SCREENSHOT_TIMEOUT_MS is defined so the timeout duration is explicit', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toContain('SCREENSHOT_TIMEOUT_MS');
+  });
+
+  it('html2canvas is still dynamically imported (not statically bundled)', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toContain("import('html2canvas')");
+  });
+});
+
 describe('preview-manager skeleton-only compile section preservation', () => {
   it('source contains isSkeletonOnlyCompile guard for files={}', () => {
     const src = fs.readFileSync(path.resolve('backend/preview-manager.ts'), 'utf-8');

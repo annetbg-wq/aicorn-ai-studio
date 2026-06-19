@@ -42,6 +42,7 @@ export default defineConfig({
     },
   },
   test: {
+    include: ['**/*.{test,spec}.?(c|m)[jt]s?(x)', '../backend/preview-manager.test.ts'],
     setupFiles: [path.resolve(__dirname, 'frontend/src/setupTests.ts')],
     exclude: ['**/node_modules/**', '**/e2e/**', '**/*.spec.cjs'],
     testTimeout: 15_000,

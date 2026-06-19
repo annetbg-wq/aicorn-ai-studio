@@ -957,12 +957,35 @@ async function captureScreenshot(): Promise<void> {
       await (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts?.ready;
     }
     const { default: html2canvas } = await import('html2canvas');
-    const canvas = await html2canvas(document.documentElement, {
-      backgroundColor: null,
-      logging: false,
-      scale: Math.min(window.devicePixelRatio || 1, 2),
-      useCORS: true,
+    // WI-8: Timeout guard — html2canvas must not hang capture indefinitely.
+    const SCREENSHOT_TIMEOUT_MS = 10_000;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new Error('screenshot_timeout: html2canvas did not complete in time')),
+        SCREENSHOT_TIMEOUT_MS,
+      );
     });
+    const canvas = await Promise.race([
+      html2canvas(document.documentElement, {
+        backgroundColor: null,
+        logging: false,
+        scale: Math.min(window.devicePixelRatio || 1, 2),
+        useCORS: true,
+      }),
+      timeoutPromise,
+    ]);
+    // WI-8: Empty canvas guard — a 0x0 screenshot is not a valid capture.
+    if (canvas.width === 0 || canvas.height === 0) {
+      window.parent.postMessage(
+        {
+          type: 'screenshot-result',
+          buildId: BUILD_ID,
+          error: 'empty_canvas: 0x0 dimensions, screenshot not captured',
+        },
+        '*',
+      );
+      return;
+    }
     window.parent.postMessage(
       { type: 'screenshot-result', buildId: BUILD_ID, dataUrl: canvas.toDataURL('image/png') },
       '*',
@@ -972,7 +995,7 @@ async function captureScreenshot(): Promise<void> {
       {
         type: 'screenshot-result',
         buildId: BUILD_ID,
-        error: String(error instanceof Error ? error.message : error ?? 'screenshot failed'),
+        error: String(error instanceof Error ? error.message : error ?? 'screenshot_failed'),
       },
       '*',
     );

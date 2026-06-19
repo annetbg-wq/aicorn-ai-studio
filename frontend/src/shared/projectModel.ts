@@ -820,6 +820,10 @@ export interface GenerationRunTelemetry {
   finalPreviewMounted: boolean;
   timeToSkeletonPreviewMs?: number;
   timeToFirstRealPreviewMs?: number;
+  /** blank_canvas — existing-project safety telemetry */
+  blankCanvasExistingProjectMode?: 'fresh' | 'overwrite';
+  existingFileCount?: number;
+  overwriteExplicit?: boolean;
 }
 
 // ─── GenerationOutcomeEvent — flywheel seed (S0.2) ───────────────────────────
