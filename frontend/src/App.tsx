@@ -364,7 +364,12 @@ function StudioApp() {
     studio.launchWithPlan(plan, intent, source);
   }, [studio, handleOpenInCodeStudio]);
 
-  const handleSendTrendIdeaToChat = React.useCallback(async (idea: TrendNicheIdea, founderBrief: string) => {
+  const handleSendTrendIdeaToChat = React.useCallback(async (
+    idea: TrendNicheIdea,
+    founderBrief: string,
+    generationPath: 'skeleton_assembly' | 'blank_canvas',
+  ) => {
+    studio.setGenerationPath(generationPath);
     setView('engine');
     try {
       await studio.startTrendIdeaDraftSession('chat');

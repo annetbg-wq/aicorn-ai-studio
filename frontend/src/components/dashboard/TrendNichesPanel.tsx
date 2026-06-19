@@ -38,7 +38,7 @@ import {
 
 interface TrendNichesPanelProps {
   appLanguage?: string;
-  onSendIdeaToChat: (idea: TrendNicheIdea, founderBrief: string) => void;
+  onSendIdeaToChat: (idea: TrendNicheIdea, founderBrief: string, generationPath: 'skeleton_assembly' | 'blank_canvas') => void;
   onBuildIdea?: (idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => void | Promise<void>;
 }
 
@@ -61,9 +61,9 @@ const LABELS: Record<string, Record<string, string>> = {
     refresh: 'Refresh',
     save: 'Save idea',
     saved: 'Saved',
-    send: 'Discuss in chat',
-    build: 'Build now',
-    launchModesHint: 'Discuss in chat keeps the architect conversation open. Build now packages the idea and sends it straight into coding.',
+    send: '🏗 Skeleton',
+    build: '⚡ LV Fast',
+    launchModesHint: 'Skeleton — step-by-step ProtoPipeline build. LV Fast — single-shot LVPipeline. Both send the idea to chat first.',
     delete: 'Remove',
     emptyBank: 'No saved ideas yet',
     comment: 'User comment',
@@ -91,9 +91,9 @@ const LABELS: Record<string, Record<string, string>> = {
     refresh: 'Обновить',
     save: 'Сохранить идею',
     saved: 'В банке',
-    send: 'В диалог',
-    build: 'В работу',
-    launchModesHint: 'В диалог — обсудить идею с архитектором в чате. В работу — сразу упаковать идею и передать в код.',
+    send: '🏗 Скелетон',
+    build: '⚡ LV Быстро',
+    launchModesHint: 'Скелетон — пошаговая сборка через ProtoPipeline. LV Быстро — быстрая генерация через LVPipeline. Оба варианта отправляют идею в чат.',
     delete: 'Удалить',
     emptyBank: 'Сохраненных идей пока нет',
     comment: 'Комментарий пользователя',
@@ -157,6 +157,7 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
   const [selectedInterest, setSelectedInterest] = React.useState<TrendNicheInterest | null>(() => loadTrendNicheInterests()[0] ?? null);
   const [loading, setLoading] = React.useState(false);
   const [pendingIdea, setPendingIdea] = React.useState<TrendNicheIdea | null>(null);
+  const [pendingGenerationPath, setPendingGenerationPath] = React.useState<'skeleton_assembly' | 'blank_canvas'>('skeleton_assembly');
   const [comment, setComment] = React.useState('');
   const [packagingIdeaId, setPackagingIdeaId] = React.useState<string | null>(null);
   const [packagingStepIndex, setPackagingStepIndex] = React.useState(0);
@@ -246,8 +247,9 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
     setBank(removeTrendIdeaFromBank(ideaId));
   };
 
-  const openComposer = (idea: TrendNicheIdea) => {
+  const openComposer = (idea: TrendNicheIdea, path: 'skeleton_assembly' | 'blank_canvas') => {
     setPendingIdea(idea);
+    setPendingGenerationPath(path);
     setComment('');
   };
 
@@ -258,7 +260,7 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
       language: appLanguage,
       userComment: comment,
     });
-    onSendIdeaToChat(pendingIdea, brief);
+    onSendIdeaToChat(pendingIdea, brief, pendingGenerationPath);
     setBank(markTrendIdeaSentToChat(pendingIdea.id));
     setPendingIdea(null);
     setComment('');
@@ -368,8 +370,7 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
 
         <div style={{ marginTop: 'auto', display: 'flex', gap: 7 }}>
           <button
-            onClick={() => openComposer(idea)}
-            disabled={Boolean(packagingIdeaId)}
+            onClick={() => openComposer(idea, 'skeleton_assembly')}
             style={{
               flex: 1,
               height: 32,
@@ -383,38 +384,33 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
-              cursor: packagingIdeaId ? 'wait' : 'pointer',
-              opacity: packagingIdeaId ? 0.72 : 1,
+              cursor: 'pointer',
             }}
           >
             <Send size={13} />
             {labels.send}
           </button>
-          {onBuildIdea && (
-            <button
-              onClick={() => void handleBuildIdea(idea)}
-              disabled={Boolean(packagingIdeaId)}
-              style={{
-                flex: 1,
-                height: 32,
-                borderRadius: 8,
-                border: '1px solid rgba(37,99,235,0.24)',
-                background: packagingIdeaId === idea.id ? '#2563eb' : '#eff6ff',
-                color: packagingIdeaId === idea.id ? '#ffffff' : '#1d4ed8',
-                fontSize: 11,
-                fontWeight: 800,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                cursor: packagingIdeaId ? 'wait' : 'pointer',
-                opacity: packagingIdeaId && packagingIdeaId !== idea.id ? 0.72 : 1,
-              }}
-            >
-              {packagingIdeaId === idea.id ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
-              {packagingIdeaId === idea.id ? PACKAGING_PROGRESS_STEPS[packagingStepIndex] : labels.build}
-            </button>
-          )}
+          <button
+            onClick={() => openComposer(idea, 'blank_canvas')}
+            style={{
+              flex: 1,
+              height: 32,
+              borderRadius: 8,
+              border: '1px solid rgba(37,99,235,0.24)',
+              background: '#eff6ff',
+              color: '#1d4ed8',
+              fontSize: 11,
+              fontWeight: 800,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              cursor: 'pointer',
+            }}
+          >
+            <Zap size={13} />
+            {labels.build}
+          </button>
           {compact && (
             <button
               onClick={() => removeFromBank(idea.id)}
@@ -685,7 +681,7 @@ export const TrendNichesPanel: React.FC<TrendNichesPanelProps> = ({
                           marketContext: '',
                           theme: 'archive',
                         } as unknown as TrendNicheIdea;
-                        onSendIdeaToChat(fakeIdea, sendMsg);
+                        onSendIdeaToChat(fakeIdea, sendMsg, 'skeleton_assembly');
                       }}
                       style={{
                         height: 28,

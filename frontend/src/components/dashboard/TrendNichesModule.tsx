@@ -6,7 +6,7 @@ import type { ProductBlueprint, TrendNicheIdea } from '../../services/ideaFeedSe
 interface TrendNichesModuleProps {
   appLanguage?: string;
   onBack: () => void;
-  onSendIdeaToChat: (idea: TrendNicheIdea, founderBrief: string) => void;
+  onSendIdeaToChat: (idea: TrendNicheIdea, founderBrief: string, generationPath: 'skeleton_assembly' | 'blank_canvas') => void;
   onBuildIdea?: (idea: TrendNicheIdea, blueprint: ProductBlueprint, intent: string) => void | Promise<void>;
 }
 
