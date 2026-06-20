@@ -20,6 +20,7 @@ import { llmFetchStream, llmFetch } from './LLMProxy';
 import { previewController } from './PreviewController';
 import {
   buildProductDocumentSet,
+  materializeProductDocumentSet,
   type ProductDocumentSetInput,
   type FeatureChecklistItem,
 } from './ProductDocumentSet';
@@ -851,9 +852,9 @@ export class LVPipeline {
 
     log('[LVPipeline] blank_canvas fast path started');
     emitPhase('think', 10);
-    emitStep('coder', 'active', 'Generating application...');
+    emitStep('product-docs', 'active', 'Building product docs...');
 
-    // ── 1. Build ProductDocumentSet deterministically (no LLM) ───────────────
+    // ── 1. Materialize ProductDocumentSet deterministically (no LLM) ─────────
     const pdsInput: ProductDocumentSetInput = {
       prompt:     config.intent,
       skeletonId: LV_NEUTRAL_SKELETON_ID,
@@ -872,14 +873,17 @@ export class LVPipeline {
 
     let pdsBuilt = false;
     let featureChecklist: FeatureChecklistItem[] = [];
+    let pdsResult: ReturnType<typeof materializeProductDocumentSet> | null = null;
     try {
-      const pds = buildProductDocumentSet(pdsInput);
-      featureChecklist = pds.featureChecklist ?? [];
+      pdsResult = materializeProductDocumentSet(pdsInput);
+      featureChecklist = pdsResult.productDocs.featureChecklist ?? [];
       pdsBuilt = true;
-      log(`[LVPipeline] PDS built: ${featureChecklist.length} checklist item(s)`);
+      log(`[LVPipeline] PDS materialized: ${featureChecklist.length} checklist item(s), ${pdsResult.materializedFiles.length} doc file(s)`);
     } catch (err) {
       log(`[LVPipeline] PDS build failed (${(err as Error).message}) — continuing without checklist`);
     }
+    emitStep('product-docs', pdsBuilt ? 'done' : 'error', pdsBuilt ? `${featureChecklist.length} features` : 'PDS unavailable');
+    emitStep('coder', 'active', 'Generating application...');
 
     // Emit step plan to UI
     try {
@@ -1102,17 +1106,17 @@ export class LVPipeline {
       skeletonFiles: [],
       deltaFiles:   Object.keys(finalFiles),
       designIntent: ['blank_canvas'],
-      ...(pdsBuilt ? {
+      ...(pdsBuilt && pdsResult ? {
         productDocs: {
-          built: true,
-          saved: false,
-          id: crypto.randomUUID(),
-          status: 'materialized',
+          built: pdsResult.telemetry.built,
+          saved: pdsResult.telemetry.saved,
+          id: pdsResult.productDocs.id,
+          status: pdsResult.productDocs.status,
           generationPath: 'blank_canvas' as const,
-          persistenceTarget: 'run_report' as const,
-          featureChecklistItemCount: featureChecklist.length,
-          featureChecklistMustCount: featureChecklist.filter(f => f.priority === 'must').length,
-          markdownBundleFiles: [],
+          persistenceTarget: pdsResult.telemetry.persistenceTarget,
+          featureChecklistItemCount: pdsResult.telemetry.featureChecklistItemCount,
+          featureChecklistMustCount: pdsResult.telemetry.featureChecklistMustCount,
+          markdownBundleFiles: pdsResult.telemetry.markdownBundleFiles,
         },
       } : {}),
       steps: [
@@ -1156,6 +1160,19 @@ export class LVPipeline {
       name: name.startsWith('src/') ? name : `src/${name}`,
       content,
     }));
+
+    // Deliver PDS doc files (docs/architect/...) — no src/ prefix, separate from src ops
+    if (pdsBuilt && pdsResult) {
+      const pdsOps: FileOperation[] = Object.entries(pdsResult.files).map(([name, content]) => ({
+        op: 'upsert' as const,
+        name,
+        content,
+      }));
+      if (pdsOps.length > 0) {
+        try { config.onFiles(pdsOps); } catch { /* best effort */ }
+        finalOps.push(...pdsOps);
+      }
+    }
 
     const changePackage = lvEmptyChangePackage(graph, finalOps);
     const totalMs = Date.now() - startMs;

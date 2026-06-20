@@ -1,0 +1,23 @@
+{
+  "snapshot": "LIVE-PRODUCT-PATH",
+  "capturedAt": "2026-06-20",
+  "generationPath": "blank_canvas",
+  "pipeline": "LVPipeline",
+  "routing": {
+    "isBlankCanvasFastPathEligible": true,
+    "skeletonAssemblyRoutes": false,
+    "protoPickleRoutes": false,
+    "lvPipelineRoutes": true
+  },
+  "stepOrder": ["product-docs", "coder", "apply", "build", "preview"],
+  "stepLabels": {
+    "product-docs": "Product docs",
+    "coder": "LV coder",
+    "apply": "Completeness",
+    "build": "Build",
+    "preview": "Preview"
+  },
+  "removedLabels": ["skeleton", "Выбор skeleton", "Архитектура", "шаблон"],
+  "pdsStepEmitted": true,
+  "pdsStepId": "product-docs"
+}

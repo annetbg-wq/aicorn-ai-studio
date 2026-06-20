@@ -1,0 +1,38 @@
+{
+  "snapshot": "LIVE-PRODUCT-PATH",
+  "capturedAt": "2026-06-20",
+  "evidence": "Test run — LVPipeline PDS materialization to files (39/39 passed)",
+  "pdsFilesProduced": [
+    "docs/architect/product-document-set.json",
+    "docs/architect/README.md",
+    "docs/architect/product-brief.md",
+    "docs/architect/product-plan.json",
+    "docs/architect/technical-blueprint.json",
+    "docs/architect/screen-composition.json",
+    "docs/architect/functional-flow.json",
+    "docs/architect/skeleton-integration.json",
+    "docs/architect/product-specificity.json",
+    "docs/architect/vision.md",
+    "docs/architect/feature-checklist.md",
+    "docs/architect/screens.md",
+    "docs/architect/flows.md",
+    "docs/architect/data-model.md",
+    "docs/architect/design-brief.md",
+    "docs/architect/implementation-brief.md",
+    "docs/architect/acceptance.md"
+  ],
+  "materializedVia": "materializeProductDocumentSet() in LVPipeline.ts (blank_canvas path)",
+  "deliveryMechanism": "config.onFiles(pdsOps) + finalOps.push(...pdsOps)",
+  "pathPrefix": "none (docs/architect/... not src/docs/architect/...)",
+  "telemetryFix": {
+    "before": "id: crypto.randomUUID() — random, no longer matches file",
+    "after": "id: pdsResult.productDocs.id — matches product-document-set.json id",
+    "saved": "pdsResult.telemetry.saved (true, via project_storage)",
+    "markdownBundleFiles": "pdsResult.telemetry.markdownBundleFiles (actual list)"
+  },
+  "projectStorageRestore": {
+    "resolvesFrom": "docs/architect/product-document-set.json",
+    "method": "resolveStoredProductDocs(existing, files)",
+    "verified": "ProjectStorage saves → getProject restores productDocs.id correctly"
+  }
+}

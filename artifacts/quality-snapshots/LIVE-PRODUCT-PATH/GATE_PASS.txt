@@ -1,0 +1,48 @@
+LIVE PRODUCT PATH FIX — GATE PASS
+Date: 2026-06-20
+
+=== VERDICT: PASS ===
+
+All 4 tasks completed. 39/39 tests pass (0 failures).
+
+--- Task 1: LVPipeline PDS materialization ---
+PASS: materializeProductDocumentSet() called instead of buildProductDocumentSet()
+PASS: docs/architect/product-document-set.json delivered via onFiles()
+PASS: All 8 markdown docs (vision.md, feature-checklist.md, screens.md, flows.md,
+      data-model.md, design-brief.md, implementation-brief.md, acceptance.md) delivered
+PASS: runTelemetry.productDocs.id == product-document-set.json id (not crypto.randomUUID())
+PASS: telemetry.saved = true (project_storage), markdownBundleFiles populated
+PASS: product-docs step emitted (emitStep 'product-docs' active/done)
+
+--- Task 2: Product Docs UI ---
+PASS: ProductDocsPanel component added to Reasoning tab in PreviewCanvas
+PASS: Reads docs/architect/product-document-set.json from files prop
+PASS: Shows PDS id + feature count when docs present
+PASS: Shows "Product Docs missing" when docs not present
+PASS: 8 doc link buttons (Vision, Feature checklist, Screens, Flows, Data model,
+      Design brief, Implementation brief, Acceptance) open in Code tab
+
+--- Task 3: LV progress copy (blank_canvas) ---
+PASS: STEP_ORDER for blank_canvas: ['product-docs','coder','apply','build','preview']
+PASS: STEP_RU for blank_canvas: Product docs / LV coder / Completeness / Build / Preview
+PASS: No skeleton, Выбор skeleton, Архитектура, шаблон in blank_canvas labels
+PASS: founderFastPath retains original labels (unchanged)
+
+--- Task 4: Tests ---
+PASS: 9 new tests added in suites #11, #12, #13
+  Suite 11 — LVPipeline PDS materialization to files (3 tests)
+  Suite 12 — ProjectStorage restores productDocs from LV-generated files (2 tests)
+  Suite 13 — blank_canvas UI progress labels (2 tests)
+  + 2 new imports (ProjectStorage, materializeProductDocumentSet)
+Total test count: 39 → 39 passed, 0 failed
+
+--- Files Changed ---
+frontend/src/services/ProtoPipeline.ts
+frontend/src/services/LVPipeline.ts
+frontend/src/hooks/useStudio.ts
+frontend/src/components/PreviewCanvas.tsx
+frontend/src/services/__tests__/LVPipeline.test.ts
+artifacts/quality-snapshots/LIVE-PRODUCT-PATH/lv-routing.json
+artifacts/quality-snapshots/LIVE-PRODUCT-PATH/pds-files.json
+artifacts/quality-snapshots/LIVE-PRODUCT-PATH/ui-snapshot.md
+artifacts/quality-snapshots/LIVE-PRODUCT-PATH/GATE_PASS.txt

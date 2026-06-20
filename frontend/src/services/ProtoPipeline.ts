@@ -160,6 +160,7 @@ export type StepId =
   | 'skeleton'
   | 'pack'
   | 'architect'
+  | 'product-docs'
   | 'coder'
   | 'apply'
   | 'build'
@@ -566,14 +567,15 @@ export interface ArchitectPlan {
 // ── Step labels (RU) ───────────────────────────────────────────
 
 const STEP_LABEL: Record<StepId, string> = {
-  clarify:   'Понимаю задачу...',
-  skeleton:  'Устанавливаю основу...',
-  pack:      'Выбираю дизайн-пак...',
-  architect: 'Проектирую архитектуру...',
-  coder:     'Пишу код...',
-  apply:     'Применяю изменения...',
-  build:     'Собираю приложение...',
-  preview:   'Готово',
+  clarify:          'Понимаю задачу...',
+  skeleton:         'Устанавливаю основу...',
+  pack:             'Выбираю дизайн-пак...',
+  architect:        'Проектирую архитектуру...',
+  'product-docs':   'Создаю Product Docs...',
+  coder:            'Пишу код...',
+  apply:            'Применяю изменения...',
+  build:            'Собираю приложение...',
+  preview:          'Готово',
 };
 
 // ── Token / timeout budgets per step ──────────────────────────────────────────

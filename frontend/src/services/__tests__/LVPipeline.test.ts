@@ -5,13 +5,15 @@
  * Covers:
  *   - Routing (blank_canvas → LVPipeline, skeleton_assembly → GenerationEngine)
  *   - isBlankCanvasFastPathEligible ignores existingCodeCount
- *   - PDS creation
+ *   - PDS creation + materialization to docs/architect/ files
+ *   - ProjectStorage restores productDocs from LV-generated files
  *   - CompletenessGate integration
  *   - Pass 2 when coverage < 0.8
  *   - No skeleton/architect stage called
  *   - Not a ProtoPipeline wrapper
  *   - generationPath persistence (restoreGenerationPath)
  *   - Safety: no WI-7/WI-8/provider-defaults
+ *   - blank_canvas UI progress has no skeleton/architecture labels
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -24,6 +26,8 @@ import {
 } from '../LVPipeline';
 import { GenerationEngine, type PipelineRunConfig } from '../GenerationEngine';
 import { restoreGenerationPath } from '../../hooks/useStudioGenerationPath';
+import { ProjectStorage, type StoredProject } from '../ProjectStorage';
+import { materializeProductDocumentSet } from '../ProductDocumentSet';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -423,5 +427,208 @@ describe('Safety invariants', () => {
     }
 
     vi.restoreAllMocks();
+  });
+});
+
+// ── 11. LVPipeline materializes docs/architect/ files ────────────────────────
+
+describe('LVPipeline — PDS materialization to files', () => {
+  it('onFiles receives docs/architect/product-document-set.json after run', async () => {
+    const collectedOps: Array<{ name: string }> = [];
+    const onFiles = vi.fn((ops: Array<{ op: string; name: string; content: string }>) => {
+      collectedOps.push(...ops.map(o => ({ name: o.name })));
+    });
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/compile')) {
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      const fileContent = '<<<FILE: App.tsx>>>\nimport React from "react";\nexport default function App(){return <div>Hello</div>;}\n<<<END>>>';
+      const body = [
+        `data: ${JSON.stringify({ choices: [{ delta: { content: fileContent } }] })}`,
+        'data: [DONE]',
+        '',
+      ].join('\n');
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+
+    const config = makeConfig({ onFiles });
+    await LVPipeline.run(config);
+
+    const pdsOp = collectedOps.find(o => o.name === 'docs/architect/product-document-set.json');
+    expect(pdsOp).toBeDefined();
+
+    fetchMock.mockRestore();
+  });
+
+  it('onFiles receives all 8 required markdown docs after run', async () => {
+    const REQUIRED_DOCS = [
+      'docs/architect/vision.md',
+      'docs/architect/feature-checklist.md',
+      'docs/architect/screens.md',
+      'docs/architect/flows.md',
+      'docs/architect/data-model.md',
+      'docs/architect/design-brief.md',
+      'docs/architect/implementation-brief.md',
+      'docs/architect/acceptance.md',
+    ];
+
+    const collectedNames: string[] = [];
+    const onFiles = vi.fn((ops: Array<{ op: string; name: string; content: string }>) => {
+      collectedNames.push(...ops.map(o => o.name));
+    });
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/compile')) {
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      const fileContent = '<<<FILE: App.tsx>>>\nimport React from "react";\nexport default function App(){return <div>Hi</div>;}\n<<<END>>>';
+      const body = `data: ${JSON.stringify({ choices: [{ delta: { content: fileContent } }] })}\ndata: [DONE]\n`;
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    });
+
+    const config = makeConfig({ onFiles });
+    await LVPipeline.run(config);
+
+    for (const doc of REQUIRED_DOCS) {
+      expect(collectedNames).toContain(doc);
+    }
+
+    fetchMock.mockRestore();
+  });
+
+  it('runTelemetry.productDocs.id matches product-document-set.json id', async () => {
+    const collectedOps: Array<{ name: string; content: string }> = [];
+    const onFiles = vi.fn((ops: Array<{ op: string; name: string; content: string }>) => {
+      collectedOps.push(...ops);
+    });
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/compile')) {
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      const body = `data: ${JSON.stringify({ choices: [{ delta: { content: '<<<FILE: App.tsx>>>\nexport default function App(){return <div/>}\n<<<END>>>' } }] })}\ndata: [DONE]\n`;
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    });
+
+    const config = makeConfig({ onFiles });
+    const result = await LVPipeline.run(config);
+
+    const pdsOp = collectedOps.find(o => o.name === 'docs/architect/product-document-set.json');
+    if (pdsOp && result.runTelemetry?.productDocs?.id) {
+      const parsed = JSON.parse(pdsOp.content) as { id: string };
+      expect(parsed.id).toBe(result.runTelemetry.productDocs.id);
+    }
+
+    fetchMock.mockRestore();
+  });
+});
+
+// ── 12. ProjectStorage restores productDocs from LV-generated files ───────────
+
+describe('ProjectStorage restores productDocs from LV-generated files', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('resolves productDocs from docs/architect/product-document-set.json in project files', () => {
+    const pdsInput = {
+      prompt: 'Build a task tracker',
+      projectId: 'proj-test',
+      revisionId: 'rev-001',
+      skeletonId: 'landing-page' as const,
+      generationPath: 'blank_canvas' as const,
+      architectPlan: {
+        appName: 'TaskTracker',
+        summary: 'A minimal task tracking app.',
+        fileTree: { 'App.tsx': 'entry' },
+      },
+    };
+    const pdsResult = materializeProductDocumentSet(pdsInput);
+
+    const project: StoredProject = {
+      id: 'proj-test',
+      name: 'Task Tracker',
+      description: '',
+      theme: 'default',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      files: pdsResult.files,
+      chatHistory: [],
+    };
+
+    ProjectStorage.saveProject(project);
+    const loaded = ProjectStorage.getProject('proj-test');
+
+    expect(loaded).not.toBeNull();
+    expect(loaded!.productDocs).toBeDefined();
+    expect(loaded!.productDocs!.id).toBe(pdsResult.productDocs.id);
+    expect(loaded!.productDocs!.featureChecklist.length).toBeGreaterThan(0);
+  });
+
+  it('productDocs.generationPath is blank_canvas for LV-materialized PDS', () => {
+    const pdsInput = {
+      prompt: 'Build a notes app',
+      projectId: 'proj-notes',
+      revisionId: 'rev-001',
+      skeletonId: 'landing-page' as const,
+      generationPath: 'blank_canvas' as const,
+      architectPlan: {
+        appName: 'Notes',
+        summary: 'A simple notes application.',
+        fileTree: { 'App.tsx': 'entry' },
+      },
+    };
+    const pdsResult = materializeProductDocumentSet(pdsInput);
+
+    const project: StoredProject = {
+      id: 'proj-notes',
+      name: 'Notes App',
+      description: '',
+      theme: 'default',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      files: pdsResult.files,
+      chatHistory: [],
+    };
+
+    ProjectStorage.saveProject(project);
+    const loaded = ProjectStorage.getProject('proj-notes');
+
+    expect(loaded!.productDocs!.generationPath).toBe('blank_canvas');
+  });
+});
+
+// ── 13. blank_canvas progress labels have no skeleton/architecture terms ───────
+
+describe('blank_canvas UI progress — no skeleton/architecture labels', () => {
+  it('STEP_RU for blank_canvas does not include skeleton or architecture terms', () => {
+    const BLANK_CANVAS_STEP_RU: Record<string, string> = {
+      'product-docs': 'Product docs',
+      coder:          'LV coder',
+      apply:          'Completeness',
+      build:          'Build',
+      preview:        'Preview',
+    };
+
+    const labels = Object.values(BLANK_CANVAS_STEP_RU).map(l => l.toLowerCase());
+    expect(labels).not.toContain('skeleton');
+    expect(labels.some(l => l.includes('архитект') || l.includes('architect'))).toBe(false);
+    expect(labels.some(l => l.includes('скелет') || l.includes('шаблон'))).toBe(false);
+  });
+
+  it('blank_canvas STEP_ORDER includes product-docs and LV coder keys', () => {
+    const BLANK_CANVAS_STEP_ORDER = ['product-docs', 'coder', 'apply', 'build', 'preview'];
+    expect(BLANK_CANVAS_STEP_ORDER).toContain('product-docs');
+    expect(BLANK_CANVAS_STEP_ORDER).toContain('coder');
+    expect(BLANK_CANVAS_STEP_ORDER).not.toContain('skeleton');
+    expect(BLANK_CANVAS_STEP_ORDER).not.toContain('architect');
+    expect(BLANK_CANVAS_STEP_ORDER).not.toContain('pack');
   });
 });

@@ -4389,18 +4389,28 @@ export const useStudio = () => {
         },
         onStepTrack: (() => {
           // Live step-track state — mutable, not React state (no re-render cascade).
-          const STEP_ORDER: string[] = (founderFastPath || blankCanvasFastPath)
-            ? ['pack','architect','skeleton','coder','build','preview']
-            : ['clarify','pack','architect','skeleton','coder','build','preview'];
-          const STEP_RU: Record<string, string> = {
-            clarify:   'Анализирую задачу',
-            pack:      'Дизайн-пак',
-            architect: 'Архитектура',
-            skeleton:  'Выбор skeleton',
-            coder:     'Кодирование',
-            build:     'Финальная сборка',
-            preview:   'Превью',
-          };
+          const STEP_ORDER: string[] = blankCanvasFastPath
+            ? ['product-docs', 'coder', 'apply', 'build', 'preview']
+            : founderFastPath
+              ? ['pack','architect','skeleton','coder','build','preview']
+              : ['clarify','pack','architect','skeleton','coder','build','preview'];
+          const STEP_RU: Record<string, string> = blankCanvasFastPath
+            ? {
+                'product-docs': 'Product docs',
+                coder:          'LV coder',
+                apply:          'Completeness',
+                build:          'Build',
+                preview:        'Preview',
+              }
+            : {
+                clarify:   'Анализирую задачу',
+                pack:      'Дизайн-пак',
+                architect: 'Архитектура',
+                skeleton:  'Выбор skeleton',
+                coder:     'Кодирование',
+                build:     'Финальная сборка',
+                preview:   'Превью',
+              };
           const stepState: Record<string, 'pending'|'active'|'done'|'error'> = {};
           for (const s of STEP_ORDER) stepState[s] = 'pending';
 
