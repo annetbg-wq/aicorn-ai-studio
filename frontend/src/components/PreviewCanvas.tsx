@@ -1700,6 +1700,88 @@ function formatVisibleReasoningForCopy(trace: VisibleReasoningTrace): string {
   return lines.join('\n').trim();
 }
 
+// ── Product Docs panel (shown in Reasoning tab) ────────────────────────────────
+
+const PDS_DOC_LINKS: Array<{ label: string; path: string }> = [
+  { label: 'Vision',               path: 'docs/architect/vision.md' },
+  { label: 'Feature checklist',    path: 'docs/architect/feature-checklist.md' },
+  { label: 'Screens',              path: 'docs/architect/screens.md' },
+  { label: 'Flows',                path: 'docs/architect/flows.md' },
+  { label: 'Data model',           path: 'docs/architect/data-model.md' },
+  { label: 'Design brief',         path: 'docs/architect/design-brief.md' },
+  { label: 'Implementation brief', path: 'docs/architect/implementation-brief.md' },
+  { label: 'Acceptance',           path: 'docs/architect/acceptance.md' },
+];
+
+function ProductDocsPanel({ files, isDark, onOpenDoc }: {
+  files: FileMap;
+  isDark: boolean;
+  onOpenDoc: (path: string) => void;
+}) {
+  const pdsRaw = files['docs/architect/product-document-set.json'];
+  type ProductDocsSummary = { id?: string; featureChecklist?: unknown[] };
+  let pds: ProductDocsSummary | null = null;
+  if (pdsRaw) {
+    try { pds = JSON.parse(pdsRaw) as ProductDocsSummary; } catch { pds = null; }
+  }
+
+  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.1)';
+  const dimText     = isDark ? 'rgba(255,255,255,0.38)' : '#64748b';
+  const bodyText    = isDark ? 'rgba(255,255,255,0.7)'  : '#334155';
+  const headText    = isDark ? 'rgba(255,255,255,0.86)' : '#0f172a';
+  const btnBg       = isDark ? 'rgba(255,255,255,0.04)' : '#f1f5f9';
+  const btnHover    = isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0';
+
+  return (
+    <div
+      data-testid="product-docs-panel-wrapper"
+      style={{ marginTop: 24, borderTop: `1px solid ${borderColor}`, paddingTop: 16 }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: dimText, marginBottom: 10 }}>
+        Product Docs
+      </div>
+      {!pds ? (
+        <div
+          data-testid="product-docs-missing"
+          style={{ fontSize: 12, color: dimText, fontStyle: 'italic' }}
+        >
+          Product Docs missing — run a generation to build them.
+        </div>
+      ) : (
+        <div data-testid="product-docs-panel">
+          <div style={{ fontSize: 11, color: bodyText, marginBottom: 10, lineHeight: 1.6 }}>
+            <span style={{ color: headText, fontWeight: 600 }}>PDS id: </span>
+            <span style={{ fontFamily: 'monospace', fontSize: 10 }}>{pds.id ?? '—'}</span>
+            <span style={{ marginLeft: 12, color: headText, fontWeight: 600 }}>Features: </span>
+            <span data-testid="product-docs-feature-count">{pds.featureChecklist?.length ?? 0}</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {PDS_DOC_LINKS.map(({ label, path }) =>
+              files[path] ? (
+                <button
+                  key={path}
+                  data-testid={`product-doc-link-${label.toLowerCase().replace(/\s+/g, '-')}`}
+                  onClick={() => onOpenDoc(path)}
+                  style={{
+                    fontSize: 11, padding: '4px 10px', borderRadius: 6,
+                    border: `1px solid ${borderColor}`,
+                    background: btnBg, color: bodyText, cursor: 'pointer',
+                    transition: 'background 0.12s',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = btnHover; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = btnBg; }}
+                >
+                  {label}
+                </button>
+              ) : null,
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface PreviewCanvasProps {
   device: string;
   setDevice: (d:string)=>void;
@@ -2679,6 +2761,9 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                 </div>
               </>
             )}
+
+            {/* ── Product Docs panel — always visible when docs files are present ── */}
+            <ProductDocsPanel files={files} isDark={isDark} onOpenDoc={(path) => { setActiveFile(path); setTab('code'); }} />
           </div>
         </div>
 

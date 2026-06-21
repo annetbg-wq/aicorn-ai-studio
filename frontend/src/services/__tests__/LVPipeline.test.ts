@@ -25,6 +25,7 @@ import {
   isPass2SafeTargetFile,
 } from '../LVPipeline';
 import { GenerationEngine, type PipelineRunConfig } from '../GenerationEngine';
+import { type FileOperation } from '../../shared/projectModel';
 import { restoreGenerationPath } from '../../hooks/useStudioGenerationPath';
 import { ProjectStorage, type StoredProject } from '../ProjectStorage';
 import { materializeProductDocumentSet } from '../ProductDocumentSet';
@@ -435,8 +436,8 @@ describe('Safety invariants', () => {
 describe('LVPipeline — PDS materialization to files', () => {
   it('onFiles receives docs/architect/product-document-set.json after run', async () => {
     const collectedOps: Array<{ name: string }> = [];
-    const onFiles = vi.fn((ops: Array<{ op: string; name: string; content: string }>) => {
-      collectedOps.push(...ops.map(o => ({ name: o.name })));
+    const onFiles = vi.fn((ops: FileOperation[]) => {
+      collectedOps.push(...ops.map(o => ({ name: o.op === 'rename' ? o.to : o.name })));
     });
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
@@ -478,8 +479,8 @@ describe('LVPipeline — PDS materialization to files', () => {
     ];
 
     const collectedNames: string[] = [];
-    const onFiles = vi.fn((ops: Array<{ op: string; name: string; content: string }>) => {
-      collectedNames.push(...ops.map(o => o.name));
+    const onFiles = vi.fn((ops: FileOperation[]) => {
+      collectedNames.push(...ops.map(o => o.op === 'rename' ? o.to : o.name));
     });
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
@@ -504,8 +505,12 @@ describe('LVPipeline — PDS materialization to files', () => {
 
   it('runTelemetry.productDocs.id matches product-document-set.json id', async () => {
     const collectedOps: Array<{ name: string; content: string }> = [];
-    const onFiles = vi.fn((ops: Array<{ op: string; name: string; content: string }>) => {
-      collectedOps.push(...ops);
+    const onFiles = vi.fn((ops: FileOperation[]) => {
+      for (const op of ops) {
+        if ('content' in op && typeof op.content === 'string') {
+          collectedOps.push({ name: op.name, content: op.content });
+        }
+      }
     });
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {

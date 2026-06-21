@@ -507,6 +507,7 @@ export type GenerationRunStepId =
   | 'skeleton'
   | 'pack'
   | 'architect'
+  | 'product-docs'
   | 'coder'
   | 'apply'
   | 'build'

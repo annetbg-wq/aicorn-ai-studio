@@ -495,6 +495,8 @@ function mapTelemetryStepToTraceKind(stepId: GenerationRunTelemetry['steps'][num
     case 'apply':
     case 'skeleton':
       return 'candidate_materialize';
+    case 'product-docs':
+      return 'reviewer_result';
     case 'build':
       return 'fast_gate';
     case 'preview':
