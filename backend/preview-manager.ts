@@ -50,7 +50,7 @@ const BUILDS_WORKSPACE = path.resolve(__dirname, '..', 'builds');
 
 /** Maximum compiled builds to keep on disk (LRU). */
 const MAX_BUILDS = 20;
-const PRESERVED_PREVIEW_DIRS = ['components', 'config', 'context', 'data', 'hooks', 'lib', 'pages', 'themes'];
+const PRESERVED_PREVIEW_DIRS: string[] = [];
 const REPO_ROOT = path.resolve(__dirname, '..');
 
 /** Root directory where skeleton source trees live: skeletons/<id>/skeleton-<id>/src */
@@ -562,6 +562,350 @@ export function extractUiPrimitiveImportName(specifier: string): string | null {
   return /^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(primitive) ? primitive : null;
 }
 
+// ── UI primitive contract guard (pre-write) ───────────────────────────────────
+
+export interface GeneratedUiPrimitiveViolation {
+  filePath: string;
+  kind: 'ui_primitive_write' | 'direct_radix_import';
+  detail: string;
+}
+
+const DIRECT_RADIX_IMPORT_RE = /\bfrom\s*['"](@radix-ui(?:\/[^'"]*)?|radix-ui)['"]/g;
+
+/**
+ * Extracts all direct radix-ui / @radix-ui import specifiers from source text.
+ * Used both by the contract guard and by tests.
+ */
+export function extractDirectRadixImports(source: string): string[] {
+  const found: string[] = [];
+  for (const match of source.matchAll(DIRECT_RADIX_IMPORT_RE)) {
+    found.push(match[1] ?? '');
+  }
+  return found;
+}
+
+/**
+ * Validates generated files BEFORE they are written to preview-workspace.
+ * Rejects:
+ *   - any generated write to src/components/ui/ (system-owned directory)
+ *   - any direct import from @radix-ui/* or radix-ui in generated code
+ *     (generated code must import only @/components/ui/* wrappers)
+ */
+export function validateGeneratedUiPrimitiveContracts(
+  files: Record<string, string>,
+): GeneratedUiPrimitiveViolation[] {
+  const violations: GeneratedUiPrimitiveViolation[] = [];
+
+  for (const [rawPath, content] of Object.entries(files)) {
+    const normalized = rawPath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '').replace(/^src\//, '');
+
+    if (normalized.startsWith('components/ui/')) {
+      const filename = normalized.slice('components/ui/'.length);
+      violations.push({
+        filePath: rawPath,
+        kind: 'ui_primitive_write',
+        detail:
+          `Generated code must not write src/components/ui/${filename}. ` +
+          `Import from '@/components/ui/<name>' — the system owns and materializes canonical primitives.`,
+      });
+      continue;
+    }
+
+    for (const specifier of extractDirectRadixImports(content)) {
+      violations.push({
+        filePath: rawPath,
+        kind: 'direct_radix_import',
+        detail:
+          `Generated code in '${rawPath}' imports directly from '${specifier}'. ` +
+          `Use '@/components/ui/<name>' wrappers instead of direct Radix imports.`,
+      });
+    }
+  }
+
+  return violations;
+}
+
+// ── Stale UI primitive cleanup ────────────────────────────────────────────────
+
+const CANONICAL_UI_LOWERCASE_IDS = new Set<string>(LIVE_GENERATION_ALLOWED_UI_PRIMITIVES);
+
+/**
+ * Removes stale non-canonical files from the preview-workspace src/components/ui/ directory.
+ * Canonical files are: index.ts/tsx barrels and exact lowercase catalog filenames (button.tsx,
+ * scroll-area.tsx, …). PascalCase residues (Button.tsx, Card.tsx, etc.) left by legacy builds
+ * or skeleton copies shadow canonical materialized files on Windows case-insensitive file systems
+ * and must be deleted before Vite compiles the workspace.
+ */
+export async function cleanStaleUiPrimitiveFiles(uiRoot: string): Promise<string[]> {
+  let entries: fs.Dirent[];
+  try {
+    entries = await fsPromises.readdir(uiRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const removed: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const name = entry.name;
+    if (name === 'index.ts' || name === 'index.tsx') continue;
+    const basename = name.replace(/\.(?:tsx?|jsx?)$/i, '');
+    if (CANONICAL_UI_LOWERCASE_IDS.has(basename)) continue;
+    try {
+      await fsPromises.rm(path.join(uiRoot, name), { force: true });
+      removed.push(name);
+    } catch {
+      // Non-fatal: compile will surface any remaining issues
+    }
+  }
+  return removed;
+}
+
+// ── Build-system file contract guard (pre-write) ──────────────────────────────
+
+/**
+ * File names that must NEVER be written into preview-workspace/src/.
+ * These are owned by the Vite/TypeScript build infrastructure. Landing any of
+ * them in src/ causes Vite/esbuild to mis-resolve references (e.g. tsconfig.json
+ * referencing tsconfig.node.json which does not exist inside src/).
+ */
+const BUILD_SYSTEM_BLOCKLIST_RE =
+  /^(?:tsconfig(?:\.[^/]*)?\.json|vite\.config\.[tj]s|vitest\.config\.[tj]s|postcss\.config\.[tj]s?|tailwind\.config\.[tj]s|package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|\.env(?:\.\w+)?|__build_id\.ts|vite-env\.d\.ts)$/i;
+
+export interface GeneratedBuildSystemViolation {
+  filePath: string;
+  kind: 'build_system_file';
+  detail: string;
+}
+
+/**
+ * Validates generated files BEFORE they are written to preview-workspace.
+ * Rejects any file whose canonical name (after stripping the leading src/ prefix)
+ * matches the build-system blocklist — tsconfig.json, vite.config.ts, package.json, etc.
+ * The LLM must not own these files; they belong to the static Vite workspace template.
+ */
+export function validateGeneratedBuildSystemContracts(
+  files: Record<string, string>,
+): GeneratedBuildSystemViolation[] {
+  const violations: GeneratedBuildSystemViolation[] = [];
+
+  for (const rawPath of Object.keys(files)) {
+    const normalized = rawPath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '').replace(/^src\//, '');
+    const basename = normalized.split('/').pop() ?? '';
+    if (BUILD_SYSTEM_BLOCKLIST_RE.test(basename)) {
+      violations.push({
+        filePath: rawPath,
+        kind: 'build_system_file',
+        detail:
+          `Generated code must not write '${basename}'. ` +
+          `This file is owned by the Vite/TypeScript build system. ` +
+          `Only generate application source files (App.tsx, pages/, components/, hooks/, etc.).`,
+      });
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * Removes stale build-system config files from the root of preview-workspace/src/.
+ * These files (tsconfig.json, vite.config.ts, package.json, etc.) should only live
+ * at the preview-workspace root — never inside src/. When an LLM session writes them
+ * into src/, they break Vite's esbuild parser on subsequent builds. This cleanup runs
+ * before user-file writes so even freshly-generated files are caught by the pre-write
+ * guard instead of reaching the file system.
+ * Only inspects the immediate src/ directory — does NOT descend into subdirectories.
+ */
+export async function cleanStaleBuildSystemFiles(srcDir: string): Promise<string[]> {
+  let entries: fs.Dirent[];
+  try {
+    entries = await fsPromises.readdir(srcDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const removed: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (BUILD_SYSTEM_BLOCKLIST_RE.test(entry.name)) {
+      try {
+        await fsPromises.rm(path.join(srcDir, entry.name), { force: true });
+        removed.push(entry.name);
+      } catch {
+        // Non-fatal
+      }
+    }
+  }
+  return removed;
+}
+
+// ── Unified admission gate ────────────────────────────────────────────────────
+
+export interface PreviewFileViolation {
+  filePath: string;
+  kind: 'ui_primitive_write' | 'direct_radix_import' | 'build_system_file' | 'system_zone_write';
+  detail: string;
+}
+
+export interface PreviewFileAdmissionResult {
+  acceptedFiles: Record<string, string>;
+  rejectedFiles: Record<string, string>;
+  violations: PreviewFileViolation[];
+}
+
+/**
+ * System-owned directory prefixes (relative, src/ stripped) that generated
+ * code must never write into. The build system materializes these.
+ */
+const SYSTEM_ZONE_PREFIXES = [
+  'components/ui/',
+  'design-pack/',
+  'docs/architect/',
+] as const;
+
+/**
+ * Unified admission gate for generated files — runs in a single pass before
+ * anything is written to preview-workspace.
+ *
+ * Rejects:
+ *   - Writes into system-owned zones (components/ui/**, design-pack/**, docs/architect/**)
+ *   - Build-system config files (tsconfig, vite.config, package.json, __build_id.ts, vite-env.d.ts, …)
+ *   - Direct imports from @radix-ui/* or radix-ui
+ *
+ * Returns acceptedFiles (safe to write), rejectedFiles (violations found), and
+ * a flat violations list. compileBuild throws if violations.length > 0.
+ */
+export function validatePreviewGeneratedFiles(
+  files: Record<string, string>,
+): PreviewFileAdmissionResult {
+  const acceptedFiles: Record<string, string> = {};
+  const rejectedFiles: Record<string, string> = {};
+  const violations: PreviewFileViolation[] = [];
+
+  for (const [rawPath, content] of Object.entries(files)) {
+    const normalized = rawPath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '').replace(/^src\//, '');
+    const basename = normalized.split('/').pop() ?? '';
+
+    const fileViolations: PreviewFileViolation[] = [];
+
+    // System zone writes (components/ui/**, design-pack/**, docs/architect/**)
+    const systemZone = SYSTEM_ZONE_PREFIXES.find(prefix => normalized.startsWith(prefix));
+    if (systemZone) {
+      fileViolations.push({
+        filePath: rawPath,
+        kind: 'system_zone_write',
+        detail:
+          `Generated code must not write to system-owned zone '${normalized}'. ` +
+          `The '${systemZone}' directory is materialized by the build system — import from it, do not write to it.`,
+      });
+    }
+
+    // Build-system config files (tsconfig, vite.config, package.json, __build_id.ts, vite-env.d.ts …)
+    if (fileViolations.length === 0 && BUILD_SYSTEM_BLOCKLIST_RE.test(basename)) {
+      fileViolations.push({
+        filePath: rawPath,
+        kind: 'build_system_file',
+        detail:
+          `Generated code must not write '${basename}'. ` +
+          `This file is owned by the Vite/TypeScript build system. ` +
+          `Only generate application source files (App.tsx, pages/, components/, hooks/, etc.).`,
+      });
+    }
+
+    // Direct Radix UI imports (generated code must use @/components/ui/* wrappers)
+    if (fileViolations.length === 0) {
+      for (const specifier of extractDirectRadixImports(content)) {
+        fileViolations.push({
+          filePath: rawPath,
+          kind: 'direct_radix_import',
+          detail:
+            `Generated code in '${rawPath}' imports directly from '${specifier}'. ` +
+            `Use '@/components/ui/<name>' wrappers instead of direct Radix imports.`,
+        });
+      }
+    }
+
+    if (fileViolations.length > 0) {
+      violations.push(...fileViolations);
+      rejectedFiles[rawPath] = content;
+    } else {
+      acceptedFiles[rawPath] = content;
+    }
+  }
+
+  return { acceptedFiles, rejectedFiles, violations };
+}
+
+// ── Legacy src/ workspace healing ─────────────────────────────────────────────
+
+/**
+ * System scaffold files (relative paths under src/) that must survive the
+ * legacy-mode wipe. They are snapshotted before the wipe and restored after.
+ *   - vite-env.d.ts  — TypeScript Vite env types
+ *   - index.css      — base design-system styles
+ *   - lib/cn.ts      — system shim required by ensurePreviewLibShims
+ */
+const LEGACY_SYSTEM_SNAPSHOT_RELPATHS = [
+  'vite-env.d.ts',
+  'index.css',
+  'lib/cn.ts',
+] as const;
+
+/**
+ * Wipes all generated content from preview-workspace/src/ for legacy (no-skeleton) builds.
+ * Makes src/ fully disposable: stale generated directories (components, hooks, lib, pages,
+ * themes, data, config, context, …) are deleted in their entirety so files from previous
+ * builds cannot contaminate the next Vite compilation.
+ *
+ * System scaffold files (vite-env.d.ts, index.css, lib/cn.ts) are snapshotted before the
+ * wipe and restored after so Vite always has a complete build environment.
+ *
+ * Returns a list of names of top-level items that were removed.
+ */
+export async function cleanLegacySrcDirs(srcDir: string): Promise<string[]> {
+  // 1. Snapshot system scaffold files before the wipe
+  const snapshots: Array<{ rel: string; content: string }> = [];
+  for (const rel of LEGACY_SYSTEM_SNAPSHOT_RELPATHS) {
+    try {
+      const content = await fsPromises.readFile(path.join(srcDir, rel), 'utf-8');
+      snapshots.push({ rel, content });
+    } catch {
+      // Not present — skip; ensurePreviewLibShims or Vite will surface any build errors naturally
+    }
+  }
+
+  // 2. Wipe every top-level entry in src/
+  const removed: string[] = [];
+  let entries: fs.Dirent[];
+  try {
+    entries = await fsPromises.readdir(srcDir, { withFileTypes: true });
+  } catch {
+    return removed;
+  }
+
+  for (const entry of entries) {
+    try {
+      await fsPromises.rm(path.join(srcDir, entry.name), { recursive: true, force: true });
+      removed.push(entry.isDirectory() ? `${entry.name}/` : entry.name);
+    } catch {
+      // Non-fatal: compile will surface any remaining issues
+    }
+  }
+
+  // 3. Restore system scaffold files
+  for (const { rel, content } of snapshots) {
+    const full = path.join(srcDir, rel);
+    try {
+      await fsPromises.mkdir(path.dirname(full), { recursive: true });
+      await fsPromises.writeFile(full, content, 'utf-8');
+    } catch {
+      // Non-fatal: missing scaffold files will produce a clear Vite build error
+    }
+  }
+
+  return removed;
+}
+
 export function findUiPrimitiveImportsInSource(source: string, importedBy: string): UiPrimitiveImport[] {
   const imports: UiPrimitiveImport[] = [];
   const seen = new Set<string>();
@@ -738,15 +1082,15 @@ export async function ensureImportedUiPrimitives(
  * Write user files into preview-workspace/src/, stamp __build_id.ts,
  * then run `vite build --outDir builds/<buildId>`.
  *
- * Owns workspace cleanup: clears user-generated files before writing new build
- * files so stale files from previous builds cannot contaminate the Vite
- * compilation. Template/skeleton directories (components/, config/, context/,
- * lib/, themes/, hooks/) and permanent fixtures (main.tsx, index.css,
- * vite-env.d.ts) are preserved.
+ * Workspace healing: preview-workspace/src/ is fully disposable every build.
+ *   - Skeleton mode: wipe src/* entirely, copy skeleton source tree.
+ *   - Legacy mode: cleanLegacySrcDirs() wipes all generated directories; only
+ *     system scaffold files (vite-env.d.ts, index.css, lib/cn.ts) survive via
+ *     snapshot+restore. Stale files from previous builds cannot contaminate Vite.
  *
- * This replaces the legacy /__clear_preview Vite dev-server endpoint that the
- * frontend previously called before NEW-mode generation. The backend now owns
- * this cleanup so the generation path has no dependency on the Vite middleware.
+ * Admission gate: validatePreviewGeneratedFiles() runs before any write so
+ * system-owned zones (components/ui/**, design-pack/**), build-system files,
+ * and direct Radix imports are rejected before touching the file system.
  */
 async function compileBuild(
   buildId: string,
@@ -756,10 +1100,20 @@ async function compileBuild(
   const outDir = path.join(BUILDS_WORKSPACE, buildId);
   const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
 
-  // 0. Workspace reset — two modes:
+  // Pre-write unified admission gate: validates all file categories in one pass before any workspace mutation.
+  const admission = validatePreviewGeneratedFiles(files);
+  if (admission.violations.length > 0) {
+    const lines = admission.violations.map(v => `  [${v.kind}] ${v.detail}`);
+    throw new Error(
+      `Live generation contract violated (${admission.violations.length} violation(s)):\n${lines.join('\n')}`,
+    );
+  }
+
+  // 0. Workspace reset — src/ is fully disposable. Two modes:
   //    a) Skeleton mode (skeletonId provided): wipe src/* entirely, then copy
   //       the skeleton so there is no contamination from previous projects.
-  //    b) Legacy mode: keep PRESERVED_PREVIEW_DIRS, only delete unknown files.
+  //    b) Legacy mode: cleanLegacySrcDirs() wipes all generated directories;
+  //       system scaffold files survive via snapshot+restore.
   if (skeletonId) {
     const skeletonSrc = path.join(SKELETONS_ROOT, skeletonId, `skeleton-${skeletonId}`, 'src');
     if (!fs.existsSync(skeletonSrc)) {
@@ -780,29 +1134,14 @@ async function compileBuild(
     await ensurePreviewLibShims(PREVIEW_WORKSPACE);
     console.log(`[preview-manager] Skeleton ${skeletonId} installed into src/`);
   } else {
-    // 0b. Legacy cleanup — preserve skeleton infra dirs, remove unknown files.
-    // Preserve root skeleton files so a prior skeleton install can be followed by
-    // delta-only compile calls without losing App.tsx / route wiring.
-    const KEEP_FILES = new Set([
-      'App.tsx',
-      '__build_id.ts',
-      'index.css',
-      'main.tsx',
-      'route-manifest.json',
-      'vite-env.d.ts',
-    ]);
-    const KEEP_DIRS  = new Set(PRESERVED_PREVIEW_DIRS);
+    // 0b. Legacy workspace heal — wipe ALL generated directories so stale files
+    //     from previous builds cannot contaminate this compile. System scaffold
+    //     files (vite-env.d.ts, index.css, lib/cn.ts) are snapshotted and
+    //     restored by cleanLegacySrcDirs.
     try {
-      const items = await fsPromises.readdir(srcDir, { withFileTypes: true });
-      for (const item of items) {
-        const itemPath = path.join(srcDir, item.name);
-        if (item.isDirectory()) {
-          if (!KEEP_DIRS.has(item.name)) {
-            await fsPromises.rm(itemPath, { recursive: true, force: true });
-          }
-        } else if (!KEEP_FILES.has(item.name)) {
-          await fsPromises.rm(itemPath, { force: true });
-        }
+      const wiped = await cleanLegacySrcDirs(srcDir);
+      if (wiped.length > 0) {
+        console.log(`[preview-manager] Legacy src/ rebuild: wiped ${wiped.length} item(s) — src/ is clean`);
       }
     } catch {
       // Non-fatal: proceed with compilation even if cleanup fails
@@ -842,6 +1181,24 @@ async function compileBuild(
     const { fullPath } = resolvePreviewSrcPath(srcDir, filePath);
     await fsPromises.mkdir(path.dirname(fullPath), { recursive: true });
     await fsPromises.writeFile(fullPath, content, 'utf-8');
+  }
+
+  // 1.1. Remove stale non-canonical UI primitive files (PascalCase residues such as Button.tsx,
+  //      Card.tsx, etc.) before materialization. On Windows case-insensitive file systems these
+  //      shadow canonical lowercase files and cause Vite to resolve @/components/ui/button →
+  //      Button.tsx which may import from packages not installed in preview-workspace.
+  const staleUiCleaned = await cleanStaleUiPrimitiveFiles(path.join(srcDir, 'components', 'ui'));
+  for (const removed of staleUiCleaned) {
+    console.log(`[preview-manager] Removed stale UI primitive: components/ui/${removed}`);
+  }
+
+  // 1.2. Remove stale build-system config files from src/ root (tsconfig.json, vite.config.ts,
+  //      package.json, etc.). These should only live at preview-workspace root. When an LLM
+  //      session writes them into src/, Vite/esbuild picks them up and crashes on missing
+  //      references. Runs only against the immediate src/ root — not subdirectories.
+  const staleBuildSysCleaned = await cleanStaleBuildSystemFiles(srcDir);
+  for (const removed of staleBuildSysCleaned) {
+    console.log(`[preview-manager] Removed stale build-system file: ${removed}`);
   }
 
   const uiPrimitiveGuard = await ensureImportedUiPrimitives(srcDir, skeletonId);

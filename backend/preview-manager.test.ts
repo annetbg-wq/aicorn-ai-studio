@@ -27,6 +27,13 @@ import {
   sanitizeCompileFiles,
   setPreviewBuildStatus,
   validatePreviewBuildSession,
+  validateGeneratedUiPrimitiveContracts,
+  cleanStaleUiPrimitiveFiles,
+  extractDirectRadixImports,
+  validateGeneratedBuildSystemContracts,
+  cleanStaleBuildSystemFiles,
+  validatePreviewGeneratedFiles,
+  cleanLegacySrcDirs,
 } from './preview-manager';
 
 describe('preview-manager path hardening', () => {
@@ -65,10 +72,10 @@ describe('preview-manager path hardening', () => {
     expect(paths.sectionsDest.toLowerCase()).toBe(path.resolve('c:/ai_studio/preview-workspace/src/components/sections').toLowerCase());
   });
 
-  it('preserves skeleton infrastructure directories during compile cleanup', () => {
-    expect(getPreservedPreviewDirs()).toEqual(
-      expect.arrayContaining(['components', 'config', 'context', 'hooks', 'lib', 'themes']),
-    );
+  it('PRESERVED_PREVIEW_DIRS is now empty — all generated app directories are wiped by cleanLegacySrcDirs', () => {
+    // Legacy mode uses cleanLegacySrcDirs() which disposes src/ entirely;
+    // no generated directory is preserved between builds any more.
+    expect(getPreservedPreviewDirs()).toEqual([]);
   });
 
   it('materializes a legacy utils shim for section imports that still target @/lib/utils', async () => {
@@ -815,5 +822,661 @@ describe('preview-manager skeleton-only compile section preservation', () => {
       const filePath = path.join(skeletonSectionsDir, `${name}.tsx`);
       expect(fs.existsSync(filePath), `${name}.tsx should exist in landing-page skeleton`).toBe(true);
     }
+  });
+});
+
+// ── P0: UI primitive contract guard — pre-Vite enforcement ───────────────────
+
+describe('preview-manager UI primitive contract — generated file guard', () => {
+  it('rejects generated src/components/ui/Button.tsx before Vite', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/components/ui/Button.tsx': 'export const Button = () => null;',
+    });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe('ui_primitive_write');
+    expect(violations[0].detail).toMatch(/components\/ui\/Button\.tsx/);
+  });
+
+  it('rejects generated src/components/ui/Card.tsx before Vite', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/components/ui/Card.tsx': 'export const Card = () => null;',
+    });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe('ui_primitive_write');
+  });
+
+  it('rejects generated src/components/ui/Switch.tsx before Vite', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/components/ui/Switch.tsx': 'export const Switch = () => null;',
+    });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe('ui_primitive_write');
+  });
+
+  it('rejects any non-catalog file under src/components/ui/ before Vite', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/components/ui/MyCustomWidget.tsx': 'export const MyCustomWidget = () => null;',
+    });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe('ui_primitive_write');
+  });
+
+  it('rejects generated direct @radix-ui/react-slot import before Vite', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/components/MyComp.tsx': [
+        "import { Slot } from '@radix-ui/react-slot';",
+        "export const MyComp = () => <Slot />;",
+      ].join('\n'),
+    });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe('direct_radix_import');
+    expect(violations[0].detail).toMatch(/@radix-ui\/react-slot/);
+  });
+
+  it('rejects generated direct @radix-ui/react-dialog import before Vite', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/components/MyDialog.tsx': "import * as D from '@radix-ui/react-dialog';",
+    });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe('direct_radix_import');
+    expect(violations[0].detail).toMatch(/@radix-ui\/react-dialog/);
+  });
+
+  it('rejects generated direct radix-ui (unified) import before Vite', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/components/MyComp.tsx': "import { Slot } from 'radix-ui';",
+    });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe('direct_radix_import');
+    expect(violations[0].detail).toMatch(/radix-ui/);
+  });
+
+  it('allows valid import from @/components/ui/button', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/components/MyComp.tsx': "import { Button } from '@/components/ui/button';",
+    });
+    expect(violations).toHaveLength(0);
+  });
+
+  it('allows multiple canonical imports without violations', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/pages/Dashboard.tsx': [
+        "import { Button } from '@/components/ui/button';",
+        "import { Card, CardContent } from '@/components/ui/card';",
+        "import { Badge } from '@/components/ui/badge';",
+        "import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';",
+        "export function Dashboard() { return null; }",
+      ].join('\n'),
+    });
+    expect(violations).toHaveLength(0);
+  });
+
+  it('LV path cannot reach Vite with direct @radix-ui import', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/pages/TrendNiches.tsx': [
+        "import * as RadixSlot from '@radix-ui/react-slot';",
+        "import { cn } from '@/lib/utils';",
+        "export function TrendNiches() { return <RadixSlot.Slot />; }",
+      ].join('\n'),
+    });
+    expect(violations.some(v => v.kind === 'direct_radix_import')).toBe(true);
+  });
+
+  it('skeleton_assembly path cannot reach Vite with direct @radix-ui import', () => {
+    const violations = validateGeneratedUiPrimitiveContracts({
+      'src/components/ChatWidget.tsx': "import * as RadixDialog from '@radix-ui/react-dialog';",
+    });
+    expect(violations.some(v => v.kind === 'direct_radix_import')).toBe(true);
+  });
+
+  it('extractDirectRadixImports detects @radix-ui/* and radix-ui patterns', () => {
+    const source = [
+      "import { Slot } from '@radix-ui/react-slot';",
+      "import * as D from '@radix-ui/react-dialog';",
+      "import { X } from 'radix-ui';",
+      "import { Button } from '@/components/ui/button';",
+      "import { cn } from '@/lib/utils';",
+    ].join('\n');
+
+    const found = extractDirectRadixImports(source);
+    expect(found).toContain('@radix-ui/react-slot');
+    expect(found).toContain('@radix-ui/react-dialog');
+    expect(found).toContain('radix-ui');
+    expect(found).not.toContain('@/components/ui/button');
+    expect(found).not.toContain('@/lib/utils');
+  });
+});
+
+describe('preview-manager UI primitive contract — stale file cleanup', () => {
+  it('removes stale PascalCase Button.tsx and keeps canonical lowercase files', async () => {
+    await withTempSrc(async (srcDir) => {
+      const uiRoot = path.join(srcDir, 'components', 'ui');
+      await fsPromises.mkdir(uiRoot, { recursive: true });
+      await fsPromises.writeFile(path.join(uiRoot, 'Button.tsx'), 'export const Button = () => null;\n', 'utf-8');
+      await fsPromises.writeFile(path.join(uiRoot, 'index.ts'), "export * from './button';\n", 'utf-8');
+      await fsPromises.writeFile(path.join(uiRoot, 'scroll-area.tsx'), 'export const ScrollArea = () => null;\n', 'utf-8');
+
+      const removed = await cleanStaleUiPrimitiveFiles(uiRoot);
+
+      expect(removed).toContain('Button.tsx');
+      expect(fs.existsSync(path.join(uiRoot, 'Button.tsx'))).toBe(false);
+      expect(fs.existsSync(path.join(uiRoot, 'index.ts'))).toBe(true);
+      expect(fs.existsSync(path.join(uiRoot, 'scroll-area.tsx'))).toBe(true);
+    });
+  });
+
+  it('removes all known stale PascalCase residues in one pass', async () => {
+    await withTempSrc(async (srcDir) => {
+      const uiRoot = path.join(srcDir, 'components', 'ui');
+      await fsPromises.mkdir(uiRoot, { recursive: true });
+      const staleFiles = ['Button.tsx', 'Card.tsx', 'Badge.tsx', 'Avatar.tsx', 'Dialog.tsx',
+        'Input.tsx', 'Progress.tsx', 'Select.tsx', 'Sheet.tsx', 'Skeleton.tsx', 'Tabs.tsx'];
+      for (const name of staleFiles) {
+        await fsPromises.writeFile(path.join(uiRoot, name), '// stale\n', 'utf-8');
+      }
+
+      const removed = await cleanStaleUiPrimitiveFiles(uiRoot);
+
+      for (const name of staleFiles) {
+        expect(removed, `${name} should be removed`).toContain(name);
+        expect(fs.existsSync(path.join(uiRoot, name))).toBe(false);
+      }
+    });
+  });
+
+  it('does not remove canonical lowercase primitive files', async () => {
+    await withTempSrc(async (srcDir) => {
+      const uiRoot = path.join(srcDir, 'components', 'ui');
+      await fsPromises.mkdir(uiRoot, { recursive: true });
+      const canonical = ['button.tsx', 'card.tsx', 'badge.tsx', 'scroll-area.tsx', 'dialog.tsx'];
+      for (const name of canonical) {
+        await fsPromises.writeFile(path.join(uiRoot, name), '// canonical\n', 'utf-8');
+      }
+
+      const removed = await cleanStaleUiPrimitiveFiles(uiRoot);
+
+      expect(removed).toHaveLength(0);
+      for (const name of canonical) {
+        expect(fs.existsSync(path.join(uiRoot, name))).toBe(true);
+      }
+    });
+  });
+
+  it('returns empty array when ui directory does not exist', async () => {
+    await withTempSrc(async (srcDir) => {
+      const uiRoot = path.join(srcDir, 'components', 'ui');
+      const removed = await cleanStaleUiPrimitiveFiles(uiRoot);
+      expect(removed).toEqual([]);
+    });
+  });
+
+  it('canonical button.tsx source no longer imports from radix-ui unified package', async () => {
+    const src = await fsPromises.readFile(
+      path.resolve('frontend/src/components/ui/button.tsx'),
+      'utf-8',
+    );
+    expect(src).not.toContain("from \"radix-ui\"");
+    expect(src).not.toContain("from 'radix-ui'");
+    expect(src).toContain('@radix-ui/react-slot');
+  });
+
+  it('canonical button.tsx uses Slot directly (not Slot.Root)', async () => {
+    const src = await fsPromises.readFile(
+      path.resolve('frontend/src/components/ui/button.tsx'),
+      'utf-8',
+    );
+    expect(src).not.toContain('Slot.Root');
+    expect(src).toMatch(/asChild\s*\?\s*Slot\s*:/);
+  });
+});
+
+// ── P0: Build-system file contract guard ─────────────────────────────────────
+
+describe('preview-manager build-system contract — generated file guard', () => {
+  it('rejects generated tsconfig.json before Vite', () => {
+    const v = validateGeneratedBuildSystemContracts({ 'src/tsconfig.json': '{}' });
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('build_system_file');
+    expect(v[0].detail).toMatch(/tsconfig\.json/);
+  });
+
+  it('rejects tsconfig.app.json and tsconfig.node.json variants', () => {
+    const v = validateGeneratedBuildSystemContracts({
+      'src/tsconfig.app.json': '{}',
+      'src/tsconfig.node.json': '{}',
+    });
+    expect(v).toHaveLength(2);
+    expect(v.every(x => x.kind === 'build_system_file')).toBe(true);
+  });
+
+  it('rejects vite.config.ts before Vite', () => {
+    const v = validateGeneratedBuildSystemContracts({ 'src/vite.config.ts': 'export default {}' });
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('build_system_file');
+  });
+
+  it('rejects postcss.config.js before Vite', () => {
+    const v = validateGeneratedBuildSystemContracts({ 'src/postcss.config.js': 'module.exports = {}' });
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('build_system_file');
+  });
+
+  it('rejects tailwind.config.js before Vite', () => {
+    const v = validateGeneratedBuildSystemContracts({ 'tailwind.config.js': 'module.exports = {}' });
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('build_system_file');
+  });
+
+  it('rejects package.json before Vite', () => {
+    const v = validateGeneratedBuildSystemContracts({ 'package.json': '{"name":"x"}' });
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('build_system_file');
+  });
+
+  it('rejects __build_id.ts (system-injected, must not be overwritten)', () => {
+    const v = validateGeneratedBuildSystemContracts({ 'src/__build_id.ts': 'export const BUILD_ID = "x";' });
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('build_system_file');
+  });
+
+  it('rejects .env.local', () => {
+    const v = validateGeneratedBuildSystemContracts({ '.env.local': 'VITE_KEY=secret' });
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('build_system_file');
+  });
+
+  it('allows App.tsx, pages/Home.tsx, components/Feature.tsx, hooks/useData.ts', () => {
+    const v = validateGeneratedBuildSystemContracts({
+      'src/App.tsx': 'export default function App() { return null; }',
+      'src/pages/Home.tsx': 'export function Home() { return null; }',
+      'src/components/Feature.tsx': 'export function Feature() { return null; }',
+      'src/hooks/useData.ts': 'export function useData() { return {}; }',
+    });
+    expect(v).toHaveLength(0);
+  });
+
+  it('allows route-manifest.json (legitimate data file at src root)', () => {
+    const v = validateGeneratedBuildSystemContracts({ 'src/route-manifest.json': '{"routes":[]}' });
+    expect(v).toHaveLength(0);
+  });
+});
+
+describe('preview-manager build-system contract — stale file cleanup', () => {
+  it('removes tsconfig.json from src/ root', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.writeFile(path.join(srcDir, 'tsconfig.json'), '{}', 'utf-8');
+      await fsPromises.writeFile(path.join(srcDir, 'App.tsx'), 'export default () => null;\n', 'utf-8');
+
+      const removed = await cleanStaleBuildSystemFiles(srcDir);
+
+      expect(removed).toContain('tsconfig.json');
+      expect(fs.existsSync(path.join(srcDir, 'tsconfig.json'))).toBe(false);
+      expect(fs.existsSync(path.join(srcDir, 'App.tsx'))).toBe(true);
+    });
+  });
+
+  it('removes all stale build-system config files in one pass', async () => {
+    await withTempSrc(async (srcDir) => {
+      const stale = ['tsconfig.json', 'tsconfig.app.json', 'vite.config.ts',
+        'postcss.config.js', 'tailwind.config.js', 'package.json'];
+      for (const name of stale) {
+        await fsPromises.writeFile(path.join(srcDir, name), '{}', 'utf-8');
+      }
+
+      const removed = await cleanStaleBuildSystemFiles(srcDir);
+
+      for (const name of stale) {
+        expect(removed, `${name} should be removed`).toContain(name);
+        expect(fs.existsSync(path.join(srcDir, name))).toBe(false);
+      }
+    });
+  });
+
+  it('does NOT remove files inside subdirectories', async () => {
+    await withTempSrc(async (srcDir) => {
+      const pagesDir = path.join(srcDir, 'pages');
+      await fsPromises.mkdir(pagesDir, { recursive: true });
+      await fsPromises.writeFile(path.join(pagesDir, 'tsconfig.json'), '{}', 'utf-8');
+      await fsPromises.writeFile(path.join(srcDir, 'tsconfig.json'), '{}', 'utf-8');
+
+      const removed = await cleanStaleBuildSystemFiles(srcDir);
+
+      expect(removed).toContain('tsconfig.json');
+      expect(fs.existsSync(path.join(srcDir, 'tsconfig.json'))).toBe(false);
+      expect(fs.existsSync(path.join(pagesDir, 'tsconfig.json'))).toBe(true);
+    });
+  });
+
+  it('does NOT remove route-manifest.json', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.writeFile(path.join(srcDir, 'route-manifest.json'), '{"routes":[]}', 'utf-8');
+      await fsPromises.writeFile(path.join(srcDir, 'tsconfig.json'), '{}', 'utf-8');
+
+      const removed = await cleanStaleBuildSystemFiles(srcDir);
+
+      expect(removed).toContain('tsconfig.json');
+      expect(removed).not.toContain('route-manifest.json');
+      expect(fs.existsSync(path.join(srcDir, 'route-manifest.json'))).toBe(true);
+    });
+  });
+
+  it('returns empty array when srcDir has no stale build-system files', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.writeFile(path.join(srcDir, 'App.tsx'), 'export default () => null;\n', 'utf-8');
+      const removed = await cleanStaleBuildSystemFiles(srcDir);
+      expect(removed).toEqual([]);
+    });
+  });
+});
+
+// ── LIVE WORKSPACE HEALING — unified admission gate ───────────────────────────
+
+describe('preview-manager workspace healing — validatePreviewGeneratedFiles', () => {
+  it('rejects generated src/components/ui/Button.tsx (system zone)', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/components/ui/Button.tsx': 'export const Button = () => null;',
+    });
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].kind).toBe('system_zone_write');
+    expect(result.rejectedFiles).toHaveProperty('src/components/ui/Button.tsx');
+    expect(result.acceptedFiles).not.toHaveProperty('src/components/ui/Button.tsx');
+  });
+
+  it('rejects generated src/tsconfig.json (build-system file)', () => {
+    const result = validatePreviewGeneratedFiles({ 'src/tsconfig.json': '{}' });
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].kind).toBe('build_system_file');
+    expect(result.rejectedFiles).toHaveProperty('src/tsconfig.json');
+    expect(result.acceptedFiles).not.toHaveProperty('src/tsconfig.json');
+  });
+
+  it('rejects generated direct @radix-ui import', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/components/MyComp.tsx': "import { Slot } from '@radix-ui/react-slot';",
+    });
+    expect(result.violations.some(v => v.kind === 'direct_radix_import')).toBe(true);
+    expect(result.rejectedFiles).toHaveProperty('src/components/MyComp.tsx');
+    expect(result.acceptedFiles).not.toHaveProperty('src/components/MyComp.tsx');
+  });
+
+  it('rejects generated direct radix-ui (unified) import', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/components/MyComp.tsx': "import { Slot } from 'radix-ui';",
+    });
+    expect(result.violations.some(v => v.kind === 'direct_radix_import')).toBe(true);
+  });
+
+  it('rejects src/__build_id.ts (build-system singleton)', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/__build_id.ts': 'export const BUILD_ID = "x";',
+    });
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].kind).toBe('build_system_file');
+  });
+
+  it('rejects src/vite-env.d.ts (build-system singleton)', () => {
+    const result = validatePreviewGeneratedFiles({
+      'vite-env.d.ts': '/// <reference types="vite/client" />',
+    });
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].kind).toBe('build_system_file');
+  });
+
+  it('rejects src/design-pack/ writes (system zone)', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/design-pack/tokens.ts': 'export const tokens = {};',
+    });
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].kind).toBe('system_zone_write');
+  });
+
+  it('rejects src/docs/architect/ writes (system zone)', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/docs/architect/README.md': '# docs',
+    });
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].kind).toBe('system_zone_write');
+  });
+
+  it('accepts valid App.tsx, pages/Home.tsx, components/Feature.tsx, hooks/useData.ts', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/App.tsx': 'export default function App() { return null; }',
+      'src/pages/Home.tsx': 'export function Home() { return null; }',
+      'src/components/Feature.tsx': 'export function Feature() { return null; }',
+      'src/hooks/useData.ts': 'export function useData() { return {}; }',
+    });
+    expect(result.violations).toHaveLength(0);
+    expect(Object.keys(result.acceptedFiles)).toHaveLength(4);
+    expect(result.rejectedFiles).toEqual({});
+  });
+
+  it('allows route-manifest.json (legitimate src-root data file)', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/route-manifest.json': '{"routes":[]}',
+    });
+    expect(result.violations).toHaveLength(0);
+    expect(result.acceptedFiles).toHaveProperty('src/route-manifest.json');
+  });
+
+  it('splits acceptedFiles and rejectedFiles correctly in a mixed batch', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/App.tsx': 'export default function App() { return null; }',
+      'src/components/ui/Button.tsx': 'export const Button = () => null;', // rejected
+      'src/pages/Home.tsx': 'export function Home() { return null; }',
+      'src/tsconfig.json': '{}',                                           // rejected
+    });
+    expect(Object.keys(result.acceptedFiles)).toHaveLength(2);
+    expect(Object.keys(result.rejectedFiles)).toHaveLength(2);
+    expect(result.violations).toHaveLength(2);
+  });
+
+  it('each violation carries filePath, kind, and detail', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/components/ui/Card.tsx': 'export const Card = () => null;',
+    });
+    const [v] = result.violations;
+    expect(v.filePath).toBe('src/components/ui/Card.tsx');
+    expect(v.kind).toBeTruthy();
+    expect(typeof v.detail).toBe('string');
+    expect(v.detail.length).toBeGreaterThan(0);
+  });
+});
+
+// ── LIVE WORKSPACE HEALING — legacy src cleanup ───────────────────────────────
+
+describe('preview-manager workspace healing — cleanLegacySrcDirs', () => {
+  it('removes stale src/components/OldBroken.tsx when not in current files', async () => {
+    await withTempSrc(async (srcDir) => {
+      const compDir = path.join(srcDir, 'components');
+      await fsPromises.mkdir(compDir, { recursive: true });
+      await fsPromises.writeFile(path.join(compDir, 'OldBroken.tsx'), '// stale\n', 'utf-8');
+
+      await cleanLegacySrcDirs(srcDir);
+
+      expect(fs.existsSync(path.join(compDir, 'OldBroken.tsx'))).toBe(false);
+    });
+  });
+
+  it('removes stale src/hooks/useOld.ts when not in current files', async () => {
+    await withTempSrc(async (srcDir) => {
+      const hooksDir = path.join(srcDir, 'hooks');
+      await fsPromises.mkdir(hooksDir, { recursive: true });
+      await fsPromises.writeFile(path.join(hooksDir, 'useOld.ts'), '// stale\n', 'utf-8');
+
+      await cleanLegacySrcDirs(srcDir);
+
+      expect(fs.existsSync(path.join(hooksDir, 'useOld.ts'))).toBe(false);
+    });
+  });
+
+  it('removes stale src/lib/broken.ts when not in current files', async () => {
+    await withTempSrc(async (srcDir) => {
+      const libDir = path.join(srcDir, 'lib');
+      await fsPromises.mkdir(libDir, { recursive: true });
+      await fsPromises.writeFile(
+        path.join(libDir, 'cn.ts'),
+        'export function cn(...v: string[]) { return v.join(" "); }\n',
+        'utf-8',
+      );
+      await fsPromises.writeFile(path.join(libDir, 'broken.ts'), '// stale\n', 'utf-8');
+
+      await cleanLegacySrcDirs(srcDir);
+
+      expect(fs.existsSync(path.join(libDir, 'broken.ts'))).toBe(false);
+    });
+  });
+
+  it('removes stale src/pages/Old.tsx when not in current files', async () => {
+    await withTempSrc(async (srcDir) => {
+      const pagesDir = path.join(srcDir, 'pages');
+      await fsPromises.mkdir(pagesDir, { recursive: true });
+      await fsPromises.writeFile(path.join(pagesDir, 'Old.tsx'), '// stale\n', 'utf-8');
+
+      await cleanLegacySrcDirs(srcDir);
+
+      expect(fs.existsSync(path.join(pagesDir, 'Old.tsx'))).toBe(false);
+    });
+  });
+
+  it('removes stale src/components/ui/Button.tsx — system zone is wiped entirely', async () => {
+    await withTempSrc(async (srcDir) => {
+      const uiDir = path.join(srcDir, 'components', 'ui');
+      await fsPromises.mkdir(uiDir, { recursive: true });
+      await fsPromises.writeFile(path.join(uiDir, 'Button.tsx'), '// stale\n', 'utf-8');
+
+      await cleanLegacySrcDirs(srcDir);
+
+      expect(fs.existsSync(path.join(uiDir, 'Button.tsx'))).toBe(false);
+      expect(fs.existsSync(uiDir)).toBe(false);
+    });
+  });
+
+  it('removes stale src/tsconfig.json from src root', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.writeFile(path.join(srcDir, 'tsconfig.json'), '{}', 'utf-8');
+      await fsPromises.writeFile(path.join(srcDir, 'vite-env.d.ts'), '/// <reference types="vite/client" />\n', 'utf-8');
+
+      await cleanLegacySrcDirs(srcDir);
+
+      expect(fs.existsSync(path.join(srcDir, 'tsconfig.json'))).toBe(false);
+    });
+  });
+
+  it('current accepted generated files can be written into the clean src/ after cleanup', async () => {
+    await withTempSrc(async (srcDir) => {
+      // Plant a stale file
+      const pagesDir = path.join(srcDir, 'pages');
+      await fsPromises.mkdir(pagesDir, { recursive: true });
+      await fsPromises.writeFile(path.join(pagesDir, 'Stale.tsx'), '// stale\n', 'utf-8');
+
+      // Run cleanup (simulates compileBuild step 0b)
+      await cleanLegacySrcDirs(srcDir);
+
+      // Write new files (simulates compileBuild step 1)
+      const newFiles: Record<string, string> = {
+        'pages/Home.tsx': 'export function Home() { return null; }\n',
+        'components/Feature.tsx': 'export function Feature() { return null; }\n',
+      };
+      for (const [rel, content] of Object.entries(newFiles)) {
+        const full = path.join(srcDir, rel);
+        await fsPromises.mkdir(path.dirname(full), { recursive: true });
+        await fsPromises.writeFile(full, content, 'utf-8');
+      }
+
+      expect(fs.existsSync(path.join(pagesDir, 'Stale.tsx'))).toBe(false);
+      expect(fs.existsSync(path.join(srcDir, 'pages', 'Home.tsx'))).toBe(true);
+      expect(fs.existsSync(path.join(srcDir, 'components', 'Feature.tsx'))).toBe(true);
+    });
+  });
+
+  it('preserves vite-env.d.ts after the wipe (system scaffold snapshot)', async () => {
+    await withTempSrc(async (srcDir) => {
+      const content = '/// <reference types="vite/client" />\n';
+      await fsPromises.writeFile(path.join(srcDir, 'vite-env.d.ts'), content, 'utf-8');
+
+      await cleanLegacySrcDirs(srcDir);
+
+      expect(fs.existsSync(path.join(srcDir, 'vite-env.d.ts'))).toBe(true);
+      expect(await fsPromises.readFile(path.join(srcDir, 'vite-env.d.ts'), 'utf-8')).toBe(content);
+    });
+  });
+
+  it('preserves index.css after the wipe (system scaffold snapshot)', async () => {
+    await withTempSrc(async (srcDir) => {
+      const content = ':root { --bg: #000; }\n';
+      await fsPromises.writeFile(path.join(srcDir, 'index.css'), content, 'utf-8');
+
+      await cleanLegacySrcDirs(srcDir);
+
+      expect(fs.existsSync(path.join(srcDir, 'index.css'))).toBe(true);
+      expect(await fsPromises.readFile(path.join(srcDir, 'index.css'), 'utf-8')).toBe(content);
+    });
+  });
+
+  it('preserves lib/cn.ts after the wipe (system shim snapshot)', async () => {
+    await withTempSrc(async (srcDir) => {
+      const libDir = path.join(srcDir, 'lib');
+      await fsPromises.mkdir(libDir, { recursive: true });
+      const cnContent = 'export function cn(...v: string[]) { return v.join(" "); }\n';
+      await fsPromises.writeFile(path.join(libDir, 'cn.ts'), cnContent, 'utf-8');
+      // Also plant a stale lib file that must NOT survive
+      await fsPromises.writeFile(path.join(libDir, 'staleUtil.ts'), '// stale\n', 'utf-8');
+
+      await cleanLegacySrcDirs(srcDir);
+
+      expect(fs.existsSync(path.join(srcDir, 'lib', 'cn.ts'))).toBe(true);
+      expect(await fsPromises.readFile(path.join(srcDir, 'lib', 'cn.ts'), 'utf-8')).toBe(cnContent);
+      expect(fs.existsSync(path.join(srcDir, 'lib', 'staleUtil.ts'))).toBe(false);
+    });
+  });
+
+  it('system-injected __build_id.ts does not survive cleanup (compileBuild force-writes it after)', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.writeFile(
+        path.join(srcDir, '__build_id.ts'),
+        'export const BUILD_ID = "old-build";\n',
+        'utf-8',
+      );
+
+      await cleanLegacySrcDirs(srcDir);
+
+      // __build_id.ts is NOT a system scaffold snapshot — compileBuild injects it after cleanup
+      expect(fs.existsSync(path.join(srcDir, '__build_id.ts'))).toBe(false);
+    });
+  });
+
+  it('route-manifest.json is allowed (not a system snapshot, can be re-provided via files)', async () => {
+    await withTempSrc(async (srcDir) => {
+      // route-manifest.json is allowed by validatePreviewGeneratedFiles;
+      // it can be provided in `files` and written after cleanup.
+      const admission = validatePreviewGeneratedFiles({
+        'src/route-manifest.json': '{"routes":[]}',
+      });
+      expect(admission.violations).toHaveLength(0);
+      expect(admission.acceptedFiles).toHaveProperty('src/route-manifest.json');
+    });
+  });
+
+  it('removes stale themes, data, and context directories', async () => {
+    await withTempSrc(async (srcDir) => {
+      for (const dir of ['themes', 'data', 'context']) {
+        const p = path.join(srcDir, dir);
+        await fsPromises.mkdir(p, { recursive: true });
+        await fsPromises.writeFile(path.join(p, 'stale.ts'), '// stale\n', 'utf-8');
+      }
+
+      await cleanLegacySrcDirs(srcDir);
+
+      for (const dir of ['themes', 'data', 'context']) {
+        expect(fs.existsSync(path.join(srcDir, dir))).toBe(false);
+      }
+    });
+  });
+
+  it('returns empty array when srcDir is empty', async () => {
+    await withTempSrc(async (srcDir) => {
+      const removed = await cleanLegacySrcDirs(srcDir);
+      expect(removed).toEqual([]);
+    });
   });
 });
