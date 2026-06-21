@@ -977,38 +977,48 @@ describe('preview-manager UI primitive contract — generated file guard', () =>
 });
 
 describe('preview-manager UI primitive contract — stale file cleanup', () => {
-  it('removes stale PascalCase Button.tsx and keeps canonical lowercase files', async () => {
+  it('keeps a lone PascalCase Button.tsx (no lowercase shadow) and canonical lowercase files', async () => {
+    // On a case-insensitive FS a true Button.tsx/button.tsx shadow cannot coexist, so a
+    // lone PascalCase primitive is authoritative and must be kept (the barrel references it).
     await withTempSrc(async (srcDir) => {
       const uiRoot = path.join(srcDir, 'components', 'ui');
       await fsPromises.mkdir(uiRoot, { recursive: true });
       await fsPromises.writeFile(path.join(uiRoot, 'Button.tsx'), 'export const Button = () => null;\n', 'utf-8');
-      await fsPromises.writeFile(path.join(uiRoot, 'index.ts'), "export * from './button';\n", 'utf-8');
+      await fsPromises.writeFile(path.join(uiRoot, 'index.ts'), "export * from './Button';\n", 'utf-8');
       await fsPromises.writeFile(path.join(uiRoot, 'scroll-area.tsx'), 'export const ScrollArea = () => null;\n', 'utf-8');
 
       const removed = await cleanStaleUiPrimitiveFiles(uiRoot);
 
-      expect(removed).toContain('Button.tsx');
-      expect(fs.existsSync(path.join(uiRoot, 'Button.tsx'))).toBe(false);
+      expect(removed).toHaveLength(0);
+      expect(fs.existsSync(path.join(uiRoot, 'Button.tsx'))).toBe(true);
       expect(fs.existsSync(path.join(uiRoot, 'index.ts'))).toBe(true);
       expect(fs.existsSync(path.join(uiRoot, 'scroll-area.tsx'))).toBe(true);
     });
   });
 
-  it('removes all known stale PascalCase residues in one pass', async () => {
+  it('keeps authoritative skeleton PascalCase primitives that have no lowercase shadow', async () => {
+    // Skeletons ship Dialog.tsx/Button.tsx and re-export them from index.ts. With no
+    // lowercase shadow these ARE the primitives — deleting them broke the barrel
+    // (`missing_ui_primitive ./Dialog`). They must survive cleanup.
     await withTempSrc(async (srcDir) => {
       const uiRoot = path.join(srcDir, 'components', 'ui');
       await fsPromises.mkdir(uiRoot, { recursive: true });
-      const staleFiles = ['Button.tsx', 'Card.tsx', 'Badge.tsx', 'Avatar.tsx', 'Dialog.tsx',
+      const skeletonPrimitives = ['Button.tsx', 'Card.tsx', 'Badge.tsx', 'Avatar.tsx', 'Dialog.tsx',
         'Input.tsx', 'Progress.tsx', 'Select.tsx', 'Sheet.tsx', 'Skeleton.tsx', 'Tabs.tsx'];
-      for (const name of staleFiles) {
-        await fsPromises.writeFile(path.join(uiRoot, name), '// stale\n', 'utf-8');
+      for (const name of skeletonPrimitives) {
+        await fsPromises.writeFile(path.join(uiRoot, name), 'export const X = () => null;\n', 'utf-8');
       }
+      await fsPromises.writeFile(
+        path.join(uiRoot, 'index.ts'),
+        skeletonPrimitives.map(n => `export * from './${n.replace(/\.tsx$/, '')}';`).join('\n') + '\n',
+        'utf-8',
+      );
 
       const removed = await cleanStaleUiPrimitiveFiles(uiRoot);
 
-      for (const name of staleFiles) {
-        expect(removed, `${name} should be removed`).toContain(name);
-        expect(fs.existsSync(path.join(uiRoot, name))).toBe(false);
+      expect(removed).toHaveLength(0);
+      for (const name of skeletonPrimitives) {
+        expect(fs.existsSync(path.join(uiRoot, name)), `${name} must survive`).toBe(true);
       }
     });
   });

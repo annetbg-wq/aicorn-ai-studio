@@ -671,10 +671,17 @@ const CANONICAL_UI_LOWERCASE_IDS = new Set<string>(LIVE_GENERATION_ALLOWED_UI_PR
 
 /**
  * Removes stale non-canonical files from the preview-workspace src/components/ui/ directory.
- * Canonical files are: index.ts/tsx barrels and exact lowercase catalog filenames (button.tsx,
- * scroll-area.tsx, …). PascalCase residues (Button.tsx, Card.tsx, etc.) left by legacy builds
- * or skeleton copies shadow canonical materialized files on Windows case-insensitive file systems
- * and must be deleted before Vite compiles the workspace.
+ *
+ * A PascalCase file (Button.tsx, Dialog.tsx) is deleted ONLY when its canonical
+ * lowercase counterpart (button.tsx, dialog.tsx) ALSO exists in the same directory —
+ * a true Windows case-shadow that would make Vite resolve the wrong module.
+ *
+ * Skeletons ship their primitives in PascalCase (Dialog.tsx) and re-export them from a
+ * components/ui/index.ts barrel (`export * from './Dialog'`). Those are AUTHORITATIVE,
+ * not residue: deleting them breaks the barrel (root cause of
+ * `missing_ui_primitive ./Dialog`). When no lowercase shadow exists, the PascalCase
+ * file IS the primitive and is kept. The workspace is fully wiped before a skeleton
+ * copy, so there is no stale residue to clean in skeleton mode anyway.
  */
 export async function cleanStaleUiPrimitiveFiles(uiRoot: string): Promise<string[]> {
   let entries: fs.Dirent[];
@@ -684,13 +691,26 @@ export async function cleanStaleUiPrimitiveFiles(uiRoot: string): Promise<string
     return [];
   }
 
+  // Canonical lowercase primitive filenames physically present in the directory.
+  const presentCanonicalIds = new Set(
+    entries
+      .filter(entry => entry.isFile())
+      .map(entry => entry.name.replace(/\.(?:tsx?|jsx?)$/i, ''))
+      .filter(base => CANONICAL_UI_LOWERCASE_IDS.has(base)),
+  );
+
   const removed: string[] = [];
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const name = entry.name;
     if (name === 'index.ts' || name === 'index.tsx') continue;
     const basename = name.replace(/\.(?:tsx?|jsx?)$/i, '');
-    if (CANONICAL_UI_LOWERCASE_IDS.has(basename)) continue;
+    if (CANONICAL_UI_LOWERCASE_IDS.has(basename)) continue; // canonical lowercase — keep
+    // Non-canonical-cased file (e.g. Dialog.tsx). Delete only when its lowercase
+    // canonical counterpart also exists as a distinct file (true shadow); otherwise
+    // it is the authoritative primitive (skeleton-shipped) and must survive.
+    const canonicalId = normalizeUiPrimitiveName(basename);
+    if (!presentCanonicalIds.has(canonicalId)) continue;
     try {
       await fsPromises.rm(path.join(uiRoot, name), { force: true });
       removed.push(name);
