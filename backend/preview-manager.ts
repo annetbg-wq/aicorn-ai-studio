@@ -148,6 +148,10 @@ export function clearPreviewBuildStatuses(): void {
   _buildStatuses.clear();
 }
 
+export function clearPreviewBuildStatus(buildId: string): void {
+  _buildStatuses.delete(buildId);
+}
+
 export function normalizePreviewSessionToken(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const token = value.trim();
@@ -500,6 +504,33 @@ export function registerPreviewCompileRoute(app: express.Express): void {
       }
     },
   );
+
+  // Cascade cleanup: when a project is deleted in the UI, its compiled preview
+  // build (builds/<buildId>/) is an orphan on the server until LRU eviction. This
+  // endpoint removes it eagerly so deleting a project also removes its backend copy.
+  // Idempotent — returns success even if the build directory no longer exists.
+  app.delete('/api/preview/build/:buildId', async (req, res) => {
+    const { buildId } = req.params;
+    if (!buildId || !/^[\w-]{8,}$/.test(buildId)) {
+      return res.status(400).json({ success: false, error: 'Invalid buildId' });
+    }
+    const outDir = path.join(BUILDS_WORKSPACE, buildId);
+    // Guard against path traversal: the resolved dir must stay inside BUILDS_WORKSPACE.
+    const resolved = path.resolve(outDir);
+    if (resolved !== path.resolve(BUILDS_WORKSPACE, buildId)) {
+      return res.status(400).json({ success: false, error: 'Invalid buildId' });
+    }
+    try {
+      await fsPromises.rm(resolved, { recursive: true, force: true });
+      previewSessionBindings.delete(buildId);
+      clearPreviewBuildStatus(buildId);
+      console.log(`[preview-manager] Deleted preview build: ${buildId}`);
+      return res.status(200).json({ success: true });
+    } catch (e: any) {
+      console.error(`[preview-manager] failed to delete build ${buildId}:`, e?.message ?? e);
+      return res.status(500).json({ success: false, error: e?.message ?? String(e) });
+    }
+  });
 }
 
 // ── internal helpers ──────────────────────────────────────────────────────────
@@ -555,9 +586,18 @@ function normalizeUiPrimitiveName(value: string): string {
 }
 
 export function extractUiPrimitiveImportName(specifier: string): string | null {
-  const normalized = stripModuleExtension(specifier.replace(/\\/g, '/'));
-  const match = normalized.match(/(?:^|\/)components\/ui\/([^/]+)$/);
+  const cleaned = specifier.replace(/\\/g, '/');
+  const normalized = stripModuleExtension(cleaned);
+  // Alias / absolute form: @/components/ui/<name> or .../components/ui/<name>
+  let match = normalized.match(/(?:^|\/)components\/ui\/([^/]+)$/);
+  // Relative sibling form used by skeleton shell components (PaywallSheet, BottomTabs):
+  // ./ui/<name>, ../ui/<name>. Restricted to relative specifiers so unrelated
+  // paths like 'src/features/ui/Foo' are not mistaken for primitives.
+  if (!match && /^\.\.?\//.test(cleaned)) {
+    match = normalized.match(/(?:^|\/)ui\/([^/]+)$/);
+  }
   if (!match) return null;
+  // normalizeUiPrimitiveName lowercases (Sheet → sheet), so casing is handled here.
   const primitive = normalizeUiPrimitiveName(match[1]);
   return /^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(primitive) ? primitive : null;
 }
@@ -747,9 +787,31 @@ export interface PreviewFileViolation {
   detail: string;
 }
 
+/**
+ * Partition of an incoming generated-files payload into ownership channels.
+ *
+ *   - appFiles            — application source the build system writes to the workspace.
+ *   - strippedSystemFiles — components/ui/** the LLM tried to author; silently dropped
+ *                           because the build system materializes canonical primitives.
+ *   - docsFiles           — docs/architect/** product-document package; persisted/surfaced,
+ *                           never fed to the compiler.
+ *   - designFiles         — design-pack/** system design channel; not a compile input.
+ *   - rejectedFiles       — files that triggered a FATAL violation.
+ *   - fatalViolations     — build-system files + direct Radix imports; abort the build.
+ *
+ * `acceptedFiles` / `violations` are retained as aliases of `appFiles` / `fatalViolations`
+ * so existing call sites keep their meaning (only fatal violations abort a compile now).
+ */
 export interface PreviewFileAdmissionResult {
-  acceptedFiles: Record<string, string>;
+  appFiles: Record<string, string>;
+  strippedSystemFiles: Record<string, string>;
+  docsFiles: Record<string, string>;
+  designFiles: Record<string, string>;
   rejectedFiles: Record<string, string>;
+  fatalViolations: PreviewFileViolation[];
+  /** @deprecated alias of appFiles */
+  acceptedFiles: Record<string, string>;
+  /** @deprecated alias of fatalViolations */
   violations: PreviewFileViolation[];
 }
 
@@ -764,58 +826,72 @@ const SYSTEM_ZONE_PREFIXES = [
 ] as const;
 
 /**
- * Unified admission gate for generated files — runs in a single pass before
- * anything is written to preview-workspace.
+ * Partition layer for a generated-files payload — runs in a single pass before
+ * anything is written to preview-workspace. The single payload plays many roles
+ * (LLM output, project snapshot, UI primitives, product docs, compile input);
+ * this routes each file to its owner instead of failing the whole build.
  *
- * Rejects:
- *   - Writes into system-owned zones (components/ui/**, design-pack/**, docs/architect/**)
+ * STRIPPED (system-owned, not fatal — dropped from compile input):
+ *   - components/ui/**   → strippedSystemFiles (canonical primitives are materialized)
+ *   - docs/architect/**  → docsFiles (product-document package; persisted/surfaced)
+ *   - design-pack/**     → designFiles (system design channel)
+ *
+ * FATAL (abort the build — these break Vite/esbuild or the UI contract):
  *   - Build-system config files (tsconfig, vite.config, package.json, __build_id.ts, vite-env.d.ts, …)
  *   - Direct imports from @radix-ui/* or radix-ui
  *
- * Returns acceptedFiles (safe to write), rejectedFiles (violations found), and
- * a flat violations list. compileBuild throws if violations.length > 0.
+ * Everything else → appFiles (App.tsx, pages/**, components/** except ui/, hooks/**, lib/**, …).
+ * compileBuild throws only when fatalViolations.length > 0.
  */
 export function validatePreviewGeneratedFiles(
   files: Record<string, string>,
 ): PreviewFileAdmissionResult {
-  const acceptedFiles: Record<string, string> = {};
+  const appFiles: Record<string, string> = {};
+  const strippedSystemFiles: Record<string, string> = {};
+  const docsFiles: Record<string, string> = {};
+  const designFiles: Record<string, string> = {};
   const rejectedFiles: Record<string, string> = {};
-  const violations: PreviewFileViolation[] = [];
+  const fatalViolations: PreviewFileViolation[] = [];
 
   for (const [rawPath, content] of Object.entries(files)) {
     const normalized = rawPath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '').replace(/^src\//, '');
     const basename = normalized.split('/').pop() ?? '';
 
-    const fileViolations: PreviewFileViolation[] = [];
-
-    // System zone writes (components/ui/**, design-pack/**, docs/architect/**)
-    const systemZone = SYSTEM_ZONE_PREFIXES.find(prefix => normalized.startsWith(prefix));
-    if (systemZone) {
-      fileViolations.push({
-        filePath: rawPath,
-        kind: 'system_zone_write',
-        detail:
-          `Generated code must not write to system-owned zone '${normalized}'. ` +
-          `The '${systemZone}' directory is materialized by the build system — import from it, do not write to it.`,
-      });
+    // 1. System-owned zones — stripped, never fatal. The build system owns these
+    //    channels: UI primitives are materialized, docs/design are routed elsewhere.
+    if (normalized.startsWith('components/ui/')) {
+      strippedSystemFiles[rawPath] = content;
+      continue;
+    }
+    if (normalized.startsWith('docs/architect/')) {
+      docsFiles[rawPath] = content;
+      continue;
+    }
+    if (normalized.startsWith('design-pack/')) {
+      designFiles[rawPath] = content;
+      continue;
     }
 
-    // Build-system config files (tsconfig, vite.config, package.json, __build_id.ts, vite-env.d.ts …)
-    if (fileViolations.length === 0 && BUILD_SYSTEM_BLOCKLIST_RE.test(basename)) {
-      fileViolations.push({
+    // 2. Build-system config files (basename match at ANY depth — catches
+    //    src/config/tsconfig.json as well as src/tsconfig.json). FATAL.
+    if (BUILD_SYSTEM_BLOCKLIST_RE.test(basename)) {
+      fatalViolations.push({
         filePath: rawPath,
         kind: 'build_system_file',
         detail:
-          `Generated code must not write '${basename}'. ` +
+          `Generated code must not write '${normalized}'. ` +
           `This file is owned by the Vite/TypeScript build system. ` +
           `Only generate application source files (App.tsx, pages/, components/, hooks/, etc.).`,
       });
+      rejectedFiles[rawPath] = content;
+      continue;
     }
 
-    // Direct Radix UI imports (generated code must use @/components/ui/* wrappers)
-    if (fileViolations.length === 0) {
-      for (const specifier of extractDirectRadixImports(content)) {
-        fileViolations.push({
+    // 3. Direct Radix UI imports (generated code must use @/components/ui/* wrappers). FATAL.
+    const radixSpecifiers = extractDirectRadixImports(content);
+    if (radixSpecifiers.length > 0) {
+      for (const specifier of radixSpecifiers) {
+        fatalViolations.push({
           filePath: rawPath,
           kind: 'direct_radix_import',
           detail:
@@ -823,17 +899,24 @@ export function validatePreviewGeneratedFiles(
             `Use '@/components/ui/<name>' wrappers instead of direct Radix imports.`,
         });
       }
+      rejectedFiles[rawPath] = content;
+      continue;
     }
 
-    if (fileViolations.length > 0) {
-      violations.push(...fileViolations);
-      rejectedFiles[rawPath] = content;
-    } else {
-      acceptedFiles[rawPath] = content;
-    }
+    // 4. Application source — safe to write.
+    appFiles[rawPath] = content;
   }
 
-  return { acceptedFiles, rejectedFiles, violations };
+  return {
+    appFiles,
+    strippedSystemFiles,
+    docsFiles,
+    designFiles,
+    rejectedFiles,
+    fatalViolations,
+    acceptedFiles: appFiles,
+    violations: fatalViolations,
+  };
 }
 
 // ── Legacy src/ workspace healing ─────────────────────────────────────────────
@@ -1100,12 +1183,28 @@ async function compileBuild(
   const outDir = path.join(BUILDS_WORKSPACE, buildId);
   const srcDir = path.join(PREVIEW_WORKSPACE, 'src');
 
-  // Pre-write unified admission gate: validates all file categories in one pass before any workspace mutation.
+  // Pre-write partition layer: routes each file to its ownership channel in one
+  // pass before any workspace mutation. System-owned files (components/ui/**,
+  // docs/architect/**, design-pack/**) are stripped from the compile input rather
+  // than failing the build; only build-system files and direct Radix imports are fatal.
   const admission = validatePreviewGeneratedFiles(files);
-  if (admission.violations.length > 0) {
-    const lines = admission.violations.map(v => `  [${v.kind}] ${v.detail}`);
+  if (admission.fatalViolations.length > 0) {
+    const lines = admission.fatalViolations.map(v => `  [${v.kind}] ${v.detail}`);
     throw new Error(
-      `Live generation contract violated (${admission.violations.length} violation(s)):\n${lines.join('\n')}`,
+      `Live generation contract violated (${admission.fatalViolations.length} violation(s)):\n${lines.join('\n')}`,
+    );
+  }
+  const appFiles = admission.appFiles;
+  const strippedCount =
+    Object.keys(admission.strippedSystemFiles).length +
+    Object.keys(admission.docsFiles).length +
+    Object.keys(admission.designFiles).length;
+  if (strippedCount > 0) {
+    console.log(
+      `[preview-manager] Partitioned payload: ${Object.keys(appFiles).length} app file(s) written; ` +
+      `stripped ${Object.keys(admission.strippedSystemFiles).length} ui, ` +
+      `${Object.keys(admission.docsFiles).length} docs, ` +
+      `${Object.keys(admission.designFiles).length} design file(s) from compile input`,
     );
   }
 
@@ -1151,7 +1250,7 @@ async function compileBuild(
   // Skeleton-only compile: files={} means the skeleton src is the full source
   // of truth. Skeleton App.tsx imports section files that were just copied in
   // step 0 — overwriting them with generic template files breaks those imports.
-  const isSkeletonOnlyCompile = Object.keys(files).length === 0;
+  const isSkeletonOnlyCompile = Object.keys(appFiles).length === 0;
 
   await ensurePreviewLibShims(PREVIEW_WORKSPACE);
 
@@ -1176,8 +1275,9 @@ async function compileBuild(
     await fsPromises.cp(templatesSrc, sectionsDest, { recursive: true });
   }
 
-  // 1. Write user source files (delta over the skeleton base)
-  for (const [filePath, content] of Object.entries(files)) {
+  // 1. Write user source files (delta over the skeleton base) — only partitioned
+  //    appFiles; system-owned files were stripped by the admission partition.
+  for (const [filePath, content] of Object.entries(appFiles)) {
     const { fullPath } = resolvePreviewSrcPath(srcDir, filePath);
     await fsPromises.mkdir(path.dirname(fullPath), { recursive: true });
     await fsPromises.writeFile(fullPath, content, 'utf-8');
@@ -1376,7 +1476,7 @@ window.addEventListener('message', (event) => {
   const contract = validateLiveGenerationContract({
     finalFiles: finalCandidateFiles,
     skeletonId,
-    generatedDeltaFiles: files,
+    generatedDeltaFiles: appFiles,
     materializedFiles,
   });
   if (!contract.ok) {

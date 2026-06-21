@@ -418,6 +418,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             previewUrl={previewUrl}
             appLanguage={appLanguage}
             onVisualElementSelected={handleVisualElementSelected}
+            onRetry={onRetry}
           />
         </div>
       </div>

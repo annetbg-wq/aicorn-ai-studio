@@ -69,6 +69,16 @@ export interface StoredProject {
   generationMode?: string;                        // 'landing' | 'app' | 'superapp'
   generationPath?: 'skeleton_assembly' | 'blank_canvas';
   productDocs?:     ProductDocumentSet;
+  /**
+   * Outcome of the last preview build for this project.
+   *   'ready'  — preview compiled and mounted successfully.
+   *   'failed' — generation produced files/docs but the preview build failed;
+   *              the product-document package is still saved so the project can
+   *              be re-sent to build from history.
+   */
+  buildStatus?:    'ready' | 'failed';
+  /** Build id of the last compiled preview (for cascade backend cleanup on delete). */
+  previewBuildId?: string;
   billingCost?:    number;
   billingTokens?:  number;
   revisions?:      ProjectRevision[];              // max 5, newest first

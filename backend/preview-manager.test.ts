@@ -130,6 +130,35 @@ describe('preview-manager UI primitive guard', () => {
     expect(imports[0].importedBy).toBe('src/pages/Home.tsx');
   });
 
+  it('detects relative sibling ./ui/<Name> imports used by skeleton shell components', () => {
+    const imports = findUiPrimitiveImportsInSource(
+      [
+        "import { Sheet, SheetContent } from './ui/Sheet';",
+        "import { Button } from './ui/Button';",
+        "import { Tabs } from '../ui/Tabs';",
+      ].join('\n'),
+      'src/components/PaywallSheet.tsx',
+    );
+
+    expect(imports.map(item => item.primitive).sort()).toEqual(['button', 'sheet', 'tabs']);
+  });
+
+  it('re-materializes a relative ./ui/Sheet primitive after stale PascalCase cleanup', async () => {
+    await withTempSrc(async (srcDir) => {
+      await fsPromises.mkdir(path.join(srcDir, 'components'), { recursive: true });
+      await fsPromises.writeFile(
+        path.join(srcDir, 'components', 'PaywallSheet.tsx'),
+        "import { Sheet, SheetContent } from './ui/Sheet';\nexport function PaywallSheet() { return <Sheet><SheetContent /></Sheet>; }\n",
+        'utf-8',
+      );
+
+      const result = await ensureImportedUiPrimitives(srcDir, 'mobile-app');
+
+      expect(result.materialized).toContain('components/ui/sheet.tsx');
+      expect(fs.existsSync(path.join(srcDir, 'components', 'ui', 'sheet.tsx'))).toBe(true);
+    });
+  });
+
   it('materializes missing scroll-area from the canonical skeleton before Vite runs', async () => {
     await withTempSrc(async (srcDir) => {
       await fsPromises.mkdir(path.join(srcDir, 'pages'), { recursive: true });
@@ -740,7 +769,7 @@ describe('preview-manager skeleton-only compile section preservation', () => {
   it('source contains isSkeletonOnlyCompile guard for files={}', () => {
     const src = fs.readFileSync(path.resolve('backend/preview-manager.ts'), 'utf-8');
     expect(src).toContain('isSkeletonOnlyCompile');
-    expect(src).toContain('Object.keys(files).length === 0');
+    expect(src).toContain('Object.keys(appFiles).length === 0');
   });
 
   it('template section overwrite is skipped for skeletons that ship their own sections (and for skeleton-only compiles)', () => {
@@ -1172,14 +1201,15 @@ describe('preview-manager build-system contract — stale file cleanup', () => {
 // ── LIVE WORKSPACE HEALING — unified admission gate ───────────────────────────
 
 describe('preview-manager workspace healing — validatePreviewGeneratedFiles', () => {
-  it('rejects generated src/components/ui/Button.tsx (system zone)', () => {
+  it('strips generated src/components/ui/Button.tsx (system zone — not fatal)', () => {
     const result = validatePreviewGeneratedFiles({
       'src/components/ui/Button.tsx': 'export const Button = () => null;',
     });
-    expect(result.violations).toHaveLength(1);
-    expect(result.violations[0].kind).toBe('system_zone_write');
-    expect(result.rejectedFiles).toHaveProperty('src/components/ui/Button.tsx');
-    expect(result.acceptedFiles).not.toHaveProperty('src/components/ui/Button.tsx');
+    expect(result.fatalViolations).toHaveLength(0);
+    expect(result.violations).toHaveLength(0);
+    expect(result.strippedSystemFiles).toHaveProperty('src/components/ui/Button.tsx');
+    expect(result.appFiles).not.toHaveProperty('src/components/ui/Button.tsx');
+    expect(result.rejectedFiles).not.toHaveProperty('src/components/ui/Button.tsx');
   });
 
   it('rejects generated src/tsconfig.json (build-system file)', () => {
@@ -1222,20 +1252,22 @@ describe('preview-manager workspace healing — validatePreviewGeneratedFiles', 
     expect(result.violations[0].kind).toBe('build_system_file');
   });
 
-  it('rejects src/design-pack/ writes (system zone)', () => {
+  it('strips src/design-pack/ writes into designFiles (not fatal)', () => {
     const result = validatePreviewGeneratedFiles({
       'src/design-pack/tokens.ts': 'export const tokens = {};',
     });
-    expect(result.violations).toHaveLength(1);
-    expect(result.violations[0].kind).toBe('system_zone_write');
+    expect(result.fatalViolations).toHaveLength(0);
+    expect(result.designFiles).toHaveProperty('src/design-pack/tokens.ts');
+    expect(result.appFiles).not.toHaveProperty('src/design-pack/tokens.ts');
   });
 
-  it('rejects src/docs/architect/ writes (system zone)', () => {
+  it('routes src/docs/architect/ writes into docsFiles (not fatal)', () => {
     const result = validatePreviewGeneratedFiles({
       'src/docs/architect/README.md': '# docs',
     });
-    expect(result.violations).toHaveLength(1);
-    expect(result.violations[0].kind).toBe('system_zone_write');
+    expect(result.fatalViolations).toHaveLength(0);
+    expect(result.docsFiles).toHaveProperty('src/docs/architect/README.md');
+    expect(result.appFiles).not.toHaveProperty('src/docs/architect/README.md');
   });
 
   it('accepts valid App.tsx, pages/Home.tsx, components/Feature.tsx, hooks/useData.ts', () => {
@@ -1258,24 +1290,35 @@ describe('preview-manager workspace healing — validatePreviewGeneratedFiles', 
     expect(result.acceptedFiles).toHaveProperty('src/route-manifest.json');
   });
 
-  it('splits acceptedFiles and rejectedFiles correctly in a mixed batch', () => {
+  it('partitions a mixed batch: app written, ui stripped, build-system fatal', () => {
     const result = validatePreviewGeneratedFiles({
       'src/App.tsx': 'export default function App() { return null; }',
-      'src/components/ui/Button.tsx': 'export const Button = () => null;', // rejected
+      'src/components/ui/Button.tsx': 'export const Button = () => null;', // stripped
       'src/pages/Home.tsx': 'export function Home() { return null; }',
-      'src/tsconfig.json': '{}',                                           // rejected
+      'src/tsconfig.json': '{}',                                           // fatal
     });
-    expect(Object.keys(result.acceptedFiles)).toHaveLength(2);
-    expect(Object.keys(result.rejectedFiles)).toHaveLength(2);
-    expect(result.violations).toHaveLength(2);
+    expect(Object.keys(result.appFiles)).toHaveLength(2);
+    expect(Object.keys(result.strippedSystemFiles)).toHaveLength(1);
+    expect(Object.keys(result.rejectedFiles)).toHaveLength(1);
+    expect(result.fatalViolations).toHaveLength(1);
+    expect(result.fatalViolations[0].kind).toBe('build_system_file');
   });
 
-  it('each violation carries filePath, kind, and detail', () => {
+  it('treats a build-system file at any depth as fatal (src/config/tsconfig.json)', () => {
     const result = validatePreviewGeneratedFiles({
-      'src/components/ui/Card.tsx': 'export const Card = () => null;',
+      'src/config/tsconfig.json': '{}',
     });
-    const [v] = result.violations;
-    expect(v.filePath).toBe('src/components/ui/Card.tsx');
+    expect(result.fatalViolations).toHaveLength(1);
+    expect(result.fatalViolations[0].kind).toBe('build_system_file');
+    expect(result.rejectedFiles).toHaveProperty('src/config/tsconfig.json');
+  });
+
+  it('each fatal violation carries filePath, kind, and detail', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/tsconfig.json': '{}',
+    });
+    const [v] = result.fatalViolations;
+    expect(v.filePath).toBe('src/tsconfig.json');
     expect(v.kind).toBeTruthy();
     expect(typeof v.detail).toBe('string');
     expect(v.detail.length).toBeGreaterThan(0);

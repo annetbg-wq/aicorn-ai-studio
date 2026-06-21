@@ -538,6 +538,10 @@ export const ProjectRepository = {
   // ── Удалить проект ────────────────────────────────────────────────────────
 
   async deleteProject(id: string): Promise<void> {
+    // Capture the compiled preview build id BEFORE local deletion wipes it, so we
+    // can cascade the delete to the backend builds/<buildId>/ directory.
+    const previewBuildId = ProjectStorage.getProject(id)?.previewBuildId;
+
     if (UUID_RE.test(id)) {
       const currentUserId = await getCurrentSupabaseUserId();
       if (currentUserId) {
@@ -545,6 +549,13 @@ export const ProjectRepository = {
           await supabase.from('user_projects').delete().eq('id', id);
         } catch { /* non-fatal */ }
       }
+    }
+
+    // Cascade to backend: remove the orphaned compiled preview build.
+    if (previewBuildId) {
+      try {
+        await fetch(`/api/preview/build/${encodeURIComponent(previewBuildId)}`, { method: 'DELETE' });
+      } catch { /* non-fatal — LRU eviction will reclaim it eventually */ }
     }
 
     // Также из localStorage

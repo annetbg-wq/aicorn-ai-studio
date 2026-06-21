@@ -4,7 +4,7 @@ import {
   Eye, Code2, Palette, BarChart2, Shield,
   Share2, Copy, Check, GitBranch, GitCommit, CheckCircle,
   FilePlus, Trash2, ZoomIn, ZoomOut, Maximize2, Download,
-  MousePointer2, Save, X,
+  MousePointer2, Save, X, RefreshCw,
 } from 'lucide-react';
 import { visualEditBridge, type VisualEditMode, type SelectedElement } from '../services/VisualEditBridge';
 import { appendPreviewSessionToUrl } from '../services/PreviewSessionService';
@@ -792,13 +792,19 @@ const WorkspaceDiagnosticPanel: React.FC<{
   diagnostic: WorkspaceRunDiagnostic;
   testId: string;
   compact?: boolean;
-}> = ({ diagnostic, testId, compact = false }) => (
+  onRetry?: () => void;
+}> = ({ diagnostic, testId, compact = false, onRetry }) => (
   <div
     data-testid={testId}
     data-diagnostic-code={diagnostic.code}
     style={{
       margin: compact ? 0 : '80px auto 0',
       maxWidth: 560,
+      // Bound the panel height inside the (often overflow:hidden) device frame and
+      // let its body scroll — long multi-violation reports were previously clipped.
+      maxHeight: compact ? 240 : 'min(70vh, 520px)',
+      display: 'flex',
+      flexDirection: 'column',
       borderRadius: 12,
       border: '1px solid rgba(255,69,58,0.28)',
       background: 'rgba(255,69,58,0.07)',
@@ -806,19 +812,49 @@ const WorkspaceDiagnosticPanel: React.FC<{
       color: 'rgba(255,255,255,0.78)',
       fontSize: compact ? 11 : 13,
       lineHeight: 1.55,
+      boxSizing: 'border-box',
     }}
   >
-    <div style={{ fontWeight: 700, color: '#ff9f0a', marginBottom: 4 }}>
+    <div style={{ fontWeight: 700, color: '#ff9f0a', marginBottom: 4, flexShrink: 0 }}>
       {diagnostic.title}
     </div>
-    <div style={{ color: 'rgba(255,255,255,0.55)', whiteSpace: 'pre-wrap' }}>
+    <div
+      data-testid={`${testId}-detail`}
+      style={{
+        color: 'rgba(255,255,255,0.6)',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        fontSize: compact ? 10.5 : 12,
+        overflowY: 'auto',
+        flex: 1,
+        minHeight: 0,
+        paddingRight: 4,
+      }}
+    >
       {diagnostic.detail}
     </div>
-    {diagnostic.runId && (
-      <div style={{ marginTop: 8, fontSize: 10, color: 'rgba(255,255,255,0.34)', fontFamily: 'monospace' }}>
-        run {diagnostic.runId}
-      </div>
-    )}
+    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+      {onRetry && (
+        <button
+          data-testid={`${testId}-retry`}
+          onClick={onRetry}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '5px 12px', borderRadius: 8, cursor: 'pointer',
+            background: 'rgba(255,159,10,0.14)', border: '1px solid rgba(255,159,10,0.4)',
+            color: '#ff9f0a', fontSize: 11, fontWeight: 600,
+          }}
+        >
+          <RefreshCw size={12} /> Повторить сборку
+        </button>
+      )}
+      {diagnostic.runId && (
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.34)', fontFamily: 'monospace' }}>
+          run {diagnostic.runId}
+        </span>
+      )}
+    </div>
   </div>
 );
 
@@ -1826,6 +1862,8 @@ interface PreviewCanvasProps {
    * Receives the selected element descriptor — host fills chat input with edit prompt.
    */
   onVisualElementSelected?: (element: SelectedElement) => void;
+  /** Re-run the last generation/build (wired from useStudio.onRetry). */
+  onRetry?: () => void;
 }
 
 /* ---- Main component ---- */
@@ -1850,6 +1888,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   previewUrl,
   appLanguage = 'en',
   onVisualElementSelected,
+  onRetry,
 }) => {
   const iframeUrl = previewUrl
     ? appendPreviewSessionToUrl(previewUrl)
@@ -2557,7 +2596,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
           >
             {!hasReasoningTrace ? (
               workspaceBinding.diagnostic ? (
-                <WorkspaceDiagnosticPanel diagnostic={workspaceBinding.diagnostic} testId="reasoning-diagnostic" />
+                <WorkspaceDiagnosticPanel diagnostic={workspaceBinding.diagnostic} testId="reasoning-diagnostic" onRetry={onRetry} />
               ) : (
                 <div
                   data-testid="reasoning-empty"
@@ -2599,6 +2638,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                       diagnostic={workspaceBinding.diagnostic}
                       testId={hasCurrentTraceSteps ? 'reasoning-diagnostic-banner' : 'reasoning-diagnostic'}
                       compact
+                      onRetry={onRetry}
                     />
                   </div>
                 )}

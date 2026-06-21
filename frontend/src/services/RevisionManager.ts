@@ -1147,6 +1147,7 @@ async function triggerCompile(
       import_path?: string | null;
       expected?: string | null;
       actual?: string | null;
+      suggested_fix?: string | null;
     }>;
   } | null = null;
   try { body = await res.json(); } catch { /* non-JSON response — backend likely down or proxy error */ }
@@ -1157,14 +1158,29 @@ async function triggerCompile(
         ? `Backend server returned an unexpected response (HTTP ${res.status}). ` +
           `Ensure the backend is running (npm run dev:backend).`
         : `Compile request failed (HTTP ${res.status})`);
-    const firstDiagnostic = body?.diagnostics?.[0];
+    const diagnostics = body?.diagnostics ?? [];
+    const firstDiagnostic = diagnostics[0];
     if (!firstDiagnostic) {
       throw new Error(detail);
     }
-    throw new Error([
-      detail,
-      JSON.stringify(firstDiagnostic, null, 2),
-    ].join('\n'));
+    // Render diagnostics as readable lines instead of a raw JSON dump so the
+    // preview error panel shows a scannable report (root cause, file, fix).
+    const formatDiagnostic = (d: typeof firstDiagnostic, index: number): string => {
+      const lines: string[] = [];
+      const heading = diagnostics.length > 1 ? `${index + 1}. ` : '';
+      lines.push(`${heading}${d.root_cause_type ?? 'error'}`);
+      if (d.file) lines.push(`   file: ${d.file}`);
+      if (d.import_path) lines.push(`   import: ${d.import_path}`);
+      if (d.expected) lines.push(`   expected: ${d.expected}`);
+      if (d.actual) lines.push(`   actual: ${d.actual}`);
+      if (d.suggested_fix) lines.push(`   fix: ${d.suggested_fix}`);
+      return lines.join('\n');
+    };
+    const body_ = diagnostics.map(formatDiagnostic).join('\n\n');
+    const header = diagnostics.length > 1
+      ? `${detail}\n(${diagnostics.length} нарушений контракта генерации)`
+      : detail;
+    throw new Error([header, '', body_].join('\n'));
   }
 }
 

@@ -1276,7 +1276,15 @@ interface PendingProjectSave {
   reportMessageId?: string | null;
 }
 
-type PendingProjectSaveReason = 'manual-after-preview';
+type PendingProjectSaveReason = 'manual-after-preview' | 'preview-ready' | 'preview-failed';
+
+/** Options controlling how a pending project save is committed. */
+interface CommitPendingProjectSaveOptions {
+  /** Bypass the preview-ready gate (used by the failure path to persist the doc package). */
+  force?: boolean;
+  /** Build outcome stamped on the saved project. Defaults to 'ready'. */
+  buildStatus?: 'ready' | 'failed';
+}
 
 interface PendingProjectSaveMeta {
   projectId: string;
@@ -2255,7 +2263,9 @@ export const useStudio = () => {
     branchId: string | null;
     startedMs: number | null;
   }>({ runId: null, projectId: null, branchId: null, startedMs: null });
-  const commitPendingProjectSaveRef = useRef<(reason: PendingProjectSaveReason) => boolean>(() => false);
+  const commitPendingProjectSaveRef = useRef<(reason: PendingProjectSaveReason, opts?: CommitPendingProjectSaveOptions) => boolean>(() => false);
+  /** Guards against committing more than one failed-build save per failure transition. */
+  const failedSaveCommittedRef = useRef(false);
   const lastPreviewReadyRevisionRef = useRef<string | null>(null);
   const finalPreviewGateRef = useRef({ awaiting: false, filesCommitted: false });
 
@@ -2330,16 +2340,30 @@ export const useStudio = () => {
     setCurrentPhase('');
   }, []);
 
-  const commitPendingProjectSave = useCallback((reason: PendingProjectSaveReason) => {
+  const commitPendingProjectSave = useCallback((reason: PendingProjectSaveReason, opts?: CommitPendingProjectSaveOptions) => {
     const pending = pendingProjectSaveRef.current;
     if (!pending) return false;
+    const buildStatus = opts?.buildStatus ?? 'ready';
+    // Build id of the compiled preview (the /preview/<id> path segment), stamped on
+    // the saved project so deletion can cascade to the backend builds/<id>/ directory.
+    const previewBuildId = (previewUrl.match(/\/preview\/([^/?#]+)/)?.[1]) || undefined;
     const previewReadyForSave =
       pendingProjectSaveMeta?.previewReady === true
       && previewLifecycle === 'preview-ready'
       && previewReady;
-    if (!previewReadyForSave) {
+    // The failure path forces a save of the product-document package even though the
+    // preview never mounted; the project lands in history with buildStatus:'failed'.
+    if (!previewReadyForSave && !opts?.force) {
       addLog('[Project] Save blocked: preview is not ready yet', 'warn');
       return false;
+    }
+    if (opts?.force && !previewReadyForSave) {
+      addLog(
+        buildStatus === 'failed'
+          ? '[Project] Persisting failed build — product-document package saved for retry'
+          : '[Project] Forcing save of rendered preview (handshake lagged) — persisting project',
+        'warn',
+      );
     }
 
     const persistedProjectName = getCanonicalProjectName(
@@ -2498,6 +2522,8 @@ export const useStudio = () => {
         modelId:        pending.effectiveModel,
         durationMs:     Date.now() - pending.generationStartMs,
         generationPath,
+        buildStatus,
+        previewBuildId,
         billingCost:    projectCost,
         billingTokens:  projectTokens,
         revisions:      reconciledThread.revisions,
@@ -2557,6 +2583,8 @@ export const useStudio = () => {
         modelId:        pending.effectiveModel,
         durationMs:     Date.now() - pending.generationStartMs,
         generationPath,
+        buildStatus,
+        previewBuildId,
         billingCost:    projectCost,
         billingTokens:  projectTokens,
         revisions:      firstThread.revisions,
@@ -2621,20 +2649,53 @@ export const useStudio = () => {
     }
 
     return true;
-  }, [addLog, appLanguage, authUser?.id, clearDraftChatStorage, generationMode, pendingProjectSaveMeta?.previewReady, previewLifecycle, previewReady, projectCost, projectTokens]);
+  }, [addLog, appLanguage, authUser?.id, clearDraftChatStorage, generationMode, pendingProjectSaveMeta?.previewReady, previewLifecycle, previewReady, previewUrl, projectCost, projectTokens]);
   commitPendingProjectSaveRef.current = commitPendingProjectSave;
 
+  // Failure-path persistence: when a generation produced files/docs but the preview
+  // build failed, persist the project anyway (buildStatus:'failed') so the product-
+  // document package survives in history and can be re-sent to build. Runs once per
+  // failure transition; resets when the lifecycle leaves the 'failed' state.
+  useEffect(() => {
+    if (previewLifecycle !== 'failed') {
+      failedSaveCommittedRef.current = false;
+      return;
+    }
+    if (failedSaveCommittedRef.current) return;
+    // Only persist a failed build once generation has fully stopped — never on a
+    // transient mid-generation 'failed' state, which would clobber the pending save
+    // that a subsequent successful compile (repair pass) still needs.
+    if (isGenerating) return;
+    const pending = pendingProjectSaveRef.current;
+    if (!pending || Object.keys(pending.finalFiles).length === 0) return;
+    failedSaveCommittedRef.current = true;
+    commitPendingProjectSaveRef.current('preview-failed', { force: true, buildStatus: 'failed' });
+  }, [previewLifecycle, isGenerating]);
+
   const savePendingProject = useCallback(() => {
-    if (!pendingProjectSaveRef.current) return false;
-    const ready =
-      pendingProjectSaveMeta?.previewReady === true
-      && previewLifecycle === 'preview-ready'
-      && previewReady;
-    if (!ready) {
-      addLog('[Project] Save requested before preview was ready', 'warn');
+    if (!pendingProjectSaveRef.current) {
+      addLog('[Project] Save requested but no pending generation to persist', 'warn');
       return false;
     }
-    return commitPendingProjectSave('manual-after-preview');
+    // `previewReady` (state) flips true the moment a non-skeleton preview mounts
+    // (syncPreviewState), unconditionally. The internal `meta.previewReady`
+    // handshake can lag behind it: addSnapshot runs in a low-priority transition,
+    // and a fast preview-mounted event can win the race so promoteFinalPreviewReady
+    // bails on a still-null currentSnapshotId — leaving the meta flag false. For an
+    // EXPLICIT user Save, trust the observable previewReady and force the commit so
+    // a visibly-rendered preview is never silently dropped.
+    const previewIsRendered =
+      previewReady
+      || previewLifecycle === 'preview-ready'
+      || previewLifecycle === 'degraded';
+    if (previewIsRendered) {
+      return commitPendingProjectSave('manual-after-preview', { force: true });
+    }
+    if (pendingProjectSaveMeta?.previewReady === true) {
+      return commitPendingProjectSave('manual-after-preview');
+    }
+    addLog('[Project] Save requested before preview was ready', 'warn');
+    return false;
   }, [addLog, commitPendingProjectSave, pendingProjectSaveMeta?.previewReady, previewLifecycle, previewReady]);
 
   const rejectPendingProjectSave = useCallback(() => {
