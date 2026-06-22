@@ -99,6 +99,20 @@ interface ModuleExportInfo {
 }
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'] as const;
+
+/**
+ * Import specifiers for non-code assets (images / fonts / media) that Vite resolves
+ * from disk as URL strings — they are NOT text modules in the candidate graph, so the
+ * import/export contract must not treat them as missing local modules. Their on-disk
+ * presence is ensured by media/placeholder materialization; Vite reports any that are
+ * genuinely absent. (.css and .json ARE collected into the graph and remain checked.)
+ */
+const NON_GRAPH_ASSET_IMPORT_RE =
+  /\.(?:svg|png|jpe?g|webp|gif|avif|ico|bmp|woff2?|ttf|otf|eot|mp4|webm|ogg|mp3|wav)(?:\?[^'"`]*)?$/i;
+function isNonGraphAssetSpecifier(specifier: string): boolean {
+  return NON_GRAPH_ASSET_IMPORT_RE.test(specifier.trim());
+}
+
 const ROOT_SHELL_OWNERS = ['src/App.tsx', 'src/components/AppShell.tsx', 'src/components/DashboardShell.tsx'];
 
 const PROTECTED_SHELL_COMPONENTS_BY_SKELETON: Partial<Record<SkeletonId, readonly string[]>> = {
@@ -692,6 +706,9 @@ export function validateImportExportContract(
     if (!isSourceModule(filePath)) continue;
     for (const parsedImport of parseImports(content, filePath)) {
       if (parsedImport.typeOnly) continue;
+      // Asset imports (svg/png/fonts/media) are Vite URL resolutions, not text
+      // modules in the candidate graph — skip them here; Vite resolves from disk.
+      if (isNonGraphAssetSpecifier(parsedImport.specifier)) continue;
       const resolvedTarget = resolveLocalImportTarget(filePath, parsedImport.specifier, finalFiles);
       if (!resolvedTarget) continue;
 

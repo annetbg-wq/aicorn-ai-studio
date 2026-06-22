@@ -187,6 +187,21 @@ describe('LiveGenerationContractValidator candidate graph', () => {
 });
 
 describe('LiveGenerationContractValidator import/export contract', () => {
+  it('does not flag asset imports (svg/png) as missing local modules — Vite resolves them from disk', () => {
+    const result = validateImportExportContract({
+      finalFiles: {
+        'src/pages/Detail.tsx': [
+          "import illustration from '@/assets/generated/mobile-onboarding-onboarding-illustration.svg';",
+          "import logo from '@/assets/brand/logo.png';",
+          'export default function Detail() { return <img src={illustration} alt="" />; }',
+        ].join('\n'),
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toHaveLength(0);
+  });
+
   it('fails missing accordion before Vite with a missing_ui_primitive diagnostic', () => {
     const result = validateImportExportContract({
       finalFiles: {
