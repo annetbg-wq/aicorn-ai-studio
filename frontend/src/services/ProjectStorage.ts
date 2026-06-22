@@ -344,7 +344,7 @@ export class ProjectStorage {
         productDocs,
       };
 
-      localStorage.setItem(`${PROJECT_KEY_PREFIX}${project.id}`, JSON.stringify(materializedProject));
+      this.setItemWithQuotaRecovery(`${PROJECT_KEY_PREFIX}${project.id}`, JSON.stringify(materializedProject));
       const meta = this.listProjects();
       const idx = meta.findIndex(m => m.id === materializedProject.id);
       const metaEntry: ProjectMeta = {
@@ -369,12 +369,39 @@ export class ProjectStorage {
       };
       if (idx >= 0) meta[idx] = metaEntry;
       else meta.unshift(metaEntry);
-      localStorage.setItem(this.META_KEY, JSON.stringify(meta));
+      this.setItemWithQuotaRecovery(this.META_KEY, JSON.stringify(meta));
       return true;
     } catch (e) {
       console.error('[ProjectStorage] Save failed (storage full?):', e);
       return false;
     }
+  }
+
+  /**
+   * Writes to localStorage, prioritising the persisted project over regenerable
+   * caches. The 58-file materialised projects (design-pack + premium + ui) can fill
+   * the ~5MB quota, after which a plain setItem throws QuotaExceededError and the
+   * project silently never reaches the Projects index. On quota error we drop the
+   * large REGENERABLE keys (snapshots/live-file caches re-derive on next build) and
+   * retry — so an explicit Save reliably lands the project.
+   */
+  private static setItemWithQuotaRecovery(key: string, value: string): void {
+    try {
+      localStorage.setItem(key, value);
+      return;
+    } catch (e) {
+      const isQuota =
+        e instanceof DOMException &&
+        (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+      if (!isQuota) throw e;
+    }
+    // Free regenerable caches (NOT project payloads or the meta index).
+    for (const regenerableKey of ['SNAPSHOTS', 'CURRENT_SNAPSHOT_ID', 'LAST_FILES', 'LAST_CODE']) {
+      try { localStorage.removeItem(regenerableKey); } catch { /* ignore */ }
+    }
+    // Retry — throws again only if even the cleared state cannot fit the project,
+    // which the caller's catch reports as a genuine save failure.
+    localStorage.setItem(key, value);
   }
 
   /** Deletes a project and removes it from the meta index. */
