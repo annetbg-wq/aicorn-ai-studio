@@ -4751,7 +4751,7 @@ export const useStudio = () => {
             role: 'assistant',
             type: 'text',
             content: isParseFailure
-              ? '❌ **LLM returned invalid format.** The model response could not be parsed into code files. Please retry.'
+              ? `❌ **LLM returned invalid format.** The model response could not be parsed into code files. Please retry.\n\n\`${failMsg}\``
               : result.message || `❌ Ошибка: ${failMsg}`,
             retryable: true,
           });
