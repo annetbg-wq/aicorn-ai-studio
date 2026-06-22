@@ -1399,6 +1399,7 @@ createRoot(rootElement).render(
 );
 
 function notifyMounted(): void {
+  window.__previewMounted = true;
   if (typeof window === 'undefined' || window.parent === window) return;
   try {
     window.parent.postMessage(
@@ -1414,23 +1415,42 @@ requestAnimationFrame(() => {
   setTimeout(notifyMounted, 1500);
 });
 
-window.addEventListener('error', (e) => {
-  if (window.parent === window) return;
+function reportRuntimeError(detail) {
+  if (typeof window === 'undefined' || window.parent === window) return;
   try {
     window.parent.postMessage(
-      { type: 'iframe-error', buildId: BUILD_ID, message: String(e.message ?? e.error ?? 'error') },
+      {
+        type: 'iframe-error',
+        buildId: BUILD_ID,
+        message: String(detail.message ?? 'error'),
+        // Phase: 'mount' before the app first reports ready, 'interaction' after —
+        // an interaction-phase error means the app rendered but broke on use
+        // (e.g. a click handler throwing), which the Time-2 fixer targets.
+        phase: window.__previewMounted ? 'interaction' : 'mount',
+        file: detail.file ?? null,
+        line: detail.line ?? null,
+        column: detail.column ?? null,
+        stack: detail.stack ? String(detail.stack).slice(0, 4000) : null,
+      },
       '*',
     );
   } catch { /* ignore */ }
+}
+window.addEventListener('error', (e) => {
+  reportRuntimeError({
+    message: e.message ?? (e.error && e.error.message) ?? 'error',
+    file: e.filename,
+    line: e.lineno,
+    column: e.colno,
+    stack: e.error && e.error.stack,
+  });
 });
 window.addEventListener('unhandledrejection', (e) => {
-  if (window.parent === window) return;
-  try {
-    window.parent.postMessage(
-      { type: 'iframe-error', buildId: BUILD_ID, message: String(e.reason ?? 'unhandled rejection') },
-      '*',
-    );
-  } catch { /* ignore */ }
+  const reason = e.reason;
+  reportRuntimeError({
+    message: (reason && reason.message) ? reason.message : String(reason ?? 'unhandled rejection'),
+    stack: reason && reason.stack,
+  });
 });
 
 async function captureScreenshot(): Promise<void> {

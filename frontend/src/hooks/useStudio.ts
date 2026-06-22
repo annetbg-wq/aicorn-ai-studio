@@ -2919,8 +2919,20 @@ export const useStudio = () => {
       addLog(`[AutoFix] Max attempts (${MAX_FIX_ATTEMPTS}) reached. Manual fix required.`);
       return;
     }
-    const errorMsg: string = typeof e.data.message === 'string' ? e.data.message : '';
-    if (!errorMsg) return;
+    const rawMsg: string = typeof e.data.message === 'string' ? e.data.message : '';
+    if (!rawMsg) return;
+    // Enrich with file + stack (captured by the preview) so the fixer can locate the
+    // offending module instead of guessing. phase='interaction' means the app rendered
+    // but threw on use (e.g. a click handler) — the most common "buttons don't work" case.
+    const errFile: string = typeof e.data.file === 'string' ? e.data.file : '';
+    const errStack: string = typeof e.data.stack === 'string' ? e.data.stack : '';
+    const errPhase: string = typeof e.data.phase === 'string' ? e.data.phase : '';
+    const errorMsg = [
+      rawMsg,
+      errFile ? `at ${errFile}${typeof e.data.line === 'number' ? `:${e.data.line}` : ''}` : '',
+      errPhase ? `(phase: ${errPhase})` : '',
+      errStack ? `\nstack:\n${errStack}` : '',
+    ].filter(Boolean).join(' ');
     fixAttemptsRef.current += 1;
     const attempt = fixAttemptsRef.current;
     const effectiveKey = ConfigService.getKeyForAgent('fix') || apiKey;
@@ -2929,7 +2941,7 @@ export const useStudio = () => {
       return;
     }
     setIsAutoFixing(true);
-    addLog(`[AutoFix] Attempt ${attempt}/${MAX_FIX_ATTEMPTS}: ${errorMsg.slice(0, 100)}`);
+    addLog(`[AutoFix] Attempt ${attempt}/${MAX_FIX_ATTEMPTS} [${errPhase || 'runtime'}]: ${rawMsg.slice(0, 100)}${errFile ? ` @ ${errFile}` : ''}`);
     GenerationEngine.autoFix({ errorMsg, apiKey: effectiveKey, onLog: addLog })
       .then(success => {
         if (success) {
