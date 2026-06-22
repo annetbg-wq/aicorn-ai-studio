@@ -3972,10 +3972,25 @@ async function runCoder(input: {
     .map(d => d.path)
     .filter(p => !(p in parsed));
 
-  // Targeted retry for length truncation — ask only for the missing files.
+  // Targeted retry for length truncation OR a first reply that produced no
+  // parseable markers at all. When NOTHING parsed, the model ignored the marker
+  // format — so the retry leads with an emphatic, example-driven format reminder
+  // (model-agnostic; never depends on a specific model).
   if ((firstReason === 'length' || missing.length > 0) && missing.length > 0) {
-    input.onLog(`[coder] retry for ${missing.length} missing file(s) (finish_reason=${firstReason || 'incomplete'})`, 'warn');
-    const retrySystem = `Same task as before. Emit ONLY the files listed below, in the same FILE/END marker format. Do not repeat already-produced files.
+    const nothingParsed = Object.keys(parsed).length === 0;
+    input.onLog(
+      `[coder] retry for ${missing.length} missing file(s) ` +
+        `(finish_reason=${firstReason || 'incomplete'}, nothing_parsed=${nothingParsed})`,
+      'warn',
+    );
+    const formatReminder = nothingParsed
+      ? 'Your previous reply contained NO valid file markers and could not be parsed. ' +
+        'Output EVERY file wrapped EXACTLY like this, with nothing else around it:\n' +
+        '<<<FILE: src/path/Name.tsx>>>\n<file contents>\n<<<END>>>\n' +
+        'Do NOT wrap the whole reply in markdown code fences and do NOT add any commentary ' +
+        'before the first marker or after the last one.\n\n'
+      : '';
+    const retrySystem = `${formatReminder}Same task as before. Emit ONLY the files listed below, in the FILE/END marker format. Do not repeat already-produced files.
 
 MISSING FILES:
 ${missing.map(p => `  - ${p}`).join('\n')}`;
@@ -4004,7 +4019,12 @@ ${missing.map(p => `  - ${p}`).join('\n')}`;
   }
 
   if (Object.keys(parsed).length === 0) {
-    throw new Error('Coder produced no FILE/END blocks — output was unparsable');
+    // Diagnosable failure: finish_reason distinguishes truncation (length) from a
+    // genuine format miss; body length confirms whether content arrived at all.
+    throw new Error(
+      `Coder produced no FILE/END blocks — output was unparsable ` +
+        `(finish_reason=${firstReason || 'none'}, body_chars=${body.length})`,
+    );
   }
   const allowedPaths = new Set(input.plan.deltaFiles.map(file => normaliseDeltaPath(file.path)));
   const droppedUnexpected = Object.keys(parsed).filter(path => !allowedPaths.has(normaliseDeltaPath(path)));
