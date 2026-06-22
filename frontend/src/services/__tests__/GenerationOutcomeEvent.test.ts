@@ -221,10 +221,13 @@ describe('GenerationOutcomeEvent', () => {
   // ── Test 2 — late fail (after architect) → compiled:false, repairPasses defined ─
 
   it('2. late fail (skeleton compile) — compiled:false, repairPasses:0 (not undefined)', async () => {
-    const { llmFetch } = await import('../LLMProxy');
+    const { llmFetch, llmFetchStream } = await import('../LLMProxy');
 
-    // Architect LLM returns a valid plan.
+    // Architect LLM returns a valid plan. The pipeline streams the proxy call
+    // (llmFetchStream); a plain-JSON Response is passed through by streamCall, so
+    // the same fixture works. Mock both transports defensively.
     vi.mocked(llmFetch).mockResolvedValue(architectLlmResponse());
+    vi.mocked(llmFetchStream).mockResolvedValue(architectLlmResponse());
 
     // Make the skeleton compile fetch() call fail.
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network: ECONNREFUSED'));

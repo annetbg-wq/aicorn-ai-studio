@@ -21,7 +21,7 @@
  * retry asks the model for the missing files only — never the whole project.
  */
 
-import { llmFetch } from './LLMProxy';
+import { llmFetch, llmFetchStream } from './LLMProxy';
 import { ConfigService, type AgentSlot } from './ConfigService';
 import { metricsService } from './MetricsService';
 import type { GenerationOutcomeEvent } from '../shared/projectModel';
@@ -4638,16 +4638,25 @@ function slotToStepName(slot: AgentSlot): string {
 }
 
 /**
- * Non-streaming LLM call. We deliberately set `stream: false` because the
- * surrounding pipeline only needs the final assistant message (it parses
- * <<<FILE>>>/<<<END>>> markers AFTER the call completes). Avoiding SSE means
- * we can JSON.parse the entire response body in one go and never have to
- * handle the `data: {...}\n\n` chunk framing — the original cause of the
- * "Unexpected token 'd'..." parse errors observed in the browser console.
+ * Streaming LLM call (proxy path).
  *
- * The `onChunk` callback is preserved for callers that wire it into a live
- * "writing code…" UI: we fire it exactly once with the full assistant content
- * so the existing accumulator code (`body += delta`) keeps working unchanged.
+ * We use `stream: true` so the Supabase llm-proxy edge function pipes the
+ * upstream response immediately (it returns `proxyResp.body` at the first byte
+ * instead of `await proxyResp.text()`-ing the whole generation). The non-
+ * streaming path blocked the edge-function handler for the entire generation and
+ * was killed by Supabase `WallClockTime` on long coder runs — surfaced to the
+ * client as `WORKER_RESOURCE_LIMIT` / HTTP 546. Streaming keeps the connection
+ * actively flowing so the handler returns fast and the wall-clock kill never
+ * fires.
+ *
+ * The full SSE body is reassembled client-side (reassembleSSE) and normalised
+ * back into the OpenAI-shaped JSON the downstream parser already expects, so the
+ * <<<FILE>>>/<<<END>>> marker parsing, usage extraction, and the single
+ * `onChunk(fullContent)` contract all keep working unchanged. Providers that
+ * ignore `stream: true` and return plain JSON are passed through untouched.
+ *
+ * The model is always taken from the resolved route (user-configured) — never
+ * hardcoded here.
  */
 async function streamCall(input: {
   slot:           AgentSlot;
@@ -4668,9 +4677,12 @@ async function streamCall(input: {
       { role: 'system', content: input.system },
       { role: 'user',   content: input.user },
     ],
-    stream:      false,
-    temperature: 0.3,
-    max_tokens:  input.maxTokens,
+    stream:        true,
+    // Ask OpenAI-compatible providers (DeepSeek/OpenAI/OpenRouter/Groq/Mistral)
+    // to emit a final usage chunk so billing keeps working under streaming.
+    stream_options: { include_usage: true },
+    temperature:   0.3,
+    max_tokens:    input.maxTokens,
   });
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${route.apiKey}`,
@@ -4696,7 +4708,7 @@ async function streamCall(input: {
     messages_count:             2,
     max_tokens:                 input.maxTokens,
     request_payload_byte_size:  body.length,
-    streaming_enabled:          false,
+    streaming_enabled:          true,
   });
 
   const ctrl = new AbortController();
@@ -4708,24 +4720,44 @@ async function streamCall(input: {
   try {
     const doFetch = async (): Promise<string> => {
       if (input.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      const resp = route.provider === 'claude-cli' || route.provider === 'codex-cli'
-        ? await fetch('/api/quality/llm-run', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              provider: route.provider === 'codex-cli' ? 'codex' : 'claude',
-              model: route.modelId,
-              systemPrompt: input.system,
-              userPrompt: input.user,
-            }),
-            signal: ctrl.signal,
-          })
-        : await llmFetch(route.endpoint, headers, body);
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => '');
-        throw new Error(`LLM ${resp.status}: ${errText.slice(0, 300)}`);
+
+      // CLI providers run through the local backend (no Supabase edge function,
+      // no wall-clock limit) and already return a single JSON body.
+      if (route.provider === 'claude-cli' || route.provider === 'codex-cli') {
+        const resp = await fetch('/api/quality/llm-run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: route.provider === 'codex-cli' ? 'codex' : 'claude',
+            model: route.modelId,
+            systemPrompt: input.system,
+            userPrompt: input.user,
+          }),
+          signal: ctrl.signal,
+        });
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => '');
+          throw new Error(`LLM ${resp.status}: ${errText.slice(0, 300)}`);
+        }
+        return resp.text();
       }
-      return resp.text();
+
+      // Proxy path: stream so the edge function returns at the first byte and is
+      // never killed by WallClockTime while a long generation completes.
+      // llmFetchStream throws on a non-2xx status (classified downstream).
+      const streamResp = await llmFetchStream(route.endpoint, headers, body, ctrl.signal);
+      const sseText = await streamResp.text();
+      // OpenAI-compatible providers emit `data: {...}` SSE frames. Reassemble them
+      // into the single JSON shape the parser below already understands. Providers
+      // that ignored `stream: true` and returned plain JSON are passed through.
+      const looksLikeSSE = /(^|\n)\s*data:/.test(sseText);
+      if (!looksLikeSSE) return sseText;
+      const r = reassembleSSE(sseText);
+      return JSON.stringify({
+        model: r.model ?? Orchestrator.normalizeModelId(route.modelId, route.endpoint),
+        choices: [{ message: { content: r.content }, finish_reason: r.finishReason }],
+        ...(r.usage ? { usage: r.usage } : {}),
+      });
     };
     let retryUsed = false;
     let raw: string;
@@ -4804,18 +4836,30 @@ async function streamCall(input: {
 }
 
 /**
- * Defensive SSE fallback for providers that ignore `stream: false`.
- * Walks `data: {...}` lines and concatenates `delta.content` / `message.content`.
+ * Reassembles an OpenAI-compatible SSE stream into a single result.
+ * Walks `data: {...}` frames, concatenating `delta.content` / `message.content`,
+ * and captures the trailing `usage` and `model` fields when present (providers
+ * emit usage in a final choices-less frame when stream_options.include_usage is set).
  */
-function reassembleSSE(raw: string): { content: string; finishReason: string } {
+function reassembleSSE(raw: string): {
+  content: string;
+  finishReason: string;
+  usage?: unknown;
+  model?: string;
+} {
   let content = '';
   let finishReason = '';
+  let usage: unknown;
+  let model: string | undefined;
   for (const line of raw.split('\n')) {
-    if (!line.startsWith('data: ')) continue;
-    const payload = line.slice(6).trim();
+    const trimmedLine = line.startsWith('data:') ? line : line.trimStart();
+    if (!trimmedLine.startsWith('data:')) continue;
+    const payload = trimmedLine.slice(trimmedLine.indexOf('data:') + 5).trim();
     if (!payload || payload === '[DONE]') continue;
     try {
       const parsed = JSON.parse(payload);
+      if (parsed?.usage) usage = parsed.usage;
+      if (typeof parsed?.model === 'string') model = parsed.model;
       const choice = parsed?.choices?.[0];
       if (!choice) continue;
       const piece = choice.delta?.content ?? choice.message?.content ?? '';
@@ -4823,7 +4867,7 @@ function reassembleSSE(raw: string): { content: string; finishReason: string } {
       if (choice.finish_reason) finishReason = choice.finish_reason;
     } catch { /* skip malformed line */ }
   }
-  return { content, finishReason };
+  return { content, finishReason, usage, model };
 }
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
