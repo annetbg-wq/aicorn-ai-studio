@@ -812,6 +812,22 @@ export interface MaterializedMediaAssets {
 
 const MEDIA_MANIFEST_PATH = 'src/assets/generated/media-manifest.json';
 
+/**
+ * Neutral placeholder illustration written for any '@/assets/generated/*' asset the
+ * coder imported but the media system did not materialize. Keeps the build compiling
+ * (ship-and-iterate) so a cosmetic missing asset never hard-blocks the prototype.
+ */
+const PLACEHOLDER_ASSET_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-label="illustration placeholder">' +
+  '<rect width="400" height="300" rx="16" fill="#eef2f7"/>' +
+  '<circle cx="150" cy="115" r="24" fill="#cbd5e1"/>' +
+  '<path d="M96 214l58-66 40 46 34-40 76 60v6H96z" fill="#cbd5e1"/>' +
+  '</svg>\n';
+
+/** Image asset extensions the coder may import from '@/assets/generated/'. */
+const GENERATED_ASSET_IMPORT_RE =
+  /@\/(assets\/generated\/[^"'`()\s]+?\.(?:svg|png|jpe?g|webp|gif|avif))/g;
+
 export async function materializeMediaAssets(
   ctx: DesignContext,
   brief: string,
@@ -2747,6 +2763,35 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         ).length;
         log(`[apply] scaffold merge: restored exports in ${restoredCount} file(s)`, 'info');
         filteredFiles = merged;
+      }
+    }
+
+    // ── Placeholder assets for coder-invented generated imports ─────────────
+    // The coder sometimes imports '@/assets/generated/*.svg|png|…' illustrations
+    // beyond what the media system materialized (plausible but non-existent names),
+    // which the contract validator rejects as missing_local_import. A cosmetic asset
+    // must never hard-block the prototype (ship-and-iterate): write a neutral
+    // placeholder so Vite resolves the import; the Time-2 loop refines real art later.
+    {
+      const existingAssetKeys = new Set(
+        Object.keys(filteredFiles).map(p => normalizePreviewPath(p)),
+      );
+      const missingAssets = new Set<string>();
+      for (const content of Object.values(filteredFiles)) {
+        for (const match of content.matchAll(GENERATED_ASSET_IMPORT_RE)) {
+          const rel = match[1];
+          if (!existingAssetKeys.has(normalizePreviewPath(rel))) missingAssets.add(rel);
+        }
+      }
+      for (const rel of missingAssets) {
+        filteredFiles[`src/${rel}`] = PLACEHOLDER_ASSET_SVG;
+      }
+      if (missingAssets.size > 0) {
+        log(
+          `[apply] materialized ${missingAssets.size} placeholder asset(s) for missing ` +
+            `generated imports: ${Array.from(missingAssets).join(', ')}`,
+          'warn',
+        );
       }
     }
 
