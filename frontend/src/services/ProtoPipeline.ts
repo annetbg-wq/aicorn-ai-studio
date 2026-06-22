@@ -3200,21 +3200,15 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           productSpecificityDiagnostics: repairedSpecificity,
         });
         if (!repairedGate.ok) {
-          // Fail only if post-repair result still has hard-blocking reasons.
-          // If repair fixed all hard-blocking issues and only soft-blocking remains,
-          // degrade those to advisory and continue.
-          const postRepairAllSoft = repairedGate.blockingReasons.every(r =>
-            SOFT_BLOCKING_PREFIXES.some(p => r.startsWith(p)),
-          );
-          if (!postRepairAllSoft) {
-            return fail(
-              'apply',
-              `Quality gate failed after repair: ${repairedGate.blockingReasons.join(' | ')}`,
-            );
-          }
-          // Soft-blocking still failing after repair — degrade to advisory and continue
+          // Ship-and-iterate: never hard-fail the prototype on residual quality
+          // issues. One best-effort repair pass has run; whatever remains (design
+          // tokens, placeholders, premium/media) is degraded to advisory so the
+          // prototype always reaches the screen. These residual issues are the
+          // input signal for the Time-2 critic→fixer loop, which improves quality
+          // on the LIVE prototype instead of blocking it from ever existing.
           log(
-            `[quality-gate] premium/media still unused after repair (advisory): ` +
+            `[quality-gate] ${repairedGate.blockingReasons.length} issue(s) remain after repair — ` +
+              `shipping prototype with these as advisory (Time-2 iteration will address them): ` +
               repairedGate.blockingReasons.join(' | '),
             'warn',
           );
