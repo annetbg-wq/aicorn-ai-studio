@@ -51,3 +51,6 @@ preview-workspace/src/context/
 preview-workspace/src/data/
 preview-workspace/src/themes/
 preview-workspace/src/components/sections/
+
+# Local filesystem project store (dev persistence)
+projects-store/

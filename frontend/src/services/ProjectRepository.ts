@@ -12,6 +12,7 @@
 
 import { supabase } from '../lib/supabase';
 import { ProjectStorage } from './ProjectStorage';
+import { BackendProjectStore } from './BackendProjectStore';
 import { previewLog, setTimelineContext } from './PreviewController';
 import { revisionManager, PRELOAD_SKIP_OWNED_MSG } from './RevisionManager';
 import { showToast } from './toastBus';
@@ -275,6 +276,24 @@ export const ProjectRepository = {
   // ── Список проектов (только метаданные — быстро) ─────────────────────────
 
   async listProjects(): Promise<ProjectMetaSummary[]> {
+    // Filesystem store is the canonical dev persistence (localStorage is too small).
+    // Prepend its projects and dedupe everything else against them.
+    const backendMetas: ProjectMetaSummary[] = (await BackendProjectStore.list()).map(m => ({
+      id:             m.id,
+      name:           m.name || 'Project',
+      theme:          'dark-slate',
+      updatedAt:      m.updatedAt ?? new Date().toISOString(),
+      version:        1,
+      activeBranchId: undefined,
+      branchIds:      undefined,
+      branchCount:    undefined,
+    }));
+    const mergeBackend = (rest: ProjectMetaSummary[]): ProjectMetaSummary[] => {
+      const ids = new Set(backendMetas.map(p => p.id));
+      return [...backendMetas, ...rest.filter(p => !ids.has(p.id))]
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    };
+
     // Collect local-only (non-UUID) projects — drafts that haven't been synced to Supabase yet
     const localOnlyProjects = (): ProjectMetaSummary[] =>
       ProjectStorage.listProjects()
@@ -312,7 +331,7 @@ export const ProjectRepository = {
             ...localOnlyProjects().filter(p => !supabaseIds.has(p.id)),
           ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
           safeSetItem(LOCAL_META_KEY, JSON.stringify(merged));
-          return merged;
+          return mergeBackend(merged);
         }
       } catch { /* fall through */ }
     }
@@ -323,12 +342,12 @@ export const ProjectRepository = {
       if (cached) {
         const normalized = normalizeCachedMetaList(cached);
         safeSetItem(LOCAL_META_KEY, JSON.stringify(normalized));
-        if (normalized.length > 0) return normalized;
+        if (normalized.length > 0) return mergeBackend(normalized);
       }
     } catch { /* fall through */ }
 
-    // Last resort: legacy ProjectStorage meta
-    return ProjectStorage.listProjects().map(m => ({
+    // Last resort: legacy ProjectStorage meta (still prepend the filesystem store)
+    return mergeBackend(ProjectStorage.listProjects().map(m => ({
       id:             m.id,
       name:           getCanonicalProjectName(m),
       theme:          m.theme ?? 'dark-slate',
@@ -337,12 +356,17 @@ export const ProjectRepository = {
       activeBranchId: m.activeBranchId,
       branchIds:      m.branchIds,
       branchCount:    m.branchCount,
-    }));
+    })));
   },
 
   // ── Получить проект по ID (полные файлы) ─────────────────────────────────
 
   async getProject(id: string): Promise<ProjectRecord | null> {
+    // Filesystem store first — canonical dev persistence (saved as a normalized
+    // StoredProject, so it can be returned directly).
+    const fromBackend = await BackendProjectStore.get(id);
+    if (fromBackend) return fromBackend as unknown as ProjectRecord;
+
     // Сначала Supabase (только для UUID)
     if (UUID_RE.test(id)) {
       const currentUserId = await getCurrentSupabaseUserId();
@@ -533,6 +557,17 @@ export const ProjectRepository = {
       else cached.unshift(meta);
       localStorage.setItem(LOCAL_META_KEY, JSON.stringify(cached.slice(0, 50)));
     } catch { /* non-fatal */ }
+
+    // Filesystem store — canonical dev persistence (survives reload, no ~5MB quota
+    // cap). Fire-and-forget: the in-memory/localStorage path above already returned.
+    void BackendProjectStore.save({
+      ...(normalizedProject as any),
+      files:       mergedProjectFiles,
+      chatHistory: (synchronizedActiveBranch?.chatHistory ?? normalizedProject.chatHistory) as any,
+      activeBranchId,
+      branches:    persistedBranches as any,
+      updatedAt:   normalizedProject.updatedAt ?? new Date().toISOString(),
+    });
   },
 
   // ── Удалить проект ────────────────────────────────────────────────────────
@@ -560,6 +595,9 @@ export const ProjectRepository = {
 
     // Также из localStorage
     ProjectStorage.deleteProject(id);
+
+    // Cascade to the filesystem store (canonical dev persistence).
+    void BackendProjectStore.remove(id);
 
     // Убрать из метаданных кэша
     removeRepositoryMeta(id);
