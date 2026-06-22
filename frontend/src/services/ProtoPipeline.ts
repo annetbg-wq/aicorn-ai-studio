@@ -3962,6 +3962,7 @@ async function runCoder(input: {
     timeoutMs: STEP_BUDGET.coder.timeoutMs,
     signal:    input.signal,
     routeOverrides: input.routeOverrides,
+    stream:    true, // long generation — stream to avoid edge WallClockTime
     onChunk:   (delta) => { body += delta; input.onStream?.(delta); },
     onFinishReason: (r) => { firstReason = r; },
     onUsage:   (usage) => { usageAcc = mergeLlmUsage(usageAcc, usage); },
@@ -4004,6 +4005,7 @@ ${missing.map(p => `  - ${p}`).join('\n')}`;
         timeoutMs: STEP_BUDGET.coder.timeoutMs,
         signal:    input.signal,
         routeOverrides: input.routeOverrides,
+        stream:    true, // long generation — stream to avoid edge WallClockTime
         onChunk:   (delta) => { retryBody += delta; input.onStream?.(delta); },
         onUsage:   (usage) => { usageAcc = mergeLlmUsage(usageAcc, usage); },
       });
@@ -4683,20 +4685,29 @@ async function streamCall(input: {
   onChunk:        (delta: string) => void;
   onFinishReason?: (reason: string) => void;
   onUsage?:       (usage: StepLlmMetrics) => void;
+  /**
+   * Stream the proxy call. Only needed for LONG generations (the coder) that
+   * would otherwise hold the Supabase edge function past its ~150s WallClockTime.
+   * Short steps (architect/clarify/…) stay non-streaming: a single atomic
+   * JSON.parse of the whole body is far more robust than reassembling many SSE
+   * frames, where one dropped frame silently corrupts JSON / FILE markers.
+   */
+  stream?:        boolean;
 }): Promise<void> {
   const route = resolveRoute(input.slot, input.routeOverrides);
+  const useStream = input.stream ?? false;
   const body = JSON.stringify({
     model:       Orchestrator.normalizeModelId(route.modelId, route.endpoint),
     messages:    [
       { role: 'system', content: input.system },
       { role: 'user',   content: input.user },
     ],
-    stream:        true,
-    // Ask OpenAI-compatible providers (DeepSeek/OpenAI/OpenRouter/Groq/Mistral)
-    // to emit a final usage chunk so billing keeps working under streaming.
-    stream_options: { include_usage: true },
-    temperature:   0.3,
-    max_tokens:    input.maxTokens,
+    stream:      useStream,
+    // Under streaming, ask OpenAI-compatible providers (DeepSeek/OpenAI/OpenRouter/
+    // Groq/Mistral) to emit a final usage chunk so billing keeps working.
+    ...(useStream ? { stream_options: { include_usage: true } } : {}),
+    temperature: 0.3,
+    max_tokens:  input.maxTokens,
   });
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${route.apiKey}`,
@@ -4722,7 +4733,7 @@ async function streamCall(input: {
     messages_count:             2,
     max_tokens:                 input.maxTokens,
     request_payload_byte_size:  body.length,
-    streaming_enabled:          true,
+    streaming_enabled:          useStream,
   });
 
   const ctrl = new AbortController();
@@ -4756,8 +4767,19 @@ async function streamCall(input: {
         return resp.text();
       }
 
-      // Proxy path: stream so the edge function returns at the first byte and is
-      // never killed by WallClockTime while a long generation completes.
+      // Non-streaming proxy path (short steps): one atomic JSON body. Far more
+      // robust than SSE reassembly — used for architect/clarify/etc.
+      if (!useStream) {
+        const resp = await llmFetch(route.endpoint, headers, body);
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => '');
+          throw new Error(`LLM ${resp.status}: ${errText.slice(0, 300)}`);
+        }
+        return resp.text();
+      }
+
+      // Streaming proxy path (coder only): the edge function returns at the first
+      // byte and is never killed by WallClockTime while a long generation completes.
       // llmFetchStream throws on a non-2xx status (classified downstream).
       const streamResp = await llmFetchStream(route.endpoint, headers, body, ctrl.signal);
       const sseText = await streamResp.text();
