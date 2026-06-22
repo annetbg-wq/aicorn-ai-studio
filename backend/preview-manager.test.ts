@@ -1262,13 +1262,12 @@ describe('preview-manager workspace healing — validatePreviewGeneratedFiles', 
     expect(result.violations[0].kind).toBe('build_system_file');
   });
 
-  it('strips src/design-pack/ writes into designFiles (not fatal)', () => {
+  it('writes src/design-pack/ files (system-materialized premium components, not fatal)', () => {
     const result = validatePreviewGeneratedFiles({
-      'src/design-pack/tokens.ts': 'export const tokens = {};',
+      'src/design-pack/premium-components/x/component.tsx': 'export const X = () => null;',
     });
     expect(result.fatalViolations).toHaveLength(0);
-    expect(result.designFiles).toHaveProperty('src/design-pack/tokens.ts');
-    expect(result.appFiles).not.toHaveProperty('src/design-pack/tokens.ts');
+    expect(result.appFiles).toHaveProperty('src/design-pack/premium-components/x/component.tsx');
   });
 
   it('routes src/docs/architect/ writes into docsFiles (not fatal)', () => {
@@ -1278,6 +1277,17 @@ describe('preview-manager workspace healing — validatePreviewGeneratedFiles', 
     expect(result.fatalViolations).toHaveLength(0);
     expect(result.docsFiles).toHaveProperty('src/docs/architect/README.md');
     expect(result.appFiles).not.toHaveProperty('src/docs/architect/README.md');
+  });
+
+  it('writes src/design-pack/ premium components (system-materialized, imported by app)', () => {
+    const result = validatePreviewGeneratedFiles({
+      'src/design-pack/premium-components/mobile/nav-01/component.tsx':
+        "import * as Tabs from '@radix-ui/react-tabs';\nexport const Nav = () => null;",
+    });
+    // Written so '@/design-pack/...' imports resolve; vetted bank components may
+    // import Radix directly, so this must NOT be a direct_radix_import fatal.
+    expect(result.fatalViolations).toHaveLength(0);
+    expect(result.appFiles).toHaveProperty('src/design-pack/premium-components/mobile/nav-01/component.tsx');
   });
 
   it('accepts valid App.tsx, pages/Home.tsx, components/Feature.tsx, hooks/useData.ts', () => {

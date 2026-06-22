@@ -887,8 +887,14 @@ export function validatePreviewGeneratedFiles(
       docsFiles[rawPath] = content;
       continue;
     }
+    // design-pack/** are system-materialized premium components (materializePremium
+    // Components copies them from the canonical bank; the coder cannot author them —
+    // its output is filtered to plan delta paths). The app imports them via
+    // '@/design-pack/...', so they MUST be written. Being vetted bank components they
+    // may import Radix directly, so they are written as-is, bypassing the app-code
+    // Radix ban and build-system checks below.
     if (normalized.startsWith('design-pack/')) {
-      designFiles[rawPath] = content;
+      appFiles[rawPath] = content;
       continue;
     }
 
