@@ -20,6 +20,24 @@ const DEFAULT_PROFILE: UserProfile = {
   usageCount: 0,
 };
 
+/**
+ * Studio-preview detection — captured ONCE at module load.
+ *
+ * The Studio preview iframe boots at `/preview/<rev>?previewSession=<token>` (the
+ * backend stamps `previewSession` onto every preview URL). Inside the preview we
+ * want the generated feature to be visible immediately instead of gated behind
+ * the onboarding wizard, so `isOnboarded` is forced true. This is preview-only
+ * and NON-destructive: it never writes to localStorage and never mutates the
+ * profile — a real deployed build (whose URL carries no `previewSession`) keeps
+ * the onboarding gate fully intact.
+ *
+ * Captured once, never re-read: react-router navigations drop the query string,
+ * so reading `location.search` after the first redirect would lose the signal.
+ */
+const IS_STUDIO_PREVIEW =
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('previewSession');
+
 interface AppContextValue {
   profile: UserProfile;
   isOnboarded: boolean;
@@ -102,7 +120,9 @@ export function AppProvider({ children }: AppProviderProps): JSX.Element {
   const value = useMemo<AppContextValue>(
     () => ({
       profile,
-      isOnboarded: profile.onboardingComplete && profile.name.length > 0,
+      isOnboarded:
+        IS_STUDIO_PREVIEW ||
+        (profile.onboardingComplete && profile.name.length > 0),
       isPremium: profile.plan !== 'free',
       // Profile is loaded synchronously from localStorage; for skeleton purposes
       // it is always 'ready'. PRODUCT: flip to 'loading' while fetching from API.
