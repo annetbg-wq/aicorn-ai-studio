@@ -21,6 +21,7 @@ import { previewController } from './PreviewController';
 import {
   buildProductDocumentSet,
   resolveProductDocumentSet,
+  buildCoderContractBrief,
   type ProductDocumentSetInput,
   type FeatureChecklistItem,
 } from './ProductDocumentSet';
@@ -231,9 +232,11 @@ async function lvStreamCoder(
   onChunk: (delta: string) => void,
   signal?: AbortSignal,
   designFusionBlock?: string,
+  coderContractBrief?: string,
 ): Promise<LvCoderCallResult> {
   const startMs = Date.now();
-  const system = buildLvCoderSystemPrompt(prompt, featureChecklist, designFusionBlock);
+  const system = buildLvCoderSystemPrompt(prompt, featureChecklist, designFusionBlock)
+    + (coderContractBrief ? `\n\n${coderContractBrief}` : '');
   const provider = (route as { provider?: string }).provider || 'openrouter';
   const endpoint = Orchestrator.getEndpoint(provider);
   const headers: Record<string, string> = {
@@ -933,6 +936,7 @@ export class LVPipeline {
         (delta) => { try { config.onStream(delta); } catch { /* ignore */ } },
         config.signal,
         lvDesignFusionBlock,
+        pdsResult ? buildCoderContractBrief(pdsResult.productDocs) : undefined,
       );
     } catch (err) {
       if (lvIsAbort(err)) {

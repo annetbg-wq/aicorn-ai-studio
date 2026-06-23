@@ -144,7 +144,7 @@ import {
   recordCoderPromptBlockSizes,
 } from './CoderPromptBlockSizeDiagnostics';
 import type { ProjectPlan } from './types/ProjectPlan';
-import { resolveProductDocumentSet, type FeatureChecklistItem } from './ProductDocumentSet';
+import { resolveProductDocumentSet, buildCoderContractBrief, type FeatureChecklistItem } from './ProductDocumentSet';
 import { evaluateCompletenessGate } from './CompletenessGate';
 import {
   buildDesignFusionPromptBlock,
@@ -2778,6 +2778,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
          marketAwareBuilderBrief: marketBrief,
          attachmentPromptBlock: uploadedAssetFusion.promptBlock,
          designFusionBlock: _designFusionBlock,
+         coderContractBrief: buildCoderContractBrief(productDocumentSet.productDocs),
        });
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
@@ -4036,6 +4037,8 @@ async function runCoder(input: {
   attachmentPromptBlock?: string;
   /** WI-7: Design Fusion Contract block for this coder call. */
   designFusionBlock?: string;
+  /** Compact "build to this" contract distilled from the product document package. */
+  coderContractBrief?: string;
 }): Promise<Record<string, string>>{
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
@@ -4142,6 +4145,7 @@ async function runCoder(input: {
 
   const system = [
     skeletonHeaderBlock,
+    input.coderContractBrief ? `\n${input.coderContractBrief}` : '',
     contractBlock ? `\n${contractBlock}` : '',
     planningBlocks ? `\n${planningBlocks}` : '',
     `\n${skeletonPromptBlock}`,

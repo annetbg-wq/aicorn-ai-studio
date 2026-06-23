@@ -7,6 +7,7 @@ import {
   computeTopicMarker,
   materializeProductDocumentSet,
   resolveProductDocumentSet,
+  buildCoderContractBrief,
   type ProductDocumentSetInput,
 } from '../ProductDocumentSet';
 import { DocumentPackageRegistry } from '../DocumentPackageRegistry';
@@ -110,5 +111,23 @@ describe('deep document coverage', () => {
   it('infers Stripe billing for a monetized finance brief', () => {
     const res = materializeProductDocumentSet(input());
     expect(res.files['docs/architect/service-integrations.md']).toMatch(/Stripe/);
+  });
+});
+
+describe('buildCoderContractBrief — coder contract', () => {
+  it('distils a compact, directive "build to this" contract from the package', () => {
+    const res = materializeProductDocumentSet(input());
+    const brief = buildCoderContractBrief(res.productDocs);
+    expect(brief).toMatch(/PRODUCT CONTRACT/);
+    expect(brief).toMatch(/MUST deliver/);
+    expect(brief).toMatch(/Onboarding/);
+    expect(brief).toMatch(/Monetization|paywall/i);
+    expect(brief).toMatch(/empty\/loading\/error/);
+    expect(brief).toMatch(/i18n/);
+  });
+
+  it('is token-bounded (compact enough for the coder prompt)', () => {
+    const brief = buildCoderContractBrief(materializeProductDocumentSet(input()).productDocs, { maxChars: 1500 });
+    expect(brief.length).toBeLessThanOrEqual(1560);
   });
 });

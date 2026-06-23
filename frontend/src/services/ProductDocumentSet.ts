@@ -1726,6 +1726,61 @@ export function materializeProductDocumentSet(
   };
 }
 
+/**
+ * Distils the document package into a COMPACT, directive contract the coder builds
+ * to — the package's actionable "build to this" slice, token-bounded for the coder
+ * prompt. It deliberately emphasises the dimensions the coder's planning blocks do
+ * NOT already carry (segmented onboarding, paywall, visual states/data-viz, auth,
+ * i18n) plus the must-feature acceptance bar, so the prototype embodies the spec.
+ * Full detail stays in docs/architect/* for the user/verifier.
+ */
+export function buildCoderContractBrief(
+  productDocs: Omit<ProductDocumentSet, 'markdownBundle'>,
+  opts?: { maxChars?: number },
+): string {
+  const max = opts?.maxChars ?? 3200;
+  const v = productDocs.productVision;
+  const must = productDocs.featureChecklist.filter(f => f.priority === 'must');
+  const nice = productDocs.featureChecklist.filter(f => f.priority !== 'must');
+  const metrics = productDocs.dataModel.metrics;
+  const monetized = /\b(pay|subscri|billing|budget|invoice|price|premium|pro plan|checkout|wallet|transaction)\b/i
+    .test(`${v.requestedBrief} ${v.summary} ${productDocs.featureChecklist.map(f => f.briefPoint).join(' ')}`);
+
+  const lines: string[] = [
+    'PRODUCT CONTRACT — build the prototype to satisfy this. It is the single source of truth; do not invent behaviour that contradicts it.',
+    `Product: ${v.appName}${v.domain ? ` (${v.domain})` : ''} — ${(v.primaryJobToBeDone || v.summary || '').slice(0, 160)}`,
+    '',
+    'MUST deliver (acceptance — each item must be visible AND functional):',
+    ...(must.length
+      ? must.slice(0, 10).map(f => `  • ${f.briefPoint}${f.acceptanceSignal?.[0] ? ` — done when: ${f.acceptanceSignal[0]}` : ''}`)
+      : ['  • (derive from the screens/flows below)']),
+  ];
+
+  if (productDocs.personas.length) {
+    lines.push('', 'Onboarding — segmented & media-rich (NOT a plain question wizard; deliver a real first outcome before any account ask):');
+    for (const p of productDocs.personas.slice(0, 3)) {
+      lines.push(`  • ${p.name} (${p.role}): tailor to "${p.needs[0] || 'their core job'}"; 3–5 steps, an illustration/preview per step, aha moment, then soft sign-up.`);
+    }
+  }
+
+  if (monetized || nice.length) {
+    lines.push('', 'Monetization — Free vs Pro. Gate advanced/AI/unlimited behind an INTENT-triggered paywall (on free limit / reaching a Pro surface / post-aha), previewing the user\'s own context. Reflect entitlement; never grant it client-side.');
+    if (nice.length) lines.push(`  Pro-gated examples: ${nice.slice(0, 4).map(f => f.briefPoint).join('; ')}`);
+  }
+
+  lines.push(
+    '',
+    'Visual system — every screen has a DESIGNED empty/loading/error state (illustration + one clear next action) and skeleton loaders; no blank or raw-spinner states.',
+    metrics.length ? `  Visualize metrics glanceably (with empty-data state): ${metrics.slice(0, 6).join(', ')}.` : '  Visualize the core tracked quantities glanceably.',
+    '',
+    'Auth — email + OAuth, verified before write surfaces; guard protected routes. i18n — all user-facing copy via a t(key) layer (no hardcoded strings); format dates/numbers/currency via Intl.',
+  );
+
+  let out = lines.join('\n');
+  if (out.length > max) out = `${out.slice(0, max)}\n  …(full spec in docs/architect/)`;
+  return `${out}\n`;
+}
+
 export interface ResolvedProductDocumentSet extends ProductDocumentSetResult {
   /** True when an existing same-topic package was taken into work (not regenerated). */
   reused: boolean;
