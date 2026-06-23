@@ -310,24 +310,24 @@ function topicSignals(text: string, limit = 14): string[] {
 }
 
 /**
- * Computes the stable topic fingerprint for a document-set request. The key is
- * derived from the skeleton archetype + inferred domain + the significant tokens
- * of the brief — coarse enough that the same topic re-requested (even reworded
- * across EN/RU) collapses to the same key, so the existing package is reused.
+ * Computes the stable topic fingerprint for a document-set request.
+ *
+ * The key is derived ONLY from the significant tokens of the user's brief — the
+ * stable expression of intent. It deliberately does NOT fold in the skeleton id
+ * or inferred domain: those are downstream planning outputs that vary run-to-run
+ * for the very same request (different skeleton/domain inference), which would
+ * make identical requests miss each other and regenerate. Keying on the brief
+ * means the same topic (even reworded across EN/RU) collapses to one key, so the
+ * existing package is reliably reused. Skeleton/domain are kept as metadata only.
  */
 export function computeTopicMarker(input: ProductDocumentSetInput): TopicMarker {
   const domain = input.productSpecificityPlan?.inferredDomain?.trim().toLowerCase() || undefined;
-  const job = input.productSpecificityPlan?.primaryJobToBeDone ?? '';
-  const signals = topicSignals(`${input.prompt} ${job} ${domain ?? ''}`);
+  const signals = topicSignals(input.prompt);
   const label = (input.architectPlan.appName?.trim()
     || domain
     || signals.slice(0, 4).join(' ')
     || input.skeletonId).toLowerCase();
-  const key = `tm1_${input.skeletonId}_${hashText([
-    input.skeletonId,
-    domain ?? '',
-    signals.join(','),
-  ].join('|'))}`;
+  const key = `tm1_${hashText(signals.join(','))}`;
   return { key, label, skeletonId: input.skeletonId, domain, signals, version: TOPIC_MARKER_VERSION };
 }
 

@@ -30,7 +30,7 @@ describe('computeTopicMarker', () => {
     const a = computeTopicMarker(input());
     const b = computeTopicMarker(input());
     expect(a.key).toBe(b.key);
-    expect(a.key).toMatch(/^tm1_saas-dashboard_/);
+    expect(a.key).toMatch(/^tm1_/);
     expect(a.label).toBeTruthy();
     expect(a.signals.length).toBeGreaterThan(0);
   });
@@ -41,12 +41,18 @@ describe('computeTopicMarker', () => {
     expect(en.key).toBe(ru.key);
   });
 
-  it('differs by skeleton archetype and by domain tokens', () => {
-    const dash = computeTopicMarker(input({ skeletonId: 'saas-dashboard' }));
-    const mobile = computeTopicMarker(input({ skeletonId: 'mobile-app' }));
-    expect(dash.key).not.toBe(mobile.key);
+  it('is INVARIANT to the (run-varying) skeleton/domain — same brief ⇒ same key', () => {
+    // Skeleton selection and domain inference vary run-to-run for the same request;
+    // the topic key must not depend on them, or identical requests would not dedup.
+    const a = computeTopicMarker(input({ skeletonId: 'saas-dashboard' }));
+    const b = computeTopicMarker(input({ skeletonId: 'mobile-app' }));
+    expect(a.key).toBe(b.key);
+  });
+
+  it('differs by topic tokens', () => {
+    const fin = computeTopicMarker(input());
     const other = computeTopicMarker(input({ prompt: 'Build a dating matching app with swipe and chat' }));
-    expect(other.key).not.toBe(dash.key);
+    expect(other.key).not.toBe(fin.key);
   });
 });
 

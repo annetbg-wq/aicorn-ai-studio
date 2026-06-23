@@ -3212,8 +3212,6 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       );
     }
 
-    Object.assign(filteredFiles, productDocumentSet.files);
-
     const selectedPremiumComponentIds = designCtx.premiumComponentSelection.selectedComponents
       .map(component => component.id)
       .sort((a, b) => a.localeCompare(b));
@@ -3451,6 +3449,13 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     emit('build', 'active');
     let lastBuildErr: string | null = null;
     let currentFiles = filteredFiles;
+    // The product document package is the deliverable spec and MUST persist with
+    // the project even if the app build itself fails — that is exactly the "take
+    // it elsewhere if the studio did not manage" case. Merge it here as the final,
+    // unconditional mutation: it survives every prior reassignment (Pass2, quality
+    // repair) and lands in whatever file set the build/persist uses, whether the
+    // compile succeeds or fails. (docs/architect/* is non-compiled spec content.)
+    Object.assign(currentFiles, productDocumentSet.files);
     let buildOk = false;
     buildCompileAttempted = true;
     for (let attempt = 0; attempt <= MAX_REPAIR_PASSES; attempt++) {
