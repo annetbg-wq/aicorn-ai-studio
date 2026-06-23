@@ -104,7 +104,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.telemetry.design_contract_violations).toBe(2);
   });
 
-  it('premium-unused now fails gate (blocking) with repairInstruction', () => {
+  it('premium-unused is advisory only (not blocking) — coder may compose from shadcn/radix', () => {
     const vud = validVisualDiagnostics();
     vud.premiumUsageObserved = false;
     vud.premiumComponentImportsFound = [];
@@ -118,14 +118,14 @@ describe('evaluatePrototypeQualityGate', () => {
       productSpecificityDiagnostics: validSpecificityDiagnostics(),
     });
 
-    // Now blocking — gate must fail
-    expect(result.ok).toBe(false);
-    expect(result.blockingReasons.some(r => /premium.*selected.*none.*referenced/i.test(r))).toBe(true);
-    expect(result.repairInstructions.some(r => r.includes('@/design-pack/premium-components/'))).toBe(true);
+    // Premium components are optional accelerators, not the last word: an unused
+    // premium selection is advisory, never blocking, and never forces a repair.
+    expect(result.ok).toBe(true);
+    expect(result.blockingReasons.some(r => /premium.*selected/i.test(r))).toBe(false);
+    expect(result.repairInstructions.some(r => r.includes('@/design-pack/premium-components/'))).toBe(false);
+    expect(result.advisoryReasons.some(r => /premium.*selected/i.test(r))).toBe(true);
     expect(result.telemetry.premium_selected_not_used).toBe(true);
-    expect(result.advisoryReasons).toHaveLength(0);
-    expect(result.telemetry.advisory_reasons_count).toBe(0);
-    expect(result.telemetry.repair_hook_available).toBe(true);
+    expect(result.telemetry.advisory_reasons_count).toBe(1);
   });
 
   it('media-unused now fails gate (blocking) with repairInstruction', () => {
@@ -214,7 +214,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.telemetry.generic_dashboard_card_flag).toBe(true);
   });
 
-  it('produces repairInstructions for every blocking reason including premium+media', () => {
+  it('produces repairInstructions for every blocking reason (design token + media); premium is advisory', () => {
     const vud = validVisualDiagnostics();
     vud.premiumUsageObserved = false;
     vud.premiumComponentImportsFound = [];
@@ -229,13 +229,13 @@ describe('evaluatePrototypeQualityGate', () => {
     });
 
     expect(result.ok).toBe(false);
-    // 3 blocking reasons: design token + premium-unused + media-unused
-    expect(result.blockingReasons).toHaveLength(3);
+    // 2 blocking reasons: design token + media-unused (premium-unused is advisory now)
+    expect(result.blockingReasons).toHaveLength(2);
     expect(result.repairInstructions.length).toBe(result.blockingReasons.length);
-    // No advisory since premium+media are now blocking
-    expect(result.advisoryReasons).toHaveLength(0);
-    expect(result.advisoryInstructions).toHaveLength(0);
-    expect(result.telemetry.advisory_reasons_count).toBe(0);
+    // Premium-unused is advisory, not blocking
+    expect(result.advisoryReasons).toHaveLength(1);
+    expect(result.advisoryReasons[0]).toMatch(/premium.*selected/i);
+    expect(result.telemetry.advisory_reasons_count).toBe(1);
     // All instructions are non-empty strings
     for (const instruction of result.repairInstructions) {
       expect(typeof instruction).toBe('string');
@@ -312,7 +312,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.advisoryReasons).toHaveLength(0);
   });
 
-  it('premium+media both unused: ok=false, 2 blocking reasons, 0 advisory', () => {
+  it('premium+media both unused: ok=false (media blocks), 1 blocking reason, premium advisory', () => {
     const vud = validVisualDiagnostics();
     vud.premiumUsageObserved = false;
     vud.premiumComponentImportsFound = [];
@@ -325,12 +325,15 @@ describe('evaluatePrototypeQualityGate', () => {
       productSpecificityDiagnostics: validSpecificityDiagnostics(),
     });
 
+    // Media-unused still blocks (generated assets must be shown); premium-unused
+    // is advisory only — the coder is free to compose from shadcn/radix instead.
     expect(result.ok).toBe(false);
-    expect(result.blockingReasons).toHaveLength(2);
-    expect(result.repairInstructions).toHaveLength(2);
-    expect(result.advisoryReasons).toHaveLength(0);
-    expect(result.advisoryInstructions).toHaveLength(0);
-    expect(result.telemetry.advisory_reasons_count).toBe(0);
+    expect(result.blockingReasons).toHaveLength(1);
+    expect(result.blockingReasons[0]).toMatch(/media.*materialized/i);
+    expect(result.repairInstructions).toHaveLength(1);
+    expect(result.advisoryReasons).toHaveLength(1);
+    expect(result.advisoryReasons[0]).toMatch(/premium.*selected/i);
+    expect(result.telemetry.advisory_reasons_count).toBe(1);
     expect(result.telemetry.premium_selected_not_used).toBe(true);
     expect(result.telemetry.media_materialized_not_used).toBe(true);
     expect(result.telemetry.repair_hook_available).toBe(true);
@@ -546,7 +549,7 @@ describe('runQualityRepair', () => {
 // "soft" (premium/media — degrade if repair fails) vs "hard" (tokens/placeholders).
 
 describe('soft vs hard blocking classification', () => {
-  it('premium-only blocking starts with expected prefix for allSoftBlocking detection', () => {
+  it('premium-only unused: not blocking at all — advisory, gate passes', () => {
     const vud: VisualUsageDiagnostics = {
       premiumUsageChecked: true,
       premiumComponentsSelected: ['analytics-chart'],
@@ -568,9 +571,10 @@ describe('soft vs hard blocking classification', () => {
       suggestedNextAction: 'improve_prompt',
     };
     const gate = evaluatePrototypeQualityGate({ designContractViolations: [], visualUsageDiagnostics: vud });
-    expect(gate.ok).toBe(false);
-    // Must start with "Premium components selected" so allSoftBlocking check works
-    expect(gate.blockingReasons[0]).toMatch(/^Premium components selected/);
+    // Premium is an optional accelerator: an unused selection never blocks.
+    expect(gate.ok).toBe(true);
+    expect(gate.blockingReasons).toHaveLength(0);
+    expect(gate.advisoryReasons[0]).toMatch(/^Premium components selected/);
   });
 
   it('media-only blocking starts with expected prefix for allSoftBlocking detection', () => {

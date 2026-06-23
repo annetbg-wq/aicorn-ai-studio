@@ -1980,14 +1980,20 @@ export function evaluatePrototypeQualityGate(
     checksRun.push('visual_usage');
 
     if (premiumSelectedNotUsed) {
+      // Advisory, NOT blocking (was previously a soft block that forced a repair
+      // pass to import a premium component). Premium design-pack components are
+      // optional accelerators, not the last word: a UI composed entirely from the
+      // modern shadcn/radix @/components/ui primitives is a first-class,
+      // premium-grade outcome. We record the signal but never force a premium
+      // import. (See CODER COMPONENT INSTRUCTIONS in DesignContract.)
       const ids = vud.premiumComponentsSelected.slice(0, 4).join(', ');
-      blockingReasons.push(
-        `Premium components selected (${ids}) but none referenced in generated source`,
+      advisoryReasons.push(
+        `Premium components selected (${ids}) but composed from shadcn/radix primitives instead — allowed`,
       );
-      repairInstructions.push(
-        'Import at least one premium component from @/design-pack/premium-components/ ' +
-        'and visibly render it in a meaningful section or screen (e.g. hero, feature card, dashboard widget). ' +
-        `Selected component IDs: ${ids}`,
+      advisoryInstructions.push(
+        'Premium design-pack components are optional. Keep composing from the modern ' +
+        'shadcn/radix @/components/ui primitives where they read cleaner; only fold in a ' +
+        'premium block when it genuinely fits a screen slot.',
       );
     }
 
