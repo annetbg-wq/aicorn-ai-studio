@@ -144,7 +144,7 @@ import {
   recordCoderPromptBlockSizes,
 } from './CoderPromptBlockSizeDiagnostics';
 import type { ProjectPlan } from './types/ProjectPlan';
-import { materializeProductDocumentSet, type FeatureChecklistItem } from './ProductDocumentSet';
+import { resolveProductDocumentSet, type FeatureChecklistItem } from './ProductDocumentSet';
 import { evaluateCompletenessGate } from './CompletenessGate';
 import {
   buildDesignFusionPromptBlock,
@@ -2633,7 +2633,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     log(
       `[product-specificity] domain="${productSpecificityPlan.inferredDomain}" entities=${productSpecificityPlan.domainEntities.length} metrics=${productSpecificityPlan.productMetrics.length}`,
     );
-    const productDocumentSet = materializeProductDocumentSet({
+    const productDocumentSet = resolveProductDocumentSet({
       prompt: clarifiedPrompt,
       projectId: config.projectId,
       revisionId: config.revisionId,
@@ -2656,7 +2656,11 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       productSpecificityPlan,
     });
     log(
-      `[docs] materialized architect folder (${productDocumentSet.materializedFiles.length} file(s)) at ${productDocumentSet.baseDir}`,
+      productDocumentSet.reused
+        ? `[docs] reused existing document package for topic "${productDocumentSet.topicMarker.label}" ` +
+          `(${productDocumentSet.topicMarker.key}) — ${productDocumentSet.materializedFiles.length} file(s)`
+        : `[docs] materialized architect folder (${productDocumentSet.materializedFiles.length} file(s)) at ${productDocumentSet.baseDir} ` +
+          `[topic ${productDocumentSet.topicMarker.key}]`,
     );
 
     // ── Market-aware builder brief diagnostics (advisory only, no blocking) ──

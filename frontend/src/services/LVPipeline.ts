@@ -20,7 +20,7 @@ import { llmFetchStream, llmFetch } from './LLMProxy';
 import { previewController } from './PreviewController';
 import {
   buildProductDocumentSet,
-  materializeProductDocumentSet,
+  resolveProductDocumentSet,
   type ProductDocumentSetInput,
   type FeatureChecklistItem,
 } from './ProductDocumentSet';
@@ -873,12 +873,12 @@ export class LVPipeline {
 
     let pdsBuilt = false;
     let featureChecklist: FeatureChecklistItem[] = [];
-    let pdsResult: ReturnType<typeof materializeProductDocumentSet> | null = null;
+    let pdsResult: ReturnType<typeof resolveProductDocumentSet> | null = null;
     try {
-      pdsResult = materializeProductDocumentSet(pdsInput);
+      pdsResult = resolveProductDocumentSet(pdsInput);
       featureChecklist = pdsResult.productDocs.featureChecklist ?? [];
       pdsBuilt = true;
-      log(`[LVPipeline] PDS materialized: ${featureChecklist.length} checklist item(s), ${pdsResult.materializedFiles.length} doc file(s)`);
+      log(`[LVPipeline] PDS ${pdsResult.reused ? 'reused' : 'materialized'} for topic "${pdsResult.topicMarker.label}": ${featureChecklist.length} checklist item(s), ${pdsResult.materializedFiles.length} doc file(s)`);
     } catch (err) {
       log(`[LVPipeline] PDS build failed (${(err as Error).message}) — continuing without checklist`);
     }

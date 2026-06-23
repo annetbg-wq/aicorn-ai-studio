@@ -3,9 +3,10 @@ import {
   Monitor, Smartphone, Tablet,
   Eye, Code2, Palette, BarChart2, Shield,
   Share2, Copy, Check, GitBranch, GitCommit, CheckCircle,
-  FilePlus, Trash2, ZoomIn, ZoomOut, Maximize2, Download,
+  FilePlus, Trash2, ZoomIn, ZoomOut, Maximize2, Download, FileArchive,
   MousePointer2, Save, X, RefreshCw,
 } from 'lucide-react';
+import { downloadDocumentPackage, selectDocumentPackageFiles } from '../services/DocumentPackageArchive';
 import { visualEditBridge, type VisualEditMode, type SelectedElement } from '../services/VisualEditBridge';
 import { appendPreviewSessionToUrl } from '../services/PreviewSessionService';
 import type { FileMap } from '../hooks/useStudio';
@@ -2300,6 +2301,24 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             <button onClick={onDownloadProject} title="Export project as ZIP (npm install && npm run dev)"
               style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:8, border:`1px solid ${th.border}`, background:'none', cursor:'pointer', fontSize:11, color:th.tabDim }}>
               <Download size={12}/> Export
+            </button>
+          )}
+          {Object.keys(files).some(p => /(?:^|\/)docs\/architect\//.test(p)) && (
+            <button
+              onClick={async () => {
+                const docs = selectDocumentPackageFiles(files);
+                let appName = projectName || 'product';
+                let marker: import('../services/ProductDocumentSet').TopicMarker | null = null;
+                const mf = docs['docs/architect/MANIFEST.json'] ?? docs['src/docs/architect/MANIFEST.json'];
+                if (mf) { try { const m = JSON.parse(mf); appName = m.appName || appName; marker = m.topicMarker ?? null; } catch { /* ignore */ } }
+                const ok = await downloadDocumentPackage(files, { appName, marker });
+                addLog?.(ok
+                  ? `📦 Document package downloaded (${Object.keys(docs).length} files)`
+                  : 'No document package found in this project');
+              }}
+              title="Download the full product document package (design → backend → onboarding → paywall → auth → i18n → policies) as ZIP"
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:8, border:`1px solid ${th.border}`, background:'none', cursor:'pointer', fontSize:11, color:th.tabDim }}>
+              <FileArchive size={12}/> Docs ZIP
             </button>
           )}
           {onExportReactNative && (
