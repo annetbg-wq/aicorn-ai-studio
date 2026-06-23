@@ -4667,6 +4667,40 @@ function resolveRouteOrSkip(slot: AgentSlot, overrides?: RouteOverrideMap): Reso
   try { return resolveRoute(slot, overrides); } catch { return null; }
 }
 
+/**
+ * The slot's configured fallback model (AgentConfig.fallback1ModelId), or null.
+ * Used when the primary model is unavailable (e.g. a dead model id → HTTP 404):
+ * the studio honours the user-configured reserve instead of failing the run.
+ * Not a hardcoded model — it is whatever the user/config set as fallback1.
+ */
+function resolveFallbackRoute(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRoute | null {
+  if (overrides?.[slot]) return null; // explicit override — no implicit fallback
+  const cfg = ConfigService.getAgentConfig(`agent_${slot}`);
+  const fbModel = cfg.fallback1ModelId?.trim();
+  if (!fbModel) return null;
+  const provider = (cfg.fallback1Provider || 'openrouter') as string;
+  const endpoint = Orchestrator.getEndpoint(provider as Parameters<typeof Orchestrator.getEndpoint>[0]);
+  const apiKey = ConfigService.getKeyForAgent(slot) || ConfigService.getApiKey();
+  if (!apiKey) return null;
+  return {
+    modelId:         fbModel,
+    apiKey,
+    endpoint,
+    provider,
+    endpointKind:    routeEndpointKind(endpoint, provider),
+    sourceAuthority: 'fallback1',
+  };
+}
+
+/** True for failures that mean the MODEL is unavailable (not a content/format issue). */
+function isModelUnavailableError(err: unknown): boolean {
+  if (err instanceof LlmTransportError) {
+    return err.httpStatus === 404 || err.category === 'missing_provider_key';
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\b404\b|not found|no (?:such )?model|unknown model|model_not_found/i.test(msg);
+}
+
 async function callOnce(input: {
   slot:      AgentSlot;
   system:    string;
@@ -4739,10 +4773,13 @@ async function streamCall(input: {
    */
   stream?:        boolean;
 }): Promise<void> {
-  const route = resolveRoute(input.slot, input.routeOverrides);
+  // route/body/headers are reassignable so a model-unavailable failure can retry
+  // with the slot's configured fallback model (fallback1) — see the attempt loop below.
+  let route = resolveRoute(input.slot, input.routeOverrides);
   const useStream = input.stream ?? false;
-  const body = JSON.stringify({
-    model:       Orchestrator.normalizeModelId(route.modelId, route.endpoint),
+  const fallbackRoute = resolveFallbackRoute(input.slot, input.routeOverrides);
+  const buildBody = (r: ResolvedRoute) => JSON.stringify({
+    model:       Orchestrator.normalizeModelId(r.modelId, r.endpoint),
     messages:    [
       { role: 'system', content: input.system },
       { role: 'user',   content: input.user },
@@ -4754,23 +4791,24 @@ async function streamCall(input: {
     temperature: 0.3,
     max_tokens:  input.maxTokens,
   });
-  const headers: Record<string, string> = {
-    'Authorization': `Bearer ${route.apiKey}`,
+  const buildHeaders = (r: ResolvedRoute): Record<string, string> => ({
+    'Authorization': `Bearer ${r.apiKey}`,
     'Content-Type':  'application/json',
     'HTTP-Referer':  typeof window !== 'undefined' ? window.location.origin : '',
-  };
+  });
+  let body = buildBody(route);
+  let headers = buildHeaders(route);
 
   // Pre-call diagnostics: safe payload metrics only — no prompt text, no API key.
-  // Route authority is logged upstream by the route resolver.
   const systemCharCount = input.system.length;
   const userCharCount   = input.user.length;
   const totalCharCount  = systemCharCount + userCharCount;
-  recordLlmCallDiagnostics({
+  const recordDiag = (r: ResolvedRoute) => recordLlmCallDiagnostics({
     llm_call_step:              slotToStepName(input.slot),
-    provider:                   route.provider,
-    model_id:                   Orchestrator.normalizeModelId(route.modelId, route.endpoint),
-    endpoint_kind:              route.endpointKind    ?? 'unknown',
-    route_authority:            route.sourceAuthority ?? 'unknown_authority',
+    provider:                   r.provider,
+    model_id:                   Orchestrator.normalizeModelId(r.modelId, r.endpoint),
+    endpoint_kind:              r.endpointKind    ?? 'unknown',
+    route_authority:            r.sourceAuthority ?? 'unknown_authority',
     system_prompt_char_count:   systemCharCount,
     user_payload_char_count:    userCharCount,
     total_prompt_char_count:    totalCharCount,
@@ -4780,6 +4818,7 @@ async function streamCall(input: {
     request_payload_byte_size:  body.length,
     streaming_enabled:          useStream,
   });
+  recordDiag(route);
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), input.timeoutMs);
@@ -4841,24 +4880,41 @@ async function streamCall(input: {
       });
     };
     let retryUsed = false;
-    let raw: string;
-    try {
-      const callResult = await executeWithClassifiedRetry(
-        slotToStepName(input.slot),
-        doFetch,
-      );
-      retryUsed = callResult.retryUsed;
-      raw = callResult.result;
-    } catch (llmErr) {
-      recordLlmCallOutcome({
-        llm_call_step:    slotToStepName(input.slot),
-        response_time_ms: Date.now() - callStart,
-        final_status:     (llmErr instanceof LlmTransportError) ? 'failed' : 'aborted',
-        http_status:      (llmErr instanceof LlmTransportError) ? llmErr.httpStatus : 0,
-        error_category:   (llmErr instanceof LlmTransportError) ? llmErr.category : undefined,
-      });
-      throw llmErr;
+    let raw = '';
+    // Attempt the primary model, then the configured fallback1 if the primary model
+    // is UNAVAILABLE (e.g. a dead model id → HTTP 404). doFetch closes over the
+    // reassignable route/body/headers, so switching the route switches the request.
+    const routeAttempts: ResolvedRoute[] = [route, ...(fallbackRoute ? [fallbackRoute] : [])];
+    let done = false;
+    for (let ai = 0; ai < routeAttempts.length; ai++) {
+      if (ai > 0) {
+        const prevModel = route.modelId;
+        route = routeAttempts[ai];
+        body = buildBody(route);
+        headers = buildHeaders(route);
+        recordDiag(route);
+        console.warn(`[streamCall] model "${prevModel}" unavailable — falling back to "${route.modelId}" [${route.sourceAuthority}]`);
+      }
+      try {
+        const callResult = await executeWithClassifiedRetry(slotToStepName(input.slot), doFetch);
+        retryUsed = callResult.retryUsed;
+        raw = callResult.result;
+        done = true;
+        break;
+      } catch (llmErr) {
+        const canFallback = ai < routeAttempts.length - 1 && isModelUnavailableError(llmErr);
+        if (canFallback) continue;
+        recordLlmCallOutcome({
+          llm_call_step:    slotToStepName(input.slot),
+          response_time_ms: Date.now() - callStart,
+          final_status:     (llmErr instanceof LlmTransportError) ? 'failed' : 'aborted',
+          http_status:      (llmErr instanceof LlmTransportError) ? llmErr.httpStatus : 0,
+          error_category:   (llmErr instanceof LlmTransportError) ? llmErr.category : undefined,
+        });
+        throw llmErr;
+      }
     }
+    if (!done) throw new Error(`streamCall exhausted ${routeAttempts.length} route attempt(s) for slot ${input.slot}`);
     recordLlmCallOutcome({
       llm_call_step:    slotToStepName(input.slot),
       response_time_ms: Date.now() - callStart,
