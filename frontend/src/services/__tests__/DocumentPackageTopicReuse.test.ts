@@ -54,6 +54,15 @@ describe('computeTopicMarker', () => {
     const other = computeTopicMarker(input({ prompt: 'Build a dating matching app with swipe and chat' }));
     expect(other.key).not.toBe(fin.key);
   });
+
+  it('keys on topicPrompt (raw brief), NOT the run-varying clarified prompt', () => {
+    // The pipeline passes an LLM-clarified prompt as `prompt` (varies each run) and
+    // the raw user brief as `topicPrompt`. Same raw brief ⇒ same key regardless of
+    // how the clarifier reworded `prompt`.
+    const a = computeTopicMarker(input({ topicPrompt: 'finance copilot budgets', prompt: 'A polished AI finance copilot that tracks budgets, transactions and goals with insights' }));
+    const b = computeTopicMarker(input({ topicPrompt: 'finance copilot budgets', prompt: 'Personal finance assistant app: dashboards, spending categories, savings — fully wired' }));
+    expect(a.key).toBe(b.key);
+  });
 });
 
 describe('resolveProductDocumentSet — dedup/reuse', () => {

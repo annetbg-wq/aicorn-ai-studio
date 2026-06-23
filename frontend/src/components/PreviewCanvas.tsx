@@ -6,7 +6,8 @@ import {
   FilePlus, Trash2, ZoomIn, ZoomOut, Maximize2, Download, FileArchive,
   MousePointer2, Save, X, RefreshCw,
 } from 'lucide-react';
-import { downloadDocumentPackage, selectDocumentPackageFiles } from '../services/DocumentPackageArchive';
+import { downloadDocumentPackage, selectDocumentPackageFiles, buildDocumentPackageZip, downloadBlob } from '../services/DocumentPackageArchive';
+import { DocumentPackageRegistry } from '../services/DocumentPackageRegistry';
 import { visualEditBridge, type VisualEditMode, type SelectedElement } from '../services/VisualEditBridge';
 import { appendPreviewSessionToUrl } from '../services/PreviewSessionService';
 import type { FileMap } from '../hooks/useStudio';
@@ -2303,20 +2304,29 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
               <Download size={12}/> Export
             </button>
           )}
-          {Object.keys(files).some(p => /(?:^|\/)docs\/architect\//.test(p)) && (
+          {(Object.keys(files).some(p => /(?:^|\/)docs\/architect\//.test(p)) || DocumentPackageRegistry.list().length > 0) && (
             <button
               onClick={async () => {
-                const docs = selectDocumentPackageFiles(files);
-                let appName = projectName || 'product';
-                let marker: import('../services/ProductDocumentSet').TopicMarker | null = null;
-                const mf = docs['docs/architect/MANIFEST.json'] ?? docs['src/docs/architect/MANIFEST.json'];
-                if (mf) { try { const m = JSON.parse(mf); appName = m.appName || appName; marker = m.topicMarker ?? null; } catch { /* ignore */ } }
-                const ok = await downloadDocumentPackage(files, { appName, marker });
-                addLog?.(ok
-                  ? `📦 Document package downloaded (${Object.keys(docs).length} files)`
-                  : 'No document package found in this project');
+                // Prefer the doc package in the current project; otherwise fall back
+                // to the durable registry (populated at materialization, before the
+                // build) so the package is downloadable EVEN IF the app build failed.
+                const inProject = selectDocumentPackageFiles(files);
+                if (Object.keys(inProject).length > 0) {
+                  let appName = projectName || 'product';
+                  let marker: import('../services/ProductDocumentSet').TopicMarker | null = null;
+                  const mf = inProject['docs/architect/MANIFEST.json'] ?? inProject['src/docs/architect/MANIFEST.json'];
+                  if (mf) { try { const m = JSON.parse(mf); appName = m.appName || appName; marker = m.topicMarker ?? null; } catch { /* ignore */ } }
+                  const ok = await downloadDocumentPackage(files, { appName, marker });
+                  addLog?.(ok ? `📦 Document package downloaded (${Object.keys(inProject).length} files)` : 'No document package found');
+                  return;
+                }
+                const pkg = DocumentPackageRegistry.getLatest();
+                if (!pkg) { addLog?.('No document package available'); return; }
+                const blob = await buildDocumentPackageZip(pkg.result.files, { appName: pkg.result.productDocs.productVision.appName, marker: pkg.marker });
+                downloadBlob(blob, `${(pkg.result.productDocs.productVision.appName || 'product').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')}-docs.zip`);
+                addLog?.(`📦 Document package downloaded from store (${Object.keys(pkg.result.files).length} files, topic ${pkg.marker.key})`);
               }}
-              title="Download the full product document package (design → backend → onboarding → paywall → auth → i18n → policies) as ZIP"
+              title="Download the full product document package (design → backend → onboarding → paywall → auth → i18n → policies) as ZIP — available even if the app build did not complete"
               style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:8, border:`1px solid ${th.border}`, background:'none', cursor:'pointer', fontSize:11, color:th.tabDim }}>
               <FileArchive size={12}/> Docs ZIP
             </button>

@@ -12,6 +12,13 @@ export type ProductDocumentPersistenceTarget = 'project_snapshot' | 'project_sto
 
 export interface ProductDocumentSetInput {
   prompt: string;
+  /**
+   * Stable raw user brief for TOPIC IDENTITY (the dedup marker). Defaults to
+   * `prompt`. Callers that pass an LLM-clarified/expanded prompt as `prompt` MUST
+   * pass the original user text here — the clarified prompt varies run-to-run, so
+   * keying the topic on it would defeat deduplication.
+   */
+  topicPrompt?: string;
   generatedAt?: string;
   projectId?: string;
   revisionId?: string;
@@ -322,7 +329,8 @@ function topicSignals(text: string, limit = 14): string[] {
  */
 export function computeTopicMarker(input: ProductDocumentSetInput): TopicMarker {
   const domain = input.productSpecificityPlan?.inferredDomain?.trim().toLowerCase() || undefined;
-  const signals = topicSignals(input.prompt);
+  // Key on the RAW user brief, never the LLM-clarified prompt (which varies run-to-run).
+  const signals = topicSignals(input.topicPrompt ?? input.prompt);
   const label = (input.architectPlan.appName?.trim()
     || domain
     || signals.slice(0, 4).join(' ')

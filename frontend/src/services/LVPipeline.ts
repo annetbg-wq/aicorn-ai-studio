@@ -857,6 +857,7 @@ export class LVPipeline {
     // ── 1. Materialize ProductDocumentSet deterministically (no LLM) ─────────
     const pdsInput: ProductDocumentSetInput = {
       prompt:     config.intent,
+      topicPrompt: config.intent, // raw user intent — stable topic identity for dedup
       skeletonId: LV_NEUTRAL_SKELETON_ID,
       generationPath: 'blank_canvas',
       projectId:  config.projectId,

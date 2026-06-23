@@ -2635,6 +2635,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     );
     const productDocumentSet = resolveProductDocumentSet({
       prompt: clarifiedPrompt,
+      topicPrompt: config.prompt, // raw user brief — stable topic identity for dedup
       projectId: config.projectId,
       revisionId: config.revisionId,
       runId: config.runId,

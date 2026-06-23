@@ -98,6 +98,16 @@ export const DocumentPackageRegistry = {
     return readIndex().slice().sort((a, b) => b.savedAt.localeCompare(a.savedAt));
   },
 
+  /**
+   * The most-recently saved package, or null. Because a package is registered at
+   * materialization (before the app build), the latest entry is the current run's
+   * document package and stays downloadable even if that build later fails.
+   */
+  getLatest(): StoredDocPackage | null {
+    const newest = this.list()[0];
+    return newest ? this.findByTopic(newest.key) : null;
+  },
+
   /** Test/maintenance helper. */
   clear(): void {
     for (const e of readIndex()) { try { localStorage.removeItem(entryKey(e.key)); } catch { /* ignore */ } }
