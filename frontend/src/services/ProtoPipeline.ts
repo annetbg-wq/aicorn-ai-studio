@@ -4672,15 +4672,26 @@ function resolveRouteOrSkip(slot: AgentSlot, overrides?: RouteOverrideMap): Reso
  * Used when the primary model is unavailable (e.g. a dead model id → HTTP 404):
  * the studio honours the user-configured reserve instead of failing the run.
  * Not a hardcoded model — it is whatever the user/config set as fallback1.
+ *
+ * Deliberately independent of routeOverrides: in the real generation flow
+ * GenerationEngine passes a resolved route as the override for EVERY slot
+ * (buildPipelineRouteOverrides), so gating the fallback on "no override present"
+ * made the reserve unreachable in production — the override is the resolved
+ * primary route, not a "pin this exact model, never fall back" signal. The
+ * fallback1 reserve is its own config field and applies regardless. The key and
+ * endpoint are resolved for the FALLBACK provider (which may differ from the
+ * primary's), and a fallback that equals the primary model is skipped — retrying
+ * the same dead model id is pointless.
  */
-function resolveFallbackRoute(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRoute | null {
-  if (overrides?.[slot]) return null; // explicit override — no implicit fallback
+export function resolveFallbackRoute(slot: AgentSlot, primaryModelId: string): ResolvedRoute | null {
   const cfg = ConfigService.getAgentConfig(`agent_${slot}`);
   const fbModel = cfg.fallback1ModelId?.trim();
-  if (!fbModel) return null;
+  if (!fbModel || fbModel === primaryModelId) return null;
   const provider = (cfg.fallback1Provider || 'openrouter') as string;
   const endpoint = Orchestrator.getEndpoint(provider as Parameters<typeof Orchestrator.getEndpoint>[0]);
-  const apiKey = ConfigService.getKeyForAgent(slot) || ConfigService.getApiKey();
+  const apiKey = provider === 'openrouter'
+    ? (ConfigService.getProviderKey('openrouter') || ConfigService.getApiKey())
+    : ConfigService.getProviderKey(provider);
   if (!apiKey) return null;
   return {
     modelId:         fbModel,
@@ -4777,7 +4788,7 @@ async function streamCall(input: {
   // with the slot's configured fallback model (fallback1) — see the attempt loop below.
   let route = resolveRoute(input.slot, input.routeOverrides);
   const useStream = input.stream ?? false;
-  const fallbackRoute = resolveFallbackRoute(input.slot, input.routeOverrides);
+  const fallbackRoute = resolveFallbackRoute(input.slot, route.modelId);
   const buildBody = (r: ResolvedRoute) => JSON.stringify({
     model:       Orchestrator.normalizeModelId(r.modelId, r.endpoint),
     messages:    [
