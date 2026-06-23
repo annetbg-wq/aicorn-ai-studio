@@ -828,6 +828,84 @@ const PLACEHOLDER_ASSET_SVG =
 const GENERATED_ASSET_IMPORT_RE =
   /@\/(assets\/generated\/[^"'`()\s]+?\.(?:svg|png|jpe?g|webp|gif|avif))/g;
 
+/** Asset/style/font specifiers Vite resolves from disk, not text modules in the graph. */
+const NON_MODULE_IMPORT_RE =
+  /\.(?:svg|png|jpe?g|gif|webp|avif|ico|css|scss|sass|less|woff2?|ttf|otf|eot|mp4|webm|mp3|wav)(?:\?\S*)?$/i;
+
+/** ES import statements with a binding clause: `import <clause> from '<specifier>'`. */
+const ES_IMPORT_WITH_CLAUSE_RE = /import\s+(?:type\s+)?([^'"]*?)\s+from\s*['"]([^'"]+)['"]/g;
+
+/** Dangling import target: which generated files import it and the symbols they use. */
+export interface DanglingModuleNeed {
+  importers:      Set<string>;
+  defaultImports: Set<string>;
+  namedImports:   Set<string>;
+}
+
+/**
+ * Resolves a relative import specifier against the importer path to a normalised
+ * src-rooted module base WITHOUT extension
+ * (src/hooks/useFinance.ts + '../types/finance' → 'src/types/finance').
+ */
+function resolveRelativeModuleBase(importer: string, specifier: string): string {
+  const parts = importer.replace(/\/[^/]*$/, '').split('/').filter(Boolean);
+  for (const seg of specifier.split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join('/');
+}
+
+/**
+ * Finds RELATIVE local imports among generated files whose target module is not
+ * present in the file set — modules the coder referenced but forgot to emit.
+ *
+ * Relative ('./','../') imports are always generated-to-generated: skeleton
+ * modules are imported via the '@/' alias, never relatively. So an unresolved
+ * relative import is unambiguously a dangling generated module, with no risk of
+ * false-positives against skeleton files we do not have in scope here. Returns
+ * each missing module base path → its importers and the default/named symbols
+ * they reference, so a re-emit can synthesise a real module with those exports.
+ */
+export function collectDanglingRelativeImports(
+  files: Record<string, string>,
+): Map<string, DanglingModuleNeed> {
+  const have = new Set(Object.keys(files).map(p => p.replace(/^\.?\//, '')));
+  const exts = ['.ts', '.tsx', '.js', '.jsx'];
+  const resolvesInSet = (base: string): boolean =>
+    exts.some(e => have.has(base + e) || have.has(`${base}/index${e}`));
+
+  const out = new Map<string, DanglingModuleNeed>();
+  for (const [path, content] of Object.entries(files)) {
+    const importer = path.replace(/^\.?\//, '');
+    for (const m of content.matchAll(ES_IMPORT_WITH_CLAUSE_RE)) {
+      const clause = m[1].trim();
+      const specifier = m[2];
+      if (!specifier.startsWith('.')) continue;            // relative only
+      if (NON_MODULE_IMPORT_RE.test(specifier)) continue;  // asset/style/font
+      const base = resolveRelativeModuleBase(importer, specifier);
+      if (!base || resolvesInSet(base)) continue;          // target exists
+
+      const need = out.get(base) ?? {
+        importers: new Set<string>(), defaultImports: new Set<string>(), namedImports: new Set<string>(),
+      };
+      need.importers.add(importer);
+      const named = clause.match(/\{([^}]*)\}/);
+      if (named) {
+        for (const raw of named[1].split(',')) {
+          const sym = raw.trim().split(/\s+as\s+/)[0].trim();
+          if (sym) need.namedImports.add(sym);
+        }
+      }
+      const def = clause.replace(/\{[^}]*\}/, '').replace(/\*\s+as\s+\w+/, '').replace(/,/g, '').trim();
+      if (def && /^[A-Za-z_$][\w$]*$/.test(def)) need.defaultImports.add(def);
+      out.set(base, need);
+    }
+  }
+  return out;
+}
+
 export async function materializeMediaAssets(
   ctx: DesignContext,
   brief: string,
@@ -2798,6 +2876,82 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
             `generated imports: ${Array.from(missingAssets).join(', ')}`,
           'warn',
         );
+      }
+    }
+
+    // ── Heal dangling relative local-module imports (missing_local_import) ──
+    // The coder occasionally imports a sibling module it forgot to emit (e.g. a
+    // hook importing '../types/finance' with no types/finance.ts). The contract
+    // validator rejects this at compile (missing_local_import) and the repair /
+    // quality passes cannot recover — they edit existing files, they never
+    // synthesise an absent module, so the build hard-fails after its retries.
+    // Detect dangling RELATIVE imports here, pre-compile, and issue ONE targeted
+    // coder call that CREATES the missing modules with exactly the symbols their
+    // importers reference. Real modules, no placeholders. (Relative imports are
+    // always generated-to-generated, so this is false-positive-free.)
+    {
+      const danglers = collectDanglingRelativeImports(filteredFiles);
+      if (danglers.size > 0) {
+        const specs = Array.from(danglers.entries()).map(([base, need]) => {
+          const def = Array.from(need.defaultImports);
+          const named = Array.from(need.namedImports);
+          const provides = [
+            ...(def.length ? [`default export (${def.join(' / ')})`] : []),
+            ...(named.length ? [`named exports: ${named.join(', ')}`] : []),
+          ].join('; ') || 'the symbols its importers reference';
+          return {
+            file:      `${base}.ts`,
+            importers: Array.from(need.importers),
+            provides,
+          };
+        });
+        log(
+          `[apply] dangling local imports — synthesising ${specs.length} missing module(s): ` +
+            specs.map(s => s.file).join(', '),
+          'warn',
+        );
+        const healSystem =
+          `Same task as before (product: ${plan.appName}). Some generated files import local ` +
+          `modules that were never created, so the build cannot resolve them.\n\n` +
+          `Create ONLY the missing modules listed below. Emit each as a COMPLETE, real module — ` +
+          `actual TypeScript types/interfaces/constants/functions matching how the importers use ` +
+          `them and the product domain. No placeholders, no TODOs, no empty stubs. Do not re-emit ` +
+          `or modify any other file.\n\n` +
+          `Output format — wrap EACH new file exactly as:\n` +
+          `<<<FILE: path/from/src>>>\n...file content...\n<<<END>>>\n\n` +
+          `MISSING MODULES:\n` +
+          specs.map(s =>
+            `- Create ${s.file}\n` +
+            `    imported by: ${s.importers.join(', ')}\n` +
+            `    must provide: ${s.provides}`,
+          ).join('\n');
+        try {
+          let healBody = '';
+          await streamCall({
+            slot:           'build',
+            system:         healSystem,
+            user:           'Create the listed missing modules with real, complete content.',
+            maxTokens:      STEP_BUDGET.coder.maxTokens,
+            timeoutMs:      STEP_BUDGET.coder.timeoutMs,
+            signal:         config.signal,
+            routeOverrides: config.routeOverrides,
+            onChunk:        (delta) => { healBody += delta; },
+            onUsage:        (usage) => { coderUsage = mergeLlmUsage(coderUsage, usage); },
+          });
+          const created = parseFileMarkers(healBody);
+          let added = 0;
+          for (const [createdPath, createdContent] of Object.entries(created)) {
+            const norm = createdPath.replace(/^\.?\//, '');
+            const already = Object.keys(filteredFiles).some(p => p.replace(/^\.?\//, '') === norm);
+            if (!already) { filteredFiles[createdPath] = createdContent; added++; }
+          }
+          log(
+            `[apply] synthesised ${added} missing local module(s) for dangling imports`,
+            added > 0 ? 'info' : 'warn',
+          );
+        } catch (err) {
+          log(`[apply] dangling-import heal failed: ${(err as Error).message.slice(0, 140)}`, 'warn');
+        }
       }
     }
 
