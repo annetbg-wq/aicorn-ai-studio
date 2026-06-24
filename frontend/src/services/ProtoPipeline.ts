@@ -906,6 +906,31 @@ export function collectDanglingRelativeImports(
   return out;
 }
 
+/** A coder delta file (path + purpose) as produced by the architect plan. */
+type DeltaFileSpec = { path: string; purpose: string };
+
+/**
+ * Splits the coder's delta files into the data/logic FOUNDATION (types, data,
+ * hooks, services, store) and the UI SCREENS that consume it. Phased generation
+ * emits the foundation first so every screen is generated against a fixed,
+ * already-existing data contract — eliminating the cross-module inconsistency and
+ * dangling-import failures that a single big-bang generation is prone to.
+ */
+export function partitionDeltaForPhasing(
+  deltaFiles: readonly DeltaFileSpec[],
+): { foundation: DeltaFileSpec[]; screens: DeltaFileSpec[] } {
+  const FOUNDATION_DIR_RE = /\/(?:data|types?|hooks|lib|services|store|state|utils|models|api)\//i;
+  const FOUNDATION_FILE_RE = /\/(?:types|data|seed|store|schema|constants)\.tsx?$/i;
+  const foundation: DeltaFileSpec[] = [];
+  const screens: DeltaFileSpec[] = [];
+  for (const f of deltaFiles) {
+    const p = `/${f.path.replace(/^\.?\/?(?:src\/)?/, '')}`;
+    if (FOUNDATION_DIR_RE.test(p) || FOUNDATION_FILE_RE.test(p)) foundation.push(f);
+    else screens.push(f);
+  }
+  return { foundation, screens };
+}
+
 export async function materializeMediaAssets(
   ctx: DesignContext,
   brief: string,
@@ -2760,7 +2785,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
          premiumComponents: _dfPremiumEntries,
        });
 
-       deltaFiles = await runCoder({
+       const baseCoderInput = {
           prompt:     clarifiedPrompt,
           plan,
           skeletonId: config.skeletonId,
@@ -2768,18 +2793,41 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           routeOverrides: config.routeOverrides,
           onLog:      log,
           onStream:   config.onCoderStream,
-          onUsage:    (usage) => { coderUsage = usage; },
-        designCtx,
-        mediaHints: mediaMaterialization.mediaHints,
-         compositionPlan,
-         functionalFlowPlan,
-         skeletonIntegrationPlan,
-         productSpecificityPlan,
-         marketAwareBuilderBrief: marketBrief,
-         attachmentPromptBlock: uploadedAssetFusion.promptBlock,
-         designFusionBlock: _designFusionBlock,
-         coderContractBrief: buildCoderContractBrief(productDocumentSet.productDocs),
-       });
+          onUsage:    (usage: StepLlmMetrics) => { coderUsage = mergeLlmUsage(coderUsage, usage); },
+          designCtx,
+          mediaHints: mediaMaterialization.mediaHints,
+          compositionPlan,
+          functionalFlowPlan,
+          skeletonIntegrationPlan,
+          productSpecificityPlan,
+          marketAwareBuilderBrief: marketBrief,
+          attachmentPromptBlock: uploadedAssetFusion.promptBlock,
+          designFusionBlock: _designFusionBlock,
+          coderContractBrief: buildCoderContractBrief(productDocumentSet.productDocs),
+       };
+       // Phased generation: emit the data/logic FOUNDATION first, then the SCREENS
+       // against that fixed contract. Each screen is generated knowing the exact
+       // types/exports it must consume, which removes the cross-module drift and
+       // dangling-import failures a single big-bang pass is prone to on complex apps.
+       // Conservative gate (≥1 foundation + ≥3 screens) keeps simple apps single-pass,
+       // and ANY phasing error falls back to the proven single-pass call — never worse.
+       const { foundation: _founFiles, screens: _scrFiles } = partitionDeltaForPhasing(plan.deltaFiles);
+       if (_founFiles.length >= 1 && _scrFiles.length >= 3) {
+         try {
+           log(`[coder] phased: foundation(${_founFiles.length}) → screens(${_scrFiles.length})`);
+           const phase1 = await runCoder({ ...baseCoderInput, targetFiles: _founFiles });
+           log(`[coder] foundation ready (${Object.keys(phase1).length} file(s)) — generating screens against it`);
+           const phase2 = await runCoder({ ...baseCoderInput, targetFiles: _scrFiles, establishedFiles: phase1 });
+           deltaFiles = { ...phase1, ...phase2 };
+           log(`[coder] phased generation complete (${Object.keys(deltaFiles).length} file(s))`);
+         } catch (phErr) {
+           if (isAbort(phErr)) throw phErr;
+           log(`[coder] phased generation failed (${(phErr as Error).message.slice(0, 120)}) — falling back to single-pass`, 'warn');
+           deltaFiles = await runCoder(baseCoderInput);
+         }
+       } else {
+         deltaFiles = await runCoder(baseCoderInput);
+       }
     } catch (err) {
       if (isAbort(err)) return fail('coder', 'aborted');
       return fail('coder', (err as Error).message);
@@ -4039,6 +4087,17 @@ async function runCoder(input: {
   designFusionBlock?: string;
   /** Compact "build to this" contract distilled from the product document package. */
   coderContractBrief?: string;
+  /**
+   * Phased generation: the subset of plan.deltaFiles THIS call must emit (defaults
+   * to all). Used to generate the data/type foundation first, then the screens.
+   */
+  targetFiles?: Array<{ path: string; purpose: string }>;
+  /**
+   * Phased generation: files already produced by an earlier phase. Injected as
+   * read-only context so this phase imports from them and matches their exact
+   * types/exports instead of recreating or diverging from them.
+   */
+  establishedFiles?: Record<string, string>;
 }): Promise<Record<string, string>>{
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
   const skeletonPromptBlock = buildSkeletonPromptBlock(input.skeletonId, {
@@ -4052,9 +4111,18 @@ async function runCoder(input: {
       dataModel: input.plan.dataModel ?? '',
     },
   });
-  const fileList = input.plan.deltaFiles
+  const targetFiles = input.targetFiles ?? input.plan.deltaFiles;
+  const fileList = targetFiles
     .map(d => `  - ${d.path}${d.purpose ? `  // ${d.purpose}` : ''}`)
     .join('\n');
+  // Phased generation: inject already-built foundation files as read-only context.
+  const establishedFilesBlock = input.establishedFiles && Object.keys(input.establishedFiles).length > 0
+    ? `ESTABLISHED FOUNDATION — these files ALREADY EXIST from an earlier phase. Do NOT re-emit them. ` +
+      `Import from these EXACT module paths and match their exported types/names PRECISELY (do not redefine or diverge):\n\n` +
+      Object.entries(input.establishedFiles)
+        .map(([path, content]) => `<<<FILE: ${path}>>>\n${content.length > 2400 ? content.slice(0, 2400) + '\n/* …truncated… */' : content}\n<<<END>>>`)
+        .join('\n\n')
+    : '';
   const fileTreeBlock = Object.entries(input.plan.fileTree)
     .map(([path, purpose]) => `  - ${path}${purpose ? `  // ${purpose}` : ''}`)
     .join('\n');
@@ -4149,6 +4217,7 @@ async function runCoder(input: {
     contractBlock ? `\n${contractBlock}` : '',
     planningBlocks ? `\n${planningBlocks}` : '',
     `\n${skeletonPromptBlock}`,
+    establishedFilesBlock ? `\n${establishedFilesBlock}` : '',
     `\n${filePlanBlock}`,
     `\n${outputFormatBlock}`,
     `\n${importRulesBlock}`,
@@ -4188,7 +4257,7 @@ async function runCoder(input: {
   });
 
   let parsed = parseFileMarkers(body);
-  let missing = input.plan.deltaFiles
+  let missing = targetFiles
     .map(d => d.path)
     .filter(p => !(p in parsed));
 
@@ -4230,7 +4299,7 @@ ${missing.map(p => `  - ${p}`).join('\n')}`;
       });
       const retryParsed = parseFileMarkers(retryBody);
       parsed = { ...parsed, ...retryParsed };
-      missing = input.plan.deltaFiles
+      missing = targetFiles
         .map(d => d.path)
         .filter(p => !(p in parsed));
     } catch (err) {
@@ -4247,7 +4316,7 @@ ${missing.map(p => `  - ${p}`).join('\n')}`;
         `(finish_reason=${firstReason || 'none'}, body_chars=${body.length})`,
     );
   }
-  const allowedPaths = new Set(input.plan.deltaFiles.map(file => normaliseDeltaPath(file.path)));
+  const allowedPaths = new Set(targetFiles.map(file => normaliseDeltaPath(file.path)));
   const droppedUnexpected = Object.keys(parsed).filter(path => !allowedPaths.has(normaliseDeltaPath(path)));
   if (droppedUnexpected.length > 0) {
     input.onLog(
