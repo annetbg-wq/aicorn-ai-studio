@@ -159,7 +159,12 @@ async function navigateToTrendNiches(page) {
   await navBtn.waitFor({ state: 'visible', timeout: 10000 });
   await navBtn.click();
   // Wait for TrendNichesPanel to load
-  await page.waitForFunction(() => document.body.innerText.includes('В работу') || document.body.innerText.includes('Build now'), { timeout: 15000 });
+  // Current UI: the skeleton-path action is '🏗 Скелетон' (TrendNichesPanel); the
+  // legacy 'В работу' / 'Build now' labels are kept for back-compat with old builds.
+  await page.waitForFunction(() => {
+    const t = document.body.innerText;
+    return t.includes('Скелетон') || t.includes('LV Быстро') || t.includes('В работу') || t.includes('Build now');
+  }, { timeout: 15000 });
 }
 
 async function checkProjectsEmpty(page) {
@@ -200,13 +205,16 @@ async function runScenario(name, bridgeMode, expectPreview) {
 
     // Verify projects empty BEFORE packaging
     const emptyBefore = await checkProjectsEmpty(page);
-    console.log(`  Projects empty before В работу: ${emptyBefore ? '✓' : '✗ LEAK'}`);
+    console.log(`  Projects empty before skeleton run: ${emptyBefore ? '✓' : '✗ LEAK'}`);
 
-    // Click 'В работу' on the first idea
-    const buildBtn = page.locator('button').filter({ hasText: 'В работу' }).first();
+    // Click the skeleton-path action ('🏗 Скелетон'); fall back to the legacy 'В работу'.
+    let buildBtn = page.locator('button').filter({ hasText: 'Скелетон' }).first();
+    if (await buildBtn.count() === 0) {
+      buildBtn = page.locator('button').filter({ hasText: 'В работу' }).first();
+    }
     await buildBtn.waitFor({ state: 'visible', timeout: 10000 });
     await buildBtn.click();
-    console.log('  ✓ Clicked В работу');
+    console.log('  ✓ Clicked skeleton build action');
 
     if (!expectPreview) {
       // Expect error message in chat (both-fail scenario)

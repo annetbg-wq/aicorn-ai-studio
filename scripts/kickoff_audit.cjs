@@ -99,13 +99,20 @@ async function run() {
     const nav = page.locator('[title="Трендовые ниши"]').or(page.getByRole('button', { name: 'Трендовые ниши' }));
     await nav.waitFor({ state: 'visible', timeout: 10000 });
     await nav.click();
-    await page.waitForFunction(() => document.body.innerText.includes('В работу'), { timeout: 15000 });
+    // Current UI: '🏗 Скелетон' / 'LV Быстро'; legacy 'В работу' kept for back-compat.
+    await page.waitForFunction(() => {
+      const t = document.body.innerText;
+      return t.includes('Скелетон') || t.includes('LV Быстро') || t.includes('В работу');
+    }, { timeout: 15000 });
     console.log('  ✓ Trend Niches loaded');
 
-    // Click В работу
-    const buildBtn = page.locator('button').filter({ hasText: 'В работу' }).first();
+    // Click the skeleton-path action ('🏗 Скелетон'); fall back to the legacy 'В работу'.
+    let buildBtn = page.locator('button').filter({ hasText: 'Скелетон' }).first();
+    if (await buildBtn.count() === 0) {
+      buildBtn = page.locator('button').filter({ hasText: 'В работу' }).first();
+    }
     await buildBtn.click();
-    console.log('  ✓ Clicked В работу');
+    console.log('  ✓ Clicked skeleton build action');
 
     // Wait for packaging → context added → engine view
     await page.waitForFunction(() => document.body.innerText.includes('Context added') || document.body.innerText.includes('🧩'), { timeout: 30000 });
