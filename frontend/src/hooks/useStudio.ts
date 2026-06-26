@@ -3867,24 +3867,14 @@ export const useStudio = () => {
         modeSetByUserRef.current = true;
         generationModeLabel = 'Application';
       } else {
-        const surfaceMsgId = createMessageId();
-        chatAppend({
-          id:        surfaceMsgId,
-          role:      'assistant' as const,
-          type:      'surface-choice' as const,
-          content:   '',
-          timestamp: Date.now(),
-        });
-        const chosen = await waitForSurfaceChoice(controller.signal, userPrompt);
-        if (controller.signal.aborted || chosen === null) {
-          finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
-          setIsGenerating(false);
-          return;
-        }
-        resolvedGenerationMode = chosen === 'superapp' ? 'superapp' : 'app';
+        // Autonomous flow: auto-select the surface from the prompt instead of
+        // blocking on a landing/app/superapp choice card. (Lovable-grade: the user
+        // typed what they want — infer scope and build; the mode buttons remain
+        // available to override before sending.)
+        const autoSurface = autoSelectSurface(userPrompt);
+        resolvedGenerationMode = autoSurface === 'superapp' ? 'superapp' : 'app';
         setGenerationMode(resolvedGenerationMode);
         modeSetByUserRef.current = true;
-        chatUpdate(surfaceMsgId, { selectedSurface: resolvedGenerationMode });
         generationModeLabel = resolvedGenerationMode === 'superapp' ? 'Super app' : 'Application';
       }
       buildPreferencesText = [
@@ -4334,23 +4324,26 @@ export const useStudio = () => {
             (question): question is ArchitectBlockingQuestion => question.kind === 'blocking',
           );
           if (blockingQuestions.length > 0 && !controller.signal.aborted) {
+            // Autonomous flow (Lovable-grade: type a prompt → it builds). Instead of
+            // blocking on a "accept choice and continue" card, auto-accept each
+            // blocking question's recommended default (defaultChoiceId — the fastest
+            // first-pass option) and carry it into the build intent. The choice is
+            // surfaced in chat for transparency; the user can redirect afterwards.
+            const autoAnswers = blockingQuestions.map((q) => {
+              const def = q.options.find(o => o.id === q.defaultChoiceId) ?? q.options[0];
+              return { q: q.question, label: def?.label ?? def?.id ?? 'default' };
+            });
+            finalIntent +=
+              '\n\nDefault choices (auto-selected — recommended fastest first pass):\n' +
+              autoAnswers.map(a => `- ${a.q} → ${a.label}`).join('\n');
             chatAppend({
               role:      'assistant' as const,
-              type:      'clarification' as const,
-              blockingQuestions,
-              content:   '',
+              type:      'text',
+              content:
+                'Принял рекомендованные дефолты для первого прохода (можно изменить позже):\n' +
+                autoAnswers.map(a => `• ${a.q} → ${a.label}`).join('\n'),
               timestamp: Date.now() + 2,
             });
-            // Block generation until user answers (or aborts)
-            const clarAnswer = await waitForClarification(controller.signal);
-            if (controller.signal.aborted) {
-              finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
-              setIsGenerating(false);
-              return;
-            }
-            if (clarAnswer.trim()) {
-              finalIntent += '\n\nUser clarification answers: ' + clarAnswer;
-            }
           }
         } catch (architectErr) {
           addLog(`[Architect] Pre-build analysis failed: ${(architectErr as Error)?.message ?? String(architectErr)} — continuing without`);
