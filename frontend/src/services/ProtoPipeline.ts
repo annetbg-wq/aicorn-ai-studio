@@ -931,6 +931,24 @@ export function partitionDeltaForPhasing(
   return { foundation, screens };
 }
 
+/**
+ * A safe TypeScript stub for a skeleton-required export the coder failed to
+ * provide. Appended so the skeleton-locked import resolves and the build never
+ * hard-fails on missing_named_export — ship-and-iterate: the coder's real content
+ * is untouched, only the absent symbol is back-filled.
+ *
+ *   PascalCase name / type entry  → `export type X = any;`
+ *   config/* value                → `export const x: any = {};`
+ *   data/seed value (default)     → `export const x: any = [];`  (arrays degrade
+ *                                    gracefully: .map/.filter work; .prop → undefined)
+ */
+export function buildRequiredExportStub(file: string, entry: { name: string; type?: string }): string {
+  const isType = entry.type === 'type' || entry.type === 'interface' || /^[A-Z]/.test(entry.name);
+  if (isType) return `export type ${entry.name} = any;`;
+  const initial = /\/config\//.test(`/${file}`) ? '{}' : '[]';
+  return `export const ${entry.name}: any = ${initial};`;
+}
+
 export async function materializeMediaAssets(
   ctx: DesignContext,
   brief: string,
@@ -3057,6 +3075,32 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       } catch (err) {
         if (isAbort(err)) throw err;
         log(`[apply] export-integrity retry failed: ${(err as Error).message}`, 'warn');
+      }
+
+      // ── Deterministic export safety-net — guarantee carcass contracts resolve ──
+      // The LLM retry above is best-effort; if a required export is STILL missing,
+      // a skeleton-locked import would break at compile (missing_named_export) and
+      // hard-fail the build — exactly the "system can't glue the preview into a
+      // working app" failure. Back-fill a typed stub so the contract always resolves
+      // and the prototype builds (ship-and-iterate). Never throws, never an LLM call.
+      const stillMissing = checkExportIntegrity(config.skeletonId, filteredFiles);
+      if (stillMissing.length > 0) {
+        const stubsByFile = new Map<string, string[]>();
+        for (const v of stillMissing) {
+          if (!stubsByFile.has(v.file)) stubsByFile.set(v.file, []);
+          stubsByFile.get(v.file)!.push(buildRequiredExportStub(v.file, v));
+        }
+        for (const [file, stubs] of stubsByFile) {
+          filteredFiles[file] =
+            `${filteredFiles[file].trimEnd()}\n\n` +
+            `// ── Auto-stubbed required exports (skeleton contract safety-net) ──\n` +
+            `${stubs.join('\n')}\n`;
+        }
+        log(
+          `[apply] export safety-net: back-filled ${stillMissing.length} still-missing required export(s) ` +
+            `(${stillMissing.map(v => `${v.file}:${v.name}`).join(', ')})`,
+          'warn',
+        );
       }
     }
 
