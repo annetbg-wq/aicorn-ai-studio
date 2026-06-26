@@ -1027,6 +1027,15 @@ const GENERIC_PLACEHOLDER_PATTERNS: Array<{ label: string; rx: RegExp }> = [
   { label: 'gray placeholder', rx: /\bgray placeholder\b/i },
   { label: 'generic dashboard', rx: /\bgeneric dashboard\b/i },
   { label: 'generic app', rx: /\bgeneric app\b/i },
+  // ── Skeleton-default fingerprints (product-identity gate) ──────────────────
+  // Verbatim copy/seed shipped by the skeleton carcass. If these survive into the
+  // output, the coder failed to replace the shell with the requested product — the
+  // theme is lost (e.g. a "Cashflow Guard" brief left showing "Morning intention").
+  // Treated as BLOCKING so the run repairs instead of shipping a generic shell.
+  { label: 'Morning intention', rx: /\bMorning intention\b/i },
+  { label: 'Deep work block', rx: /\bDeep work block\b/i },
+  { label: "Today's space", rx: /\bToday's space\b/i },
+  { label: 'Nothing here yet', rx: /\bNothing here yet\b/i },
 ];
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
@@ -2138,6 +2147,9 @@ export function evaluatePrototypeQualityGate(
       'AppName', 'PRODUCT',
       'Lorem', 'lorem ipsum',
       'Untitled', 'TODO',
+      // Skeleton-default fingerprints — surviving carcass copy means the product
+      // identity was not applied (theme lost). Block → repair, never ship generic.
+      'Morning intention', 'Deep work block', "Today's space", 'Nothing here yet',
     ]);
     const blockingVisualPlaceholders = visualPlaceholders.filter(finding => {
       const label = finding.split(': ').slice(1).join(': ');
@@ -2146,12 +2158,13 @@ export function evaluatePrototypeQualityGate(
 
     if (blockingVisualPlaceholders.length > 0) {
       blockingReasons.push(
-        `Generic placeholder content in ${blockingVisualPlaceholders.length} location(s): ` +
+        `Generic placeholder / skeleton-default content in ${blockingVisualPlaceholders.length} location(s): ` +
         blockingVisualPlaceholders.slice(0, 4).join('; '),
       );
       repairInstructions.push(
-        'Replace all generic placeholders (Feature 1, AppName, Lorem ipsum, Untitled, TODO) ' +
-        'with product-specific copy and domain-specific entity names.',
+        'Replace all generic placeholders (Feature 1, AppName, Lorem ipsum, Untitled, TODO) AND any ' +
+        'surviving skeleton-default copy/seed (Morning intention, Deep work block, Today\'s space, ' +
+        'Nothing here yet) with product-specific copy, domain entities, and seed data for THIS product.',
       );
     }
   }

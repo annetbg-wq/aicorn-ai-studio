@@ -102,6 +102,23 @@ describe('ProtoPipeline diagnostics', () => {
     expect(diagnostics.suggestedNextAction).toBe('improve_prompt');
   });
 
+  it('flags surviving skeleton-default copy/seed as a generic-placeholder finding (product-identity gate)', () => {
+    const diagnostics = buildVisualUsageDiagnostics({
+      files: {
+        'data/seed.ts': "export const items = [{ title: 'Morning intention' }, { title: 'Deep work block' }];",
+        'pages/Home.tsx': "export default function Home(){ return (<><h1>Today's space</h1><p>Nothing here yet</p></>); }",
+        'config/app.ts': "export const appConfig = { name: 'AppName' };",
+      },
+      skeletonId: 'mobile-app',
+      selectedPremiumComponentIds: [],
+      materializedMediaFiles: [],
+    });
+    const labels = diagnostics.genericPlaceholderFindings.map(f => f.split(': ').slice(1).join(': '));
+    expect(labels).toEqual(expect.arrayContaining([
+      'Morning intention', 'Deep work block', "Today's space", 'Nothing here yet', 'AppName',
+    ]));
+  });
+
   it('reports premiumUsageObserved=true when generated source imports from premium component paths', () => {
     const diagnostics = buildVisualUsageDiagnostics({
       files: {
