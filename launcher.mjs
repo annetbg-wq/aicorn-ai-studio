@@ -51,7 +51,10 @@ const SERVERS = {
     args:    ['run', 'dev', '--prefix', 'frontend'],
     port:    5183,
     label:   'Frontend (Vite :5183)',
-    probeUrl: 'http://127.0.0.1:5183/',
+    // Vite binds to `localhost` (resolves to ::1 on Windows), NOT 127.0.0.1 only.
+    // Probing 127.0.0.1 missed the live server, so the launcher kept starting a
+    // second frontend → EADDRINUSE. `localhost` matches wherever Vite actually listens.
+    probeUrl: 'http://localhost:5183/',
     healthCheckTimeoutMs: 0, // no health gate — Playwright probes :5183 directly
   },
 };
