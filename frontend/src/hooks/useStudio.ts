@@ -1770,7 +1770,15 @@ export const useStudio = () => {
         const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
         setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
         setPreviewBlockedReason(null);
-        if (state.buildStage === 'skeleton') {
+        // Only a coder-complete build (final/repair) is a real success that opens
+        // Preview-ready + the Save CTA. An early static preview (buildStage
+        // 'unknown') or the bare skeleton render are "technical mounted" only —
+        // never promote them. Previously 'unknown' fell through to setPreviewReady(true)
+        // and promoted the lifecycle to 'preview-ready'; the later 'skeleton' event
+        // then set previewReady=false but the lifecycle stayed 'preview-ready'
+        // (the prev-guard below), leaving previewReady=false + lifecycle=preview-ready
+        // → Save CTA permanently blocked (the "stuck at 68%" hang).
+        if (state.buildStage !== 'final' && state.buildStage !== 'repair') {
           setPreviewReady(false);
           setPreviewLifecycle(prev => (prev === 'preview-ready' ? prev : 'skeleton-ready'));
           return;
@@ -2671,6 +2679,32 @@ export const useStudio = () => {
     failedSaveCommittedRef.current = true;
     commitPendingProjectSaveRef.current('preview-failed', { force: true, buildStatus: 'failed' });
   }, [previewLifecycle, isGenerating]);
+
+  // Terminal-state safety-net: a run must never hang forever on a live skeleton
+  // preview that never advances to the final build. If the lifecycle sits at
+  // 'skeleton-ready' while still generating for SKELETON_STALL_MS with no
+  // transition, settle into a terminal failed state with a clear reason instead of
+  // an endless "Final build" spinner (the user-reported "stuck at 68%"). The
+  // timeout is generous: a real final build moves the lifecycle to 'materializing'
+  // (resetting this effect's timer via its deps) well before it fires.
+  useEffect(() => {
+    if (!isGenerating || previewLifecycle !== 'skeleton-ready') return;
+    const SKELETON_STALL_MS = 240_000; // 4 min
+    const timer = setTimeout(() => {
+      addLog(
+        '[preview] terminal-state safety-net: skeleton-ready stalled ' +
+          `past ${Math.round(SKELETON_STALL_MS / 1000)}s with no final build — marking run failed`,
+        'warn',
+      );
+      setPreviewBlockedReason(
+        'Final assembly did not complete after the skeleton preview mounted. ' +
+        'The prototype may be partial — press Retry to finish the build.',
+      );
+      setPreviewLifecycle('failed');
+      setIsGenerating(false);
+    }, SKELETON_STALL_MS);
+    return () => clearTimeout(timer);
+  }, [isGenerating, previewLifecycle, addLog]);
 
   const savePendingProject = useCallback(() => {
     if (!pendingProjectSaveRef.current) {
