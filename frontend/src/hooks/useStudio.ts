@@ -1770,20 +1770,24 @@ export const useStudio = () => {
         const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
         setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
         setPreviewBlockedReason(null);
-        // Only a coder-complete build (final/repair) is a real success that opens
-        // Preview-ready + the Save CTA. An early static preview (buildStage
-        // 'unknown') or the bare skeleton render are "technical mounted" only —
-        // never promote them. Previously 'unknown' fell through to setPreviewReady(true)
-        // and promoted the lifecycle to 'preview-ready'; the later 'skeleton' event
-        // then set previewReady=false but the lifecycle stayed 'preview-ready'
-        // (the prev-guard below), leaving previewReady=false + lifecycle=preview-ready
-        // → Save CTA permanently blocked (the "stuck at 68%" hang).
-        if (state.buildStage !== 'final' && state.buildStage !== 'repair') {
-          setPreviewReady(false);
+        // Suppress ONLY the early static-build mount ('static_build_complete'): the
+        // iframe loaded a static candidate, which is "technical mounted", not a user
+        // preview lifecycle. (This is the "buildStage: unknown static-preview noise"
+        // that must not look like a real preview.) Do not demote a prior real success.
+        if (state.readySource === 'static_build_complete') {
           setPreviewLifecycle(prev => (prev === 'preview-ready' ? prev : 'skeleton-ready'));
           return;
         }
 
+        // Any real pipeline build flows into the finalPreviewGate below: the
+        // skeleton-assembly terminal (proto_pipeline_complete + buildStage 'skeleton'),
+        // the LV terminal (proto_pipeline_complete + 'unknown'), a final/repair build,
+        // or a restore remount. The gate's filesCommitted flag distinguishes the APP
+        // path's early *empty* skeleton (not committed → 'materializing', waits for the
+        // filled build) from a committed terminal build (→ Preview-ready + Save CTA).
+        // Earlier this method returned early for buildStage 'skeleton', so the skeleton
+        // path NEVER reached this promotion — Save never appeared and the run timed out
+        // in a terminal fail. Letting 'skeleton' through is what makes it succeed.
         setPreviewReady(true);
         if (finalPreviewGateRef.current.awaiting) {
           if (!finalPreviewGateRef.current.filesCommitted) {
