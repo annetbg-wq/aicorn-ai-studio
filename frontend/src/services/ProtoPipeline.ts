@@ -5441,15 +5441,36 @@ function isHabitTrackerPrompt(prompt: string): boolean {
 }
 
 export function augmentArchitectPlan(input: AugmentArchitectPlanInput): AugmentArchitectPlanInput {
+  // ── Universal product-identity slots ──────────────────────────────────────
+  // Force the skeleton's identity files into the plan so the coder fills them with
+  // THIS product's name/copy/seed/nav instead of leaving the carcass defaults
+  // (AppName, Morning intention, generic Home/Create/Progress/Profile). The architect
+  // often omits these editable files, the coder then never touches them, and a generic
+  // shell ships — the exact "theme lost" failure. Applies to every skeleton; the
+  // product-identity gate is the backstop that catches any survivor.
+  const identityEditable = new Set(
+    getEditableSkeletonFiles(input.skeletonId).map(p => p.replace(/^src\//, '')),
+  );
+  const IDENTITY_SLOTS: ReadonlyArray<readonly [string, string]> = [
+    ['config/app.ts', 'Product identity for THIS product: real app name and tagline — never "AppName" or generic copy.'],
+    ['data/seed.ts', 'Seed data: realistic domain entities/records for THIS product — never generic placeholder seed (no "Morning intention" etc.).'],
+    ['config/navigation.ts', "Navigation labels/destinations for THIS product's real surfaces — not generic Home/Create/Progress/Profile."],
+  ];
+  const identityTree: Record<string, string> = { ...input.fileTree };
+  for (const [path, purpose] of IDENTITY_SLOTS) {
+    if (identityEditable.has(path) && !identityTree[path]) identityTree[path] = purpose;
+  }
+  const identityInput: AugmentArchitectPlanInput = { ...input, fileTree: identityTree };
+
   if (!(input.skeletonId === 'mobile-app' && isHabitTrackerPrompt(input.prompt))) {
-    return input;
+    return identityInput;
   }
 
   // Strip landing-page section components — they are inappropriate for a mobile-app skeleton
   // and consume coder token budget, preventing habit-tracker page/config/data modifications.
   const SECTION_PATTERN = /^(?:src\/)?components\/sections\//;
   const fileTree: Record<string, string> = Object.fromEntries(
-    Object.entries(input.fileTree).filter(([p]) => !SECTION_PATTERN.test(p)),
+    Object.entries(identityInput.fileTree).filter(([p]) => !SECTION_PATTERN.test(p)),
   );
   const ensureFile = (path: string, purpose: string) => {
     if (!fileTree[path]) fileTree[path] = purpose;
