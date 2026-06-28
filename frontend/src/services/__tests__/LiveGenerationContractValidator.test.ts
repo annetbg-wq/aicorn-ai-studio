@@ -202,6 +202,21 @@ describe('LiveGenerationContractValidator import/export contract', () => {
     expect(result.diagnostics).toHaveLength(0);
   });
 
+  it('accepts local css side-effect imports when the file exists in the final graph', () => {
+    const result = validateImportExportContract({
+      finalFiles: {
+        'src/main.tsx': [
+          "import './index.css';",
+          'export default function App() { return null; }',
+        ].join('\n'),
+        'src/index.css': ':root { color-scheme: light; }',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toHaveLength(0);
+  });
+
   it('fails missing accordion before Vite with a missing_ui_primitive diagnostic', () => {
     const result = validateImportExportContract({
       finalFiles: {

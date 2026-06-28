@@ -109,6 +109,12 @@ import {
 import {
   buildLiveGenerationUiPrimitiveImportCatalog,
   filterAdvertisedUiPrimitiveNames,
+  formatLiveGenerationContractFailure,
+  type LiveGenerationContractDiagnostic,
+  type LiveGenerationContractValidationInput,
+  type LiveGenerationContractValidationResult,
+  validateImportExportContract,
+  validateLiveGenerationContract,
 } from './LiveGenerationContractValidator';
 import {
   buildMarketAwareBuilderBrief,
@@ -145,7 +151,7 @@ import {
 } from './CoderPromptBlockSizeDiagnostics';
 import type { ProjectPlan } from './types/ProjectPlan';
 import { resolveProductDocumentSet, buildCoderContractBrief, type FeatureChecklistItem } from './ProductDocumentSet';
-import { evaluateCompletenessGate } from './CompletenessGate';
+import { evaluateCompletenessGate, type CompletenessGateCoverage } from './CompletenessGate';
 import {
   buildDesignFusionPromptBlock,
   buildUploadedAssetFusionEntries,
@@ -295,6 +301,13 @@ export interface VisualUsageDiagnostics {
   meaningfulScreenFiles: string[];
   meaningfulScreenCount: number;
   genericPlaceholderFindings: string[];
+  /** Product-identity violations on editable skeleton slots in the final shipped workspace. */
+  identitySlotFindings?: string[];
+  /**
+   * Editable identity-slot files that are absent from coder-output and therefore
+   * would survive as skeleton defaults unless repair creates them.
+   */
+  repairableMissingIdentityPaths?: string[];
   visualUsageNotes: string[];
   suggestedNextAction: 'none' | 'improve_prompt' | 'improve_assets' | 'add_repair_later';
 }
@@ -355,6 +368,8 @@ export interface VisualUsageDiagnosticsTelemetry {
   meaningful_screen_files: string[];
   meaningful_screen_count: number;
   generic_placeholder_findings: string[];
+  identity_slot_findings?: string[];
+  repairable_missing_identity_paths?: string[];
   visual_usage_notes: string[];
   suggested_next_action: 'none' | 'improve_prompt' | 'improve_assets' | 'add_repair_later';
 }
@@ -381,14 +396,16 @@ export interface PrototypeQualityGateTelemetry {
   premium_selected_not_used: boolean;
   media_materialized_not_used: boolean;
   generic_placeholder_count: number;
+  identity_slot_violation_count: number;
   generic_dashboard_card_flag: boolean;
   specificity_score: number | null;
   /** Number of advisory (warn-only) reasons. */
   advisory_reasons_count: number;
   /**
-   * True: runQualityRepair() is wired and will be called for all blocking reasons.
-   * Blocking: design token violations, generic placeholders, premium-unused, media-unused.
-   * Advisory reasons: none currently (all checks are either blocking or not run).
+   * True: runQualityRepair() is wired and will be called for hard blocking reasons.
+   * Hard blockers: design token violations, generic placeholders/identity issues,
+   * numbered metric placeholders, and empty dashboard metric cards.
+   * Soft issues: premium/media unused stay advisory-only.
    */
   repair_hook_available: boolean;
 }
@@ -398,7 +415,9 @@ export interface PrototypeQualityGateResult {
   ok: boolean;
   blockingReasons: string[];
   repairInstructions: string[];
-  /** Advisory issues (non-blocking). Currently empty — all checks are blocking. */
+  /** Residual hard blocking violation after repair must fail the release gate. */
+  hardFailAfterRepair: boolean;
+  /** Advisory issues (non-blocking). Soft release signals stay here. */
   advisoryReasons: string[];
   advisoryInstructions: string[];
   telemetry: PrototypeQualityGateTelemetry;
@@ -518,6 +537,7 @@ export interface ProtoPipelineResult {
   files?:             Record<string, string>;
   plan?:              ArchitectPlan;
   error?:             string;
+  reason?:            ProtoPipelineFailureReason;
   stepResults?:       Partial<Record<StepId, StepExecutionMetrics>>;
   fastPathTelemetry?: FastPathTelemetry;
   runTelemetry?:      GenerationRunTelemetry;
@@ -531,8 +551,16 @@ export interface ProtoPipelineResult {
     compiled:              boolean;
     failedStep?:           StepId;
     errorMessage?:         string;
+    reasonCode?:           ProtoPipelineFailureReason;
   };
 }
+
+export type ProtoPipelineFailureReason =
+  | 'coverage_below_threshold'
+  | 'hard_quality_gate_failed'
+  | 'hard_quality_repair_failed'
+  | 'live_generation_contract_failed'
+  | 'live_generation_contract_repair_failed';
 
 export interface ArchitectPlan {
   appName:     string;
@@ -596,7 +624,64 @@ const STEP_BUDGET = {
 export const CODER_MAX_TOKENS = STEP_BUDGET.coder.maxTokens;
 
 const MAX_REPAIR_PASSES = 2;
+const MAX_QUALITY_REPAIR_PASSES = 2;
 const PASS2_MAX_ITERATIONS = 2;
+const FACTORY_RELEASE_MIN_COVERAGE = 0.8;
+
+function buildCoverageReleaseFailure(
+  coverage: CompletenessGateCoverage,
+): { reason: ProtoPipelineFailureReason; message: string } {
+  const summary =
+    `must-coverage ${(coverage.coverageRatioMust * 100).toFixed(0)}% < ${(FACTORY_RELEASE_MIN_COVERAGE * 100).toFixed(0)}% ` +
+    `(${coverage.mustCovered}/${coverage.mustTotal})`;
+  const uncovered = coverage.uncoveredMust.slice(0, 5);
+  return {
+    reason: 'coverage_below_threshold',
+    message:
+      `coverage_below_threshold: ${summary}` +
+      (uncovered.length > 0 ? `; uncovered must: ${uncovered.join(', ')}` : ''),
+  };
+}
+
+function buildHardQualityReleaseFailure(
+  blockingReasons: string[],
+): { reason: ProtoPipelineFailureReason; message: string } {
+  return {
+    reason: 'hard_quality_gate_failed',
+    message:
+      'hard_quality_gate_failed: ' +
+      blockingReasons.slice(0, 4).join(' | '),
+  };
+}
+
+function buildHardQualityRepairFailure(
+  repairError: string,
+): { reason: ProtoPipelineFailureReason; message: string } {
+  return {
+    reason: 'hard_quality_repair_failed',
+    message: `hard_quality_repair_failed: ${repairError}`,
+  };
+}
+
+function buildLiveContractReleaseFailure(
+  validation: LiveGenerationContractValidationResult,
+): { reason: ProtoPipelineFailureReason; message: string } {
+  return {
+    reason: 'live_generation_contract_failed',
+    message:
+      `live_generation_contract_failed: ` +
+      formatLiveGenerationContractFailure(validation.diagnostics, validation.candidateGraphSummary),
+  };
+}
+
+function buildLiveContractRepairFailure(
+  repairError: string,
+): { reason: ProtoPipelineFailureReason; message: string } {
+  return {
+    reason: 'live_generation_contract_repair_failed',
+    message: `live_generation_contract_repair_failed: ${repairError}`,
+  };
+}
 
 const DESIGN_PACK_RAW_MODULES = import.meta.glob(
   [
@@ -608,6 +693,23 @@ const DESIGN_PACK_RAW_MODULES = import.meta.glob(
 
 const SKELETON_APP_RAW_MODULES = import.meta.glob(
   '../../../skeletons/*/skeleton-*/src/App.tsx',
+  { eager: true, query: '?raw', import: 'default' },
+) as Record<string, string>;
+
+const SKELETON_ROOT_RAW_MODULES = import.meta.glob(
+  [
+    '../../../skeletons/*/skeleton-*/src/main.tsx',
+    '../../../skeletons/*/skeleton-*/src/index.css',
+    '../../../skeletons/*/skeleton-*/src/route-manifest.json',
+  ],
+  { eager: true, query: '?raw', import: 'default' },
+) as Record<string, string>;
+
+const SKELETON_SOURCE_RAW_MODULES = import.meta.glob(
+  [
+    '../../../skeletons/*/skeleton-*/src/*.{ts,tsx,js,jsx,css,json}',
+    '../../../skeletons/*/skeleton-*/src/**/*.{ts,tsx,js,jsx,css,json}',
+  ],
   { eager: true, query: '?raw', import: 'default' },
 ) as Record<string, string>;
 
@@ -644,6 +746,13 @@ const SKELETON_APP_FILES = Object.fromEntries(
   Object.entries(SKELETON_APP_RAW_MODULES).map(([path, content]) => [normalizeRepoAssetPath(path), content]),
 ) as Record<string, string>;
 
+const SKELETON_SOURCE_FILES = Object.fromEntries(
+  [
+    ...Object.entries(SKELETON_ROOT_RAW_MODULES),
+    ...Object.entries(SKELETON_SOURCE_RAW_MODULES),
+  ].map(([path, content]) => [normalizeRepoAssetPath(path), content]),
+) as Record<string, string>;
+
 function getDesignPackRawFile(path: string | undefined): string | null {
   if (!path) return null;
   return DESIGN_PACK_RAW_FILES[path] ?? null;
@@ -663,6 +772,146 @@ function getSkeletonAppTemplate(skeletonId: SkeletonId): string | null {
     path.includes(`/skeletons/${skeletonId}/`) && path.endsWith(`/skeleton-${skeletonId}/src/App.tsx`)
   ));
   return entry?.[1] ?? null;
+}
+
+function normalizeLiveContractPath(path: string): string {
+  const normalized = normaliseDeltaPath(path);
+  return normalized ? `src/${normalized}` : 'src';
+}
+
+function isLiveContractBuildFile(path: string): boolean {
+  const normalized = normaliseDeltaPath(path);
+  return normalized.length > 0 && !normalized.startsWith('docs/architect/');
+}
+
+function buildSkeletonLiveContractGraph(skeletonId: SkeletonId): Record<string, string> {
+  const prefix = `skeletons/${skeletonId}/skeleton-${skeletonId}/src/`;
+  const graph: Record<string, string> = {};
+
+  for (const [repoPath, content] of Object.entries(SKELETON_SOURCE_FILES)) {
+    if (!repoPath.includes(prefix)) continue;
+    const srcIndex = repoPath.indexOf('/src/');
+    if (srcIndex < 0) continue;
+    const installedPath = `src/${repoPath.slice(srcIndex + 5)}`;
+    graph[installedPath] = content;
+  }
+
+  return graph;
+}
+
+function buildFinalLiveContractGraph(
+  skeletonId: SkeletonId,
+  currentFiles: Record<string, string>,
+): Record<string, string> {
+  const graph = buildSkeletonLiveContractGraph(skeletonId);
+  for (const [path, content] of Object.entries(currentFiles)) {
+    if (!isLiveContractBuildFile(path)) continue;
+    graph[normalizeLiveContractPath(path)] = content;
+  }
+  return graph;
+}
+
+function buildFinalLiveContractMaterializedFiles(
+  files: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [path, content] of Object.entries(files)) {
+    if (!isLiveContractBuildFile(path)) continue;
+    out[normalizeLiveContractPath(path)] = content;
+  }
+  return out;
+}
+
+function buildLiveContractValidationInput(config: {
+  skeletonId: SkeletonId;
+  currentFiles: Record<string, string>;
+  materializedFiles: Record<string, string>;
+}): LiveGenerationContractValidationInput {
+  const finalFiles = buildFinalLiveContractGraph(config.skeletonId, config.currentFiles);
+  return {
+    finalFiles,
+    skeletonId: config.skeletonId,
+    generatedDeltaFiles: buildFinalLiveContractMaterializedFiles(config.currentFiles),
+    materializedFiles: buildFinalLiveContractMaterializedFiles(config.materializedFiles),
+  };
+}
+
+function liveContractPathCandidates(
+  importerFile: string | null,
+  importPath: string | null,
+): string[] {
+  if (!importPath) return [];
+
+  let basePath = '';
+  if (importPath.startsWith('@/')) {
+    basePath = importPath.slice(2);
+  } else if (importPath.startsWith('./') || importPath.startsWith('../')) {
+    if (!importerFile) return [];
+    const importerParts = normaliseDeltaPath(importerFile).split('/').filter(Boolean);
+    importerParts.pop();
+    for (const segment of importPath.split('/')) {
+      if (!segment || segment === '.') continue;
+      if (segment === '..') {
+        importerParts.pop();
+      } else {
+        importerParts.push(segment);
+      }
+    }
+    basePath = importerParts.join('/');
+  } else {
+    return [];
+  }
+
+  if (!basePath) return [];
+  return uniqueStrings([
+    basePath,
+    `${basePath}.ts`,
+    `${basePath}.tsx`,
+    `${basePath}.js`,
+    `${basePath}.jsx`,
+    `${basePath}/index.ts`,
+    `${basePath}/index.tsx`,
+    `${basePath}/index.js`,
+    `${basePath}/index.jsx`,
+  ]);
+}
+
+function buildLiveContractBlockingReasons(
+  diagnostics: LiveGenerationContractDiagnostic[],
+): string[] {
+  return uniqueStrings(
+    diagnostics.map(diagnostic => {
+      const location = diagnostic.file ?? diagnostic.import_path ?? 'graph';
+      const detail = diagnostic.actual ?? diagnostic.expected ?? 'contract violation';
+      return `Live generation contract ${diagnostic.root_cause_type} at ${location}: ${detail}`;
+    }),
+  );
+}
+
+function buildLiveContractRepairInstructions(
+  diagnostics: LiveGenerationContractDiagnostic[],
+): string[] {
+  return uniqueStrings(diagnostics.map(diagnostic => diagnostic.suggested_fix));
+}
+
+function collectLiveContractRepairScopePaths(
+  diagnostics: LiveGenerationContractDiagnostic[],
+  currentFiles: Record<string, string>,
+): string[] {
+  const available = new Set(Object.keys(currentFiles).map(path => normaliseDeltaPath(path)));
+  const scoped = new Set<string>();
+
+  for (const diagnostic of diagnostics) {
+    if (diagnostic.file) {
+      const importerPath = normaliseDeltaPath(diagnostic.file);
+      if (available.has(importerPath)) scoped.add(importerPath);
+    }
+    for (const candidate of liveContractPathCandidates(diagnostic.file, diagnostic.import_path)) {
+      if (available.has(candidate)) scoped.add(candidate);
+    }
+  }
+
+  return Array.from(scoped).sort((left, right) => left.localeCompare(right));
 }
 
 function ensureVisualPackImport(appSource: string): string {
@@ -1038,8 +1287,100 @@ const GENERIC_PLACEHOLDER_PATTERNS: Array<{ label: string; rx: RegExp }> = [
   { label: 'Nothing here yet', rx: /\bNothing here yet\b/i },
 ];
 
+interface IdentitySlotFingerprint {
+  label: string;
+  matches: (content: string) => boolean;
+}
+
+interface IdentitySlotRule {
+  path: string;
+  missingLabel: string;
+  fingerprints: IdentitySlotFingerprint[];
+}
+
+const DEFAULT_MOBILE_NAV_FINGERPRINTS = [
+  /label\s*:\s*['"]Home['"]/i,
+  /label\s*:\s*['"]Create['"]/i,
+  /label\s*:\s*['"]Progress['"]/i,
+  /label\s*:\s*['"]Profile['"]/i,
+];
+
+function containsDefaultMobileNavigation(content: string): boolean {
+  return DEFAULT_MOBILE_NAV_FINGERPRINTS.every(pattern => pattern.test(content));
+}
+
+const IDENTITY_SLOT_RULES: ReadonlyArray<IdentitySlotRule> = [
+  {
+    path: 'config/app.ts',
+    missingLabel: 'missing identity slot',
+    fingerprints: [
+      { label: 'AppName', matches: (content) => /\bAppName\b/i.test(content) },
+    ],
+  },
+  {
+    path: 'data/seed.ts',
+    missingLabel: 'missing identity slot',
+    fingerprints: [
+      { label: 'Morning intention', matches: (content) => /\bMorning intention\b/i.test(content) },
+      { label: 'Deep work block', matches: (content) => /\bDeep work block\b/i.test(content) },
+    ],
+  },
+  {
+    path: 'config/navigation.ts',
+    missingLabel: 'missing identity slot',
+    fingerprints: [
+      { label: 'default mobile navigation', matches: containsDefaultMobileNavigation },
+    ],
+  },
+  {
+    path: 'pages/Home.tsx',
+    missingLabel: 'missing identity slot',
+    fingerprints: [
+      { label: "Today's space", matches: (content) => /\bToday's space\b/i.test(content) },
+      { label: 'Nothing here yet', matches: (content) => /\bNothing here yet\b/i.test(content) },
+    ],
+  },
+];
+
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)));
+}
+
+function buildIdentitySlotDiagnostics(input: {
+  files: Record<string, string>;
+  skeletonId: SkeletonId;
+}): {
+  identitySlotFindings: string[];
+  repairableMissingIdentityPaths: string[];
+} {
+  const editableFiles = new Set(
+    getEditableSkeletonFiles(input.skeletonId).map(path => normalizeOutputPath(path)),
+  );
+  const normalizedFiles = new Map<string, string>(
+    Object.entries(input.files).map(([path, content]) => [normalizeOutputPath(path), content]),
+  );
+  const identitySlotFindings: string[] = [];
+  const repairableMissingIdentityPaths: string[] = [];
+
+  for (const rule of IDENTITY_SLOT_RULES) {
+    if (!editableFiles.has(rule.path)) continue;
+    const content = normalizedFiles.get(rule.path);
+    if (!content || content.trim().length === 0) {
+      identitySlotFindings.push(`${rule.path}: ${rule.missingLabel}`);
+      repairableMissingIdentityPaths.push(rule.path);
+      continue;
+    }
+    for (const fingerprint of rule.fingerprints) {
+      if (fingerprint.matches(content)) {
+        identitySlotFindings.push(`${rule.path}: ${fingerprint.label}`);
+      }
+    }
+  }
+
+  return {
+    identitySlotFindings: uniqueStrings(identitySlotFindings).sort((a, b) => a.localeCompare(b)),
+    repairableMissingIdentityPaths: uniqueStrings(repairableMissingIdentityPaths).sort((a, b) => a.localeCompare(b)),
+  };
 }
 
 function productTypeLabel(productType?: string): string {
@@ -1774,6 +2115,10 @@ export function buildVisualUsageDiagnostics(input: {
   designSelectionDiagnostics?: DesignSelectionDiagnostics;
 }): VisualUsageDiagnostics {
   const fileEntries = Object.entries(input.files).filter(([path]) => isSourceScanFile(path));
+  const identitySlotDiagnostics = buildIdentitySlotDiagnostics({
+    files: input.files,
+    skeletonId: input.skeletonId,
+  });
   const premiumPatterns = [
     /@\/design-pack\/premium-components\/[^"'`\s)]+/g,
     /design-pack\/premium-components\/[^"'`\s)]+/g,
@@ -1842,6 +2187,9 @@ export function buildVisualUsageDiagnostics(input: {
   if (genericPlaceholderFindings.length > 0) {
     visualUsageNotes.push('Obvious generic placeholder content remains in generated source.');
   }
+  if (identitySlotDiagnostics.identitySlotFindings.length > 0) {
+    visualUsageNotes.push('Required product-identity slots are missing or still contain skeleton-default content.');
+  }
 
   const designMismatchObserved = (input.designSelectionDiagnostics?.possibleMismatchWarnings.length ?? 0) > 0;
   const assetsExistButUnused =
@@ -1851,7 +2199,8 @@ export function buildVisualUsageDiagnostics(input: {
   const repeatedUnusedSignals =
     (!firstScreenVisualUsageObserved && (premiumUsageObserved || mediaUsageObserved)) ||
     (premiumUsageChecked && mediaUsageChecked && !premiumUsageObserved && !mediaUsageObserved) ||
-    genericPlaceholderFindings.length > 0;
+    genericPlaceholderFindings.length > 0 ||
+    identitySlotDiagnostics.identitySlotFindings.length > 0;
   const suggestedNextAction: VisualUsageDiagnostics['suggestedNextAction'] =
     designMismatchObserved
       ? 'improve_assets'
@@ -1878,6 +2227,8 @@ export function buildVisualUsageDiagnostics(input: {
     meaningfulScreenFiles,
     meaningfulScreenCount: meaningfulScreenFiles.length,
     genericPlaceholderFindings,
+    identitySlotFindings: identitySlotDiagnostics.identitySlotFindings,
+    repairableMissingIdentityPaths: identitySlotDiagnostics.repairableMissingIdentityPaths,
     visualUsageNotes,
     suggestedNextAction,
   };
@@ -2045,6 +2396,8 @@ export function serializeVisualUsageDiagnostics(
     meaningful_screen_files: diagnostics.meaningfulScreenFiles,
     meaningful_screen_count: diagnostics.meaningfulScreenCount,
     generic_placeholder_findings: diagnostics.genericPlaceholderFindings,
+    identity_slot_findings: diagnostics.identitySlotFindings ?? [],
+    repairable_missing_identity_paths: diagnostics.repairableMissingIdentityPaths ?? [],
     visual_usage_notes: diagnostics.visualUsageNotes,
     suggested_next_action: diagnostics.suggestedNextAction,
   };
@@ -2063,15 +2416,12 @@ export function serializeVisualUsageDiagnostics(
  *   - numbered metric placeholder slots (Item 1, KPI 1, Metric 1)
  *   - empty/generic dashboard metric cards flagged by product specificity
  *
- * ADVISORY (warn-only, ok remains true — repair hook not yet available):
+ * ADVISORY (warn-only, ok remains true):
  *   - premium components selected but none referenced in generated source
  *   - media assets materialized but none referenced in generated source
  *
  * Wired as a blocking gate in ProtoPipeline.run() after emit('apply', 'done', ...).
  * Advisory reasons are logged as warn before the build step.
- *
- * Next commit should add runQualityRepair(designCtx, filteredFiles, qualityGate)
- * targeting the blocking reasons via a bounded coder patch prompt (not LLM compile repair).
  */
 export function evaluatePrototypeQualityGate(
   input: PrototypeQualityGateInput,
@@ -2108,6 +2458,7 @@ export function evaluatePrototypeQualityGate(
 
   if (vud !== null) {
     checksRun.push('visual_usage');
+    const identitySlotFindings = vud.identitySlotFindings ?? [];
 
     if (premiumSelectedNotUsed) {
       // Advisory, NOT blocking (was previously a soft block that forced a repair
@@ -2130,13 +2481,12 @@ export function evaluatePrototypeQualityGate(
     // ── Check 3: media materialized but not referenced ────────────────────────
     if (mediaNotUsed) {
       const files = vud.mediaAssetsMaterialized.slice(0, 3).join(', ');
-      blockingReasons.push(
+      advisoryReasons.push(
         `Generated media assets materialized (${files}) but none referenced in generated source`,
       );
-      repairInstructions.push(
-        'Reference at least one generated media asset in a visible UI area. ' +
-        'Prefer hero section, feature highlight, or empty-state illustration depending on existing layout. ' +
-        `Materialized assets: ${files}`,
+      advisoryInstructions.push(
+        'Generated media is optional at release-gate time. Keep the current product-specific UI if it reads clearly; ' +
+        'fold the media asset into a visible screen later only when it improves the composition.',
       );
     }
 
@@ -2155,16 +2505,32 @@ export function evaluatePrototypeQualityGate(
       const label = finding.split(': ').slice(1).join(': ');
       return BLOCKING_PLACEHOLDER_LABELS.has(label);
     });
+    const identitySlotFindingSet = new Set(identitySlotFindings);
+    const genericBlockingFindings = blockingVisualPlaceholders.filter(
+      finding => !identitySlotFindingSet.has(finding),
+    );
 
-    if (blockingVisualPlaceholders.length > 0) {
+    if (genericBlockingFindings.length > 0) {
       blockingReasons.push(
-        `Generic placeholder / skeleton-default content in ${blockingVisualPlaceholders.length} location(s): ` +
-        blockingVisualPlaceholders.slice(0, 4).join('; '),
+        `Generic placeholder / skeleton-default content in ${genericBlockingFindings.length} location(s): ` +
+        genericBlockingFindings.slice(0, 4).join('; '),
       );
       repairInstructions.push(
         'Replace all generic placeholders (Feature 1, AppName, Lorem ipsum, Untitled, TODO) AND any ' +
         'surviving skeleton-default copy/seed (Morning intention, Deep work block, Today\'s space, ' +
         'Nothing here yet) with product-specific copy, domain entities, and seed data for THIS product.',
+      );
+    }
+
+    if (identitySlotFindings.length > 0) {
+      blockingReasons.push(
+        `Product identity slots missing or generic in ${identitySlotFindings.length} location(s): ` +
+        identitySlotFindings.slice(0, 4).join('; '),
+      );
+      repairInstructions.push(
+        'Emit and fully rewrite every missing or generic identity slot ' +
+        '(config/app.ts, data/seed.ts, config/navigation.ts, pages/Home.tsx when applicable) ' +
+        'so the final shipped workspace does not retain skeleton defaults.',
       );
     }
   }
@@ -2211,11 +2577,13 @@ export function evaluatePrototypeQualityGate(
 
   const totalGenericPlaceholderCount =
     (vud?.genericPlaceholderFindings.length ?? 0) + specificityPlaceholderCount;
+  const identitySlotViolationCount = vud?.identitySlotFindings?.length ?? 0;
 
   return {
     ok: blockingReasons.length === 0,
     blockingReasons,
     repairInstructions,
+    hardFailAfterRepair: blockingReasons.length > 0,
     advisoryReasons,
     advisoryInstructions,
     telemetry: {
@@ -2224,6 +2592,7 @@ export function evaluatePrototypeQualityGate(
       premium_selected_not_used: premiumSelectedNotUsed,
       media_materialized_not_used: mediaNotUsed,
       generic_placeholder_count: totalGenericPlaceholderCount,
+      identity_slot_violation_count: identitySlotViolationCount,
       generic_dashboard_card_flag: genericDashboardCardFlag,
       specificity_score: psd?.specificityScore ?? null,
       advisory_reasons_count: advisoryReasons.length,
@@ -2378,7 +2747,11 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         updateStepTimeline(step, status, detail, metrics),
         config.onStep({ step, status, label: STEP_LABEL[step], detail, ...metrics })
       );
-    const fail = (step: StepId, error: string): ProtoPipelineResult => {
+    const fail = (
+      step: StepId,
+      error: string,
+      reason?: ProtoPipelineFailureReason,
+    ): ProtoPipelineResult => {
       log(`[ProtoPipeline] ${step} failed: ${error}`, 'error');
       emit(step, 'error', error);
       const isAborted = error === 'aborted';
@@ -2406,6 +2779,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         success: false,
         buildId: config.buildId,
         error,
+        reason,
         stepResults,
         outcomeData: {
           repairPasses:          capturedPlan !== undefined ? repairPasses : 0,
@@ -2414,6 +2788,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           compiled:              false,
           failedStep:            step,
           errorMessage:          error,
+          reasonCode:           reason,
         },
       };
     };
@@ -2628,6 +3003,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         config.skeletonId,
         config.signal,
         'skeleton',
+        'run:skeleton-render',
       );
       fastPathTelemetry.steps.skeletonMs = skeletonTiming.totalMs;
       fastPathTelemetry.timeToSkeletonPreviewMs = Date.now() - runStartedAt;
@@ -3437,47 +3813,44 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     };
     emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`, stepResults.apply);
 
-    // ── Prototype quality gate — one bounded repair pass, then hard-block ───
-    // All blocking reasons: attempt repair first.
-    //   If repair THROWS (infra failure — no FILE/END blocks, timeout, abort): degrade all
-    //   blocking issues to advisory and continue. Do not fail for broken repair infra.
-    //   If repair SUCCEEDS but re-evaluation still shows hard-blocking reasons: fail.
-    // Hard-blocking (if repair succeeds but issues persist): design token violations,
-    //   generic placeholders, empty dashboard metric cards.
-    // Soft-blocking (degrade to advisory even if repair succeeds but post-repair still fails):
-    //   premium components selected-but-unused, media assets materialized-but-unused.
-    const qualityGate = evaluatePrototypeQualityGate({
-      designContractViolations: verdict.ok ? [] : verdict.violations,
-      visualUsageDiagnostics,
-      productSpecificityDiagnostics,
+    if (completenessGate.coverage.coverageRatioMust < FACTORY_RELEASE_MIN_COVERAGE) {
+      const coverageFailure = buildCoverageReleaseFailure(completenessGate.coverage);
+      return fail('apply', coverageFailure.message, coverageFailure.reason);
+    }
+
+    // ── Prototype quality gate — hard blockers only, up to 2 repair passes ──
+    // Release contract:
+    //   - soft issues (premium/media unused) stay advisory-only
+    //   - hard issues get up to MAX_QUALITY_REPAIR_PASSES bounded repair attempts
+    //   - any residual hard issue or repair infrastructure failure => success:false
+    let currentDesignViolations = verdict.ok ? [] : verdict.violations;
+    let currentVisualUsageDiagnostics = visualUsageDiagnostics;
+    let currentProductSpecificityDiagnostics = productSpecificityDiagnostics;
+    let qualityGate = evaluatePrototypeQualityGate({
+      designContractViolations: currentDesignViolations,
+      visualUsageDiagnostics: currentVisualUsageDiagnostics,
+      productSpecificityDiagnostics: currentProductSpecificityDiagnostics,
     });
-    // Log advisory issues (none currently; kept for future advisory checks)
+
     if (qualityGate.advisoryReasons.length > 0) {
       log(
-        `[quality-gate] ${qualityGate.advisoryReasons.length} advisory issue(s) (not blocking): ` +
+        `[quality-gate] ${qualityGate.advisoryReasons.length} advisory issue(s): ` +
           qualityGate.advisoryReasons.join(' | '),
         'warn',
       );
     }
-    // If blocking, attempt exactly one quality repair pass before hard-failing
-    if (!qualityGate.ok) {
-      // Determine whether all blocking reasons are soft (premium/media) or include hard ones
-      const SOFT_BLOCKING_PREFIXES = [
-        'Premium components selected',
-        'Generated media assets materialized',
-      ] as const;
-      const allSoftBlocking = qualityGate.blockingReasons.every(r =>
-        SOFT_BLOCKING_PREFIXES.some(p => r.startsWith(p)),
-      );
+
+    while (!qualityGate.ok) {
+      const attemptNumber = repairPasses + 1;
       log(
-        `[quality-gate] ${qualityGate.blockingReasons.length} blocking issue(s)` +
-          (allSoftBlocking ? ' (soft/repair-first)' : ' (includes hard-blocking)') +
-          '; attempting one quality repair pass',
+        `[quality-gate] ${qualityGate.blockingReasons.length} hard blocking issue(s); ` +
+          `attempting quality repair pass ${attemptNumber}/${MAX_QUALITY_REPAIR_PASSES}`,
         'warn',
       );
       for (const instruction of qualityGate.repairInstructions) {
         log(`[quality-gate] repair needed: ${instruction}`, 'warn');
       }
+
       try {
         filteredFiles = await runQualityRepair({
           prompt:                       clarifiedPrompt,
@@ -3485,74 +3858,171 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           currentFiles:                 filteredFiles,
           blockingReasons:              qualityGate.blockingReasons,
           repairInstructions:           qualityGate.repairInstructions,
-          designContractViolations:     verdict.ok ? [] : verdict.violations,
-          visualUsageDiagnostics,
+          designContractViolations:     currentDesignViolations,
+          visualUsageDiagnostics:       currentVisualUsageDiagnostics,
           designCtx,
-          productSpecificityDiagnostics,
+          productSpecificityDiagnostics: currentProductSpecificityDiagnostics,
           signal:                       config.signal,
           routeOverrides:               config.routeOverrides,
           onLog:                        log,
         });
-        repairPasses += 1;
-        // Re-run diagnostics on repaired files — pure JS, no LLM
-        const repairedVerdict = validateDesignContract(filteredFiles, designCtx);
-        // post-repair state: did the repair make the final code contract-clean?
-        designContractFinalOk = repairedVerdict.ok;
-        const repairedVisualUsage = buildVisualUsageDiagnostics({
-          files:                      filteredFiles,
-          skeletonId:                 config.skeletonId,
-          selectedPremiumComponentIds,
-          materializedMediaFiles:     mediaMaterialization.materializedFiles,
-        });
-        const repairedSpecificity = buildProductSpecificityDiagnostics({
-          files: filteredFiles,
-          plan:  productSpecificityPlan,
-        });
-        const repairedGate = evaluatePrototypeQualityGate({
-          designContractViolations: repairedVerdict.ok ? [] : repairedVerdict.violations,
-          visualUsageDiagnostics:   repairedVisualUsage,
-          productSpecificityDiagnostics: repairedSpecificity,
-        });
-        if (!repairedGate.ok) {
-          // Ship-and-iterate: never hard-fail the prototype on residual quality
-          // issues. One best-effort repair pass has run; whatever remains (design
-          // tokens, placeholders, premium/media) is degraded to advisory so the
-          // prototype always reaches the screen. These residual issues are the
-          // input signal for the Time-2 critic→fixer loop, which improves quality
-          // on the LIVE prototype instead of blocking it from ever existing.
-          log(
-            `[quality-gate] ${repairedGate.blockingReasons.length} issue(s) remain after repair — ` +
-              `shipping prototype with these as advisory (Time-2 iteration will address them): ` +
-              repairedGate.blockingReasons.join(' | '),
-            'warn',
-          );
-        } else {
-          log('[quality-gate] quality gate passed after repair');
-        }
       } catch (err) {
         if (isAbort(err)) return fail('apply', 'aborted');
         const repairErrMsg = (err as Error).message;
+        designContractFinalOk = false;
         log(`[quality-gate] repair attempt failed: ${repairErrMsg}`, 'warn');
         metricsService.recordError('orchestrator', `quality-repair infra failure: ${repairErrMsg}`, {
           step: 'quality_repair',
           blockingCount: qualityGate.blockingReasons.length,
         });
-        // Repair infrastructure failure (no FILE/END blocks, timeout, etc.) — we cannot
-        // determine whether it would have fixed the issues. Degrade ALL blocking reasons to
-        // advisory and continue. Hard-fail is reserved for when repair runs successfully but
-        // re-evaluation still shows hard-blocking issues (handled in the try block above).
-        // Repair infra failed → final state unknown; mark as not verified.
-        designContractFinalOk = false;
-        log(
-          `[quality-gate] repair infrastructure failure — all ${qualityGate.blockingReasons.length} quality issue(s) downgraded to advisory (best-effort)`,
-          'warn',
-        );
+        const repairFailure = buildHardQualityRepairFailure(repairErrMsg);
+        return fail('apply', repairFailure.message, repairFailure.reason);
       }
-    } else if (qualityGate.advisoryReasons.length === 0) {
+
+      repairPasses += 1;
+      const repairedVerdict = validateDesignContract(filteredFiles, designCtx);
+      designContractFinalOk = repairedVerdict.ok;
+      currentDesignViolations = repairedVerdict.ok ? [] : repairedVerdict.violations;
+      currentVisualUsageDiagnostics = buildVisualUsageDiagnostics({
+        files:                  filteredFiles,
+        skeletonId:             config.skeletonId,
+        selectedPremiumComponentIds,
+        materializedMediaFiles: mediaMaterialization.materializedFiles,
+      });
+      currentProductSpecificityDiagnostics = buildProductSpecificityDiagnostics({
+        files: filteredFiles,
+        plan:  productSpecificityPlan,
+      });
+      qualityGate = evaluatePrototypeQualityGate({
+        designContractViolations: currentDesignViolations,
+        visualUsageDiagnostics:   currentVisualUsageDiagnostics,
+        productSpecificityDiagnostics: currentProductSpecificityDiagnostics,
+      });
+
+      if (qualityGate.ok) {
+        if (qualityGate.advisoryReasons.length > 0) {
+          log(
+            `[quality-gate] repaired hard blockers; ${qualityGate.advisoryReasons.length} advisory issue(s) remain: ` +
+              qualityGate.advisoryReasons.join(' | '),
+            'warn',
+          );
+        } else {
+          log('[quality-gate] quality gate passed after repair');
+        }
+        break;
+      }
+
+      if (repairPasses >= MAX_QUALITY_REPAIR_PASSES) {
+        const releaseFailure = buildHardQualityReleaseFailure(qualityGate.blockingReasons);
+        return fail('apply', releaseFailure.message, releaseFailure.reason);
+      }
+
+      log(
+        `[quality-gate] ${qualityGate.blockingReasons.length} hard issue(s) remain after repair pass ` +
+          `${repairPasses}/${MAX_QUALITY_REPAIR_PASSES}; retrying`,
+        'warn',
+      );
+    }
+    if (qualityGate.ok && qualityGate.advisoryReasons.length === 0) {
       log('[quality-gate] prototype quality gate: ok');
     }
 
-    // ── Step 7 — Build (with at most 2 repair passes) ─────────────────────
+    const liveContractMaterializedFiles = {
+      ...visualMaterialization.files,
+      ...premiumMaterialization.files,
+      ...mediaMaterialization.files,
+      ...uploadedAssetFusion.files,
+    };
+    const evaluateLiveContractState = (files: Record<string, string>) => {
+      const validationInput = buildLiveContractValidationInput({
+        skeletonId: config.skeletonId,
+        currentFiles: files,
+        materializedFiles: liveContractMaterializedFiles,
+      });
+      const importExportContract = validateImportExportContract(validationInput);
+      const liveContract = validateLiveGenerationContract(validationInput);
+      return { validationInput, importExportContract, liveContract };
+    };
+
+    let liveContractState = evaluateLiveContractState(filteredFiles);
+    while (!liveContractState.liveContract.ok) {
+      const remainingReleaseRepairPasses = MAX_QUALITY_REPAIR_PASSES - repairPasses;
+      const blockingReasons = buildLiveContractBlockingReasons(liveContractState.liveContract.diagnostics);
+      const repairInstructions = buildLiveContractRepairInstructions(liveContractState.liveContract.diagnostics);
+      const additionalScopePaths = collectLiveContractRepairScopePaths(
+        liveContractState.liveContract.diagnostics,
+        filteredFiles,
+      );
+
+      log(
+        `[live-contract] ${liveContractState.liveContract.diagnostics.length} hard issue(s) ` +
+          `(import/export=${liveContractState.importExportContract.diagnostics.length}, ` +
+          `remaining_release_repairs=${remainingReleaseRepairPasses}): ` +
+          blockingReasons.slice(0, 4).join(' | '),
+        'warn',
+      );
+
+      if (remainingReleaseRepairPasses <= 0) {
+        const releaseFailure = buildLiveContractReleaseFailure(liveContractState.liveContract);
+        return fail('apply', releaseFailure.message, releaseFailure.reason);
+      }
+
+      for (const instruction of repairInstructions) {
+        log(`[live-contract] repair needed: ${instruction}`, 'warn');
+      }
+
+      try {
+        filteredFiles = await runQualityRepair({
+          prompt:                        clarifiedPrompt,
+          skeletonId:                    config.skeletonId,
+          currentFiles:                  filteredFiles,
+          blockingReasons,
+          repairInstructions,
+          designContractViolations:      currentDesignViolations,
+          visualUsageDiagnostics:        currentVisualUsageDiagnostics,
+          designCtx,
+          productSpecificityDiagnostics: currentProductSpecificityDiagnostics,
+          additionalScopePaths,
+          signal:                        config.signal,
+          routeOverrides:                config.routeOverrides,
+          onLog:                         log,
+        });
+      } catch (err) {
+        if (isAbort(err)) return fail('apply', 'aborted');
+        const repairErrMsg = (err as Error).message;
+        designContractFinalOk = false;
+        log(`[live-contract] repair attempt failed: ${repairErrMsg}`, 'warn');
+        metricsService.recordError('orchestrator', `live-contract repair failure: ${repairErrMsg}`, {
+          step: 'live_contract_repair',
+          blockingCount: liveContractState.liveContract.diagnostics.length,
+        });
+        const repairFailure = buildLiveContractRepairFailure(repairErrMsg);
+        return fail('apply', repairFailure.message, repairFailure.reason);
+      }
+
+      repairPasses += 1;
+      const repairedVerdict = validateDesignContract(filteredFiles, designCtx);
+      designContractFinalOk = repairedVerdict.ok;
+      currentDesignViolations = repairedVerdict.ok ? [] : repairedVerdict.violations;
+      currentVisualUsageDiagnostics = buildVisualUsageDiagnostics({
+        files:                  filteredFiles,
+        skeletonId:             config.skeletonId,
+        selectedPremiumComponentIds,
+        materializedMediaFiles: mediaMaterialization.materializedFiles,
+      });
+      currentProductSpecificityDiagnostics = buildProductSpecificityDiagnostics({
+        files: filteredFiles,
+        plan:  productSpecificityPlan,
+      });
+      liveContractState = evaluateLiveContractState(filteredFiles);
+    }
+    log(
+      `[live-contract] final graph validated: total=${liveContractState.liveContract.candidateGraphSummary.totalFiles}, ` +
+        `meaningful=${liveContractState.liveContract.candidateGraphSummary.meaningfulSourceCount}, ` +
+        `generated_delta=${liveContractState.liveContract.candidateGraphSummary.generatedDeltaCount}`,
+    );
+
+    // ── Step 7 — Build (with at most 2 compile repair passes) ─────────────
     emit('build', 'active');
     let lastBuildErr: string | null = null;
     let currentFiles = filteredFiles;
@@ -3574,6 +4044,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           config.skeletonId,
           config.signal,
           attempt === 0 ? 'final' : 'repair',
+          attempt === 0 ? 'run:final-build' : 'run:repair-build',
         );
         fastPathTelemetry.steps.finalCompileMs = buildTiming.compileMs;
         fastPathTelemetry.steps.previewMountMs = buildTiming.previewMountMs;
@@ -3762,7 +4233,14 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         onLog:       log,
       });
       const merged = { ...config.currentFiles, ...repaired };
-      await compile(config.buildId, merged, config.skeletonId, config.signal);
+      await compile(
+        config.buildId,
+        merged,
+        config.skeletonId,
+        config.signal,
+        'repair',
+        'repair:merged',
+      );
       return { success: true };
     } catch (err) {
       if (isAbort(err)) return { success: false, error: 'aborted' };
@@ -4558,6 +5036,8 @@ export function computeRepairScopedFiles(
   vudGenericFindings?:   string[] | null,
   psdGenericFindings?:   string[] | null,
   psdEmptyMetricFindings?: string[] | null,
+  repairableMissingPaths?: string[] | null,
+  additionalScopePaths?: string[] | null,
 ): {
   scopedFiles: Record<string, string>;
   isFallback: boolean;
@@ -4569,6 +5049,8 @@ export function computeRepairScopedFiles(
     visualPlaceholders: number;
     specificityPlaceholders: number;
     specificityEmptyMetrics: number;
+    identitySlots: number;
+    liveContract: number;
   };
 } {
   const rawPaths = new Set<string>();
@@ -4577,6 +5059,8 @@ export function computeRepairScopedFiles(
     visualPlaceholders: 0,
     specificityPlaceholders: 0,
     specificityEmptyMetrics: 0,
+    identitySlots: 0,
+    liveContract: 0,
   };
 
   // Source 1: design-contract token violations — path is a direct string field
@@ -4610,17 +5094,34 @@ export function computeRepairScopedFiles(
       sourcePathCounts.specificityEmptyMetrics += 1;
     }
   }
+  for (const path of (repairableMissingPaths ?? [])) {
+    if (typeof path === 'string' && path.trim().length > 0) {
+      rawPaths.add(path);
+      sourcePathCounts.identitySlots += 1;
+    }
+  }
+  for (const path of (additionalScopePaths ?? [])) {
+    if (typeof path === 'string' && path.trim().length > 0) {
+      rawPaths.add(path);
+      sourcePathCounts.liveContract += 1;
+    }
+  }
 
-  // Normalize and filter to paths actually present in currentFiles
+  // Normalize and filter to paths actually present in currentFiles, plus any
+  // explicitly repairable missing identity slots that the quality repair is
+  // allowed to create.
   const currentKeys = new Set(Object.keys(currentFiles));
+  const extraAllowedPaths = new Set(
+    (repairableMissingPaths ?? []).map(path => normalizeOutputPath(path)),
+  );
   const uniqueScoped = Array.from(
     new Set(Array.from(rawPaths).map(p => normalizeOutputPath(p))),
-  ).filter(p => currentKeys.has(p));
+  ).filter(p => currentKeys.has(p) || extraAllowedPaths.has(p));
   const rawPathList = Array.from(rawPaths);
   const resolvedPaths = [...uniqueScoped];
 
   if (uniqueScoped.length > 0) {
-    const scopedFiles = Object.fromEntries(uniqueScoped.map(p => [p, currentFiles[p]!]));
+    const scopedFiles = Object.fromEntries(uniqueScoped.map(p => [p, currentFiles[p] ?? '']));
     return {
       scopedFiles,
       isFallback: false,
@@ -4651,10 +5152,12 @@ export function computeRepairScopedFiles(
  * Scopes the LLM input to only the files that contain violations (2-5 files instead of
  * all 34), so the 8k output budget can cover all violating files rather than just one.
  * Context (prompt, designCtx, psd) remains full — needed for PRODUCT/label resolution.
- * Parses output using parseFileMarkers; only accepts paths already in currentFiles
- * (safety filter — prevents injecting new skeleton-protected files).
+ * Parses output using parseFileMarkers; accepts paths already in currentFiles plus
+ * explicitly repairable missing identity slots (safety filter — prevents arbitrary
+ * new file injection while letting the gate create absent product-identity files).
  *
- * No loops, no retry. At most one repair attempt per pipeline run.
+ * No loops or retries inside this helper. ProtoPipeline.run() may invoke it
+ * for multiple bounded hard-block repair passes.
  */
 export async function runQualityRepair(input: {
   prompt:                        string;
@@ -4666,6 +5169,7 @@ export async function runQualityRepair(input: {
   visualUsageDiagnostics?:       VisualUsageDiagnostics | null;
   designCtx?:                    DesignContext;
   productSpecificityDiagnostics?: ProductSpecificityDiagnostics | null;
+  additionalScopePaths?:         string[] | null;
   signal?:                       AbortSignal;
   routeOverrides?:               RouteOverrideMap;
   onLog:                         (msg: string, level?: 'info' | 'warn' | 'error') => void;
@@ -4684,6 +5188,8 @@ export async function runQualityRepair(input: {
     input.visualUsageDiagnostics?.genericPlaceholderFindings,
     input.productSpecificityDiagnostics?.genericPlaceholderFindings,
     input.productSpecificityDiagnostics?.emptyMetricFindings,
+    input.visualUsageDiagnostics?.repairableMissingIdentityPaths,
+    input.additionalScopePaths,
   );
 
   input.onLog(
@@ -4691,6 +5197,8 @@ export async function runQualityRepair(input: {
       `visual-placeholder=${sourcePathCounts.visualPlaceholders}, ` +
       `specificity-placeholder=${sourcePathCounts.specificityPlaceholders}, ` +
       `specificity-empty-metric=${sourcePathCounts.specificityEmptyMetrics}, ` +
+      `identity-slot=${sourcePathCounts.identitySlots}, ` +
+      `live-contract=${sourcePathCounts.liveContract}, ` +
       `raw=${rawPaths.length}, resolved=${resolvedPaths.length}` +
       (resolvedPaths.length > 0 ? ` -> ${resolvedPaths.join(', ')}` : ''),
   );
@@ -4731,12 +5239,15 @@ export async function runQualityRepair(input: {
     throw new Error('Quality repair produced no FILE/END blocks');
   }
 
-  // Safety filter: only accept patches for paths already present in currentFiles.
-  // Use a normalised-key map so that src/-prefix mismatches (e.g. patch emits
-  // "config/navigation.ts" but currentFiles key is "src/config/navigation.ts") are
-  // resolved the same way the export-retry pattern does — normaliseDeltaPath both sides.
+  // Safety filter: only accept patches for paths already present in currentFiles
+  // plus explicitly repairable missing identity-slot files. Use a normalised-key
+  // map so that src/-prefix mismatches (e.g. patch emits "config/navigation.ts"
+  // but currentFiles key is "src/config/navigation.ts") resolve correctly.
   const normToOriginal = new Map<string, string>(
     Object.keys(input.currentFiles).map(k => [normaliseDeltaPath(k), k]),
+  );
+  const allowedMissingIdentityPaths = new Set(
+    (input.visualUsageDiagnostics?.repairableMissingIdentityPaths ?? []).map(path => normalizeOutputPath(path)),
   );
   const safePatches: Record<string, string> = {};
   const unexpectedPaths: string[] = [];
@@ -4748,6 +5259,8 @@ export async function runQualityRepair(input: {
       const originalKey = normToOriginal.get(patchPath);
       if (originalKey !== undefined) {
         safePatches[originalKey] = patchContent;
+      } else if (allowedMissingIdentityPaths.has(patchPath)) {
+        safePatches[patchPath] = patchContent;
       } else {
         unexpectedPaths.push(patchPath);
       }
@@ -4782,7 +5295,14 @@ async function compile(
   skeletonId: SkeletonId,
   signal?:    AbortSignal,
   buildStage: import('./PreviewController').PreviewBuildStage = 'unknown',
+  callsite = 'unknown',
 ): Promise<CompileResultTiming> {
+  console.log('[compile-stage]', {
+    buildId,
+    buildStage,
+    callsite,
+    fileCount: Object.keys(files).length,
+  });
   // 1. Notify UI that compile is starting (sets previewState.expectingBuildId → iframe gets URL)
   previewController.notifyCompiling(buildId, buildStage);
 

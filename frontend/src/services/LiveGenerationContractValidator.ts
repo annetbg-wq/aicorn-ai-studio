@@ -99,6 +99,7 @@ interface ModuleExportInfo {
 }
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'] as const;
+const LOCAL_GRAPH_EXTENSIONS = [...SOURCE_EXTENSIONS, '.css', '.json'] as const;
 
 /**
  * Import specifiers for non-code assets (images / fonts / media) that Vite resolves
@@ -236,9 +237,9 @@ function buildCandidateGraphSummary(input: LiveGenerationContractValidationInput
     generatedDeltaCount: generatedFiles.size,
     materializedFileCount: materializedFiles.size,
     skeletonFileCount: Object.keys(finalFiles).filter(filePath => skeletonFiles.has(filePath)).length,
-    hasMain: Boolean(finalFiles['src/main.tsx']),
-    hasApp: Boolean(finalFiles['src/App.tsx']),
-    hasRouteManifest: Boolean(finalFiles['src/route-manifest.json']),
+    hasMain: Object.prototype.hasOwnProperty.call(finalFiles, 'src/main.tsx'),
+    hasApp: Object.prototype.hasOwnProperty.call(finalFiles, 'src/App.tsx'),
+    hasRouteManifest: Object.prototype.hasOwnProperty.call(finalFiles, 'src/route-manifest.json'),
     shellOwnerFiles,
   };
 }
@@ -539,9 +540,9 @@ function resolveLocalImportTarget(
 
   if (!basePath) return null;
 
-  const candidates = SOURCE_EXTENSIONS.map(ext => `${basePath}${ext}`);
+  const candidates = LOCAL_GRAPH_EXTENSIONS.map(ext => `${basePath}${ext}`);
   candidates.unshift(basePath);
-  for (const ext of SOURCE_EXTENSIONS) {
+  for (const ext of LOCAL_GRAPH_EXTENSIONS) {
     candidates.push(`${basePath}/index${ext}`);
   }
 
@@ -661,7 +662,7 @@ export function validateCandidateGraphContract(
   }
 
   for (const requiredFile of requiredLocalFiles) {
-    if (finalFiles[requiredFile]) continue;
+    if (Object.prototype.hasOwnProperty.call(finalFiles, requiredFile)) continue;
     diagnostics.push(createDiagnostic(summary, 'missing_required_manifest_file', {
       file: requiredFile,
       import_path: requiredFile.startsWith('src/')
@@ -712,7 +713,7 @@ export function validateImportExportContract(
       const resolvedTarget = resolveLocalImportTarget(filePath, parsedImport.specifier, finalFiles);
       if (!resolvedTarget) continue;
 
-      if (!finalFiles[resolvedTarget]) {
+      if (!Object.prototype.hasOwnProperty.call(finalFiles, resolvedTarget)) {
         const primitive = isUiPrimitiveSpecifier(parsedImport.specifier, resolvedTarget);
         if (primitive) {
           diagnostics.push(createDiagnostic(summary, 'missing_ui_primitive', {
@@ -735,6 +736,8 @@ export function validateImportExportContract(
         }
         continue;
       }
+
+      if (!isSourceModule(resolvedTarget)) continue;
 
       const exportInfo = collectModuleExports(resolvedTarget, finalFiles, exportCache);
       if (parsedImport.defaultImport && !parsedImport.typeOnly && !exportInfo.hasDefault) {

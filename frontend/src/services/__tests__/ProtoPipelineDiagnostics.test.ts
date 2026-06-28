@@ -119,6 +119,89 @@ describe('ProtoPipeline diagnostics', () => {
     ]));
   });
 
+  it('treats missing editable identity slots as violations because skeleton defaults would otherwise ship', () => {
+    const diagnostics = buildVisualUsageDiagnostics({
+      files: {
+        'pages/Detail.tsx': 'export default function Detail(){ return <main>Customer renewal risk detail</main>; }',
+      },
+      skeletonId: 'mobile-app',
+      selectedPremiumComponentIds: [],
+      materializedMediaFiles: [],
+    });
+
+    expect(diagnostics.identitySlotFindings).toEqual(expect.arrayContaining([
+      'config/app.ts: missing identity slot',
+      'config/navigation.ts: missing identity slot',
+      'data/seed.ts: missing identity slot',
+      'pages/Home.tsx: missing identity slot',
+    ]));
+    expect(diagnostics.repairableMissingIdentityPaths).toEqual(expect.arrayContaining([
+      'config/app.ts',
+      'config/navigation.ts',
+      'data/seed.ts',
+      'pages/Home.tsx',
+    ]));
+  });
+
+  it('flags identity slots when coder output still contains skeleton fingerprints', () => {
+    const diagnostics = buildVisualUsageDiagnostics({
+      files: {
+        'config/app.ts': "export const APP_CONFIG = { name: 'AppName' };\nexport const STORAGE_KEYS = {};",
+        'config/navigation.ts': [
+          'export const BOTTOM_TABS = [',
+          "  { label: 'Home' },",
+          "  { label: 'Create' },",
+          "  { label: 'Progress' },",
+          "  { label: 'Profile' },",
+          '];',
+        ].join('\n'),
+        'data/seed.ts': "export const SEED_FEED = [{ title: 'Morning intention' }];",
+        'pages/Home.tsx': "export default function Home(){ return <main><h1>Today's space</h1><p>Nothing here yet</p></main>; }",
+      },
+      skeletonId: 'mobile-app',
+      selectedPremiumComponentIds: [],
+      materializedMediaFiles: [],
+    });
+
+    expect(diagnostics.identitySlotFindings).toEqual(expect.arrayContaining([
+      'config/app.ts: AppName',
+      'config/navigation.ts: default mobile navigation',
+      'data/seed.ts: Morning intention',
+      'pages/Home.tsx: Nothing here yet',
+      "pages/Home.tsx: Today's space",
+    ]));
+  });
+
+  it('passes identity-slot diagnostics when shipped mobile-app slots contain domain-specific content', () => {
+    const diagnostics = buildVisualUsageDiagnostics({
+      files: {
+        'config/app.ts': [
+          'export const APP_CONFIG = {',
+          "  name: 'Dealflow Radar',",
+          "  tagline: 'Pipeline coaching for revenue teams',",
+          '};',
+          'export const STORAGE_KEYS = { profile: "dealflow.profile" };',
+        ].join('\n'),
+        'config/navigation.ts': [
+          'export const BOTTOM_TABS = [',
+          "  { label: 'Pipeline' },",
+          "  { label: 'Actions' },",
+          "  { label: 'Forecast' },",
+          "  { label: 'Team' },",
+          '];',
+        ].join('\n'),
+        'data/seed.ts': "export const SEED_FEED = [{ title: 'Escalate stalled renewal' }, { title: 'Coach discovery follow-up' }];",
+        'pages/Home.tsx': 'export default function Home(){ return <main>Forecast review center</main>; }',
+      },
+      skeletonId: 'mobile-app',
+      selectedPremiumComponentIds: [],
+      materializedMediaFiles: [],
+    });
+
+    expect(diagnostics.identitySlotFindings).toEqual([]);
+    expect(diagnostics.repairableMissingIdentityPaths).toEqual([]);
+  });
+
   it('reports premiumUsageObserved=true when generated source imports from premium component paths', () => {
     const diagnostics = buildVisualUsageDiagnostics({
       files: {

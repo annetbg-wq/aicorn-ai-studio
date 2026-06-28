@@ -128,7 +128,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.telemetry.advisory_reasons_count).toBe(1);
   });
 
-  it('media-unused now fails gate (blocking) with repairInstruction', () => {
+  it('media-unused is advisory only and does not fail the gate', () => {
     const vud = validVisualDiagnostics();
     vud.mediaUsageObserved = false;
     vud.mediaAssetReferencesFound = [];
@@ -142,13 +142,12 @@ describe('evaluatePrototypeQualityGate', () => {
       productSpecificityDiagnostics: validSpecificityDiagnostics(),
     });
 
-    // Now blocking — gate must fail
-    expect(result.ok).toBe(false);
-    expect(result.blockingReasons.some(r => /media.*materialized.*none.*referenced/i.test(r))).toBe(true);
-    expect(result.repairInstructions.some(r => /hero|feature|empty.state/i.test(r))).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.blockingReasons).toHaveLength(0);
+    expect(result.repairInstructions).toHaveLength(0);
+    expect(result.advisoryReasons.some(r => /media.*materialized.*none.*referenced/i.test(r))).toBe(true);
     expect(result.telemetry.media_materialized_not_used).toBe(true);
-    expect(result.advisoryReasons).toHaveLength(0);
-    expect(result.telemetry.advisory_reasons_count).toBe(0);
+    expect(result.telemetry.advisory_reasons_count).toBe(1);
     expect(result.telemetry.repair_hook_available).toBe(true);
   });
 
@@ -214,7 +213,7 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.telemetry.generic_dashboard_card_flag).toBe(true);
   });
 
-  it('produces repairInstructions for every blocking reason (design token + media); premium is advisory', () => {
+  it('produces repairInstructions only for hard blockers; premium/media remain advisory', () => {
     const vud = validVisualDiagnostics();
     vud.premiumUsageObserved = false;
     vud.premiumComponentImportsFound = [];
@@ -229,13 +228,12 @@ describe('evaluatePrototypeQualityGate', () => {
     });
 
     expect(result.ok).toBe(false);
-    // 2 blocking reasons: design token + media-unused (premium-unused is advisory now)
-    expect(result.blockingReasons).toHaveLength(2);
+    expect(result.blockingReasons).toHaveLength(1);
     expect(result.repairInstructions.length).toBe(result.blockingReasons.length);
-    // Premium-unused is advisory, not blocking
-    expect(result.advisoryReasons).toHaveLength(1);
-    expect(result.advisoryReasons[0]).toMatch(/premium.*selected/i);
-    expect(result.telemetry.advisory_reasons_count).toBe(1);
+    expect(result.advisoryReasons).toHaveLength(2);
+    expect(result.advisoryReasons.some(r => /premium.*selected/i.test(r))).toBe(true);
+    expect(result.advisoryReasons.some(r => /media.*materialized/i.test(r))).toBe(true);
+    expect(result.telemetry.advisory_reasons_count).toBe(2);
     // All instructions are non-empty strings
     for (const instruction of result.repairInstructions) {
       expect(typeof instruction).toBe('string');
@@ -312,7 +310,24 @@ describe('evaluatePrototypeQualityGate', () => {
     expect(result.advisoryReasons).toHaveLength(0);
   });
 
-  it('premium+media both unused: ok=false (media blocks), 1 blocking reason, premium advisory', () => {
+  it('treats identity-slot violations as hard-fail after repair', () => {
+    const vud = validVisualDiagnostics();
+    vud.identitySlotFindings = ['config/app.ts: missing identity slot'];
+    vud.repairableMissingIdentityPaths = ['config/app.ts'];
+
+    const result = evaluatePrototypeQualityGate({
+      designContractViolations: [],
+      visualUsageDiagnostics: vud,
+      productSpecificityDiagnostics: validSpecificityDiagnostics(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.hardFailAfterRepair).toBe(true);
+    expect(result.blockingReasons.some(reason => /Product identity slots/i.test(reason))).toBe(true);
+    expect(result.telemetry.identity_slot_violation_count).toBe(1);
+  });
+
+  it('premium+media both unused: ok=true with two advisory reasons', () => {
     const vud = validVisualDiagnostics();
     vud.premiumUsageObserved = false;
     vud.premiumComponentImportsFound = [];
@@ -325,15 +340,13 @@ describe('evaluatePrototypeQualityGate', () => {
       productSpecificityDiagnostics: validSpecificityDiagnostics(),
     });
 
-    // Media-unused still blocks (generated assets must be shown); premium-unused
-    // is advisory only — the coder is free to compose from shadcn/radix instead.
-    expect(result.ok).toBe(false);
-    expect(result.blockingReasons).toHaveLength(1);
-    expect(result.blockingReasons[0]).toMatch(/media.*materialized/i);
-    expect(result.repairInstructions).toHaveLength(1);
-    expect(result.advisoryReasons).toHaveLength(1);
-    expect(result.advisoryReasons[0]).toMatch(/premium.*selected/i);
-    expect(result.telemetry.advisory_reasons_count).toBe(1);
+    expect(result.ok).toBe(true);
+    expect(result.blockingReasons).toHaveLength(0);
+    expect(result.repairInstructions).toHaveLength(0);
+    expect(result.advisoryReasons).toHaveLength(2);
+    expect(result.advisoryReasons.some(r => /premium.*selected/i.test(r))).toBe(true);
+    expect(result.advisoryReasons.some(r => /media.*materialized/i.test(r))).toBe(true);
+    expect(result.telemetry.advisory_reasons_count).toBe(2);
     expect(result.telemetry.premium_selected_not_used).toBe(true);
     expect(result.telemetry.media_materialized_not_used).toBe(true);
     expect(result.telemetry.repair_hook_available).toBe(true);
@@ -506,6 +519,39 @@ describe('runQualityRepair', () => {
     expect(result[injectedPath]).toBeUndefined();
   });
 
+  it('allows repair to create a missing identity-slot file when diagnostics explicitly permit it', async () => {
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () => mockLlmResponse({
+        'config/app.ts': 'export const appConfig = { name: "Ops Beacon" };',
+      }),
+    });
+
+    const result = await runQualityRepair({
+      prompt:       'Field operations planning app',
+      skeletonId:   'mobile-app',
+      currentFiles: {
+        'pages/Home.tsx': 'export default function Home(){ return <main>Custom feed</main>; }',
+      },
+      blockingReasons: [
+        'Product identity slots missing or generic in 1 location(s): config/app.ts: missing identity slot',
+      ],
+      repairInstructions: [
+        'Emit and fully rewrite missing or generic identity slots with product-specific content.',
+      ],
+      visualUsageDiagnostics: {
+        ...validVisualDiagnostics(),
+        identitySlotFindings: ['config/app.ts: missing identity slot'],
+        repairableMissingIdentityPaths: ['config/app.ts'],
+      },
+      routeOverrides: TEST_ROUTE_OVERRIDES,
+      onLog:          () => {},
+    });
+
+    expect(result['config/app.ts']).toContain('Ops Beacon');
+    expect(result['pages/Home.tsx']).toContain('Custom feed');
+  });
+
   it('gate ok=true (valid output, no issues) means no repair is needed — fetch not called', () => {
     // All checks pass → ok=true → runQualityRepair would not be called
     const vud: VisualUsageDiagnostics = {
@@ -545,8 +591,8 @@ describe('runQualityRepair', () => {
 
 // ── Soft/hard blocking classification tests ───────────────────────────────────
 //
-// These tests verify the gate correctly classifies which blocking reasons are
-// "soft" (premium/media — degrade if repair fails) vs "hard" (tokens/placeholders).
+// These tests verify the gate correctly classifies release signals:
+// premium/media stay advisory-only; tokens/placeholders remain hard-blocking.
 
 describe('soft vs hard blocking classification', () => {
   it('premium-only unused: not blocking at all — advisory, gate passes', () => {
@@ -577,7 +623,7 @@ describe('soft vs hard blocking classification', () => {
     expect(gate.advisoryReasons[0]).toMatch(/^Premium components selected/);
   });
 
-  it('media-only blocking starts with expected prefix for allSoftBlocking detection', () => {
+  it('media-only unused is advisory-only and does not contribute blocking reasons', () => {
     const vud: VisualUsageDiagnostics = {
       premiumUsageChecked: false,
       premiumComponentsSelected: [],
@@ -599,9 +645,9 @@ describe('soft vs hard blocking classification', () => {
       suggestedNextAction: 'improve_prompt',
     };
     const gate = evaluatePrototypeQualityGate({ designContractViolations: [], visualUsageDiagnostics: vud });
-    expect(gate.ok).toBe(false);
-    // Must start with "Generated media assets materialized" so allSoftBlocking check works
-    expect(gate.blockingReasons[0]).toMatch(/^Generated media assets materialized/);
+    expect(gate.ok).toBe(true);
+    expect(gate.blockingReasons).toHaveLength(0);
+    expect(gate.advisoryReasons[0]).toMatch(/^Generated media assets materialized/);
   });
 
   it('design token violation does NOT start with soft prefix — correctly classified as hard-blocking', () => {
@@ -610,7 +656,7 @@ describe('soft vs hard blocking classification', () => {
     });
     expect(gate.ok).toBe(false);
     expect(gate.blockingReasons[0]).toMatch(/^Design contract/);
-    // Should NOT match either soft prefix
+    // Soft advisory reasons never show up under blockingReasons.
     expect(gate.blockingReasons[0].startsWith('Premium components selected')).toBe(false);
     expect(gate.blockingReasons[0].startsWith('Generated media assets materialized')).toBe(false);
   });
@@ -816,6 +862,26 @@ describe('computeRepairScopedFiles', () => {
     expect(Object.keys(scopedFiles)).toEqual(['pages/Dashboard.tsx']);
     expect(resolvedPaths).toEqual(['pages/Dashboard.tsx']);
     expect(sourcePathCounts.specificityEmptyMetrics).toBe(1);
+  });
+
+  it('includes explicitly repairable missing identity slots even when absent from currentFiles', () => {
+    const currentFiles = {
+      'pages/Home.tsx': 'export default function Home() { return <main>Dashboard</main>; }',
+    };
+
+    const { scopedFiles, isFallback, resolvedPaths, sourcePathCounts } = computeRepairScopedFiles(
+      currentFiles,
+      [],
+      [],
+      [],
+      [],
+      ['config/app.ts'],
+    );
+
+    expect(isFallback).toBe(false);
+    expect(scopedFiles).toEqual({ 'config/app.ts': '' });
+    expect(resolvedPaths).toEqual(['config/app.ts']);
+    expect(sourcePathCounts.identitySlots).toBe(1);
   });
 
   it('(г-1) falls back to all files when violation paths do not match currentFiles keys', () => {
