@@ -53,7 +53,7 @@ import type { Project } from '../services/ProjectManager';
 import { ProjectRepository, getCanonicalProjectName } from '../services/ProjectRepository';
 import { BenchmarkService } from '../services/benchmark/BenchmarkService';
 import { revisionManager } from '../services/RevisionManager';
-import { previewController } from '../services/PreviewController';
+import { previewController, type PreviewState } from '../services/PreviewController';
 import { appendPreviewSessionToUrl, getPreviewSessionToken } from '../services/PreviewSessionService';
 import { normalizePath } from '../services/PreviewWriteGateway';
 import { generationTracer } from '../services/GenerationTracer';
@@ -89,6 +89,7 @@ import { analyzeOutputTruth } from '../shared/outputTruth';
 import { useFigmaState } from './useFigmaState';
 import { useSettingsState } from './useSettingsState';
 import { restoreGenerationPath } from './useStudioGenerationPath';
+import { resolvePreviewSuccessGate } from './useStudioPreviewSuccessGate';
 import { getSkeletonSaveFiles, resolveReloadCompleteSaveFiles } from './useStudioSaveFiles';
 import {
   ArchitectPlannerService,
@@ -1596,6 +1597,7 @@ export const useStudio = () => {
   const [currentSnapshotId, setCurrentSnapshotId] = useState<string | null>(
     localStorage.getItem('CURRENT_SNAPSHOT_ID')
   );
+  const currentSnapshotIdRef = useRef<string | null>(localStorage.getItem('CURRENT_SNAPSHOT_ID'));
   const [stableSnapshotId, setStableSnapshotId] = useState<string | null>(
     localStorage.getItem('STABLE_SNAPSHOT_ID')
   );
@@ -1632,6 +1634,7 @@ export const useStudio = () => {
     const updated = [...base, snap];
     safeSetItem('SNAPSHOTS', JSON.stringify(updated));
     safeSetItem('CURRENT_SNAPSHOT_ID', snap.id);
+    currentSnapshotIdRef.current = snap.id;
     setSnapshots(updated);
     setCurrentSnapshotId(snap.id);
     setHistoryIndex(updated.length - 1);
@@ -1641,6 +1644,7 @@ export const useStudio = () => {
   const restoreSnapshot = useCallback((snap: Snapshot) => {
     const restored = normalizeToFileMap(snap.files);
     setFiles(restored);
+    currentSnapshotIdRef.current = snap.id;
     setCurrentSnapshotId(snap.id);
     safeSetItem('CURRENT_SNAPSHOT_ID', snap.id);
     const idx = snapshots.findIndex(s => s.id === snap.id);
@@ -1674,6 +1678,7 @@ export const useStudio = () => {
 
   const clearSnapshots = useCallback(() => {
     setSnapshots([]);
+    currentSnapshotIdRef.current = null;
     setCurrentSnapshotId(null);
     setStableSnapshotId(null);
     setHistoryIndex(-1);
@@ -1751,80 +1756,6 @@ export const useStudio = () => {
       );
     }
   }, [chatUpdate, markSnapshotStable]);
-
-  useEffect(() => {
-    const syncPreviewState = (state: ReturnType<typeof previewController.getState>) => {
-      if (state.status === 'compiling' && state.activeRevisionId) {
-        const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
-        setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
-        setPreviewReady(false);
-        invalidatePendingProjectSaveReady();
-        setPreviewBlockedReason(null);
-        if (state.buildStage === 'final' || state.buildStage === 'repair') {
-          setPreviewLifecycle('materializing');
-        }
-        return;
-      }
-
-      if (state.status === 'ready' && state.activeRevisionId) {
-        const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
-        setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
-        setPreviewBlockedReason(null);
-        // Suppress ONLY the early static-build mount ('static_build_complete'): the
-        // iframe loaded a static candidate, which is "technical mounted", not a user
-        // preview lifecycle. (This is the "buildStage: unknown static-preview noise"
-        // that must not look like a real preview.) Do not demote a prior real success.
-        if (state.readySource === 'static_build_complete') {
-          setPreviewLifecycle(prev => (prev === 'preview-ready' ? prev : 'skeleton-ready'));
-          return;
-        }
-
-        // Any real pipeline build flows into the finalPreviewGate below: the
-        // skeleton-assembly terminal (proto_pipeline_complete + buildStage 'skeleton'),
-        // the LV terminal (proto_pipeline_complete + 'unknown'), a final/repair build,
-        // or a restore remount. The gate's filesCommitted flag distinguishes the APP
-        // path's early *empty* skeleton (not committed → 'materializing', waits for the
-        // filled build) from a committed terminal build (→ Preview-ready + Save CTA).
-        // Earlier this method returned early for buildStage 'skeleton', so the skeleton
-        // path NEVER reached this promotion — Save never appeared and the run timed out
-        // in a terminal fail. Letting 'skeleton' through is what makes it succeed.
-        setPreviewReady(true);
-        if (finalPreviewGateRef.current.awaiting) {
-          if (!finalPreviewGateRef.current.filesCommitted) {
-            setPreviewLifecycle('materializing');
-            return;
-          }
-          if (!currentSnapshotId) {
-            return;
-          }
-        } else if (!currentSnapshotId) {
-          setPreviewLifecycle('preview-ready');
-          return;
-        }
-        if (lastPreviewReadyRevisionRef.current === state.activeRevisionId) return;
-        lastPreviewReadyRevisionRef.current = state.activeRevisionId;
-        promoteFinalPreviewReady(currentSnapshotId);
-        return;
-      }
-
-      if (state.status === 'failed') {
-        finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
-        setPreviewReady(false);
-        invalidatePendingProjectSaveReady();
-        setPreviewLifecycle(prev => (
-          prev === 'preview-ready'
-            ? 'degraded'
-            : (prev === 'committing' || prev === 'generating' || prev === 'materializing')
-              ? 'failed'
-              : prev
-        ));
-        if (state.error) setPreviewBlockedReason(state.error);
-      }
-    };
-
-    syncPreviewState(previewController.getState());
-    return previewController.subscribe(syncPreviewState);
-  }, [currentSnapshotId, invalidatePendingProjectSaveReady, promoteFinalPreviewReady]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  SEMANTIC GLOSSARY — revision / version / snapshot disambiguation
@@ -2323,6 +2254,144 @@ export const useStudio = () => {
   const [pendingProjectSaveMeta, setPendingProjectSaveMeta] = useState<PendingProjectSaveMeta | null>(null);
   const pendingSavePromptShownRef = useRef(false);
   const processedArchitectureMessagesRef = useRef<Set<string>>(new Set());
+
+  const logPreviewSuccessGate = useCallback((
+    state: PreviewState,
+    snapshotId: string | null = currentSnapshotIdRef.current ?? currentSnapshotId,
+  ) => {
+    console.log('[preview-success-gate]', {
+      readySource: state.readySource,
+      buildStage: state.buildStage,
+      previewLifecycle,
+      previewReady,
+      awaiting: finalPreviewGateRef.current.awaiting,
+      filesCommitted: finalPreviewGateRef.current.filesCommitted,
+      hasSnapshot: !!snapshotId,
+      activeRevisionId: state.activeRevisionId,
+    });
+  }, [currentSnapshotId, previewLifecycle, previewReady]);
+
+  const ensureReadyPromotionSnapshot = useCallback((state: PreviewState): string | null => {
+    const existingSnapshotId = currentSnapshotIdRef.current ?? currentSnapshotId;
+    if (existingSnapshotId) return existingSnapshotId;
+    if (
+      state.status !== 'ready'
+      || state.readySource !== 'proto_pipeline_complete'
+      || !finalPreviewGateRef.current.filesCommitted
+    ) {
+      return existingSnapshotId;
+    }
+
+    const pending = pendingProjectSaveRef.current;
+    const snapshotFiles = pending?.finalFiles;
+    if (!snapshotFiles || Object.keys(snapshotFiles).length === 0) {
+      return existingSnapshotId;
+    }
+
+    const snapshot = addSnapshot(
+      snapshotFiles,
+      pending.userPrompt || lastGenerationPromptRef.current.trim() || pending.projectTitle || 'Preview ready',
+      state.activeRevisionId,
+    );
+    return snapshot.id;
+  }, [addSnapshot, currentSnapshotId]);
+
+  const evaluatePreviewState = useCallback((state: PreviewState) => {
+    if (state.status === 'compiling' && state.activeRevisionId) {
+      const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
+      setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
+      setPreviewReady(false);
+      invalidatePendingProjectSaveReady();
+      setPreviewBlockedReason(null);
+      if (state.buildStage === 'final' || state.buildStage === 'repair') {
+        setPreviewLifecycle('materializing');
+      }
+      return;
+    }
+
+    if (state.status === 'ready' && state.activeRevisionId) {
+      const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
+      setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
+      setPreviewBlockedReason(null);
+      let snapshotId = currentSnapshotIdRef.current ?? currentSnapshotId;
+      let gate = resolvePreviewSuccessGate({
+        state,
+        previewLifecycle,
+        previewReady,
+        awaiting: finalPreviewGateRef.current.awaiting,
+        filesCommitted: finalPreviewGateRef.current.filesCommitted,
+        hasSnapshot: !!snapshotId,
+        lastPreviewReadyRevisionId: lastPreviewReadyRevisionRef.current,
+      });
+
+      if (gate.action === 'ensure-snapshot') {
+        snapshotId = ensureReadyPromotionSnapshot(state);
+        gate = resolvePreviewSuccessGate({
+          state,
+          previewLifecycle,
+          previewReady,
+          awaiting: finalPreviewGateRef.current.awaiting,
+          filesCommitted: finalPreviewGateRef.current.filesCommitted,
+          hasSnapshot: !!snapshotId,
+          lastPreviewReadyRevisionId: lastPreviewReadyRevisionRef.current,
+        });
+      }
+
+      if (gate.nextPreviewReady !== previewReady) {
+        setPreviewReady(gate.nextPreviewReady);
+      }
+
+      switch (gate.action) {
+        case 'suppress-static-build':
+          setPreviewLifecycle(prev => (prev === 'preview-ready' ? prev : gate.nextLifecycle));
+          logPreviewSuccessGate(state, snapshotId);
+          return;
+        case 'wait-for-files-commit':
+        case 'show-preview-ready':
+          setPreviewLifecycle(gate.nextLifecycle);
+          logPreviewSuccessGate(state, snapshotId);
+          return;
+        case 'wait-for-snapshot':
+        case 'skip-duplicate-ready':
+        case 'noop':
+          logPreviewSuccessGate(state, snapshotId);
+          return;
+        case 'promote-ready':
+          lastPreviewReadyRevisionRef.current = state.activeRevisionId;
+          logPreviewSuccessGate(state, snapshotId);
+          promoteFinalPreviewReady(snapshotId);
+          return;
+      }
+    }
+
+    if (state.status === 'failed') {
+      finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
+      setPreviewReady(false);
+      invalidatePendingProjectSaveReady();
+      setPreviewLifecycle(prev => (
+        prev === 'preview-ready'
+          ? 'degraded'
+          : (prev === 'committing' || prev === 'generating' || prev === 'materializing')
+            ? 'failed'
+            : prev
+      ));
+      if (state.error) setPreviewBlockedReason(state.error);
+    }
+  }, [
+    currentSnapshotId,
+    ensureReadyPromotionSnapshot,
+    invalidatePendingProjectSaveReady,
+    logPreviewSuccessGate,
+    previewLifecycle,
+    previewReady,
+    promoteFinalPreviewReady,
+  ]);
+
+  useEffect(() => {
+    evaluatePreviewState(previewController.getState());
+    return previewController.subscribe(evaluatePreviewState);
+  }, [evaluatePreviewState]);
+
   // Tracks the active draft session ID for the current unsaved generation run.
   // Null when a real persisted project is active (loaded or just saved).
   const _draftSessionIdRef = useRef<string | null>(null);
@@ -4801,6 +4870,7 @@ export const useStudio = () => {
         });
         setProgress(100);
         setCurrentPhase('');
+        setPreviewBlockedReason(failMsg || result.pipelineFailureDiagnostics?.reasonCode || 'Generation failed');
         setPreviewLifecycle('failed');
         if (_journalDraftSessionId) {
           draftArtifactJournal.appendRecord(_journalDraftSessionId, {
@@ -5120,6 +5190,7 @@ export const useStudio = () => {
           projectTitle,
           previewReady: false,
         });
+        evaluatePreviewState(previewController.getState());
         // The skeleton preview may already exist, but Save stays locked until
         // the final coder delta is mounted as the real preview.
         // Append an inline file-diff summary to the chat so the user sees what changed.

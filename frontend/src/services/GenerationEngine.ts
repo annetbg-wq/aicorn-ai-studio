@@ -276,6 +276,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
       success: boolean;
       files?: Record<string, string>;
       error?: string;
+      reason?: import('./ProtoPipeline').ProtoPipelineResult['reason'];
       url?: string;
       fastPathTelemetry?: import('../shared/projectModel').FastPathTelemetry;
       runTelemetry?: import('../shared/projectModel').GenerationRunTelemetry;
@@ -363,6 +364,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
         pipelineFailureDiagnostics: {
           failedStep: result.outcomeData?.failedStep,
           errorMessage: result.outcomeData?.errorMessage ?? result.error ?? 'Generation failed',
+          reasonCode: result.outcomeData?.reasonCode ?? result.reason,
         },
       });
     }
@@ -404,6 +406,7 @@ Return ONLY JSON, no markdown, matching this exact shape:
           pipelineFailureDiagnostics: {
             failedStep: 'apply_files',
             errorMessage: onFilesMsg,
+            reasonCode: undefined,
           },
         });
       }

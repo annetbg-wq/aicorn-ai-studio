@@ -1872,6 +1872,7 @@ export interface GenerationResult {
   pipelineFailureDiagnostics?: {
     failedStep?: string;
     errorMessage?: string;
+    reasonCode?: string;
   };
   /** Pre-repair: did the coder's FIRST output satisfy the DesignContract? (substrate quality signal) */
   designContractOk?: boolean;
