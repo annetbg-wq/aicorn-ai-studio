@@ -334,6 +334,20 @@ const MOBILE_SOFT_ONLY_OUTPUT = [
   '<<<END>>>',
 ].join('\n');
 
+const MOBILE_SHELL_OWNERSHIP_OUTPUT = MOBILE_SOFT_ONLY_OUTPUT
+  .replace(
+    '<<<FILE: pages/Home.tsx>>>\nexport default function Home() {',
+    "<<<FILE: pages/Home.tsx>>>\nimport { AppProvider } from '@/context/AppContext';\nexport default function Home() {",
+  )
+  .replace(
+    '    <main className="min-h-screen bg-background px-4 py-6 text-foreground">',
+    '    <AppProvider>\n      <main className="min-h-screen bg-background px-4 py-6 text-foreground">',
+  )
+  .replace(
+    '    </main>',
+    '      </main>\n    </AppProvider>',
+  );
+
 const DANGLING_IMPORT_OUTPUT = [
   '<<<FILE: config/app.ts>>>',
   'export const STORAGE_KEYS = {',
@@ -441,6 +455,27 @@ const DANGLING_IMPORT_NOOP_REPAIR_PATCH = [
   '        </header>',
   '      </section>',
   '    </main>',
+  '  );',
+  '}',
+  '<<<END>>>',
+].join('\n');
+
+const SHELL_OWNERSHIP_NOOP_REPAIR_PATCH = [
+  '<<<FILE: pages/Home.tsx>>>',
+  "import { AppProvider } from '@/context/AppContext';",
+  'export default function Home() {',
+  '  return (',
+  '    <AppProvider>',
+  '      <main className="min-h-screen bg-background px-4 py-6 text-foreground">',
+  '        <section className="mx-auto flex max-w-md flex-col gap-5">',
+  '          <header className="space-y-2">',
+  '            <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Ritual Flow</p>',
+  '            <h1 className="text-3xl font-semibold">Daily ritual stack</h1>',
+  '            <p className="text-sm text-muted-foreground">Blend calm, focus, and recovery routines around your workday.</p>',
+  '          </header>',
+  '        </section>',
+  '      </main>',
+  '    </AppProvider>',
   '  );',
   '}',
   '<<<END>>>',
@@ -678,5 +713,30 @@ describe('ProtoPipeline release gate', () => {
 
     const compileCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/preview/'));
     expect(compileCalls).toHaveLength(1);
+  });
+
+  it('fails hard when a page keeps trying to own the shell provider layer after repairs', async () => {
+    evaluateCompletenessGateMock.mockImplementation(() => makeCoverageResult(true, 1));
+    const fetchMock = createFetchMock({
+      qualityRepairBodies: [SHELL_OWNERSHIP_NOOP_REPAIR_PATCH, SHELL_OWNERSHIP_NOOP_REPAIR_PATCH],
+    });
+
+    const { result, onLog } = await runPipelineScenario({
+      prompt: 'Build a wellness mobile app for guided rituals, breathwork, and streak recovery.',
+      skeletonId: 'mobile-app',
+      architectPlan: MOBILE_ARCHITECT_PLAN,
+      coderOutput: MOBILE_SHELL_OWNERSHIP_OUTPUT,
+      fetchMock,
+      routeOverrides: {
+        primary: PRIMARY_ROUTE_OVERRIDE,
+        build: PRIMARY_ROUTE_OVERRIDE,
+        fix: FIX_ROUTE_OVERRIDE,
+      },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.reason).toBe('live_generation_contract_failed');
+    expect(result.error).toContain('tries to own shell layer provider layer');
+    expect(onLog.mock.calls.some(([message]) => String(message).includes('[live-contract]'))).toBe(true);
   });
 });

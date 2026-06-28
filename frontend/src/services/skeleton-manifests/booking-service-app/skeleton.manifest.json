@@ -47,6 +47,29 @@
     "src/pages/Search.tsx",
     "src/pages/ServiceDetail.tsx"
   ],
+  "ownership": {
+    "ownedBySkeleton": [
+      "src/App.tsx",
+      "src/main.tsx",
+      "src/index.css",
+      "src/route-manifest.json",
+      "src/context/AppContext.tsx",
+      "src/config/routes.ts",
+      "src/components/BottomTabs.tsx"
+    ],
+    "productSlots": [
+      "src/config/app.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/BookingFlow.tsx",
+      "src/pages/Home.tsx",
+      "src/pages/MyBookings.tsx",
+      "src/pages/Profile.tsx",
+      "src/pages/Search.tsx",
+      "src/pages/ServiceDetail.tsx"
+    ]
+  },
   "requiredExports": {
     "data/seed.ts": [
       { "name": "services" },

@@ -53,6 +53,29 @@
     "src/pages/Notifications.tsx",
     "src/pages/Profile.tsx"
   ],
+  "ownership": {
+    "ownedBySkeleton": [
+      "src/App.tsx",
+      "src/main.tsx",
+      "src/index.css",
+      "src/route-manifest.json",
+      "src/context/AppContext.tsx",
+      "src/components/BottomTabs.tsx"
+    ],
+    "productSlots": [
+      "src/config/app.ts",
+      "src/config/routes.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Feed.tsx",
+      "src/pages/Explore.tsx",
+      "src/pages/Create.tsx",
+      "src/pages/PostDetail.tsx",
+      "src/pages/Notifications.tsx",
+      "src/pages/Profile.tsx"
+    ]
+  },
   "requiredExports": {
     "data/seed.ts": [
       { "name": "CURRENT_USER_ID" },

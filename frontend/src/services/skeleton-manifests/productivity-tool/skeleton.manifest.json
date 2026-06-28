@@ -46,6 +46,25 @@
     "src/data/seed.ts",
     "src/pages/Workspace.tsx"
   ],
+  "ownership": {
+    "ownedBySkeleton": [
+      "src/App.tsx",
+      "src/main.tsx",
+      "src/index.css",
+      "src/route-manifest.json",
+      "src/context/AppContext.tsx",
+      "src/components/Sidebar.tsx",
+      "src/components/TopBar.tsx"
+    ],
+    "productSlots": [
+      "src/config/app.ts",
+      "src/config/routes.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Workspace.tsx"
+    ]
+  },
   "requiredExports": {
     "data/seed.ts": [
       { "name": "SEED_WORKSPACES" },

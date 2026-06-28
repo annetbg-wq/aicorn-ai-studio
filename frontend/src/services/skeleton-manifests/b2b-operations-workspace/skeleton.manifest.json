@@ -49,6 +49,30 @@
     "src/pages/Team.tsx",
     "src/pages/Workflow.tsx"
   ],
+  "ownership": {
+    "ownedBySkeleton": [
+      "src/App.tsx",
+      "src/main.tsx",
+      "src/index.css",
+      "src/route-manifest.json",
+      "src/context/AppContext.tsx",
+      "src/config/routes.ts",
+      "src/components/Sidebar.tsx"
+    ],
+    "productSlots": [
+      "src/config/app.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Dashboard.tsx",
+      "src/pages/RecordDetail.tsx",
+      "src/pages/Records.tsx",
+      "src/pages/Reports.tsx",
+      "src/pages/Settings.tsx",
+      "src/pages/Team.tsx",
+      "src/pages/Workflow.tsx"
+    ]
+  },
   "requiredExports": {
     "data/seed.ts": [
       { "name": "records" },

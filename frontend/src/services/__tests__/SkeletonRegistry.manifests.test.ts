@@ -13,7 +13,9 @@ import gamingCasinoAppManifest from '../skeleton-manifests/gaming-casino-app/ske
 import marketplacePlatformManifest from '../skeleton-manifests/marketplace-platform/skeleton.manifest.json';
 import {
   buildSkeletonPromptBlock,
+  getEditableSkeletonFiles,
   getSkeletonInstalledFiles,
+  getSkeletonOwnershipContract,
   SKELETON_REGISTRY,
   type SkeletonId,
 } from '../SkeletonRegistry';
@@ -23,9 +25,14 @@ type Manifest = {
   workingGroups: Array<{ label: string; paths: string[] }>;
   editableFiles: string[];
   deltaFiles: string[];
+  ownership?: {
+    ownedBySkeleton: string[];
+    productSlots: string[];
+  };
 };
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+const manifestsRoot = path.join(repoRoot, 'frontend', 'src', 'services', 'skeleton-manifests');
 const requiredCoreFiles = ['src/App.tsx', 'src/main.tsx', 'src/index.css', 'src/route-manifest.json'] as const;
 const requiredDeltaBase = ['src/config/app.ts', 'src/config/navigation.ts', 'src/data/types.ts', 'src/data/seed.ts'] as const;
 
@@ -54,6 +61,12 @@ function getPhysicalPagePaths(id: SkeletonId): string[] {
 
 function sortPaths(paths: string[]): string[] {
   return [...paths].sort((a, b) => a.localeCompare(b));
+}
+
+function readManifestFromDisk(id: SkeletonId): Manifest {
+  return JSON.parse(
+    fs.readFileSync(path.join(manifestsRoot, id, 'skeleton.manifest.json'), 'utf-8'),
+  ) as Manifest;
 }
 
 const primitiveFileAliases: Record<string, string[]> = {
@@ -143,6 +156,33 @@ describe('SkeletonRegistry manifests for new skeleton families', () => {
       }
       for (const deltaFile of manifest.deltaFiles) {
         expect(promptBlock, `${id} prompt missing delta file ${deltaFile}`).toContain(deltaFile);
+      }
+    }
+  });
+});
+
+describe('SkeletonRegistry ownership contracts', () => {
+  const skeletonIds = Object.keys(SKELETON_REGISTRY) as SkeletonId[];
+
+  it('keeps explicit shell ownership contracts aligned with editable product slots', () => {
+    for (const id of skeletonIds) {
+      const manifest = readManifestFromDisk(id);
+      const ownership = manifest.ownership;
+      const contract = getSkeletonOwnershipContract(id);
+      const editableFiles = getEditableSkeletonFiles(id);
+
+      expect(ownership, `${id} manifest should declare ownership explicitly`).toBeDefined();
+      expect((ownership?.ownedBySkeleton ?? []).length, `${id} should declare shell-owned files`).toBeGreaterThan(0);
+      expect(sortPaths(ownership?.productSlots ?? []), `${id} manifest product slots mismatch`).toEqual(sortPaths(editableFiles));
+      expect(sortPaths(contract.productSlots), `${id} registry product slots mismatch`).toEqual(sortPaths(editableFiles));
+      expect(sortPaths(contract.ownedBySkeleton), `${id} registry shell ownership mismatch`).toEqual(sortPaths(ownership?.ownedBySkeleton ?? []));
+
+      const overlap = (ownership?.ownedBySkeleton ?? []).filter(file => (ownership?.productSlots ?? []).includes(file));
+      expect(overlap, `${id} ownership should not overlap with product slots`).toEqual([]);
+
+      for (const relativePath of ownership?.ownedBySkeleton ?? []) {
+        const physicalPath = path.join(getSkeletonSrcRoot(id), relativePath.replace(/^src\//, '').replace(/\//g, path.sep));
+        expect(fs.existsSync(physicalPath), `${id} missing shell-owned file ${relativePath}`).toBe(true);
       }
     }
   });

@@ -467,6 +467,53 @@ describe('LiveGenerationContractValidator protected shell boundaries', () => {
     expect(result.diagnostics[0]?.root_cause_type).toBe('protected_shell_import');
   });
 
+  it('fails when a page imports router ownership from react-router-dom', () => {
+    const result = validateProtectedShellBoundary({
+      skeletonId: 'mobile-app',
+      finalFiles: {
+        'src/pages/Home.tsx': [
+          "import { BrowserRouter, Route, Routes } from 'react-router-dom';",
+          'export default function Home() {',
+          '  return (',
+          '    <BrowserRouter>',
+          '      <Routes>',
+          "        <Route path='/' element={<section>Home</section>} />",
+          '      </Routes>',
+          '    </BrowserRouter>',
+          '  );',
+          '}',
+        ].join('\n'),
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.root_cause_type).toBe('protected_shell_import');
+    expect(result.diagnostics[0]?.actual).toContain('shell layer router');
+  });
+
+  it('fails when a page imports a provider from AppContext', () => {
+    const result = validateProtectedShellBoundary({
+      skeletonId: 'mobile-app',
+      finalFiles: {
+        'src/pages/Home.tsx': [
+          "import { AppProvider } from '@/context/AppContext';",
+          'export default function Home() {',
+          '  return <AppProvider><section>Home</section></AppProvider>;',
+          '}',
+        ].join('\n'),
+        'src/context/AppContext.tsx': [
+          'export function AppProvider({ children }: { children: React.ReactNode }) {',
+          '  return children;',
+          '}',
+        ].join('\n'),
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.root_cause_type).toBe('protected_shell_import');
+    expect(result.diagnostics[0]?.actual).toContain('shell layer provider layer');
+  });
+
   it('passes when App.tsx imports BottomTabs', () => {
     const result = validateProtectedShellBoundary({
       skeletonId: 'mobile-app',
@@ -488,6 +535,28 @@ describe('LiveGenerationContractValidator protected shell boundaries', () => {
         'src/pages/Home.tsx': [
           "import { Button } from '@/components/ui/Button';",
           'export default function Home() { return <Button />; }',
+        ].join('\n'),
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('passes when a product-slot page consumes useApp without re-owning the provider', () => {
+    const result = validateProtectedShellBoundary({
+      skeletonId: 'mobile-app',
+      finalFiles: {
+        'src/pages/Home.tsx': [
+          "import { useApp } from '@/context/AppContext';",
+          'export default function Home() {',
+          '  const app = useApp();',
+          '  return <section>{app ? "Home" : "Fallback"}</section>;',
+          '}',
+        ].join('\n'),
+        'src/context/AppContext.tsx': [
+          'export function useApp() {',
+          "  return { profile: { name: 'Ritual Flow' } };",
+          '}',
         ].join('\n'),
       },
     });

@@ -58,6 +58,30 @@
     "src/pages/Wishlist.tsx",
     "src/pages/Account.tsx"
   ],
+  "ownership": {
+    "ownedBySkeleton": [
+      "src/App.tsx",
+      "src/main.tsx",
+      "src/index.css",
+      "src/route-manifest.json",
+      "src/context/AppContext.tsx",
+      "src/components/BottomTabs.tsx"
+    ],
+    "productSlots": [
+      "src/config/app.ts",
+      "src/config/routes.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Home.tsx",
+      "src/pages/Search.tsx",
+      "src/pages/ProductDetail.tsx",
+      "src/pages/Cart.tsx",
+      "src/pages/Checkout.tsx",
+      "src/pages/Wishlist.tsx",
+      "src/pages/Account.tsx"
+    ]
+  },
   "requiredExports": {
     "data/seed.ts": [
       { "name": "SEED_CATEGORIES" },

@@ -47,6 +47,29 @@
     "src/pages/LevelSelect.tsx",
     "src/pages/Profile.tsx"
   ],
+  "ownership": {
+    "ownedBySkeleton": [
+      "src/App.tsx",
+      "src/main.tsx",
+      "src/index.css",
+      "src/route-manifest.json",
+      "src/context/AppContext.tsx",
+      "src/config/routes.ts",
+      "src/components/BottomTabs.tsx"
+    ],
+    "productSlots": [
+      "src/config/app.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Achievements.tsx",
+      "src/pages/GameScreen.tsx",
+      "src/pages/Home.tsx",
+      "src/pages/Leaderboard.tsx",
+      "src/pages/LevelSelect.tsx",
+      "src/pages/Profile.tsx"
+    ]
+  },
   "requiredExports": {
     "data/seed.ts": [
       { "name": "levels" },

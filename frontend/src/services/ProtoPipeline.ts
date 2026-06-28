@@ -666,11 +666,15 @@ function buildHardQualityRepairFailure(
 function buildLiveContractReleaseFailure(
   validation: LiveGenerationContractValidationResult,
 ): { reason: ProtoPipelineFailureReason; message: string } {
+  const shellOwnershipViolation = validation.diagnostics.find(
+    diagnostic => diagnostic.root_cause_type === 'protected_shell_import',
+  );
   return {
     reason: 'live_generation_contract_failed',
-    message:
-      `live_generation_contract_failed: ` +
-      formatLiveGenerationContractFailure(validation.diagnostics, validation.candidateGraphSummary),
+    message: shellOwnershipViolation
+      ? `live_generation_contract_failed: ${shellOwnershipViolation.actual ?? shellOwnershipViolation.suggested_fix}`
+      : `live_generation_contract_failed: ` +
+        formatLiveGenerationContractFailure(validation.diagnostics, validation.candidateGraphSummary),
   };
 }
 
@@ -881,6 +885,9 @@ function buildLiveContractBlockingReasons(
 ): string[] {
   return uniqueStrings(
     diagnostics.map(diagnostic => {
+      if (diagnostic.root_cause_type === 'protected_shell_import') {
+        return diagnostic.actual ?? diagnostic.suggested_fix;
+      }
       const location = diagnostic.file ?? diagnostic.import_path ?? 'graph';
       const detail = diagnostic.actual ?? diagnostic.expected ?? 'contract violation';
       return `Live generation contract ${diagnostic.root_cause_type} at ${location}: ${detail}`;

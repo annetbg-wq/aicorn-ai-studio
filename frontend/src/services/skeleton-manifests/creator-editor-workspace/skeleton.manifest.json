@@ -47,6 +47,29 @@
     "src/pages/Publications.tsx",
     "src/pages/Settings.tsx"
   ],
+  "ownership": {
+    "ownedBySkeleton": [
+      "src/App.tsx",
+      "src/main.tsx",
+      "src/index.css",
+      "src/route-manifest.json",
+      "src/context/AppContext.tsx",
+      "src/config/routes.ts",
+      "src/components/Sidebar.tsx"
+    ],
+    "productSlots": [
+      "src/config/app.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Analytics.tsx",
+      "src/pages/Editor.tsx",
+      "src/pages/Home.tsx",
+      "src/pages/Media.tsx",
+      "src/pages/Publications.tsx",
+      "src/pages/Settings.tsx"
+    ]
+  },
   "requiredExports": {
     "data/seed.ts": [
       { "name": "drafts" },

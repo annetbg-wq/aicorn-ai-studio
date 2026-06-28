@@ -95,6 +95,11 @@ interface SkeletonManifestGroup {
   paths: string[];
 }
 
+export interface SkeletonOwnershipContract {
+  ownedBySkeleton: string[];
+  productSlots: string[];
+}
+
 export interface ExportContractEntry {
   name: string;
   type?: string;
@@ -112,6 +117,7 @@ interface SkeletonManifest {
   protectedFiles: string[];
   editableFiles: string[];
   deltaFiles: string[];
+  ownership?: SkeletonOwnershipContract;
   requiredExports?: Record<string, ExportContractEntry[]>;
   /**
    * Paths of "carcass files" (scaffold+marker files) whose exported symbols the
@@ -1466,6 +1472,40 @@ export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
   const manifest = SKELETON_MANIFESTS[skeletonId];
   if (!manifest) return [];
   return uniqueSorted(manifest.editableFiles);
+}
+
+function deriveOwnedSkeletonShellFiles(manifest: SkeletonManifest | undefined): string[] {
+  if (!manifest) return [];
+  const explicit = manifest.ownership?.ownedBySkeleton;
+  if (explicit && explicit.length > 0) {
+    return uniqueSorted(explicit);
+  }
+
+  return uniqueSorted(
+    manifest.protectedFiles.filter(path => (
+      path === 'src/App.tsx'
+      || path === 'src/main.tsx'
+      || path === 'src/index.css'
+      || path === 'src/route-manifest.json'
+      || /^src\/components\/(?:AppShell|BottomTabs|DashboardShell|Nav|NavigationShell|Sidebar|TopBar|Topbar)\.tsx$/i.test(path)
+    )),
+  );
+}
+
+export function getSkeletonOwnershipContract(skeletonId: SkeletonId): SkeletonOwnershipContract {
+  const manifest = SKELETON_MANIFESTS[skeletonId];
+  return {
+    ownedBySkeleton: deriveOwnedSkeletonShellFiles(manifest),
+    productSlots: uniqueSorted(manifest?.ownership?.productSlots ?? manifest?.editableFiles ?? []),
+  };
+}
+
+export function getSkeletonOwnedShellFiles(skeletonId: SkeletonId): string[] {
+  return getSkeletonOwnershipContract(skeletonId).ownedBySkeleton;
+}
+
+export function getSkeletonProductSlotFiles(skeletonId: SkeletonId): string[] {
+  return getSkeletonOwnershipContract(skeletonId).productSlots;
 }
 
 export function getRequiredSkeletonDataFiles(skeletonId: SkeletonId): string[] {

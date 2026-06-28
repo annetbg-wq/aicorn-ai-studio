@@ -28,6 +28,19 @@
     "src/data/content.ts",
     "src/App.tsx"
   ],
+  "ownership": {
+    "ownedBySkeleton": [
+      "src/main.tsx",
+      "src/index.css",
+      "src/route-manifest.json",
+      "src/components/Nav.tsx"
+    ],
+    "productSlots": [
+      "src/config/app.ts",
+      "src/data/content.ts",
+      "src/App.tsx"
+    ]
+  },
   "requiredExports": {
     "data/content.ts": [
       { "name": "NAV_LINKS" },

@@ -49,6 +49,30 @@
     "src/pages/Progress.tsx",
     "src/pages/Quiz.tsx"
   ],
+  "ownership": {
+    "ownedBySkeleton": [
+      "src/App.tsx",
+      "src/main.tsx",
+      "src/index.css",
+      "src/route-manifest.json",
+      "src/context/AppContext.tsx",
+      "src/config/routes.ts",
+      "src/components/BottomTabs.tsx"
+    ],
+    "productSlots": [
+      "src/config/app.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/CourseCatalog.tsx",
+      "src/pages/CourseDetail.tsx",
+      "src/pages/Home.tsx",
+      "src/pages/LessonPlayer.tsx",
+      "src/pages/Profile.tsx",
+      "src/pages/Progress.tsx",
+      "src/pages/Quiz.tsx"
+    ]
+  },
   "requiredExports": {
     "data/seed.ts": [
       { "name": "courses" },

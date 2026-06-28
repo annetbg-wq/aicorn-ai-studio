@@ -47,6 +47,29 @@
     "src/pages/Profile.tsx",
     "src/pages/Settings.tsx"
   ],
+  "ownership": {
+    "ownedBySkeleton": [
+      "src/App.tsx",
+      "src/main.tsx",
+      "src/index.css",
+      "src/route-manifest.json",
+      "src/context/AppContext.tsx",
+      "src/config/routes.ts",
+      "src/components/BottomTabs.tsx"
+    ],
+    "productSlots": [
+      "src/config/app.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Conversation.tsx",
+      "src/pages/Discover.tsx",
+      "src/pages/Matches.tsx",
+      "src/pages/Onboarding.tsx",
+      "src/pages/Profile.tsx",
+      "src/pages/Settings.tsx"
+    ]
+  },
   "requiredExports": {
     "data/seed.ts": [
       { "name": "candidates" },
