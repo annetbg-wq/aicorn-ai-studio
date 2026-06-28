@@ -701,7 +701,7 @@ describe('preview-manager build status', () => {
 describe('preview-manager screenshot handshake (WI-8)', () => {
   it('canonical main.tsx responds to capture-screenshot by invoking captureScreenshot', async () => {
     const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
-    expect(src).toContain("event.data?.type !== 'capture-screenshot'");
+    expect(src).toContain("if (event.data?.type === 'capture-screenshot')");
     expect(src).toContain('captureScreenshot()');
   });
 
@@ -762,6 +762,30 @@ describe('preview-manager screenshot handshake (WI-8)', () => {
   it('html2canvas is still dynamically imported (not statically bundled)', async () => {
     const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
     expect(src).toContain("import('html2canvas')");
+  });
+});
+
+describe('preview-manager runtime acceptance handshake (P2 Gate 1)', () => {
+  it('canonical main.tsx listens for runtime acceptance requests from the studio', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toContain("const RUNTIME_ACCEPTANCE_REQUEST = 'preview-runtime-acceptance-request'");
+    expect(src).toContain("if (event.data?.type === RUNTIME_ACCEPTANCE_REQUEST)");
+    expect(src).toContain('handleRuntimeAcceptanceRequest(event)');
+  });
+
+  it('canonical main.tsx snapshots console and page diagnostics for runtime acceptance', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toContain("recordRuntimeDiagnostic('console-error'");
+    expect(src).toContain("recordRuntimeDiagnostic('page-error'");
+    expect(src).toContain("recordRuntimeDiagnostic('unhandled-rejection'");
+    expect(src).toContain('buildRuntimeDiagnosticsSnapshot()');
+  });
+
+  it('canonical main.tsx can drive route traversal for runtime acceptance', async () => {
+    const src = await fsPromises.readFile(path.resolve('backend/preview-manager.ts'), 'utf-8');
+    expect(src).toContain("case 'visit-route':");
+    expect(src).toContain("navigateToPreviewRoute(data.routePath ?? '/')");
+    expect(src).toContain('waitForRouteSettle()');
   });
 });
 

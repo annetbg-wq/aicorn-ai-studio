@@ -1387,10 +1387,236 @@ import App from './App';
 import './index.css';
 import { BUILD_ID } from './__build_id';
 
+declare global {
+  interface Window {
+    __previewMounted?: boolean;
+  }
+}
+
+type PreviewRuntimeDiagnosticKind =
+  | 'page-error'
+  | 'unhandled-rejection'
+  | 'console-error';
+
+interface PreviewRuntimeErrorDetail {
+  message?: unknown;
+  file?: string | null;
+  line?: number | null;
+  column?: number | null;
+  stack?: unknown;
+}
+
+interface PreviewRuntimeDiagnostic {
+  buildId: string;
+  kind: PreviewRuntimeDiagnosticKind;
+  message: string;
+  routePath: string;
+  locationHref: string;
+  stack: string | null;
+  timestamp: number;
+}
+
+interface PreviewRuntimeDiagnosticsSnapshot {
+  buildId: string;
+  routePath: string;
+  locationHref: string;
+  pageErrors: PreviewRuntimeDiagnostic[];
+  consoleErrors: PreviewRuntimeDiagnostic[];
+}
+
+interface RuntimeAcceptanceRequest {
+  type: 'preview-runtime-acceptance-request';
+  requestId: string;
+  buildId: string;
+  action: 'snapshot' | 'reset-diagnostics' | 'visit-route';
+  routePath?: string;
+}
+
+const RUNTIME_ACCEPTANCE_REQUEST = 'preview-runtime-acceptance-request';
+const RUNTIME_ACCEPTANCE_RESULT = 'preview-runtime-acceptance-result';
+const MAX_RUNTIME_DIAGNOSTICS = 25;
+const ROUTE_SETTLE_DELAY_MS = 120;
+
+const runtimeDiagnostics = {
+  pageErrors: [] as PreviewRuntimeDiagnostic[],
+  consoleErrors: [] as PreviewRuntimeDiagnostic[],
+};
+
+function normalizePreviewRoutePath(routePath: string): string {
+  const trimmed = routePath.trim();
+  if (!trimmed || trimmed === '#' || trimmed === '#/' || trimmed === '/') {
+    return '/';
+  }
+
+  const withoutHash = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+  const withLeadingSlash = withoutHash.startsWith('/') ? withoutHash : \`/\${withoutHash}\`;
+  const collapsed = withLeadingSlash.replace(/\\/{2,}/g, '/');
+  const normalized = collapsed === '/' ? '/' : collapsed.replace(/\\/+$/, '');
+  return normalized || '/';
+}
+
+function getCurrentPreviewRoutePath(): string {
+  const hash = window.location.hash ?? '';
+  if (hash) {
+    return normalizePreviewRoutePath(hash);
+  }
+  return '/';
+}
+
+function trimRuntimeDiagnostics(list: PreviewRuntimeDiagnostic[]): void {
+  if (list.length <= MAX_RUNTIME_DIAGNOSTICS) return;
+  list.splice(0, list.length - MAX_RUNTIME_DIAGNOSTICS);
+}
+
+function recordRuntimeDiagnostic(
+  kind: PreviewRuntimeDiagnosticKind,
+  detail: PreviewRuntimeErrorDetail,
+): void {
+  const entry: PreviewRuntimeDiagnostic = {
+    buildId: BUILD_ID,
+    kind,
+    message: String(detail.message ?? 'error').slice(0, 600),
+    routePath: getCurrentPreviewRoutePath(),
+    locationHref: window.location.href,
+    stack: detail.stack ? String(detail.stack).slice(0, 4000) : null,
+    timestamp: Date.now(),
+  };
+
+  if (kind === 'console-error') {
+    runtimeDiagnostics.consoleErrors.push(entry);
+    trimRuntimeDiagnostics(runtimeDiagnostics.consoleErrors);
+    return;
+  }
+
+  runtimeDiagnostics.pageErrors.push(entry);
+  trimRuntimeDiagnostics(runtimeDiagnostics.pageErrors);
+}
+
+function buildRuntimeDiagnosticsSnapshot(): PreviewRuntimeDiagnosticsSnapshot {
+  return {
+    buildId: BUILD_ID,
+    routePath: getCurrentPreviewRoutePath(),
+    locationHref: window.location.href,
+    pageErrors: [...runtimeDiagnostics.pageErrors],
+    consoleErrors: [...runtimeDiagnostics.consoleErrors],
+  };
+}
+
+function resetRuntimeDiagnostics(): void {
+  runtimeDiagnostics.pageErrors.length = 0;
+  runtimeDiagnostics.consoleErrors.length = 0;
+}
+
+function summarizeConsoleArgs(args: unknown[]): string {
+  return args
+    .map((value) => {
+      if (typeof value === 'string') return value;
+      if (value instanceof Error) return value.message || value.toString();
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    })
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 600);
+}
+
+function navigateToPreviewRoute(routePath: string): void {
+  const normalized = normalizePreviewRoutePath(routePath);
+  const nextHash = normalized === '/' ? '#/' : \`#\${normalized}\`;
+  if (window.location.hash !== nextHash) {
+    window.location.hash = nextHash;
+    return;
+  }
+
+  window.dispatchEvent(new Event('hashchange'));
+}
+
+async function waitForRouteSettle(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.setTimeout(resolve, ROUTE_SETTLE_DELAY_MS);
+      });
+    });
+  });
+}
+
+async function handleRuntimeAcceptanceRequest(event: MessageEvent): Promise<void> {
+  if (event.origin !== window.location.origin) return;
+
+  const data = event.data as RuntimeAcceptanceRequest | undefined;
+  if (!data || data.type !== RUNTIME_ACCEPTANCE_REQUEST || data.buildId !== BUILD_ID) return;
+
+  const reply = (payload: Record<string, unknown>) => {
+    const source = event.source as WindowProxy | null;
+    if (!source) return;
+    try {
+      source.postMessage(
+        {
+          type: RUNTIME_ACCEPTANCE_RESULT,
+          requestId: data.requestId,
+          buildId: BUILD_ID,
+          ...payload,
+        },
+        event.origin,
+      );
+    } catch {
+      // Ignore postMessage failures; the parent gate will timeout cleanly.
+    }
+  };
+
+  try {
+    switch (data.action) {
+      case 'snapshot':
+        reply({
+          ok: true,
+          snapshot: buildRuntimeDiagnosticsSnapshot(),
+        });
+        return;
+      case 'reset-diagnostics':
+        resetRuntimeDiagnostics();
+        reply({
+          ok: true,
+          snapshot: buildRuntimeDiagnosticsSnapshot(),
+        });
+        return;
+      case 'visit-route':
+        navigateToPreviewRoute(data.routePath ?? '/');
+        await waitForRouteSettle();
+        reply({
+          ok: true,
+          snapshot: buildRuntimeDiagnosticsSnapshot(),
+        });
+        return;
+      default:
+        reply({
+          ok: false,
+          error: \`Unsupported runtime acceptance action: \${String(data.action)}\`,
+        });
+    }
+  } catch (error) {
+    reply({
+      ok: false,
+      error: String(error instanceof Error ? error.message : error ?? 'runtime_acceptance_failed'),
+    });
+  }
+}
+
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error('Root element #root not found in document');
 }
+
+const originalConsoleError = console.error.bind(console);
+console.error = (...args: unknown[]) => {
+  recordRuntimeDiagnostic('console-error', {
+    message: summarizeConsoleArgs(args),
+  });
+  originalConsoleError(...args);
+};
 
 createRoot(rootElement).render(
   <StrictMode>
@@ -1415,7 +1641,7 @@ requestAnimationFrame(() => {
   setTimeout(notifyMounted, 1500);
 });
 
-function reportRuntimeError(detail) {
+function reportRuntimeError(detail: PreviewRuntimeErrorDetail): void {
   if (typeof window === 'undefined' || window.parent === window) return;
   try {
     window.parent.postMessage(
@@ -1437,20 +1663,24 @@ function reportRuntimeError(detail) {
   } catch { /* ignore */ }
 }
 window.addEventListener('error', (e) => {
-  reportRuntimeError({
+  const detail: PreviewRuntimeErrorDetail = {
     message: e.message ?? (e.error && e.error.message) ?? 'error',
     file: e.filename,
     line: e.lineno,
     column: e.colno,
     stack: e.error && e.error.stack,
-  });
+  };
+  recordRuntimeDiagnostic('page-error', detail);
+  reportRuntimeError(detail);
 });
 window.addEventListener('unhandledrejection', (e) => {
   const reason = e.reason;
-  reportRuntimeError({
+  const detail: PreviewRuntimeErrorDetail = {
     message: (reason && reason.message) ? reason.message : String(reason ?? 'unhandled rejection'),
     stack: reason && reason.stack,
-  });
+  };
+  recordRuntimeDiagnostic('unhandled-rejection', detail);
+  reportRuntimeError(detail);
 });
 
 async function captureScreenshot(): Promise<void> {
@@ -1506,8 +1736,13 @@ async function captureScreenshot(): Promise<void> {
 }
 
 window.addEventListener('message', (event) => {
-  if (event.data?.type !== 'capture-screenshot') return;
-  void captureScreenshot();
+  if (event.data?.type === 'capture-screenshot') {
+    void captureScreenshot();
+    return;
+  }
+  if (event.data?.type === RUNTIME_ACCEPTANCE_REQUEST) {
+    void handleRuntimeAcceptanceRequest(event);
+  }
 });
 `;
   await fsPromises.writeFile(path.join(srcDir, 'main.tsx'), canonicalMainTsx, 'utf-8');

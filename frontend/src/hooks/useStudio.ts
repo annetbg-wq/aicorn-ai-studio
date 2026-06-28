@@ -57,6 +57,7 @@ import { previewController, type PreviewState } from '../services/PreviewControl
 import { appendPreviewSessionToUrl, getPreviewSessionToken } from '../services/PreviewSessionService';
 import { normalizePath } from '../services/PreviewWriteGateway';
 import { generationTracer } from '../services/GenerationTracer';
+import { runFinalPreviewAcceptanceHarness } from '../services/FinalPreviewAcceptanceHarness';
 import {
   UserProjectSettingsService,
   type EffectiveSettings,
@@ -108,6 +109,12 @@ import { autoSelectSurface, SURFACE_CHOICE_TIMEOUT_MS } from '../lib/surfaceHeur
 
 export type DeviceType = 'desktop' | 'iphone' | 'pixel' | 'ipad';
 export type FileMap     = Record<string, string>;
+
+interface FinalPreviewAcceptanceState {
+  revisionId: string | null;
+  status: 'idle' | 'running' | 'failed' | 'passed';
+  token: number;
+}
 
 /**
  * Snapshot status lifecycle (mirrors RevisionManager glossary):
@@ -2254,6 +2261,105 @@ export const useStudio = () => {
   const [pendingProjectSaveMeta, setPendingProjectSaveMeta] = useState<PendingProjectSaveMeta | null>(null);
   const pendingSavePromptShownRef = useRef(false);
   const processedArchitectureMessagesRef = useRef<Set<string>>(new Set());
+  const finalPreviewAcceptanceRef = useRef<FinalPreviewAcceptanceState>({
+    revisionId: null,
+    status: 'idle',
+    token: 0,
+  });
+
+  const syncFinalPreviewAcceptanceRevision = useCallback((revisionId: string | null | undefined) => {
+    const nextRevisionId = revisionId ?? null;
+    const current = finalPreviewAcceptanceRef.current;
+    if (current.revisionId === nextRevisionId) {
+      return current;
+    }
+
+    const nextState: FinalPreviewAcceptanceState = {
+      revisionId: nextRevisionId,
+      status: 'idle',
+      token: current.token,
+    };
+    finalPreviewAcceptanceRef.current = nextState;
+    return nextState;
+  }, []);
+
+  const failFinalPreviewAcceptance = useCallback((
+    revisionId: string,
+    reason: string,
+    reasonCode: string | null = null,
+  ) => {
+    const acceptance = finalPreviewAcceptanceRef.current;
+    if (acceptance.revisionId !== revisionId) return;
+
+    acceptance.status = 'failed';
+    finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
+    setPreviewReady(false);
+    invalidatePendingProjectSaveReady();
+    setPreviewBlockedReason(reason);
+    setPreviewLifecycle('failed');
+    console.log('[preview-runtime-acceptance]', {
+      revisionId,
+      status: 'failed',
+      reasonCode,
+      reason,
+    });
+    addLog(`[Preview] Runtime acceptance failed: ${reason}`, 'error');
+  }, [addLog, invalidatePendingProjectSaveReady]);
+
+  const runFinalPreviewAcceptance = useCallback((
+    state: PreviewState,
+    snapshotId: string | null,
+  ) => {
+    const revisionId = state.activeRevisionId;
+    if (!revisionId) return;
+
+    const acceptance = syncFinalPreviewAcceptanceRevision(revisionId);
+    if (acceptance.status === 'running' || acceptance.status === 'failed' || acceptance.status === 'passed') {
+      return;
+    }
+
+    acceptance.status = 'running';
+    acceptance.token += 1;
+    const token = acceptance.token;
+
+    setPreviewLifecycle('validating');
+    console.log('[preview-runtime-acceptance]', {
+      revisionId,
+      status: 'running',
+      readySource: state.readySource ?? null,
+      buildStage: state.buildStage ?? null,
+    });
+
+    void runFinalPreviewAcceptanceHarness(revisionId)
+      .then((result) => {
+        const current = finalPreviewAcceptanceRef.current;
+        if (current.revisionId !== revisionId || current.token !== token) return;
+
+        if (result.status === 'failed') {
+          failFinalPreviewAcceptance(
+            revisionId,
+            result.reasonMessage ?? 'Runtime acceptance failed.',
+            result.reasonCode,
+          );
+          return;
+        }
+
+        current.status = 'passed';
+        console.log('[preview-runtime-acceptance]', {
+          revisionId,
+          status: 'passed',
+          checkedRoutes: result.runtime.checkedRoutes,
+        });
+        lastPreviewReadyRevisionRef.current = revisionId;
+        promoteFinalPreviewReady(snapshotId);
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error
+          ? error.message
+          : String(error ?? 'Runtime acceptance failed.');
+        failFinalPreviewAcceptance(revisionId, message);
+      });
+  }, [failFinalPreviewAcceptance, promoteFinalPreviewReady, syncFinalPreviewAcceptanceRevision]);
 
   const logPreviewSuccessGate = useCallback((
     state: PreviewState,
@@ -2297,6 +2403,8 @@ export const useStudio = () => {
   }, [addSnapshot, currentSnapshotId]);
 
   const evaluatePreviewState = useCallback((state: PreviewState) => {
+    syncFinalPreviewAcceptanceRevision(state.activeRevisionId ?? null);
+
     if (state.status === 'compiling' && state.activeRevisionId) {
       const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
       setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
@@ -2357,14 +2465,16 @@ export const useStudio = () => {
           logPreviewSuccessGate(state, snapshotId);
           return;
         case 'promote-ready':
-          lastPreviewReadyRevisionRef.current = state.activeRevisionId;
           logPreviewSuccessGate(state, snapshotId);
-          promoteFinalPreviewReady(snapshotId);
+          runFinalPreviewAcceptance(state, snapshotId);
           return;
       }
     }
 
     if (state.status === 'failed') {
+      if (finalPreviewAcceptanceRef.current.revisionId === (state.activeRevisionId ?? null)) {
+        finalPreviewAcceptanceRef.current.status = 'failed';
+      }
       finalPreviewGateRef.current = { awaiting: false, filesCommitted: false };
       setPreviewReady(false);
       invalidatePendingProjectSaveReady();
@@ -2384,7 +2494,8 @@ export const useStudio = () => {
     logPreviewSuccessGate,
     previewLifecycle,
     previewReady,
-    promoteFinalPreviewReady,
+    runFinalPreviewAcceptance,
+    syncFinalPreviewAcceptanceRevision,
   ]);
 
   useEffect(() => {
