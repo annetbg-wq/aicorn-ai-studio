@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: aicorn-ai-studio-backend
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: npm ci
+    startCommand: npx tsx backend/auth-token.ts
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: AIC_SERVER_MODE
+        value: production
+      - key: AIC_ALLOWED_ORIGINS
+        value: https://annetbg-wq.github.io
+      # Secrets — set these in the Render dashboard after the first deploy.
+      # Only the providers you actually use need a value; the rest can stay empty.
+      - key: AIC_DEV_TOKEN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false

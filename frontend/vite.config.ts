@@ -17,8 +17,13 @@ const workspaceRoot = path.resolve(__dirname, '..');
 const previewWorkspaceRoot = path.join(workspaceRoot, 'preview-workspace');
 const previewSrcRoot = path.join(previewWorkspaceRoot, 'src');
 
+// GitHub Pages serves this as a project page under /<repo>/, not at domain root.
+// Only applied for that build target — local dev and other hosts keep root-relative paths.
+const base = process.env.GITHUB_PAGES_BASE ?? '/';
+
 // https://vitejs.dev/config/
 export default defineConfig({
+  base,
   root: frontendRoot,
   plugins: [
     react(),

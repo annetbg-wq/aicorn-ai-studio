@@ -3060,7 +3060,7 @@ async function compile(
   // 2. Call backend compile endpoint
   const compileStartedAt = Date.now();
   const sessionId = getPreviewSessionToken();
-  const resp = await fetch(`/api/preview/${encodeURIComponent(buildId)}/compile`, {
+  const resp = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/api/preview/${encodeURIComponent(buildId)}/compile`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'X-Preview-Session': sessionId },
     body:    JSON.stringify({ files, skeletonId, sessionId }),
@@ -3080,7 +3080,7 @@ async function compile(
   const iframe = typeof document !== 'undefined'
     ? document.querySelector<HTMLIFrameElement>('iframe[data-testid="preview-iframe"]')
     : null;
-  const nextPreviewUrl = appendPreviewSessionToUrl(`/preview/${buildId}`);
+  const nextPreviewUrl = appendPreviewSessionToUrl(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/preview/${buildId}`);
   if (iframe) {
     const absoluteNextUrl = new URL(nextPreviewUrl, window.location.origin).toString();
     if (iframe.src === absoluteNextUrl) {
@@ -3299,7 +3299,7 @@ async function streamCall(input: {
     const doFetch = async (): Promise<string> => {
       if (input.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       const resp = route.provider === 'claude-cli' || route.provider === 'codex-cli'
-        ? await fetch('/api/quality/llm-run', {
+        ? await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/api/quality/llm-run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

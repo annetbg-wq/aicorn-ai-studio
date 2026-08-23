@@ -1771,7 +1771,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
 }) => {
   const iframeUrl = previewUrl
     ? appendPreviewSessionToUrl(previewUrl)
-    : (projectId ? appendPreviewSessionToUrl(`/preview/${projectId}`) : '');
+    : (projectId ? appendPreviewSessionToUrl(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/preview/${projectId}`) : '');
   const [tab, setTab] = useState<TabId>('preview');
   const resolveBinding = useCallback(() => resolveWorkspaceBinding({
     projectId,

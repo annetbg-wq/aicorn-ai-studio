@@ -18,18 +18,30 @@ export function parseAllowedOrigins(raw?: string): string[] {
   return raw.split(',').map((o) => o.trim()).filter(Boolean);
 }
 
-export function isOriginAllowed(origin: string | undefined, allowedOrigins: string[]): boolean {
+export function isOriginAllowed(
+  origin: string | undefined,
+  allowedOrigins: string[],
+  selfOrigin?: string,
+): boolean {
   if (!origin) return true;
+  if (selfOrigin && origin === selfOrigin) return true;
   return allowedOrigins.includes(origin);
 }
 
 export function applyCorsHeaders(req: express.Request, res: express.Response): boolean {
   const allowedOrigins = parseAllowedOrigins(process.env.AIC_ALLOWED_ORIGINS);
   const origin = req.headers.origin as string | undefined;
+  // A compiled preview build's own JS/CSS <script crossorigin>/<link crossorigin> tags
+  // send an Origin header of the build server's own address when the frontend and this
+  // backend are on different origins (e.g. GitHub Pages + Render). Those self-requests
+  // must always be allowed regardless of AIC_ALLOWED_ORIGINS.
+  const selfOrigin = typeof req.get === 'function'
+    ? `${req.protocol}://${req.get('host')}`
+    : undefined;
 
   res.setHeader('Vary', 'Origin');
 
-  if (!isOriginAllowed(origin, allowedOrigins)) {
+  if (!isOriginAllowed(origin, allowedOrigins, selfOrigin)) {
     res.status(403).json({ error: 'Forbidden: origin not allowed' });
     return false;
   }
@@ -44,7 +56,12 @@ export function applyCorsHeaders(req: express.Request, res: express.Response): b
 }
 
 const app = express();
-const PORT = 3000;
+// Render (and most PaaS hosts) terminate TLS at their edge and forward requests over
+// plain HTTP — without this, req.protocol always reports 'http' behind that proxy,
+// which breaks the self-origin check in applyCorsHeaders above.
+app.set('trust proxy', true);
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const HOST = process.env.HOST ?? '127.0.0.1';
 
 app.use((req, res, next) => {
   if (!applyCorsHeaders(req, res)) return;
@@ -2014,9 +2031,9 @@ app.post('/trend-archive', (req, res) => {
 });
 
 // ── Start server ──────────────────────────────────────────────────────────────
-export function startServer(port = PORT) {
-  return app.listen(port, '127.0.0.1', () => {
-    console.log(`[auth-token] Running on http://127.0.0.1:${port} (loopback only)`);
+export function startServer(port = PORT, host = HOST) {
+  return app.listen(port, host, () => {
+    console.log(`[auth-token] Running on http://${host}:${port}${host === '127.0.0.1' ? ' (loopback only)' : ''}`);
     console.log(`[auth-token] Provider: Claude Code CLI`);
     cleanupOldSessions();
   });

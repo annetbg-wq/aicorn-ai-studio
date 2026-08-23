@@ -315,7 +315,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                         preview-mounted handshake contract.
                       */}
                       <iframe
-                        src={appendPreviewSessionToUrl(`/preview/${selectedProject.id}`)}
+                        src={appendPreviewSessionToUrl(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/preview/${selectedProject.id}`)}
                         style={{
                           width: 960, height: 720, border: 'none',
                           transform: 'scale(0.208)', transformOrigin: '0 0',
