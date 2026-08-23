@@ -371,7 +371,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
   }, []);
   const buildId = mountedBuildId ?? previewState.expectingBuildId ?? previewState.activeRevisionId ?? '';
   const previewUrl = useMemo(
-    () => (buildId ? appendPreviewSessionToUrl(`/preview/${buildId}`) : ''),
+    () => (buildId ? appendPreviewSessionToUrl(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/preview/${buildId}`) : ''),
     [buildId],
   );
   const previewOrigin = useMemo(() => {
@@ -675,7 +675,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
                 onClick={() => {
                   setShowLoadingOverlay(false);
                   if (viteIframeRef.current && buildId) {
-                    viteIframeRef.current.src = appendPreviewSessionToUrl(`/preview/${buildId}?r=${Date.now()}`);
+                    viteIframeRef.current.src = appendPreviewSessionToUrl(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/preview/${buildId}?r=${Date.now()}`);
                   }
                 }}
                 style={{

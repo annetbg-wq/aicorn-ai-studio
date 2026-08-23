@@ -511,7 +511,7 @@ export class RevisionManager {
     const iframe = document.querySelector<HTMLIFrameElement>(
       'iframe[data-testid="preview-iframe"]',
     );
-    const nextPreviewUrl = appendPreviewSessionToUrl(`/preview/${revisionId}`);
+    const nextPreviewUrl = appendPreviewSessionToUrl(`${this.previewUrl}/preview/${revisionId}`);
     if (iframe) {
       const absoluteNextUrl = new URL(nextPreviewUrl, window.location.origin).toString();
       if (iframe.src === absoluteNextUrl) {
@@ -682,7 +682,7 @@ export class RevisionManager {
         );
         if (lastGoodIframe) {
           previewLog('promote_restore_last_good', { buildId: previousActiveRevisionId });
-          lastGoodIframe.src = appendPreviewSessionToUrl(`/preview/${previousActiveRevisionId}`);
+          lastGoodIframe.src = appendPreviewSessionToUrl(`${this.previewUrl}/preview/${previousActiveRevisionId}`);
           // Arm the expectingBuildId guard then wait asynchronously for mount.
           // If mount succeeds, transition from failed → ready for the last-good build.
           // If it times out, the UI stays in 'failed' state — honest, no fake-ready.
@@ -796,7 +796,7 @@ export class RevisionManager {
       const iframe = document.querySelector<HTMLIFrameElement>(
         'iframe[data-testid="preview-iframe"]',
       );
-      if (iframe) iframe.src = appendPreviewSessionToUrl(`/preview/${targetId}`);
+      if (iframe) iframe.src = appendPreviewSessionToUrl(`${this.previewUrl}/preview/${targetId}`);
       // Wait for the static build's MountReporter to post preview-mounted.
       // Timeout is short (15 s) — rollback target is an already-compiled build.
       const result = await waitForReady(targetId, 15_000, this.previewUrl);
@@ -900,7 +900,7 @@ export class RevisionManager {
       const iframe = document.querySelector<HTMLIFrameElement>(
         'iframe[data-testid="preview-iframe"]',
       );
-      if (iframe) iframe.src = appendPreviewSessionToUrl(`/preview/${revisionId}`);
+      if (iframe) iframe.src = appendPreviewSessionToUrl(`${this.previewUrl}/preview/${revisionId}`);
       // Wait for authoritative preview-mounted from the static build.
       // Timeout 15 s — build is already compiled; only navigation latency.
       const result = await waitForReady(revisionId, 15_000, this.previewUrl);
@@ -939,7 +939,7 @@ export class RevisionManager {
   /** HEAD-check whether builds/:buildId/ exists on the static build server. */
   private async _checkBuildExists(buildId: string): Promise<boolean> {
     try {
-      const r = await fetch(appendPreviewSessionToUrl(`/preview/${buildId}/`), { method: 'HEAD' });
+      const r = await fetch(appendPreviewSessionToUrl(`${this.previewUrl}/preview/${buildId}/`), { method: 'HEAD' });
       return r.ok;
     } catch {
       return false;
@@ -1050,7 +1050,7 @@ export class RevisionManager {
     const iframe = document.querySelector<HTMLIFrameElement>(
       'iframe[data-testid="preview-iframe"]',
     );
-    if (iframe) iframe.src = appendPreviewSessionToUrl(`/preview/${previousActiveRevisionId}`);
+    if (iframe) iframe.src = appendPreviewSessionToUrl(`${this.previewUrl}/preview/${previousActiveRevisionId}`);
 
     const result = await this.waitForReady(previousActiveRevisionId, 15_000);
     if (result.success) {
@@ -1173,8 +1173,9 @@ async function triggerCompile(
  * Wait for an authoritative `preview-mounted` postMessage scoped to `expectedBuildId`.
  *
  * Acceptance rules (ALL must hold):
- *   - message origin === window.location.origin (same-origin: /preview/:buildId is
- *     served by the same host as the studio, transparently proxied via vite.config.ts)
+ *   - message origin === the preview build's own origin (same host as the studio when
+ *     proxied locally via vite.config.ts, or the standalone backend origin when the
+ *     frontend and backend are deployed separately — see VITE_API_URL)
  *   - data.type === 'preview-mounted'
  *   - data.buildId === expectedBuildId
  *

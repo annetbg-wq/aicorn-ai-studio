@@ -1743,7 +1743,7 @@ export const useStudio = () => {
   useEffect(() => {
     const syncPreviewState = (state: ReturnType<typeof previewController.getState>) => {
       if (state.status === 'compiling' && state.activeRevisionId) {
-        const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
+        const nextUrl = appendPreviewSessionToUrl(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/preview/${state.activeRevisionId}`);
         setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
         setPreviewReady(false);
         invalidatePendingProjectSaveReady();
@@ -1755,7 +1755,7 @@ export const useStudio = () => {
       }
 
       if (state.status === 'ready' && state.activeRevisionId) {
-        const nextUrl = appendPreviewSessionToUrl(`/preview/${state.activeRevisionId}`);
+        const nextUrl = appendPreviewSessionToUrl(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/preview/${state.activeRevisionId}`);
         setPreviewUrl(prev => (prev === nextUrl ? prev : nextUrl));
         setPreviewBlockedReason(null);
         if (state.buildStage === 'skeleton') {
@@ -2827,7 +2827,8 @@ export const useStudio = () => {
   // Captures apiKey, addLog via ref so the effect never needs to be re-registered.
   const _autoFixHandlerRef = useRef<(e: MessageEvent) => void>(() => {});
   _autoFixHandlerRef.current = (e: MessageEvent) => {
-    if (e.origin !== window.location.origin) return;
+    const previewOrigin = new URL(import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000').origin;
+    if (e.origin !== window.location.origin && e.origin !== previewOrigin) return;
     if (e.data?.type !== 'iframe-error') return;
     // Preview lifecycle — mark as failed/degraded on first error after generation
     setPreviewReady(false);
@@ -5463,7 +5464,7 @@ export const useStudio = () => {
           throw new Error(body?.error ?? `Preview seed compile failed (HTTP ${res.status})`);
         }
 
-        const nextUrl = appendPreviewSessionToUrl(body?.url ?? `/preview/${buildId}`);
+        const nextUrl = appendPreviewSessionToUrl(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/preview/${buildId}`);
         setPreviewUrl(nextUrl);
         await new Promise<void>((resolve, reject) => {
           const timeoutId = window.setTimeout(() => {
