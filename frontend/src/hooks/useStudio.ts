@@ -5441,7 +5441,7 @@ export const useStudio = () => {
         const buildId = crypto.randomUUID();
         const sessionId = getPreviewSessionToken();
         previewController.notifyCompiling(buildId, 'e2e-seed');
-        const res = await fetch(`/api/preview/${buildId}/compile`, {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/api/preview/${buildId}/compile`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Preview-Session': sessionId },
           body: JSON.stringify({

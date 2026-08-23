@@ -44,7 +44,8 @@ export function applyCorsHeaders(req: express.Request, res: express.Response): b
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const HOST = process.env.HOST ?? '127.0.0.1';
 
 app.use((req, res, next) => {
   if (!applyCorsHeaders(req, res)) return;
@@ -2014,9 +2015,9 @@ app.post('/trend-archive', (req, res) => {
 });
 
 // ── Start server ──────────────────────────────────────────────────────────────
-export function startServer(port = PORT) {
-  return app.listen(port, '127.0.0.1', () => {
-    console.log(`[auth-token] Running on http://127.0.0.1:${port} (loopback only)`);
+export function startServer(port = PORT, host = HOST) {
+  return app.listen(port, host, () => {
+    console.log(`[auth-token] Running on http://${host}:${port}${host === '127.0.0.1' ? ' (loopback only)' : ''}`);
     console.log(`[auth-token] Provider: Claude Code CLI`);
     cleanupOldSessions();
   });

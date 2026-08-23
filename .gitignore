@@ -21,6 +21,7 @@ repomix-output.xml
 .env
 .env.local
 backend/.env
+/env
 
 backend/.codex-home/
 

@@ -155,7 +155,8 @@ export class RevisionManager {
 
   constructor(
     private previewUrl: string =
-      typeof window !== 'undefined' ? window.location.origin : 'http://localhost',
+      import.meta.env.VITE_API_URL
+      || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost'),
   ) {}
 
   // ── Public API ─────────────────────────────────────────────────
@@ -1126,7 +1127,7 @@ async function triggerCompile(
   let res: Response;
   const sessionId = getPreviewSessionToken();
   try {
-    res = await fetch(`/api/preview/${buildId}/compile`, {
+    res = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/api/preview/${buildId}/compile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Preview-Session': sessionId },
       body: JSON.stringify({ files, ...(skeletonId ? { skeletonId } : {}), sessionId }),
