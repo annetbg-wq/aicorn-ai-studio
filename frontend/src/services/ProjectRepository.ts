@@ -42,6 +42,7 @@ export interface ProjectRecord {
   activeBranchId?: string;
   branches?: Record<string, PersistedProjectBranch>;
   userId?:     string;
+  generationPath?: 'skeleton_assembly' | 'blank_canvas';
 }
 
 export interface ProjectMetaSummary {
@@ -53,6 +54,10 @@ export interface ProjectMetaSummary {
   activeBranchId?: string;
   branchIds?:     string[];
   branchCount?:   number;
+}
+
+function isGenerationPath(value: unknown): value is ProjectRecord['generationPath'] {
+  return value === 'blank_canvas' || value === 'skeleton_assembly';
 }
 
 // ── Internal constants ─────────────────────────────────────────────────────────
@@ -355,6 +360,9 @@ export const ProjectRepository = {
 
           if (!error && data) {
             const snap = data.code_snapshot as any;
+            const generationPath = isGenerationPath(snap?.generationPath)
+              ? snap.generationPath
+              : undefined;
             const record: ProjectRecord = {
               id:          data.id,
               name:        getCanonicalProjectName({ name: data.name, title: snap?.title }),
@@ -367,6 +375,7 @@ export const ProjectRepository = {
               version:     data.version ?? 1,
               activeBranchId: snap?.activeBranchId,
               branches: snap?.branches,
+              generationPath,
             };
             if (snap?.revisions) (record as any).revisions = snap.revisions;
             const { activeBranchId, branches } = normalizeProjectBranches(record);
@@ -382,21 +391,25 @@ export const ProjectRepository = {
     }
 
     // Fallback: ProjectStorage (localStorage)
-    const legacy = ProjectStorage.getProject(id);
-    if (legacy) {
-      const record: ProjectRecord = {
-        id:          legacy.id,
-        name:        getCanonicalProjectName(legacy),
+  const legacy = ProjectStorage.getProject(id);
+  if (legacy) {
+    const generationPath = isGenerationPath(legacy.generationPath)
+      ? legacy.generationPath
+      : undefined;
+    const record: ProjectRecord = {
+      id:          legacy.id,
+      name:        getCanonicalProjectName(legacy),
         description: legacy.description ?? '',
         theme:       legacy.theme ?? 'dark-slate',
         files:       legacy.files ?? {},
         chatHistory: legacy.chatHistory ?? [],
         createdAt:   legacy.createdAt,
         updatedAt:   legacy.updatedAt,
-        version:     1,
-        activeBranchId: legacy.activeBranchId,
-        branches: legacy.branches,
-      };
+      version:     1,
+      activeBranchId: legacy.activeBranchId,
+      branches: legacy.branches,
+      generationPath,
+    };
       const { activeBranchId, branches } = normalizeProjectBranches(record);
       const activeBranch = branches[activeBranchId];
       record.activeBranchId = activeBranchId;
@@ -416,6 +429,8 @@ export const ProjectRepository = {
       ...project,
       name: getCanonicalProjectName(project),
     };
+    const rawGenerationPath = (normalizedProject as { generationPath?: unknown }).generationPath;
+    const generationPath = isGenerationPath(rawGenerationPath) ? rawGenerationPath : undefined;
     const { activeBranchId, branches } = normalizeProjectBranches(normalizedProject);
     const activeBranch = branches[activeBranchId];
     const mergedProjectFiles = activeBranch
@@ -455,6 +470,7 @@ export const ProjectRepository = {
       ...((normalizedProject as any).modelId        !== undefined && { modelId:        (normalizedProject as any).modelId }),
       ...((normalizedProject as any).durationMs     !== undefined && { durationMs:     (normalizedProject as any).durationMs }),
       ...((normalizedProject as any).generationMode !== undefined && { generationMode: (normalizedProject as any).generationMode }),
+      ...(generationPath !== undefined && { generationPath }),
       ...((normalizedProject as any).billingCost    !== undefined && { billingCost:    (normalizedProject as any).billingCost }),
       ...((normalizedProject as any).billingTokens  !== undefined && { billingTokens:  (normalizedProject as any).billingTokens }),
       ...((normalizedProject as any).revisions      !== undefined && { revisions:      (normalizedProject as any).revisions }),
@@ -472,6 +488,7 @@ export const ProjectRepository = {
         updatedAt:   normalizedProject.updatedAt,
         activeBranchId,
         branches:    persistedBranches,
+        ...(generationPath !== undefined && { generationPath }),
       });
     };
 

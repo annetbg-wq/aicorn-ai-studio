@@ -87,6 +87,7 @@ import {
 import { analyzeOutputTruth } from '../shared/outputTruth';
 import { useFigmaState } from './useFigmaState';
 import { useSettingsState } from './useSettingsState';
+import { normalizeGenerationPath, type GenerationPath } from './useStudioGenerationPath';
 import { getSkeletonSaveFiles, resolveReloadCompleteSaveFiles } from './useStudioSaveFiles';
 import {
   ArchitectPlannerService,
@@ -2061,6 +2062,7 @@ export const useStudio = () => {
   /** Explicit kickoff lifecycle — only meaningful for genesis (existingCodeCount === 0) runs. */
   const [kickoffPhase,    setKickoffPhase]    = useState<KickoffPhase>('idle');
   const [generationMode,  setGenerationMode]  = useState<'landing' | 'app' | 'superapp'>('app');
+  const [generationPath,  setGenerationPath]  = useState<GenerationPath>('skeleton_assembly');
   const [generationSource, setGenerationSource] = useState<GenerationSource>('chat');
   const [designClassification, setDesignClassification] = useState<ClassificationResult | null>(null);
   const [composerContextItems, setComposerContextItems] = useState<ComposerContextItem[]>([]);
@@ -2484,6 +2486,7 @@ export const useStudio = () => {
         modelId:        pending.effectiveModel,
         durationMs:     Date.now() - pending.generationStartMs,
         generationMode,
+        generationPath,
         billingCost:    projectCost,
         billingTokens:  projectTokens,
         revisions:      reconciledThread.revisions,
@@ -2543,6 +2546,7 @@ export const useStudio = () => {
         modelId:        pending.effectiveModel,
         durationMs:     Date.now() - pending.generationStartMs,
         generationMode,
+        generationPath,
         billingCost:    projectCost,
         billingTokens:  projectTokens,
         revisions:      firstThread.revisions,
@@ -2584,6 +2588,7 @@ export const useStudio = () => {
       modelId:        pending.effectiveModel,
       durationMs:     Date.now() - pending.generationStartMs,
       generationMode,
+      generationPath,
       billingCost:    projectCost,
       billingTokens:  projectTokens,
       revisions:      existingForCloud?.revisions ?? [],
@@ -3095,6 +3100,7 @@ export const useStudio = () => {
       setProjectCost(b.cost);
       setProjectTokens(b.tokens);
       clearSnapshots();
+      setGenerationPath(normalizeGenerationPath(full?.generationPath));
 
       // 1. Compile project files — await so backend compile + preview-mounted(buildId) complete before React state update
       const persistedFileCount = Object.keys(full.files ?? {}).length;
@@ -5757,6 +5763,7 @@ export const useStudio = () => {
     autoRoute, setAutoRoute,
     // generation mode
     generationMode, setGenerationMode,
+    generationPath, setGenerationPath,
     generationSource, setGenerationSource,
     designClassification,
     classifyAndStore,
@@ -5812,7 +5819,7 @@ export const useStudio = () => {
     // state — re-memoize only when actual data changes
     // messages/input intentionally excluded — returned directly below
     files, activeFile, theme, apiKey, selectedModel,
-    isGenerating, device, progress, currentPhase, kickoffPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, previewUrl, previewReady, pendingProjectSaveMeta, machineState,
+    isGenerating, device, progress, currentPhase, kickoffPhase, fullContextMode, autoRoute, generationMode, generationPath, previewLifecycle, previewBlockedReason, previewUrl, previewReady, pendingProjectSaveMeta, machineState,
     designClassification,
     projectGraph,
     snapshots, historyIndex, currentProjectId, currentProject, currentSnapshotId, stableSnapshotId, projectPersistenceState, chatThreadKey,
@@ -5829,7 +5836,7 @@ export const useStudio = () => {
     componentRegistry,
     pendingPlan, pendingDiff, pendingAdmission,
     // stable callbacks (useCallback — listed for ESLint correctness, never change)
-    setInput, setDevice, setTheme, setApiKey, setSelectedModel, setFullContextMode, setAutoRoute, setGenerationMode,
+    setInput, setDevice, setTheme, setApiKey, setSelectedModel, setFullContextMode, setAutoRoute, setGenerationMode, setGenerationPath,
     setActiveFile, addSnapshot, restoreSnapshot, undo, redo, clearSnapshots, markSnapshotStable, rollbackToStable,
     addLog, clearLogs, downloadLogs,
     addAttachment, removeAttachment, clearAttachments,

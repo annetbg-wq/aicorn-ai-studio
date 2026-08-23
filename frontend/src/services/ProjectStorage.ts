@@ -66,6 +66,7 @@ export interface StoredProject {
   modelId?:        string;
   durationMs?:     number;
   generationMode?: string;                        // 'landing' | 'app' | 'superapp'
+  generationPath?: 'skeleton_assembly' | 'blank_canvas';
   billingCost?:    number;
   billingTokens?:  number;
   revisions?:      ProjectRevision[];              // max 5, newest first
