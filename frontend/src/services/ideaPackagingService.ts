@@ -1,4 +1,4 @@
-import type { ProjectPlan } from './SimpleGeneration';
+import type { ProjectPlan } from './types/ProjectPlan';
 import {
   PLAN_SCHEMA,
   runIdeaModelPrompt,

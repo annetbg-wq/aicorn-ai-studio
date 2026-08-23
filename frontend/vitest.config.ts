@@ -37,7 +37,7 @@ export default defineConfig({
   },
   test: {
     setupFiles: ['./src/setupTests.ts'],
-    exclude: ['**/node_modules/**', '**/e2e/**', '**/*.spec.cjs'],
+    exclude: ['**/node_modules/**', '**/e2e/**', '**/*.spec.cjs', '**/*.runner.test.ts'],
     testTimeout: 15000,
     environmentMatchGlobs: [
       ['src/components/**', 'jsdom'], // для React тестов

@@ -48,5 +48,24 @@
     "src/pages/Settings.tsx",
     "src/pages/Team.tsx",
     "src/pages/Workflow.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "records" },
+      { "name": "team" },
+      { "name": "activities" }
+    ],
+    "data/types.ts": [
+      { "name": "Stage" },
+      { "name": "RecordItem" },
+      { "name": "TeamMember" },
+      { "name": "Activity" }
+    ],
+    "config/app.ts": [
+      { "name": "appConfig" }
+    ],
+    "config/navigation.ts": [
+      { "name": "navigationItems" }
+    ]
+  }
 }

@@ -7,7 +7,7 @@ import {
   isLocalDevAgentEnabled,
   syncLocalDevAgentMode,
 } from './devAgentMode';
-import type { ProjectPlan } from './SimpleGeneration';
+import type { ProjectPlan } from './types/ProjectPlan';
 
 export interface ProductIdea {
   id: string;

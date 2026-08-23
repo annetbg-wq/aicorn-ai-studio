@@ -30,7 +30,7 @@ import {
   type DOMMetrics,
 } from '../WhiteScreenDetector';
 import { ProjectStorage, type StoredProject } from '../ProjectStorage';
-import { ArtifactReviewerService } from '../ArtifactReviewerService';
+import { classifyArtifactHealth, ARTIFACT_FAIL_POISONED_ENVELOPE } from '../artifactParser';
 import type { ArtifactContract } from '../../types/artifact';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -122,15 +122,13 @@ test('1. fresh generation shows preview', async () => {
 
   const artifact = await generateArtifact();
 
-  // Pass through the reviewer stage (same gate as the real generation pipeline)
-  const reviewed = ArtifactReviewerService.review(artifact);
-  expect(reviewed.files.length).toBeGreaterThan(0);
+  expect(artifact.files.length).toBeGreaterThan(0);
 
   const rm = new RevisionManager(window.location.origin);
   const preview = new PreviewController();
   const revId = await rm.createCandidate();
 
-  for (const file of reviewed.files) {
+  for (const file of artifact.files) {
     await rm.writeCandidateFile(revId, file.path, file.content);
   }
 
@@ -214,9 +212,12 @@ test('3. failed candidate preserves last-good', async () => {
     files: [{ path: 'src/App.tsx', content: '{"files":[{"path":"src/App.tsx","content":"bad"}]}' }],
   };
 
-  // Artifact ingress must classify the poisoned artifact before it becomes a raw reviewer hard-fail
-  expect(() => ArtifactReviewerService.review(poisonedArtifact))
-    .toThrow('ARTIFACT_SEMANTIC_PARSE_FAIL: 0 files after heuristic repair');
+  // The poison guard (classifyArtifactHealth) must classify the nested-envelope artifact as unhealthy.
+  // NOTE: this guard is currently NOT wired into the live generation path — ProtoPipeline parses model
+  // output via parseFileMarkers/extractJsonObjectFromModelText and never calls it. Re-wiring it is a
+  // tracked follow-up; this assertion keeps the detection logic covered so it stays ready to restore.
+  const poisonHealth = classifyArtifactHealth(JSON.stringify(poisonedArtifact), poisonedArtifact);
+  expect(poisonHealth?.failClass).toBe(ARTIFACT_FAIL_POISONED_ENVELOPE);
 
   // ── LAST_GOOD_PRESERVED assertion ──────────────────────────────────────────
   // The active revision must be unchanged after a failed/rejected candidate.

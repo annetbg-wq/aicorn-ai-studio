@@ -811,6 +811,40 @@ export interface GenerationRunTelemetry {
   timeToFirstRealPreviewMs?: number;
 }
 
+// ─── GenerationOutcomeEvent — flywheel seed (S0.2) ───────────────────────────
+
+/**
+ * One canonical structured event per generation run (success and fail).
+ * Emitted by ProtoPipeline.run() on every exit path.
+ * Fields that require reaching a later pipeline stage are optional (undefined
+ * means "pipeline did not reach this stage", distinct from false/0).
+ */
+export interface GenerationOutcomeEvent {
+  /** Unified run id — same as GenerationTracer trace id for the same run. */
+  runId:             string;
+  /** User prompt (truncated to 600 chars). */
+  prompt:            string;
+  skeletonId?:       string;
+  planSummary?:      string;
+  /** Number of files in the architect delta plan. */
+  deltaFileCount?:   number;
+  /** true = final build compiled; false = compile attempted and failed; undefined = never reached build. */
+  compiled?:         boolean;
+  /** Explicit repair pass counter (0 = none needed; undefined = never reached build stage). */
+  repairPasses?:     number;
+  /** true/false from validateDesignContract(); undefined = never reached apply stage. */
+  designContractOk?: boolean;
+  /** Filled by VisualQualityService in a later session (S3). */
+  visualScore?:      number;
+  /** Filled by edit-acceptance layer (future). */
+  userKeptEdit?:     boolean;
+  durationMs:        number;
+  outcome:           'success' | 'failed' | 'aborted' | 'applied_empty';
+  /** Which pipeline step triggered the failure. */
+  failedStep?:       string;
+  errorMessage?:     string;
+}
+
 // ─── FileBlueprint ───────────────────────────────────────────────────────────
 
 /**
@@ -1819,6 +1853,14 @@ export interface GenerationResult {
   designTelemetry?: DesignRecipeTelemetry;
   fastPathTelemetry?: FastPathTelemetry;
   runTelemetry?: GenerationRunTelemetry;
+  pipelineFailureDiagnostics?: {
+    failedStep?: string;
+    errorMessage?: string;
+  };
+  /** Pre-repair: did the coder's FIRST output satisfy the DesignContract? (substrate quality signal) */
+  designContractOk?: boolean;
+  /** Post-repair: does the FINAL committed code satisfy the DesignContract? (repair reliability signal) */
+  designContractFinalOk?: boolean;
   visibleReasoningTrace?: VisibleReasoningTrace;
   fullDebugTrace?:        FullDebugTrace;
 }

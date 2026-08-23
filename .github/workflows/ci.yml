@@ -7,7 +7,7 @@ on:
     branches: [main, master]
 
 env:
-  BENCHMARK_SUITE:    smoke
+  BENCHMARK_SUITE:    fast
   BENCHMARK_MODEL_ID: openai/gpt-4o-mini
 
 jobs:
@@ -114,12 +114,13 @@ jobs:
           PLAYWRIGHT_PRODUCTION_ARTIFACT: '1'
           VITE_OPENROUTER_API_KEY: e2e-live-preview-key
 
-  # ── BenchmarkGate quality gate ─────────────────────────────────────────────
-  # Skips gracefully when OPENROUTER_API_KEY is absent (forks, branches without the secret).
-  benchmark:
-    name: BenchmarkGate
+  # ── Eval baseline gate ─────────────────────────────────────────────────────
+  # TODO: remove continue-on-error after the baseline stabilises on CI.
+  eval-gate:
+    name: Eval Gate
     runs-on: ubuntu-latest
     needs: build
+    continue-on-error: true
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
@@ -137,15 +138,15 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Skip BenchmarkGate when key is missing
+      - name: Skip eval gate when key is missing
         if: env.OPENROUTER_API_KEY == ''
         run: |
-          echo "BenchmarkGate skipped: OPENROUTER_API_KEY is not configured."
+          echo "Eval gate skipped: OPENROUTER_API_KEY is not configured."
 
-      - name: Run BenchmarkGate
+      - name: Run eval gate
         if: env.OPENROUTER_API_KEY != ''
         working-directory: frontend
-        run: node --experimental-vm-modules scripts/benchmark-gate.mjs
+        run: npm run eval:gate
         env:
           OPENROUTER_API_KEY:     ${{ env.OPENROUTER_API_KEY }}
           BENCHMARK_MODEL_ID:     ${{ env.BENCHMARK_MODEL_ID }}

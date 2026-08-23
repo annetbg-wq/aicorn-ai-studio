@@ -46,5 +46,23 @@
     "src/pages/Leaderboard.tsx",
     "src/pages/LevelSelect.tsx",
     "src/pages/Profile.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "levels" },
+      { "name": "achievements" },
+      { "name": "leaderboard" }
+    ],
+    "data/types.ts": [
+      { "name": "Level" },
+      { "name": "Achievement" },
+      { "name": "LeaderboardEntry" }
+    ],
+    "config/app.ts": [
+      { "name": "appConfig" }
+    ],
+    "config/navigation.ts": [
+      { "name": "navigationItems" }
+    ]
+  }
 }

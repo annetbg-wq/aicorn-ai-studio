@@ -1,34 +1,140 @@
 /**
- * BenchmarkGate — mandatory quality gate for generation benchmarks.
+ * BenchmarkGate — two-axis quality gate for generation benchmarks.
  *
- * Runs a subset of golden intents, compares results against the stored
- * baseline, and returns a structured pass/fail verdict.
+ * Axes are an open list of GateAxis entries. Each axis is evaluated uniformly:
+ *   - Zero/missing baseline value → hard error (gate cannot operate vacuously).
+ *   - Current value drops below (baseline − threshold) → REGRESSION (blocks pass).
+ *   - Current value improves beyond (baseline + threshold) → IMPROVEMENT (logged).
  *
- * Regression thresholds:
- *   - outcome preview-ready → blocked/failed    : REGRESSION  (blocks pass)
- *   - avgFileCount drops > 30%                  : WARNING
- *   - avgDurationMs increases > 2×              : WARNING
+ * Current axes:
+ *   Structural (Layer 1 — headless, no backend):
+ *     filesProducedRate   — fraction of intents that produced ≥1 file
+ *     qualityPassRate     — fraction of intents that passed GenerationQualityService
+ *     avgVisualScore      — average VisualQualityService score (0–100)
+ *   End-to-end (Layer 2 — requires backend compile):
+ *     previewReadyRate    — fraction of intents whose app compiled and mounted
+ *
+ * Adding a new axis (e.g. apkSuccessRate for native):
+ *   1. Add the metric field to AggregateBaseline.
+ *   2. Push a new GateAxis entry to GATE_AXES.
+ *   That is the entire change. No other gate logic needs touching.
  *
  * Suite modes:
- *   fast — first 5 golden intents (quick smoke check, ~5 min)
- *   full — all 15 golden intents  (complete regression, ~15 min)
+ *   fast — first 5 golden intents (~5 min smoke check)
+ *   full — all 15 golden intents (~15 min full regression)
  */
 
 import { BenchmarkService, type BenchmarkRunConfig } from './BenchmarkService';
-import { BaselineStore, type AggregateBaseline } from './BaselineStore';
+import { BaselineStore, buildAggregateBaseline, type AggregateBaseline } from './BaselineStore';
 import type { BenchmarkReport, BenchmarkSummary } from './BenchmarkReport';
 import { goldenIntents } from './goldenIntents';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Axis definition ───────────────────────────────────────────────────────────
+
+/**
+ * One regression axis. Adding a new axis = adding one entry to GATE_AXES.
+ *
+ * threshold: the minimum acceptable drop from baseline before it counts as a
+ * regression. Set conservatively (≥ 2 standard deviations of stochastic
+ * variance) so normal model variance doesn't trigger false alarms.
+ */
+export interface GateAxis {
+  /** Unique identifier — used in error messages and scorecard. */
+  id:              string;
+  /** Human-readable description for the scorecard. */
+  description:     string;
+  /** Key in AggregateBaseline to read. Must be a numeric metric field. */
+  metricKey:       keyof Pick<AggregateBaseline,
+    | 'previewReadyRate'
+    | 'designContractCleanRate'
+    | 'designContractFinalRate'
+    | 'qualityPassRate'
+    | 'avgVisualScore'
+  >;
+  /**
+   * Regression threshold: current must be >= baseline - threshold.
+   * Zero means any drop is a regression. Positive value gives stochastic slack.
+   */
+  threshold:       number;
+  /** Whether higher is better (true for rates/scores; false for e.g. error counts). */
+  higherIsBetter:  boolean;
+  /**
+   * If true, a baseline value of 0 is a hard error — the axis has never been
+   * measured and the gate cannot operate. Run eval:baseline first.
+   */
+  required:        boolean;
+}
+
+/**
+ * Open list of gate axes. All axes are evaluated uniformly by buildVerdict().
+ *
+ * Threshold rationale:
+ *   designContractClean  0.10 — conservative: flash almost always violates on first pass (0/5
+ *                               expected on baseline). Low threshold detects real regressions
+ *                               (e.g. was 20% clean → dropped to 0%) without false alarms.
+ *                               required=false: baseline=0% is a known state for flash; don't
+ *                               block baseline capture, just track trend.
+ *   designContractFinal  0.15 — repair is reliable but not deterministic. 15% slack handles
+ *                               stochastic repair failures without masking real breakage.
+ *                               required=true: repair MUST succeed for most intents.
+ *   qualityPassRate      0.20 — same reasoning; quality checks include guard results.
+ *   avgVisualScore       10.0 — 10/100 points covers stochastic visual scoring variance.
+ *   previewReadyRate     0.0  — any compile regression is a hard regression; no slack.
+ */
+export const GATE_AXES: readonly GateAxis[] = [
+  {
+    id:             'designContractClean',
+    description:    'Design contract clean rate — coder first-pass (pre-repair substrate signal)',
+    metricKey:      'designContractCleanRate',
+    threshold:      0.10,
+    higherIsBetter: true,
+    required:       false,  // flash baseline may be 0%; track trend, don't block capture
+  },
+  {
+    id:             'designContractFinal',
+    description:    'Design contract final rate — committed code post-repair (repair reliability)',
+    metricKey:      'designContractFinalRate',
+    threshold:      0.15,
+    higherIsBetter: true,
+    required:       true,
+  },
+  {
+    id:             'qualityPass',
+    description:    'Quality pass rate (GenerationQualityService.passed)',
+    metricKey:      'qualityPassRate',
+    threshold:      0.20,
+    higherIsBetter: true,
+    required:       true,
+  },
+  {
+    id:             'visualScore',
+    description:    'Average visual structural score (0–100)',
+    metricKey:      'avgVisualScore',
+    threshold:      10.0,
+    higherIsBetter: true,
+    required:       true,
+  },
+  {
+    id:             'previewReady',
+    description:    'Preview ready rate (compile + mount succeeded)',
+    metricKey:      'previewReadyRate',
+    threshold:      0.0,
+    higherIsBetter: true,
+    required:       true,
+  },
+] as const;
+
+// ── Public types ──────────────────────────────────────────────────────────────
 
 export type GateSeverity = 'REGRESSION' | 'WARNING' | 'OK';
 
 export interface GateIssue {
-  severity:  GateSeverity;
-  metric:    string;
-  message:   string;
-  baseline:  number;
-  current:   number;
+  severity:   GateSeverity;
+  axisId:     string;
+  metric:     string;
+  message:    string;
+  baseline:   number;
+  current:    number;
 }
 
 export interface GateVerdict {
@@ -36,7 +142,7 @@ export interface GateVerdict {
   regressions:  GateIssue[];
   improvements: GateIssue[];
   warnings:     GateIssue[];
-  scorecard:    string;       // human-readable markdown summary
+  scorecard:    string;
   report:       BenchmarkReport;
   baselineUsed: AggregateBaseline | null;
 }
@@ -45,67 +151,89 @@ export interface GateConfig {
   apiKey:      string;
   modelId:     string;
   fixModelId?: string;
-  /** 'fast' = 5 intents (default), 'full' = all 15 */
-  suite?:      'fast' | 'full';
-  /** Override: compare against this baseline instead of Supabase lookup */
+  suite?:      'fast' | 'full' | 'smoke';
   baseline?:   AggregateBaseline;
   onProgress?: BenchmarkRunConfig['onProgress'];
   signal?:     AbortSignal;
 }
 
-// ── Thresholds ────────────────────────────────────────────────────────────────
+// ── Fast suite ────────────────────────────────────────────────────────────────
 
-const REGRESSION_OUTCOME_DROP_THRESHOLD = 0;   // any drop in preview-ready rate = regression
-const WARNING_FILE_COUNT_DROP_RATIO     = 0.30; // >30% drop in avg file count
-const WARNING_DURATION_INCREASE_RATIO   = 2.0;  // >2× duration increase
-
-// ── Fast suite — first 5 intents ──────────────────────────────────────────────
-
+// TODO(eval): replace order-sensitive slice(0, 5) with an explicit named fast-suite intent list.
 const FAST_INTENT_IDS = goldenIntents.slice(0, 5).map(i => i.id);
 
 // ── BenchmarkGate ─────────────────────────────────────────────────────────────
 
 export const BenchmarkGate = {
   /**
-   * Run the gate check and return a structured verdict.
-   * Always auto-saves the run to Supabase (BaselineStore).
+   * Run the gate check against the stored baseline. Throws if the baseline is
+   * missing or any required axis has a zero/missing value — the gate must never
+   * silently pass when it has no real reference point.
    */
   async check(cfg: GateConfig): Promise<GateVerdict> {
-    const suite = cfg.suite ?? 'fast';
+    const suite = cfg.suite === 'smoke' ? 'fast' : (cfg.suite ?? 'fast');
     const intentIds = suite === 'fast' ? FAST_INTENT_IDS : undefined;
+    const baseline = cfg.baseline ?? await BaselineStore.getBaseline(cfg.modelId);
+
+    assertBaselineUsable(baseline);
 
     console.log(`[BenchmarkGate] Starting ${suite} suite | model=${cfg.modelId}`);
 
-    // 1. Run benchmark
     const { report } = await BenchmarkService.run({
-      apiKey:      cfg.apiKey,
-      modelId:     cfg.modelId,
-      fixModelId:  cfg.fixModelId,
+      apiKey:     cfg.apiKey,
+      modelId:    cfg.modelId,
+      fixModelId: cfg.fixModelId,
       intentIds,
-      onProgress:  cfg.onProgress,
-      signal:      cfg.signal,
+      onProgress: cfg.onProgress,
+      signal:     cfg.signal,
     });
 
-    // 2. Persist this run
-    await BenchmarkService.promoteAsBaseline(report);
-
-    // 3. Fetch baseline to compare against
-    const baseline = cfg.baseline ?? await BaselineStore.getBaseline(cfg.modelId);
-
-    // 4. Build verdict
     return buildVerdict(report, baseline);
   },
 
   /**
-   * Compute a verdict from an already-completed report + optional baseline.
-   * Useful for re-evaluating stored runs without re-running generation.
+   * Compute a verdict from an already-completed report + baseline.
+   * Does NOT throw on invalid baseline — returns passed:false with a regression
+   * entry instead. Use this for display/replay only; use check() for gates.
    */
   evaluate(report: BenchmarkReport, baseline: AggregateBaseline | null): GateVerdict {
     return buildVerdict(report, baseline);
   },
 };
 
-// ── Internal ──────────────────────────────────────────────────────────────────
+// ── Baseline validity ─────────────────────────────────────────────────────────
+
+/**
+ * Hard-fail if baseline is null or any required axis has a zero/missing value.
+ * A zero baseline means eval:baseline was never run with a working pipeline,
+ * and the gate would vacuously pass every run — that is not acceptable.
+ */
+export function assertBaselineUsable(baseline: AggregateBaseline | null): asserts baseline is AggregateBaseline {
+  if (!baseline) {
+    throw new Error(
+      '[eval:gate] No baseline found. Run eval:baseline first to establish a reference point.',
+    );
+  }
+  for (const axis of GATE_AXES) {
+    if (!axis.required) continue;
+    const value = baseline[axis.metricKey] as number | undefined;
+    if (value === undefined || value === null) {
+      throw new Error(
+        `[eval:gate] Baseline invalid for axis "${axis.id}": ` +
+        `metric "${axis.metricKey}" is missing. Re-run eval:baseline.`,
+      );
+    }
+    if (value === 0) {
+      throw new Error(
+        `[eval:gate] Baseline invalid for axis "${axis.id}": ` +
+        `metric "${axis.metricKey}" is 0 — no successful generation was recorded. ` +
+        `Ensure the pipeline produces output, then re-run eval:baseline.`,
+      );
+    }
+  }
+}
+
+// ── Verdict builder ───────────────────────────────────────────────────────────
 
 function buildVerdict(
   report:   BenchmarkReport,
@@ -115,149 +243,58 @@ function buildVerdict(
   const warnings:     GateIssue[] = [];
   const improvements: GateIssue[] = [];
 
-  const s: BenchmarkSummary = report.summary;
-  const currentPreviewRate = s.total > 0 ? s.previewReady / s.total : 0;
-
   if (baseline) {
-    // ── Outcome regression ──────────────────────────────────────────────────
-    if (
-      baseline.previewReadyRate > 0 &&
-      currentPreviewRate < baseline.previewReadyRate - REGRESSION_OUTCOME_DROP_THRESHOLD
-    ) {
-      regressions.push({
-        severity: 'REGRESSION',
-        metric:   'previewReadyRate',
-        message:  `preview-ready rate dropped from ${pct(baseline.previewReadyRate)} → ${pct(currentPreviewRate)}`,
-        baseline: baseline.previewReadyRate,
-        current:  currentPreviewRate,
-      });
-    } else if (currentPreviewRate > baseline.previewReadyRate + 0.01) {
-      improvements.push({
-        severity: 'OK',
-        metric:   'previewReadyRate',
-        message:  `preview-ready rate improved ${pct(baseline.previewReadyRate)} → ${pct(currentPreviewRate)}`,
-        baseline: baseline.previewReadyRate,
-        current:  currentPreviewRate,
-      });
-    }
+    const currentAgg = buildAggregateBaseline(report);
 
-    // ── File count warning ──────────────────────────────────────────────────
-    if (baseline.avgFileCount > 0) {
-      const drop = (baseline.avgFileCount - s.avgFileCount) / baseline.avgFileCount;
-      if (drop > WARNING_FILE_COUNT_DROP_RATIO) {
-        warnings.push({
-          severity: 'WARNING',
-          metric:   'avgFileCount',
-          message:  `avg file count dropped ${baseline.avgFileCount.toFixed(1)} → ${s.avgFileCount.toFixed(1)} (${pct(drop)} drop)`,
-          baseline: baseline.avgFileCount,
-          current:  s.avgFileCount,
-        });
-      } else if (s.avgFileCount > baseline.avgFileCount * 1.1) {
-        improvements.push({
-          severity: 'OK',
-          metric:   'avgFileCount',
-          message:  `avg file count increased ${baseline.avgFileCount.toFixed(1)} → ${s.avgFileCount.toFixed(1)}`,
-          baseline: baseline.avgFileCount,
-          current:  s.avgFileCount,
-        });
-      }
-    }
+    for (const axis of GATE_AXES) {
+      const baselineValue = baseline[axis.metricKey] as number;
+      const currentValue  = currentAgg[axis.metricKey] as number;
 
-    // ── Duration warning ────────────────────────────────────────────────────
-    if (baseline.avgDurationMs > 0) {
-      const ratio = s.avgDurationMs / baseline.avgDurationMs;
-      if (ratio > WARNING_DURATION_INCREASE_RATIO) {
-        warnings.push({
-          severity: 'WARNING',
-          metric:   'avgDurationMs',
-          message:  `avg duration increased ${ms(baseline.avgDurationMs)} → ${ms(s.avgDurationMs)} (${ratio.toFixed(1)}×)`,
-          baseline: baseline.avgDurationMs,
-          current:  s.avgDurationMs,
-        });
-      } else if (ratio < 0.8) {
-        improvements.push({
-          severity: 'OK',
-          metric:   'avgDurationMs',
-          message:  `avg duration decreased ${ms(baseline.avgDurationMs)} → ${ms(s.avgDurationMs)} (${ratio.toFixed(2)}×)`,
-          baseline: baseline.avgDurationMs,
-          current:  s.avgDurationMs,
-        });
+      if (axis.higherIsBetter) {
+        const regressionFloor = baselineValue - axis.threshold;
+        if (currentValue < regressionFloor) {
+          regressions.push({
+            severity: 'REGRESSION',
+            axisId:   axis.id,
+            metric:   axis.metricKey,
+            message:  `${axis.description} dropped ${fmt(axis.metricKey, baselineValue)} → ${fmt(axis.metricKey, currentValue)} (threshold: −${fmt(axis.metricKey, axis.threshold)})`,
+            baseline: baselineValue,
+            current:  currentValue,
+          });
+        } else if (currentValue > baselineValue + axis.threshold * 0.5) {
+          improvements.push({
+            severity: 'OK',
+            axisId:   axis.id,
+            metric:   axis.metricKey,
+            message:  `${axis.description} improved ${fmt(axis.metricKey, baselineValue)} → ${fmt(axis.metricKey, currentValue)}`,
+            baseline: baselineValue,
+            current:  currentValue,
+          });
+        }
       }
     }
   }
 
   const passed = regressions.length === 0;
   const scorecard = renderScorecard(report, baseline, regressions, warnings, improvements, passed);
-
   return { passed, regressions, improvements, warnings, scorecard, report, baselineUsed: baseline };
-}
-
-// ── Markdown scorecard ────────────────────────────────────────────────────────
-
-function renderScorecard(
-  report:       BenchmarkReport,
-  baseline:     AggregateBaseline | null,
-  regressions:  GateIssue[],
-  warnings:     GateIssue[],
-  improvements: GateIssue[],
-  passed:       boolean,
-): string {
-  const s = report.summary;
-  const currentPreviewRate = s.total > 0 ? s.previewReady / s.total : 0;
-
-  const lines: string[] = [
-    `# BenchmarkGate Scorecard — ${report.runId}`,
-    '',
-    `**Status:** ${passed ? '✅ PASSED' : '❌ FAILED (regression detected)'}`,
-    `**Model:** ${report.modelId}`,
-    `**Suite:** ${s.total} intent(s) | **Date:** ${report.startedAt}`,
-    '',
-    '## Current Run',
-    '',
-    `| Metric | Value |`,
-    `|--------|-------|`,
-    `| preview-ready | ${s.previewReady}/${s.total} (${pct(currentPreviewRate)}) |`,
-    `| blocked | ${s.blocked} | failed | ${s.failed} |`,
-    `| avg duration | ${ms(s.avgDurationMs)} |`,
-    `| avg file count | ${s.avgFileCount.toFixed(1)} |`,
-  ];
-
-  if (baseline) {
-    lines.push(
-      '',
-      '## vs Baseline',
-      '',
-      `| Metric | Baseline | Current | Δ |`,
-      `|--------|----------|---------|---|`,
-      `| preview-ready rate | ${pct(baseline.previewReadyRate)} | ${pct(currentPreviewRate)} | ${delta(baseline.previewReadyRate, currentPreviewRate, true)} |`,
-      `| avg file count | ${baseline.avgFileCount.toFixed(1)} | ${s.avgFileCount.toFixed(1)} | ${delta(baseline.avgFileCount, s.avgFileCount, true)} |`,
-      `| avg duration | ${ms(baseline.avgDurationMs)} | ${ms(s.avgDurationMs)} | ${delta(baseline.avgDurationMs, s.avgDurationMs, false)} |`,
-    );
-  }
-
-  if (regressions.length > 0) {
-    lines.push('', '## ❌ Regressions', '');
-    for (const r of regressions) lines.push(`- **${r.metric}**: ${r.message}`);
-  }
-
-  if (warnings.length > 0) {
-    lines.push('', '## ⚠️ Warnings', '');
-    for (const w of warnings) lines.push(`- ${w.metric}: ${w.message}`);
-  }
-
-  if (improvements.length > 0) {
-    lines.push('', '## 📈 Improvements', '');
-    for (const i of improvements) lines.push(`- ${i.metric}: ${i.message}`);
-  }
-
-  lines.push('');
-  return lines.join('\n');
 }
 
 // ── Format helpers ────────────────────────────────────────────────────────────
 
-function pct(v: number): string { return `${(v * 100).toFixed(1)}%`; }
-function ms(v: number):  string { return `${(v / 1000).toFixed(1)}s`; }
+function fmt(
+  metricKey: keyof Pick<AggregateBaseline,
+    | 'previewReadyRate' | 'designContractCleanRate' | 'designContractFinalRate'
+    | 'qualityPassRate'  | 'avgVisualScore'
+  >,
+  value: number,
+): string {
+  if (metricKey === 'avgVisualScore') return value.toFixed(1);
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function pct(v: number): string  { return `${(v * 100).toFixed(1)}%`; }
+function ms(v: number): string   { return `${(v / 1000).toFixed(1)}s`; }
 
 function delta(baseline: number, current: number, higherBetter: boolean): string {
   if (baseline === 0) return '—';
@@ -269,4 +306,74 @@ function delta(baseline: number, current: number, higherBetter: boolean): string
       ? (higherBetter ? '▼' : '▲')
       : '→';
   return `${arrow} ${sign}${pctDiff.toFixed(1)}%`;
+}
+
+// ── Scorecard renderer ────────────────────────────────────────────────────────
+
+function renderScorecard(
+  report:       BenchmarkReport,
+  baseline:     AggregateBaseline | null,
+  regressions:  GateIssue[],
+  warnings:     GateIssue[],
+  improvements: GateIssue[],
+  passed:       boolean,
+): string {
+  const s: BenchmarkSummary = report.summary;
+  const currentPreviewRate = s.total > 0 ? s.previewReady / s.total : 0;
+
+  const lines: string[] = [
+    `# BenchmarkGate Scorecard — ${report.runId}`,
+    '',
+    `**Status:** ${passed ? '✅ PASSED' : '❌ FAILED (regression detected)'}`,
+    `**Model:** ${report.modelId}`,
+    `**Suite:** ${s.total} intent(s) | **Date:** ${report.startedAt}`,
+    '',
+    '## Current Run',
+    '',
+    '| Axis | Metric | Value |',
+    '|------|--------|-------|',
+    `| designContractClean (L1) | pre-repair clean rate | ${pct(s.designContractCleanRate)} |`,
+    `| designContractFinal (L1) | post-repair final rate | ${pct(s.designContractFinalRate)} |`,
+    `| qualityPass (L1) | quality-pass rate | ${pct(s.qualityPassRate)} |`,
+    `| visualScore (L1) | avg visual score | ${(s.visualQuality?.avgScore ?? 0).toFixed(1)} |`,
+    `| previewReady (L2) | preview-ready rate | ${pct(currentPreviewRate)} |`,
+    `| — | avg duration | ${ms(s.avgDurationMs)} |`,
+    `| — | avg file count | ${s.avgFileCount.toFixed(1)} |`,
+  ];
+
+  if (baseline) {
+    const currentAgg = buildAggregateBaseline(report);
+    lines.push(
+      '',
+      '## vs Baseline',
+      '',
+      '| Axis | Baseline | Current | Δ |',
+      '|------|----------|---------|---|',
+      ...GATE_AXES.map(axis => {
+        const b = baseline[axis.metricKey] as number;
+        const c = currentAgg[axis.metricKey] as number;
+        const fmtVal = (v: number) => fmt(axis.metricKey, v);
+        return `| ${axis.id} | ${fmtVal(b)} | ${fmtVal(c)} | ${delta(b, c, axis.higherIsBetter)} |`;
+      }),
+      `| duration | ${ms(baseline.avgDurationMs)} | ${ms(s.avgDurationMs)} | ${delta(baseline.avgDurationMs, s.avgDurationMs, false)} |`,
+    );
+  }
+
+  if (regressions.length > 0) {
+    lines.push('', '## ❌ Regressions', '');
+    for (const r of regressions) lines.push(`- **[${r.axisId}]** ${r.message}`);
+  }
+
+  if (warnings.length > 0) {
+    lines.push('', '## ⚠️ Warnings', '');
+    for (const w of warnings) lines.push(`- [${w.axisId}] ${w.message}`);
+  }
+
+  if (improvements.length > 0) {
+    lines.push('', '## 📈 Improvements', '');
+    for (const i of improvements) lines.push(`- [${i.axisId}] ${i.message}`);
+  }
+
+  lines.push('');
+  return lines.join('\n');
 }

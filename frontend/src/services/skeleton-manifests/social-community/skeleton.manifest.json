@@ -52,5 +52,32 @@
     "src/pages/PostDetail.tsx",
     "src/pages/Notifications.tsx",
     "src/pages/Profile.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "CURRENT_USER_ID" },
+      { "name": "SEED_USERS" },
+      { "name": "SEED_POSTS" },
+      { "name": "SEED_COMMENTS" },
+      { "name": "SEED_NOTIFICATIONS" },
+      { "name": "EXPLORE_TAGS" }
+    ],
+    "data/types.ts": [
+      { "name": "ID" },
+      { "name": "LoadingState" },
+      { "name": "User" },
+      { "name": "PostKind" },
+      { "name": "Post" },
+      { "name": "Comment" },
+      { "name": "NotificationType" },
+      { "name": "Notification" }
+    ],
+    "config/app.ts": [
+      { "name": "APP_CONFIG" },
+      { "name": "STORAGE_KEYS" }
+    ],
+    "config/navigation.ts": [
+      { "name": "BOTTOM_TABS" }
+    ]
+  }
 }

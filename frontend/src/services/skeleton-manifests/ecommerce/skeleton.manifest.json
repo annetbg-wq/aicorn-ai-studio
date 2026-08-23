@@ -57,5 +57,28 @@
     "src/pages/Checkout.tsx",
     "src/pages/Wishlist.tsx",
     "src/pages/Account.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "SEED_CATEGORIES" },
+      { "name": "SEED_PRODUCTS" },
+      { "name": "SEED_REVIEWS" }
+    ],
+    "data/types.ts": [
+      { "name": "ID" },
+      { "name": "LoadingState" },
+      { "name": "ProductVariant" },
+      { "name": "Product" },
+      { "name": "Review" },
+      { "name": "CartLine" },
+      { "name": "ShippingAddress" }
+    ],
+    "config/app.ts": [
+      { "name": "APP_CONFIG" },
+      { "name": "STORAGE_KEYS" }
+    ],
+    "config/navigation.ts": [
+      { "name": "BOTTOM_TABS" }
+    ]
+  }
 }

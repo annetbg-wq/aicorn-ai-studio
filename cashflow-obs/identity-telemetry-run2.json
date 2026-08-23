@@ -1,0 +1,416 @@
+{
+  "timestamp": "2026-05-27T12:31:56.600Z",
+  "branch": "p2/coder-product-identity-substitution",
+  "routeAuthority": {
+    "provider": "openrouter",
+    "modelIdBuild": "openai/gpt-4o-mini",
+    "modelIdPrimary": "openai/gpt-4o-mini",
+    "sourceAuthority": "user_set",
+    "endpointKind": "openrouter",
+    "maxTokensCoderApp": 35256,
+    "notBackendFactoryTemplate": true,
+    "notBackendFileSeed": true,
+    "notNoModelConfigured": true
+  },
+  "finalStatus": "success",
+  "observationDurationMs": 296027,
+  "telemetry": {
+    "skeletonSelected": null,
+    "skeletonContract": false,
+    "productIdentityContract": false,
+    "navMode": null,
+    "coderStarted": false,
+    "coderCompleted": false,
+    "http546": false,
+    "promptBlockSizes": null,
+    "qualityGateRan": false,
+    "repairRan": false,
+    "previewCompile": null,
+    "qualityGateResult": null,
+    "buildCompleted": false,
+    "packagingReached": false,
+    "architectReached": false,
+    "architectCompleted": false
+  },
+  "workspaceInspection": {
+    "filesInspected": [
+      "App.tsx"
+    ],
+    "firstViewportClarity": false,
+    "kpiLabels": [],
+    "dataTableLabels": [],
+    "navigationLabels": [
+      "App.tsx:Name=\"mx-auto flex min-h-screen max-w-md flex-col bg-background\"",
+      "App.tsx:Name=\"flex-1\""
+    ],
+    "genericLabelsFound": [],
+    "cashflowTermsFound": [
+      "App.tsx:guard"
+    ],
+    "productTokens": [],
+    "emptyArrays": [],
+    "missingImports": [
+      "App.tsx:<GuestGuard>",
+      "App.tsx:<Onboarding>",
+      "App.tsx:<OnboardingGuard>",
+      "App.tsx:<AppShell>",
+      "App.tsx:<Home>",
+      "App.tsx:<OnboardingGuard>",
+      "App.tsx:<AppShell>",
+      "App.tsx:<Detail>",
+      "App.tsx:<OnboardingGuard>",
+      "App.tsx:<AppShell>",
+      "App.tsx:<Create>",
+      "App.tsx:<OnboardingGuard>",
+      "App.tsx:<AppShell>",
+      "App.tsx:<Progress>",
+      "App.tsx:<OnboardingGuard>",
+      "App.tsx:<AppShell>",
+      "App.tsx:<Profile>"
+    ],
+    "compileErrors": [],
+    "rawSamples": {
+      "App.tsx": "import { lazy, Suspense, type ReactNode } from 'react';\nimport { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';\nimport { AppProvider, useApp } from '@/context/AppContext';\nimport { ROUTES } from '@/config/routes';\nimport { ErrorBoundary } from '@/components/ErrorBoundary';\nimport { LoadingScreen } from '@/components/LoadingScreen';\nimport { BottomTabs } from '@/components/BottomTabs';\n\nconst Onboarding = lazy(() => import('@/pages/Onboarding'));\nconst Home = lazy(() => import('@/pages/Home'));\nconst Detail = lazy(() => import('@/pages/Detail'));\nconst Create = l"
+    }
+  },
+  "consoleLogs": [
+    "[browser][debug] [vite] connecting...",
+    "[browser][debug] [vite] connected.",
+    "[browser][info] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+    "[browser][log] [Supabase] Connected to: https://zdzuaodphrlpvorutpyc.supabase.co",
+    "[browser][debug] [vite] connecting...",
+    "[browser][debug] [vite] connected.",
+    "[browser][info] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+    "[browser][log] [Supabase] Connected to: https://zdzuaodphrlpvorutpyc.supabase.co",
+    "[browser][log] [ConfigService] Agent configs loaded from backend (read-only).",
+    "[browser][log] [ConfigService] Agent configs loaded from backend (read-only).",
+    "[browser][log] [StorageService] Connected to Supabase ✓",
+    "[browser][log] [StorageService] Connected to Supabase ✓",
+    "[browser][error] Failed to load resource: the server responded with a status of 404 ()",
+    "[browser][error] Failed to load resource: the server responded with a status of 404 ()",
+    "[browser][error] Failed to load resource: the server responded with a status of 404 ()",
+    "[browser][error] Failed to load resource: the server responded with a status of 404 ()",
+    "[browser][error] Failed to load resource: net::ERR_NETWORK_CHANGED",
+    "[browser][error] Failed to load resource: net::ERR_NETWORK_CHANGED",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (Failed to fetch). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 503: {\"error\":\"Claude CLI is not available\",\"provider\":\"claude\",\"details\":\"spawnSync cmd.exe ETIMEDOUT\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 503: {\"error\":\"Claude CLI is not available\",\"provider\":\"claude\",\"details\":\"CLI not found or not authorized\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 500: {\"error\":\"Error: spawn EINVAL\"}). Falling back to standard model flow.",
+    "[browser][log] [blueprint_packaging] {blueprint_packaging_first_attempt_valid: true, blueprint_packaging_retry_used: false, blueprint_packaging_final_status: success}",
+    "[browser][log] [preview-timeline] candidate_created {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, storeSize: 1, _t: 1779884875888}",
+    "[browser][log] [preview-timeline] file_buffered {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, path: App.tsx, size: 1565}",
+    "[browser][log] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, stage: source-ready, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, entryPath: App.tsx}",
+    "[browser][log] [preview-timeline] compile_start {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, fileCount: 1, _t: 1779884875896}",
+    "[browser][log] [preview-timeline] controller_compiling {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildStage: unknown, _t: 1779884875897}",
+    "[browser][log] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, stage: entry-resolved, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, entryPath: App.tsx}",
+    "[browser][log] [preview-timeline] write_batch_start {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, fileCount: 1, _t: 1779884875898}",
+    "[browser][log] [RevisionManager] compiling candidate 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0 (1 files) via backend build",
+    "[browser][error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 500: {\"error\":\"Error: spawn EINVAL\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 500: {\"error\":\"Error: spawn EINVAL\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "[browser][warning] [IdeaModel] Local claude bridge unavailable (HTTP 500: {\"error\":\"Error: spawn EINVAL\"}). Falling back to standard model flow.",
+    "[browser][error] Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[browser][warning] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.",
+    "[browser][log] [preview-timeline] write_batch_done {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, fileCount: 1, _t: 1779884897823}",
+    "[browser][log] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, stage: sandbox-written, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, entryPath: App.tsx}",
+    "[browser][log] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, stage: bootstrap-written, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, entryPath: App.tsx}",
+    "[browser][log] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, stage: preview-entry-registered, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, entryPath: App.tsx}",
+    "[browser][log] [preview-timeline] wait_ready_start {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, fileCount: 1, timeoutMs: 17000}",
+    "[browser][warning] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.",
+    "[browser][log] [preview-timeline] message_received {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, type: preview-mounted, buildIdFromMsg: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, origin: http://localhost:5183}",
+    "[browser][log] [preview-timeline] ready_received {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildIdFromMsg: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, expectedBuildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, accepted: true}",
+    "[browser][log] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, stage: iframe-mounted, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, entryPath: App.tsx}",
+    "[browser][log] [preview-timeline] mount_done {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, _t: 1779884898647}",
+    "[browser][log] [preview-timeline] materialize_stage {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, stage: iframe-ready, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, entryPath: App.tsx}",
+    "[browser][log] [preview-timeline] ready_set {activeRevisionId: null, candidateRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, source: static_build_complete, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildStage: unknown}",
+    "[browser][log] [preview-timeline] candidate_promoted {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, promotionMode: normal, degraded: false}",
+    "[browser][log] [preview-timeline] post_promotion_watch_started {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, previousActiveRevisionId: null, promotionMode: normal}",
+    "[browser][log] [preview-timeline] white_screen_check_scheduled {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, delayMs: 2500, watchdogBuildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0}",
+    "[browser][log] [handleSend] history length: 1 first msg: Package this trend idea into production-ready code",
+    "[browser][log] [planner] plan generated, dispatching {appName: Cashflow Guard для фрилансеров, description: Мобильный финансовый помощник, который прогнозируе…овые разрывы и подсказывает действия по инвойсам., theme: trust, targetUser: Фрилансеры, которые испытывают трудности с управлением денежными потоками и инвойсами., layout: Object}",
+    "[browser][log] [llm_route] {llm_route_provider: openrouter, llm_route_model_id: openai/gpt-4o-mini, llm_route_endpoint_kind: openrouter_proxy, llm_route_proxy_provider: openrouter, llm_route_key_source: agent_primary.openrouter}",
+    "[browser][log] [llm_route] {llm_route_provider: openrouter, llm_route_model_id: openai/gpt-4o-mini, llm_route_endpoint_kind: openrouter_proxy, llm_route_proxy_provider: openrouter, llm_route_key_source: agent_build.openrouter}",
+    "[browser][log] [llm_route] {llm_route_provider: openrouter, llm_route_model_id: openai/gpt-4o-mini, llm_route_endpoint_kind: openrouter_proxy, llm_route_proxy_provider: openrouter, llm_route_key_source: agent_fix.openrouter}",
+    "[browser][log] [llm_route] {llm_route_provider: openrouter, llm_route_model_id: openai/gpt-4o-mini, llm_route_endpoint_kind: openrouter_proxy, llm_route_proxy_provider: openrouter, llm_route_key_source: agent_spec.openrouter}",
+    "[browser][log] [llm_route] {llm_route_provider: openrouter, llm_route_model_id: openai/gpt-4o-mini, llm_route_endpoint_kind: openrouter_proxy, llm_route_proxy_provider: openrouter, llm_route_key_source: agent_qa.openrouter}",
+    "[browser][log] [useStudio] routes resolved — primary: openai/gpt-4o-mini build: openai/gpt-4o-mini",
+    "[browser][log] [RouteAuthority] build slot {generation_route_slot: build, generation_route_provider: openrouter, generation_route_model_id: openai/gpt-4o-mini, generation_route_key_source: agent_build.openrouter, generation_route_source_authority: backend_runtime_saved}",
+    "[browser][log] [DEBUG] pipeline input files: [_projectId]",
+    "[browser][log] [preview-timeline] current_run_preview_isolated {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, source: SimpleGeneration.run, _t: 1779884899035}",
+    "[browser][error] Failed to load resource: the server responded with a status of 404 ()",
+    "[browser][log] [llm_call_diag] {llm_call_step: architect, provider: openrouter, model_id: openai/gpt-4o-mini, endpoint_kind: openrouter_proxy, route_authority: backend_runtime_saved}",
+    "[browser][warning] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.",
+    "[browser][log] [preview-timeline] white_screen_check_start {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, _t: 1779884901179}",
+    "[browser][log] [preview-timeline] post_promotion_watch_result {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, previousActiveRevisionId: null, promotionMode: normal}",
+    "[browser][log] [preview-timeline] white_screen_probe_timeout {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, _t: 1779884906198}",
+    "[browser][log] [preview-timeline] post_ready_diagnostic_result {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, status: inconclusive, reason: probe_timeout}",
+    "[browser][log] [preview-timeline] white_screen_check_inconclusive {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, reason: probe_timeout, _t: 1779884906200}",
+    "[browser][log] [llm_call_outcome] {llm_call_step: architect, response_time_ms: 8953, final_status: success, http_status: 0, error_category: null}",
+    "[browser][log] [preview-timeline] controller_compiling {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildStage: skeleton, _t: 1779884908513}",
+    "[browser][warning] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.",
+    "[browser][log] [preview-timeline] ready_set {activeRevisionId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, candidateRevisionId: null, source: proto_pipeline_complete, buildId: 4062d0f9-2991-4ed6-bdde-b4c5e53acdd0, buildStage: skeleton}",
+    "[browser][log] [coder_prompt_block_sizes] {skeleton_header_chars: 410, context_contract_chars: 1384, planning_blocks_chars: 57516, skeleton_foundation_chars: 3922, skeleton_contract_chars: 1228}",
+    "[browser][log] [llm_call_diag] {llm_call_step: coder, provider: openrouter, model_id: openai/gpt-4o-mini, endpoint_kind: openrouter_proxy, route_authority: backend_runtime_saved}",
+    "[browser][log] [llm_call_outcome] {llm_call_step: coder, response_time_ms: 114199, final_status: success, http_status: 0, error_category: null}",
+    "[browser][log] [coder_output_budget_diag] {requested_max_tokens: 35000, actual_output_char_count: 5082, parsed_file_count: 4, expected_file_count: 4, artifact_parse_status: ok}",
+    "[browser][log] [llm_call_diag] {llm_call_step: repair, provider: openrouter, model_id: openai/gpt-4o-mini, endpoint_kind: openrouter_proxy, route_authority: backend_runtime_saved}"
+  ],
+  "networkLog": [
+    {
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "status": 200,
+      "timestamp": "2026-05-27T12:27:55.645Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/chat",
+      "status": 500,
+      "timestamp": "2026-05-27T12:27:56.818Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/chat",
+      "status": 500,
+      "timestamp": "2026-05-27T12:27:59.538Z"
+    },
+    {
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:00.710Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/chat",
+      "status": 500,
+      "timestamp": "2026-05-27T12:28:01.960Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0?previewSession=e1f61313-2f66-402c-8563-f8aed0a35e9c",
+      "status": 404,
+      "timestamp": "2026-05-27T12:28:01.971Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:01.994Z"
+    },
+    {
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:02.683Z"
+    },
+    {
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:03.616Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:11.867Z"
+    },
+    {
+      "url": "http://localhost:5183/api/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/compile",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:17.825Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0?previewSession=e1f61313-2f66-402c-8563-f8aed0a35e9c",
+      "status": 302,
+      "timestamp": "2026-05-27T12:28:17.861Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/?previewSession=e1f61313-2f66-402c-8563-f8aed0a35e9c",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:18.187Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/assets/index-P-5AvKkB.css?previewSession=e1f61313-2f66-402c-8563-f8aed0a35e9c",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:18.443Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/assets/index-Kb7woylB.js",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:18.559Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0?previewSession=e1f61313-2f66-402c-8563-f8aed0a35e9c",
+      "status": 302,
+      "timestamp": "2026-05-27T12:28:19.244Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/?previewSession=e1f61313-2f66-402c-8563-f8aed0a35e9c",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:19.571Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/assets/index-P-5AvKkB.css?previewSession=e1f61313-2f66-402c-8563-f8aed0a35e9c",
+      "status": 304,
+      "timestamp": "2026-05-27T12:28:19.851Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/assets/index-Kb7woylB.js",
+      "status": 304,
+      "timestamp": "2026-05-27T12:28:20.000Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:21.884Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:31.907Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:41.938Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:28:52.131Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:01.907Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:11.869Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:21.901Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:31.883Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:41.918Z"
+    },
+    {
+      "url": "http://localhost:5183/api/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/compile",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:45.647Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0?previewSession=e1f61313-2f66-402c-8563-f8aed0a35e9c",
+      "status": 302,
+      "timestamp": "2026-05-27T12:29:46.182Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/?previewSession=e1f61313-2f66-402c-8563-f8aed0a35e9c",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:46.435Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/assets/index-DWTbq0kI.js",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:46.771Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/assets/index-C0JggY4d.css?previewSession=e1f61313-2f66-402c-8563-f8aed0a35e9c",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:46.975Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/assets/Input-CeRJ8I7f.js",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:48.427Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/assets/sparkles-DtyXQG0v.js",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:48.428Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/assets/Onboarding-Ba1h_NIZ.js",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:48.433Z"
+    },
+    {
+      "url": "http://localhost:5183/preview/4062d0f9-2991-4ed6-bdde-b4c5e53acdd0/assets/proxy-Dh141ngP.js",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:48.470Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:29:51.890Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:30:01.887Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:30:11.944Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:30:21.925Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:30:31.895Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:30:41.882Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:30:51.887Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:31:01.901Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:31:11.901Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:31:21.884Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:31:31.891Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:31:41.970Z"
+    },
+    {
+      "url": "http://127.0.0.1:3000/api/health",
+      "status": 200,
+      "timestamp": "2026-05-27T12:31:51.880Z"
+    }
+  ],
+  "logTailSnippet": []
+}

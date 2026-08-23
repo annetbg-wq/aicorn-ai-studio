@@ -12,9 +12,10 @@
  * Does NOT auto-run on app load.
  */
 
-import { SimpleGeneration as GenerationPipeline } from '../SimpleGeneration';
+import { GenerationEngine as GenerationPipeline } from '../GenerationEngine';
 import { ConfigService } from '../ConfigService';
 import { resolveStandardRoute } from '../buildAgentRouting';
+import { selectSkeletonWithSafeOverrides, type SkeletonSelectionOverrideResult } from '../SkeletonRegistry';
 import { goldenIntents, type GoldenIntent, type IntentCategory } from './goldenIntents';
 import { goldenTests, type GoldenTest } from './goldenTests';
 import { parseArtifact } from '../artifactParser';
@@ -27,6 +28,7 @@ import {
 } from './BenchmarkReport';
 import { BaselineStore } from './BaselineStore';
 import type { GenerationResult } from '../../shared/projectModel';
+import type { LiveGenerationRootCauseType } from '../LiveGenerationContractValidator';
 
 // ── Golden Suite types ─────────────────────────────────────────────────────
 
@@ -65,6 +67,8 @@ export interface BenchmarkRunConfig {
   categories?:  IntentCategory[];
   /** Called after each intent completes. */
   onProgress?:  (completed: number, total: number, last: IntentRunResult) => void;
+  /** Optional sidecar diagnostics callback. Does not affect the committed report/baseline shape. */
+  onIntentDiagnostic?: (detail: BenchmarkIntentDiagnostic) => void;
   /** AbortSignal to cancel the entire run. */
   signal?:      AbortSignal;
 }
@@ -73,6 +77,43 @@ export interface BenchmarkRunOutput {
   report:   BenchmarkReport;
   json:     string;
   markdown: string;
+}
+
+export interface BenchmarkParsedBuildError {
+  kind: 'live_generation_contract' | 'raw_error';
+  rootCauseType: LiveGenerationRootCauseType | 'unknown' | null;
+  file: string | null;
+  importPath: string | null;
+  symbol: string | null;
+  expected: string | null;
+  actual: string | null;
+  rawErrorExcerpt: string | null;
+  formatted: string;
+}
+
+export interface BenchmarkIntentDiagnostic {
+  intentId: string;
+  category: IntentCategory;
+  prompt: string;
+  modelId: string;
+  outcome: BenchmarkOutcome;
+  durationMs: number;
+  fileCount: number;
+  routeCount: number;
+  featureCount: number;
+  blockingCodes: string[];
+  failedStep: string | null;
+  /** Pre-clarify heuristic skeleton selection (bag-of-words, before architect runs). */
+  selectedSkeleton: SkeletonSelectionOverrideResult;
+  /** Skeleton the architect actually chose and ran generation on (from runTelemetry). */
+  actualSkeletonId: string | null;
+  rawError: string | null;
+  parsedBuildError: BenchmarkParsedBuildError | null;
+}
+
+interface IntentExecutionResult {
+  result: IntentRunResult;
+  diagnostic: BenchmarkIntentDiagnostic;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -126,6 +167,187 @@ function classifyOutcome(result: GenerationResult): {
   return { outcome: 'preview-ready', blockingCodes: [] };
 }
 
+function resolveSelectedSkeleton(intent: GoldenIntent): SkeletonSelectionOverrideResult {
+  // Benchmark runs select the skeleton from the raw prompt bag-of-words before clarify().
+  return selectSkeletonWithSafeOverrides(undefined, [intent.prompt]);
+}
+
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') {
+      depth += 1;
+      continue;
+    }
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseMissingNamedExportSymbol(expected: string | null): string | null {
+  if (!expected) return null;
+  const match = /^named export\s+(.+)$/i.exec(expected.trim());
+  return match?.[1] ?? null;
+}
+
+function firstLine(value: string): string {
+  return value.split(/\r?\n/, 1)[0]?.trim() ?? value.trim();
+}
+
+function formatParsedBuildError(input: {
+  rootCauseType: string | null;
+  symbol: string | null;
+  importPath: string | null;
+  file: string | null;
+  actual: string | null;
+  fallback: string;
+}): string {
+  const { rootCauseType, symbol, importPath, file, actual, fallback } = input;
+  if (rootCauseType === 'missing_named_export' && symbol && importPath) {
+    return `${rootCauseType} ${symbol} from ${importPath}`;
+  }
+  if (rootCauseType === 'missing_local_import' && importPath && file) {
+    return `${rootCauseType} ${importPath} in ${file}`;
+  }
+  if (rootCauseType === 'invalid_default_import' && importPath) {
+    return `${rootCauseType} default import from ${importPath}`;
+  }
+  if (rootCauseType === 'vite_build_error' && actual) {
+    return `${rootCauseType} ${firstLine(actual)}`;
+  }
+  if (rootCauseType) {
+    return [rootCauseType, importPath ?? file ?? actual ?? ''].filter(Boolean).join(' ').trim();
+  }
+  return fallback;
+}
+
+function parseBuildError(error: string | null): BenchmarkParsedBuildError | null {
+  if (!error) return null;
+
+  const contractHeadline = /root_cause_type=([^\s]+)(?:\s+file=([^\s]+))?(?:\s+import=([^\s]+))?/m.exec(error);
+  const maybeJson = extractJsonObject(error);
+  let parsed: Record<string, unknown> | null = null;
+
+  if (maybeJson) {
+    try {
+      parsed = JSON.parse(maybeJson) as Record<string, unknown>;
+    } catch {
+      parsed = null;
+    }
+  }
+
+  const rootCauseType = typeof parsed?.root_cause_type === 'string'
+    ? parsed.root_cause_type
+    : contractHeadline?.[1] ?? null;
+  const file = typeof parsed?.file === 'string'
+    ? parsed.file
+    : contractHeadline?.[2] ?? null;
+  const importPath = typeof parsed?.import_path === 'string'
+    ? parsed.import_path
+    : contractHeadline?.[3] ?? null;
+  const expected = typeof parsed?.expected === 'string' ? parsed.expected : null;
+  const actual = typeof parsed?.actual === 'string' ? parsed.actual : null;
+  const rawErrorExcerpt = typeof parsed?.raw_error_excerpt === 'string'
+    ? parsed.raw_error_excerpt
+    : null;
+  const symbol = parseMissingNamedExportSymbol(expected);
+
+  if (rootCauseType || parsed) {
+    const formatted = formatParsedBuildError({
+      rootCauseType,
+      symbol,
+      importPath,
+      file,
+      actual,
+      fallback: firstLine(error),
+    });
+    return {
+      kind: 'live_generation_contract',
+      rootCauseType: (rootCauseType as LiveGenerationRootCauseType | 'unknown' | null) ?? 'unknown',
+      file,
+      importPath,
+      symbol,
+      expected,
+      actual,
+      rawErrorExcerpt,
+      formatted,
+    };
+  }
+
+  return {
+    kind: 'raw_error',
+    rootCauseType: null,
+    file: null,
+    importPath: null,
+    symbol: null,
+    expected: null,
+    actual: null,
+    rawErrorExcerpt: null,
+    formatted: firstLine(error),
+  };
+}
+
+function buildIntentDiagnostic(
+  intent: GoldenIntent,
+  modelId: string,
+  outcome: BenchmarkOutcome,
+  durationMs: number,
+  fileCount: number,
+  routeCount: number,
+  featureCount: number,
+  blockingCodes: string[],
+  failedStep: string | null,
+  rawError: string | null,
+  actualSkeletonId: string | null,
+): BenchmarkIntentDiagnostic {
+  return {
+    intentId: intent.id,
+    category: intent.category,
+    prompt: intent.prompt,
+    modelId,
+    outcome,
+    durationMs,
+    fileCount,
+    routeCount,
+    featureCount,
+    blockingCodes,
+    failedStep,
+    selectedSkeleton: resolveSelectedSkeleton(intent),
+    actualSkeletonId,
+    rawError,
+    parsedBuildError: parseBuildError(rawError),
+  };
+}
+
 // ── Golden Suite helpers ───────────────────────────────────────────────────
 
 /** Check if a file has unclosed brackets (likely truncated by LLM). */
@@ -163,6 +385,7 @@ async function runSingleGoldenTest(
   signal?: AbortSignal,
 ): Promise<GoldenTestDetail> {
   const primaryRoute = resolveStandardRoute('primary');
+  const specRoute    = resolveStandardRoute('spec');
   const buildRoute   = resolveStandardRoute('build');
   const fixRoute     = resolveStandardRoute('fix');
   const qaRoute      = resolveStandardRoute('qa');
@@ -179,6 +402,7 @@ async function runSingleGoldenTest(
       history:      [],
       files:        {},
       primaryRoute,
+      specRoute,
       buildRoute,
       fixRoute,
       qaRoute,
@@ -245,15 +469,31 @@ async function runSingleGoldenTest(
 
 // ── Main runner ─────────────────────────────────────────────────────────────
 
+/**
+ * Hard per-intent timeout. Prevents a single hung intent from blocking the whole suite.
+ * Budget: architect LLM (~30s) + skeleton install (~20s) + coder LLM (~130s, large prompt)
+ *         + compile Vite build (~30s) + margin = ~250s. 300s gives a comfortable buffer.
+ */
+const INTENT_TIMEOUT_MS = 300_000; // 300 s (5 min) per intent
+
 async function runSingleIntent(
   intent: GoldenIntent,
   cfg: BenchmarkRunConfig,
-): Promise<IntentRunResult> {
+): Promise<IntentExecutionResult> {
   const t0 = performance.now();
   let genResult: GenerationResult | null = null;
   let error: string | null = null;
 
+  // Compose per-intent timeout with the outer abort signal.
+  // If the intent hangs (e.g. LLM stall, iframe wait), it is aborted and marked failed
+  // rather than blocking the rest of the suite indefinitely.
+  const intentTimeout = AbortSignal.timeout(INTENT_TIMEOUT_MS);
+  const intentSignal = cfg.signal
+    ? AbortSignal.any([cfg.signal, intentTimeout])
+    : intentTimeout;
+
   const bPrimaryRoute = resolveStandardRoute('primary');
+  const bSpecRoute    = resolveStandardRoute('spec');
   const bBuildRoute   = resolveStandardRoute('build');
   const bFixRoute     = resolveStandardRoute('fix');
   const bQaRoute      = resolveStandardRoute('qa');
@@ -263,6 +503,7 @@ async function runSingleIntent(
       history:      [],
       files:        {},
       primaryRoute: bPrimaryRoute,
+      specRoute:    bSpecRoute,
       buildRoute:   bBuildRoute,
       fixRoute:     bFixRoute,
       qaRoute:      bQaRoute,
@@ -274,7 +515,7 @@ async function runSingleIntent(
       onPhase:  () => {},
       onLog:    () => {},
       onPlan:   () => {},
-      signal:   cfg.signal,
+      signal:   intentSignal,
     });
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
@@ -283,7 +524,7 @@ async function runSingleIntent(
   const durationMs = Math.round(performance.now() - t0);
 
   if (!genResult || error) {
-    return {
+    const result: IntentRunResult = {
       intentId:      intent.id,
       category:      intent.category,
       modelId:       cfg.modelId,
@@ -293,14 +534,33 @@ async function runSingleIntent(
       featureCount:  0,
       outcome:       'failed',
       blockingCodes: [],
-      error:         error ?? genResult?.error ?? 'No result returned',
+      error:                      error ?? genResult?.error ?? 'No result returned',
+      designContractCleanPassed:  false,
+      designContractFinalPassed:  false,
+      qualityPassed:              false,
+    };
+    return {
+      result,
+      diagnostic: buildIntentDiagnostic(
+        intent,
+        cfg.modelId,
+        result.outcome,
+        durationMs,
+        result.fileCount,
+        result.routeCount,
+        result.featureCount,
+        result.blockingCodes,
+        genResult?.pipelineFailureDiagnostics?.failedStep ?? null,
+        result.error,
+        genResult?.runTelemetry?.skeletonId ?? null,
+      ),
     };
   }
 
   const { outcome, blockingCodes } = classifyOutcome(genResult);
   const graph = genResult.graph;
 
-  return {
+  const result: IntentRunResult = {
     intentId:      intent.id,
     category:      intent.category,
     modelId:       genResult.usedModel || cfg.modelId,
@@ -310,7 +570,10 @@ async function runSingleIntent(
     featureCount:  graph.features.length,
     outcome,
     blockingCodes,
-    error:         genResult.error ?? null,
+    error:                      genResult.error ?? null,
+    designContractCleanPassed:  genResult.designContractOk === true,
+    designContractFinalPassed:  (genResult as { designContractFinalOk?: boolean }).designContractFinalOk === true,
+    qualityPassed:              genResult.qualitySummary?.passed ?? false,
     visualQuality: genResult.visualQualitySummary
       ? {
           score: genResult.visualQualitySummary.score,
@@ -319,6 +582,22 @@ async function runSingleIntent(
           notes: genResult.visualQualitySummary.notes,
         }
       : undefined,
+  };
+  return {
+    result,
+    diagnostic: buildIntentDiagnostic(
+      intent,
+      result.modelId,
+      result.outcome,
+      durationMs,
+      result.fileCount,
+      result.routeCount,
+      result.featureCount,
+      result.blockingCodes,
+      genResult.pipelineFailureDiagnostics?.failedStep ?? null,
+      result.error,
+      genResult.runTelemetry?.skeletonId ?? null,
+    ),
   };
 }
 
@@ -355,7 +634,7 @@ export const BenchmarkService = {
       const intent = intents[i];
       console.log(`[BenchmarkService] [${i + 1}/${intents.length}] Running: ${intent.id} (${intent.category})`);
 
-      const result = await runSingleIntent(intent, cfg);
+      const { result, diagnostic } = await runSingleIntent(intent, cfg);
       results.push(result);
 
       console.log(
@@ -366,6 +645,7 @@ export const BenchmarkService = {
       );
 
       cfg.onProgress?.(i + 1, intents.length, result);
+      cfg.onIntentDiagnostic?.(diagnostic);
     }
 
     const finishedAt = new Date().toISOString();

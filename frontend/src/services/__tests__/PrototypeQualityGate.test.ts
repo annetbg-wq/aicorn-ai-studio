@@ -2,12 +2,14 @@
 /**
  * Unit tests for evaluatePrototypeQualityGate — deterministic helper, no LLM calls.
  * Unit tests for runQualityRepair — LLM call mocked via stubGlobal('fetch').
+ * Unit tests for computeRepairScopedFiles — pure scoping helper, no LLM calls.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   evaluatePrototypeQualityGate,
   runQualityRepair,
   buildRepairPrompt,
+  computeRepairScopedFiles,
   type PrototypeQualityGateInput,
   type VisualUsageDiagnostics,
 } from '../ProtoPipeline';
@@ -705,5 +707,373 @@ describe('buildRepairPrompt', () => {
     const second = buildRepairPrompt(baseInput);
     expect(first.system).toBe(second.system);
     expect(first.user).toBe(second.user);
+  });
+
+  it('(в) scoped repair prompt preserves full context even when only violating files are passed', () => {
+    // Simulates what runQualityRepair does: pass only the scoped files to buildRepairPrompt,
+    // but keep prompt + psd unchanged — context must still be present in system/user.
+    const scopedFiles = {
+      'pages/App.tsx': 'export default function App() { return <h1>PRODUCT</h1>; }',
+    };
+    const psd: ProductSpecificityDiagnostics = {
+      ...validSpecificityDiagnostics(),
+      domainEntitySignals: ['Invoice', 'Client', 'Payment'],
+      productMetricSignals: ['Monthly Revenue', 'Unpaid Invoices'],
+    };
+    const { system, user } = buildRepairPrompt({
+      prompt:             'FinTrack – personal finance tracker for freelancers',
+      blockingReasons:    ['Bare PRODUCT token in pages/App.tsx'],
+      repairInstructions: ['Replace PRODUCT with product name from prompt'],
+      currentFiles:       scopedFiles,   // scoped (1 file, not 34)
+      productSpecificityDiagnostics: psd,
+    });
+
+    // (в-1) Original task prompt is in user message
+    expect(user).toContain('FinTrack – personal finance tracker for freelancers');
+    // (в-2) Scoped file is in user message
+    expect(user).toContain('<<<FILE: pages/App.tsx>>>');
+    // (в-3) psd domain signals are in system message (context not stripped with files)
+    expect(system).toContain('Invoice');
+    expect(system).toContain('Monthly Revenue');
+  });
+});
+
+// ── computeRepairScopedFiles tests ────────────────────────────────────────────
+//
+// Pure function tests — no LLM, no fetch mock needed.
+// Verifies the scoping logic: union of all violation sources, normalization,
+// fallback behaviour.
+
+describe('computeRepairScopedFiles', () => {
+  it('(а) scopes to exactly the violating files — 3 out of 34', () => {
+    const allFiles: Record<string, string> = {};
+    for (let i = 0; i < 34; i++) allFiles[`pages/Page${i}.tsx`] = `content ${i}`;
+
+    const violations: DesignViolation[] = [
+      { path: 'pages/Page2.tsx',  rule: 'no-raw-hex',           example: '#fff',       line: 1 },
+      { path: 'pages/Page7.tsx',  rule: 'no-tailwind-palette',  example: 'bg-blue-500', line: 3 },
+      { path: 'pages/Page15.tsx', rule: 'no-raw-color-fn',      example: 'rgb(0,0,0)', line: 5 },
+    ];
+
+    const { scopedFiles, isFallback } = computeRepairScopedFiles(allFiles, violations);
+
+    expect(isFallback).toBe(false);
+    expect(Object.keys(scopedFiles)).toHaveLength(3);
+    expect('pages/Page2.tsx'  in scopedFiles).toBe(true);
+    expect('pages/Page7.tsx'  in scopedFiles).toBe(true);
+    expect('pages/Page15.tsx' in scopedFiles).toBe(true);
+    expect('pages/Page0.tsx'  in scopedFiles).toBe(false); // clean file excluded
+  });
+
+  it('(б) includes files from all three violation types (tokens + PRODUCT + labels) in different files', () => {
+    const currentFiles = {
+      'pages/Home.tsx':      'className="bg-blue-500"',  // token violation
+      'App.tsx':             '<h1>PRODUCT</h1>',          // PRODUCT placeholder
+      'pages/Dashboard.tsx': 'KPI 1',                    // label placeholder
+      'pages/Unrelated.tsx': 'clean content',            // no violation
+    };
+
+    const tokenViolations: DesignViolation[] = [
+      { path: 'pages/Home.tsx', rule: 'no-tailwind-palette', example: 'bg-blue-500', line: 1 },
+    ];
+    const vudFindings = ['App.tsx: PRODUCT'];          // "path: label" format
+    const psdFindings = ['pages/Dashboard.tsx: KPI 1']; // "path: label" format
+
+    const { scopedFiles, isFallback } = computeRepairScopedFiles(
+      currentFiles, tokenViolations, vudFindings, psdFindings,
+    );
+
+    expect(isFallback).toBe(false);
+    expect(Object.keys(scopedFiles)).toHaveLength(3);
+    expect('pages/Home.tsx'      in scopedFiles).toBe(true);  // token
+    expect('App.tsx'             in scopedFiles).toBe(true);  // PRODUCT
+    expect('pages/Dashboard.tsx' in scopedFiles).toBe(true);  // label
+    expect('pages/Unrelated.tsx' in scopedFiles).toBe(false); // clean → excluded
+  });
+
+  it('includes files from emptyMetricFindings instead of falling back to all files', () => {
+    const currentFiles = {
+      'pages/Dashboard.tsx': 'const stats = [];',
+      'pages/Clean.tsx': 'clean content',
+    };
+    const psdEmptyMetricFindings = [
+      'pages/Dashboard.tsx: empty local arrays without realistic sample data',
+    ];
+
+    const { scopedFiles, isFallback, resolvedPaths, sourcePathCounts } = computeRepairScopedFiles(
+      currentFiles,
+      [],
+      [],
+      [],
+      psdEmptyMetricFindings,
+    );
+
+    expect(isFallback).toBe(false);
+    expect(Object.keys(scopedFiles)).toEqual(['pages/Dashboard.tsx']);
+    expect(resolvedPaths).toEqual(['pages/Dashboard.tsx']);
+    expect(sourcePathCounts.specificityEmptyMetrics).toBe(1);
+  });
+
+  it('(г-1) falls back to all files when violation paths do not match currentFiles keys', () => {
+    const currentFiles = {
+      'pages/App.tsx':       'content',
+      'pages/Dashboard.tsx': 'content',
+    };
+    // Violation path points to a file NOT in currentFiles (rogue/stale path)
+    const violations: DesignViolation[] = [
+      { path: 'pages/Nonexistent.tsx', rule: 'no-raw-hex', example: '#fff', line: 1 },
+    ];
+
+    const { scopedFiles, isFallback, fallbackReason } = computeRepairScopedFiles(
+      currentFiles, violations,
+    );
+
+    expect(isFallback).toBe(true);
+    expect(fallbackReason).toBeDefined();
+    expect(fallbackReason).toMatch(/could not be matched/i);
+    // Falls back to all files — repair still runs, just unscoped
+    expect(Object.keys(scopedFiles)).toHaveLength(2);
+    expect('pages/App.tsx'       in scopedFiles).toBe(true);
+    expect('pages/Dashboard.tsx' in scopedFiles).toBe(true);
+  });
+
+  it('(г-2) falls back with explicit reason when no violation sources provide any paths', () => {
+    const currentFiles = { 'pages/App.tsx': 'content' };
+
+    const { scopedFiles, isFallback, fallbackReason } = computeRepairScopedFiles(
+      currentFiles, [], [], [],  // all empty — no violations provided
+    );
+
+    expect(isFallback).toBe(true);
+    expect(fallbackReason).toMatch(/no violation sources/i);
+    expect(Object.keys(scopedFiles)).toHaveLength(1); // falls back to all (1) files
+  });
+
+  it('deduplicates when the same file appears in multiple violation sources', () => {
+    const currentFiles = {
+      'App.tsx': 'content',
+      'pages/Other.tsx': 'content',
+    };
+    const violations: DesignViolation[] = [
+      { path: 'App.tsx', rule: 'no-raw-hex',          example: '#fff',      line: 1 },
+      { path: 'App.tsx', rule: 'no-tailwind-palette', example: 'bg-blue-500', line: 2 },
+    ];
+    const vudFindings = ['App.tsx: PRODUCT', 'App.tsx: Feature 1'];
+
+    const { scopedFiles, isFallback } = computeRepairScopedFiles(
+      currentFiles, violations, vudFindings,
+    );
+
+    expect(isFallback).toBe(false);
+    // App.tsx appears in multiple sources but must appear only once
+    expect(Object.keys(scopedFiles)).toHaveLength(1);
+    expect('App.tsx' in scopedFiles).toBe(true);
+  });
+});
+
+// ── runQualityRepair — scoping integration tests ──────────────────────────────
+//
+// Verifies that scoping log messages are emitted correctly by runQualityRepair.
+
+describe('runQualityRepair scope logging', () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('(г) logs explicit scoped-repair fallback warning when no violation paths resolve', async () => {
+    const currentFiles = { 'pages/App.tsx': 'original content' };
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () =>
+        JSON.stringify({
+          output_text: '<<<FILE: pages/App.tsx>>>\nfixed\n<<<END>>>',
+          finish_reason: 'stop',
+        }),
+    });
+
+    const logs: Array<{ msg: string; level?: string }> = [];
+
+    await runQualityRepair({
+      prompt:             'Test app',
+      skeletonId:         'mobile-app',
+      currentFiles,
+      blockingReasons:    ['some reason'],
+      repairInstructions: ['fix it'],
+      designContractViolations: [
+        // Path does NOT exist in currentFiles → triggers fallback
+        { path: 'pages/Nonexistent.tsx', rule: 'no-raw-hex', example: '#fff', line: 1 },
+      ],
+      routeOverrides: {
+        fix: { modelId: 'test', endpoint: 'https://test.example.com/api', apiKey: 'k', provider: 'claude-cli' },
+      },
+      onLog: (msg, level) => logs.push({ msg, level }),
+    });
+
+    const fallbackLog = logs.find(
+      l => l.msg.includes('scoped-repair') && l.msg.includes('no paths resolved'),
+    );
+    expect(fallbackLog).toBeDefined();
+    expect(fallbackLog?.level).toBe('warn');
+    // The summary log must mention fallback
+    const summaryLog = logs.find(l => l.msg.includes('fallback: all files'));
+    expect(summaryLog).toBeDefined();
+  });
+
+  it('logs scoped count when violations resolve to a subset of files', async () => {
+    const currentFiles = {
+      'pages/App.tsx':      'className="bg-blue-500"',
+      'pages/Clean.tsx':    'clean content',
+      'pages/Another.tsx':  'also clean',
+    };
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () =>
+        JSON.stringify({
+          output_text: '<<<FILE: pages/App.tsx>>>\nfixed\n<<<END>>>',
+          finish_reason: 'stop',
+        }),
+    });
+
+    const logs: Array<string> = [];
+
+    await runQualityRepair({
+      prompt:             'Test app',
+      skeletonId:         'mobile-app',
+      currentFiles,
+      blockingReasons:    ['token violation'],
+      repairInstructions: ['fix tokens'],
+      designContractViolations: [
+        { path: 'pages/App.tsx', rule: 'no-tailwind-palette', example: 'bg-blue-500', line: 1 },
+      ],
+      routeOverrides: {
+        fix: { modelId: 'test', endpoint: 'https://test.example.com/api', apiKey: 'k', provider: 'claude-cli' },
+      },
+      onLog: (msg) => logs.push(msg),
+    });
+
+    // Summary log must show 1/3 (scoped, not fallback)
+    const scopedLog = logs.find(l => l.includes('1/3') && l.includes('scoped to violations'));
+    expect(scopedLog).toBeDefined();
+  });
+
+  it('proves scoped repair sends only the resolved hard-violation files instead of all 34', async () => {
+    const currentFiles: Record<string, string> = {};
+    for (let i = 0; i < 34; i++) {
+      currentFiles[`pages/Page${i}.tsx`] = `export default function Page${i}(){ return <div>clean ${i}</div>; }`;
+    }
+    currentFiles['pages/Page2.tsx'] = 'export default function Page2(){ return <div className="bg-blue-500">bad</div>; }';
+    currentFiles['pages/Page15.tsx'] = 'export default function Page15(){ return <div>PRODUCT</div>; }';
+
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () => JSON.stringify({
+        output_text: [
+          '<<<FILE: pages/Page2.tsx>>>',
+          'export default function Page2(){ return <div className="bg-background">fixed</div>; }',
+          '<<<END>>>',
+          '<<<FILE: pages/Page15.tsx>>>',
+          'export default function Page15(){ return <div>OpsBoard</div>; }',
+          '<<<END>>>',
+        ].join('\n'),
+        finish_reason: 'stop',
+      }),
+    });
+
+    const logs: string[] = [];
+
+    await runQualityRepair({
+      prompt:             'OpsBoard admin panel',
+      skeletonId:         'saas-dashboard',
+      currentFiles,
+      blockingReasons:    [
+        'Design contract: 1 raw token violation(s) in generated source (rules: no-tailwind-palette)',
+        'Generic placeholder content in 1 location(s): pages/Page15.tsx: PRODUCT',
+      ],
+      repairInstructions: [
+        'Replace raw palette classes with semantic tokens',
+        'Replace PRODUCT with the actual app name from the prompt',
+      ],
+      designContractViolations: [
+        { path: 'pages/Page2.tsx', rule: 'no-tailwind-palette', example: 'bg-blue-500', line: 1 },
+      ],
+      visualUsageDiagnostics: {
+        ...validVisualDiagnostics(),
+        genericPlaceholderFindings: ['pages/Page15.tsx: PRODUCT'],
+      },
+      routeOverrides: {
+        fix: { modelId: 'test', endpoint: 'https://test.example.com/api', apiKey: 'k', provider: 'claude-cli' },
+      },
+      onLog: (msg) => logs.push(msg),
+    });
+
+    const scopedLog = logs.find(l => l.includes('2/34') && l.includes('scoped to violations'));
+    expect(scopedLog).toBeDefined();
+    const sourceLog = logs.find(l => l.includes('scope sources:') && l.includes('resolved=2'));
+    expect(sourceLog).toContain('pages/Page2.tsx');
+    expect(sourceLog).toContain('pages/Page15.tsx');
+
+    const [, requestInit] = mockFetch.mock.calls[0] as [string, { body?: string }];
+    const requestBody = JSON.parse(requestInit.body ?? '{}') as { userPrompt?: string };
+    const fileMarkerCount = (requestBody.userPrompt?.match(/<<<FILE:/g) ?? []).length;
+    expect(fileMarkerCount).toBe(2);
+    expect(requestBody.userPrompt).toContain('pages/Page2.tsx');
+    expect(requestBody.userPrompt).toContain('pages/Page15.tsx');
+    expect(requestBody.userPrompt).not.toContain('pages/Page0.tsx');
+    expect(requestBody.userPrompt).not.toContain('pages/Page33.tsx');
+  });
+
+  it('merges patch when LLM emits path without src/ but currentFiles key has src/ prefix', async () => {
+    // Simulates the production bug: filteredFiles has "src/config/navigation.ts" (from media/theme
+    // pipeline that preserves src/ prefix), but parseFileMarkers normalises the LLM output to
+    // "config/navigation.ts" — direct `in` check fails; normalised-key map must bridge the gap.
+    const currentFiles: Record<string, string> = {
+      'src/config/navigation.ts': 'export const BOTTOM_TABS = [];',
+      'pages/Home.tsx': 'export default function Home(){ return <div/>; }',
+    };
+
+    mockFetch.mockResolvedValue({
+      ok:   true,
+      text: async () =>
+        JSON.stringify({
+          output_text: [
+            '<<<FILE: config/navigation.ts>>>',
+            'export const BOTTOM_TABS = [{ to: "/", label: "Home" }];',
+            '<<<END>>>',
+          ].join('\n'),
+          finish_reason: 'stop',
+        }),
+    });
+
+    const logs: string[] = [];
+    const result = await runQualityRepair({
+      prompt:             'wellness app',
+      skeletonId:         'mobile-app',
+      currentFiles,
+      blockingReasons:    ['Empty or generic dashboard metric cards: config/navigation.ts: empty local arrays'],
+      repairInstructions: ['Fill BOTTOM_TABS with realistic navigation entries'],
+      designContractViolations: [],
+      visualUsageDiagnostics:   { ...validVisualDiagnostics(), premiumUsageObserved: true, mediaUsageObserved: true },
+      productSpecificityDiagnostics: null,
+      routeOverrides: {
+        fix: { modelId: 'test', endpoint: 'https://test.example.com/api', apiKey: 'k', provider: 'claude-cli' },
+      },
+      onLog: (msg) => logs.push(msg),
+    });
+
+    // Patch must be applied to the ORIGINAL key (with src/)
+    expect(result['src/config/navigation.ts']).toContain('Home');
+    // Unpatched file must survive unchanged
+    expect(result['pages/Home.tsx']).toBe('export default function Home(){ return <div/>; }');
+    // No "unexpected" warning
+    expect(logs.some(l => l.includes('unexpected'))).toBe(false);
+    // Patched count log
+    expect(logs.some(l => l.includes('repair patched 1 file'))).toBe(true);
   });
 });

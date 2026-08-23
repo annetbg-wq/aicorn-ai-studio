@@ -47,5 +47,32 @@
     "src/pages/Dashboard.tsx",
     "src/pages/DataView.tsx",
     "src/pages/Settings.tsx"
-  ]
+  ],
+  "carcassFiles": [
+    "src/data/seed.ts",
+    "src/data/types.ts",
+    "src/config/app.ts",
+    "src/config/navigation.ts"
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "DEFAULT_CHECKLIST", "type": "readonly ChecklistTask[]" }
+    ],
+    "data/types.ts": [
+      { "name": "ChecklistTask" },
+      { "name": "DataRow" },
+      { "name": "RowStatus" },
+      { "name": "KPIMetric" },
+      { "name": "UserProfile" },
+      { "name": "LoadingState" },
+      { "name": "ThemeChoice" }
+    ],
+    "config/app.ts": [
+      { "name": "STORAGE_KEYS" },
+      { "name": "APP_CONFIG" }
+    ],
+    "config/navigation.ts": [
+      { "name": "SIDEBAR_NAV" }
+    ]
+  }
 }

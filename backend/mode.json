@@ -1,5 +1,5 @@
 {
-  "provider": "claude",
-  "claudeMode": true,
-  "updatedAt": "2026-05-12T21:03:36.541Z"
+  "provider": "off",
+  "claudeMode": false,
+  "updatedAt": "2026-06-09T16:55:50.709Z"
 }

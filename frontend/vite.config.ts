@@ -445,7 +445,7 @@ export default defineConfig({
             return 'vendor-framer';
           }
           // Split heavy service modules that are only needed during generation
-          if (id.includes('services/SimpleGeneration') || id.includes('services/Orchestrator')) {
+          if (id.includes('services/GenerationEngine') || id.includes('services/Orchestrator')) {
             return 'generation-engine';
           }
           if (id.includes('services/designSystem') || id.includes('services/designSystem/')) {

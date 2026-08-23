@@ -37,6 +37,10 @@ import {
   type SupportedAppLanguage,
 } from '../shared/appLanguage';
 
+const viteEnv = ((import.meta as ImportMeta & {
+  env?: Record<string, string | undefined>;
+}).env) ?? {};
+
 export {
   SUPPORTED_APP_LANGUAGES,
   normalizeAppLanguage,
@@ -197,7 +201,7 @@ export const ConfigService = {
 
   // ── OpenRouter API Key ────────────────────────────────────────────────────
 
-  getApiKey(): string        { return get(K.API_KEY) ?? import.meta.env.VITE_OPENROUTER_API_KEY ?? ''; },
+  getApiKey(): string        { return get(K.API_KEY) ?? viteEnv.VITE_OPENROUTER_API_KEY ?? ''; },
   setApiKey(v: string): void {
     set(K.API_KEY, v);
     if (v.trim()) void this.saveKeyToCloud(K.API_KEY, v);
@@ -352,22 +356,22 @@ export const ConfigService = {
 
   // ── Named provider shortcuts (backward compat) ─────────────────────────
 
-  getGoogleApiKey(): string            { return this.getProviderKey('google') || (import.meta.env.VITE_GOOGLE_API_KEY ?? ''); },
+  getGoogleApiKey(): string            { return this.getProviderKey('google'); },
   setGoogleApiKey(v: string): void     { this.setProviderKey('google', v); },
 
-  getAnthropicApiKey(): string         { return this.getProviderKey('anthropic') || (import.meta.env.VITE_ANTHROPIC_API_KEY ?? ''); },
+  getAnthropicApiKey(): string         { return this.getProviderKey('anthropic') || (viteEnv.VITE_ANTHROPIC_API_KEY ?? ''); },
   setAnthropicApiKey(v: string): void  { this.setProviderKey('anthropic', v); },
 
-  getOpenAIApiKey(): string            { return this.getProviderKey('openai') || (import.meta.env.VITE_OPENAI_API_KEY ?? ''); },
+  getOpenAIApiKey(): string            { return this.getProviderKey('openai') || (viteEnv.VITE_OPENAI_API_KEY ?? ''); },
   setOpenAIApiKey(v: string): void     { this.setProviderKey('openai', v); },
 
-  getDeepSeekApiKey(): string          { return this.getProviderKey('deepseek') || (import.meta.env.VITE_DEEPSEEK_API_KEY ?? ''); },
+  getDeepSeekApiKey(): string          { return this.getProviderKey('deepseek'); },
   setDeepSeekApiKey(v: string): void   { this.setProviderKey('deepseek', v); },
 
-  getMistralApiKey(): string           { return this.getProviderKey('mistral') || (import.meta.env.VITE_MISTRAL_API_KEY ?? ''); },
+  getMistralApiKey(): string           { return this.getProviderKey('mistral') || (viteEnv.VITE_MISTRAL_API_KEY ?? ''); },
   setMistralApiKey(v: string): void    { this.setProviderKey('mistral', v); },
 
-  getGroqApiKey(): string              { return this.getProviderKey('groq') || (import.meta.env.VITE_GROQ_API_KEY ?? ''); },
+  getGroqApiKey(): string              { return this.getProviderKey('groq') || (viteEnv.VITE_GROQ_API_KEY ?? ''); },
   setGroqApiKey(v: string): void       { this.setProviderKey('groq', v); },
 
   // ── Deploy tokens ─────────────────────────────────────────────────────────
@@ -540,7 +544,7 @@ export const ConfigService = {
     // from file-seeded entries written by loadFromBackend().
     set(`${key}${AGENT_CONFIG_SOURCE_SUFFIX}`, 'user_set');
     void this.saveKeyToCloud(key, value);
-    void this.saveToBackend(agentId, config);
+    // Model choices are localStorage-only; do NOT write to backend file.
   },
 
   // ── Per-stage max token limits ───────────────────────────────────────────
@@ -702,7 +706,7 @@ export const ConfigService = {
     const storageKey = PROVIDER_KEYS[provider];
     if (storageKey) set(storageKey, key);
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-keys`, {
+      await fetch(`${viteEnv.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, key }),
@@ -720,7 +724,7 @@ export const ConfigService = {
   async loadProviderKeysFromBackend(): Promise<void> {
     try {
       // Optional flags-only probe, never fetches key values and never mutates localStorage.
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-keys`);
+      await fetch(`${viteEnv.VITE_API_URL || 'http://127.0.0.1:3000'}/provider-keys`);
     } catch {
       // backend not running — keep existing local/user/cloud values untouched
     }
@@ -745,7 +749,7 @@ export const ConfigService = {
    */
   async loadFromBackend(): Promise<void> {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`);
+      const res = await fetch(`${viteEnv.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`);
       if (!res.ok) return;
       const responseData = await res.json() as Record<string, unknown>;
 
@@ -757,8 +761,6 @@ export const ConfigService = {
       const fileData = { ...responseData };
       delete fileData._configSource;
 
-      const toSync: Array<{ agentId: string; config: AgentConfig }> = [];
-
       for (const [agentId, fileConfig] of Object.entries(fileData)) {
         if (!fileConfig || typeof fileConfig !== 'object') continue;
         const lsKey    = `AGENT_CONFIG_${agentId}`;
@@ -768,6 +770,7 @@ export const ConfigService = {
 
         if (lsRaw !== null) {
           // ── Slot already has a value in localStorage ──────────────────────
+          // Model choices are localStorage-only. Never push back to the backend file.
 
           if (marker === 'backend_file_seed') {
             // Legacy factory seed — migrate: strip provider/modelId, keep only maxTokens.
@@ -784,30 +787,15 @@ export const ConfigService = {
             }
             set(sourceKey, 'backend_factory_template');
             console.log(`[ConfigService] Migrated factory-seeded ${agentId} → stripped provider/modelId`);
-
-          } else if (marker === 'backend_factory_template') {
-            // Already migrated — skip (do not re-seed or push).
-
-          } else {
-            // user_set, backend_runtime_saved, null (pre-migration / unknown) — push to
-            // the file if it differs, so the runtime file stays in sync with the user's choice.
-            try {
-              const lsCfg   = JSON.parse(lsRaw) as AgentConfig;
-              const lsNorm   = JSON.stringify(JSON.parse(lsRaw));
-              const fileNorm = JSON.stringify(fileConfig);
-              if (lsNorm !== fileNorm) {
-                toSync.push({ agentId, config: lsCfg });
-              }
-            } catch {
-              // Corrupted localStorage entry — leave as-is (do not overwrite with factory).
-            }
           }
+          // All other markers (user_set, backend_runtime_saved, backend_factory_template, null):
+          // localStorage is authoritative — leave as-is, do not overwrite or push to backend.
 
         } else {
           // ── Slot is empty in localStorage ────────────────────────────────
 
           if (configSource === 'runtime') {
-            // Runtime file represents explicitly saved user settings — seed all fields.
+            // Runtime file represents previously saved settings — seed all fields.
             set(lsKey, JSON.stringify(fileConfig));
             set(sourceKey, 'backend_runtime_saved');
           } else {
@@ -823,13 +811,7 @@ export const ConfigService = {
         }
       }
 
-      // Push any user-set values that diverged from the file back to the runtime file.
-      if (toSync.length > 0) {
-        await Promise.allSettled(toSync.map(({ agentId, config }) => this.saveToBackend(agentId, config)));
-        console.log(`[ConfigService] Synced ${toSync.length} agent config(s) from localStorage → backend`);
-      } else {
-        console.log('[ConfigService] Agent configs in sync with backend');
-      }
+      console.log('[ConfigService] Agent configs loaded from backend (read-only).');
     } catch {
       // backend not running or unreachable — silently fall back to localStorage
     }
@@ -841,7 +823,7 @@ export const ConfigService = {
    */
   async saveToBackend(agentId: string, config: AgentConfig): Promise<void> {
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`, {
+      await fetch(`${viteEnv.VITE_API_URL || 'http://127.0.0.1:3000'}/agent-config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agentId, config }),

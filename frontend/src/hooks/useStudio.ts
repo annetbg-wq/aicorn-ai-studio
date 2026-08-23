@@ -27,8 +27,8 @@ import {
   type PhaseEvent,
   type UsageData,
 } from '../services/Orchestrator';
-import { SimpleGeneration as GenerationPipeline } from '../services/SimpleGeneration';
-import type { ProjectPlan } from '../services/SimpleGeneration';
+import { GenerationEngine } from '../services/GenerationEngine';
+import type { ProjectPlan } from '../services/types/ProjectPlan';
 import {
   classifyIdea,
   fallbackClassify,
@@ -231,7 +231,7 @@ export interface PendingBlueprintPlan {
   architectKickoff?: PendingArchitectKickoffSelection | null;
 }
 
-type GeneratedPlanPreview = Awaited<ReturnType<typeof GenerationPipeline.generatePlan>>;
+type GeneratedPlanPreview = Awaited<ReturnType<typeof GenerationEngine.generatePlan>>;
 
 export function scheduleKickoffFastStart(input: {
   pendingPlan: PendingBlueprintPlan | null;
@@ -1929,6 +1929,7 @@ export const useStudio = () => {
     intent: string,
     source: ComposerContextSource = 'weekly-feed',
     titleOverride?: string,
+    docPack?: import('../services/DocumentationPackService').DocumentationPack,
   ) => {
     const appName = (titleOverride ?? plan?.appName ?? '').trim();
     const title = appName || intent.slice(0, 64) || 'Imported context';
@@ -2000,6 +2001,10 @@ export const useStudio = () => {
       inputRef.current = normalizedIntent;
       setInput(normalizedIntent);
     }
+
+    if (docPack !== undefined) {
+      setComposerDocPack(docPack);
+    }
   }, []);
 
   /**
@@ -2060,7 +2065,12 @@ export const useStudio = () => {
   const [machineState,    setMachineState]    = useState<MachineState>(INITIAL_STATE);
   /** Explicit kickoff lifecycle — only meaningful for genesis (existingCodeCount === 0) runs. */
   const [kickoffPhase,    setKickoffPhase]    = useState<KickoffPhase>('idle');
+  /** Surface type: landing | app | superapp — chosen by user or plan. */
   const [generationMode,  setGenerationMode]  = useState<'landing' | 'app' | 'superapp'>('app');
+  /** Generation path: skeleton_assembly → ProtoPipeline, blank_canvas → LVPipeline. User-only. */
+  const [generationPath,  setGenerationPath]  = useState<'skeleton_assembly' | 'blank_canvas'>('skeleton_assembly');
+  /** DocumentationPack attached to the most recent trend-niche / weekly-feed launch. */
+  const [composerDocPack, setComposerDocPack] = useState<import('../services/DocumentationPackService').DocumentationPack | null>(null);
   const [generationSource, setGenerationSource] = useState<GenerationSource>('chat');
   const [designClassification, setDesignClassification] = useState<ClassificationResult | null>(null);
   const [composerContextItems, setComposerContextItems] = useState<ComposerContextItem[]>([]);
@@ -2483,7 +2493,7 @@ export const useStudio = () => {
         pagesCount:     pending.plan?.pages?.length ?? existing.pagesCount ?? 0,
         modelId:        pending.effectiveModel,
         durationMs:     Date.now() - pending.generationStartMs,
-        generationMode,
+        generationPath,
         billingCost:    projectCost,
         billingTokens:  projectTokens,
         revisions:      reconciledThread.revisions,
@@ -2542,7 +2552,7 @@ export const useStudio = () => {
         pagesCount:     pending.plan?.pages?.length ?? 0,
         modelId:        pending.effectiveModel,
         durationMs:     Date.now() - pending.generationStartMs,
-        generationMode,
+        generationPath,
         billingCost:    projectCost,
         billingTokens:  projectTokens,
         revisions:      firstThread.revisions,
@@ -2583,7 +2593,7 @@ export const useStudio = () => {
       pagesCount:     pending.plan?.pages?.length ?? 0,
       modelId:        pending.effectiveModel,
       durationMs:     Date.now() - pending.generationStartMs,
-      generationMode,
+      generationPath,
       billingCost:    projectCost,
       billingTokens:  projectTokens,
       revisions:      existingForCloud?.revisions ?? [],
@@ -2855,7 +2865,7 @@ export const useStudio = () => {
     }
     setIsAutoFixing(true);
     addLog(`[AutoFix] Attempt ${attempt}/${MAX_FIX_ATTEMPTS}: ${errorMsg.slice(0, 100)}`);
-    GenerationPipeline.autoFix({ errorMsg, apiKey: effectiveKey, onLog: addLog })
+    GenerationEngine.autoFix({ errorMsg, apiKey: effectiveKey, onLog: addLog })
       .then(success => {
         if (success) {
           setPreviewLifecycle('committing'); // waiting for backend recompile + preview-mounted
@@ -3095,6 +3105,10 @@ export const useStudio = () => {
       setProjectCost(b.cost);
       setProjectTokens(b.tokens);
       clearSnapshots();
+
+      // Restore generationPath from persisted project (default → skeleton_assembly)
+      const restoredPath = full.generationPath === 'blank_canvas' ? 'blank_canvas' : 'skeleton_assembly';
+      setGenerationPath(restoredPath);
 
       // 1. Compile project files — await so backend compile + preview-mounted(buildId) complete before React state update
       const persistedFileCount = Object.keys(full.files ?? {}).length;
@@ -3941,7 +3955,7 @@ export const useStudio = () => {
     } else {
       const planRoute = resolveStandardRoute('primary', { onLog: addLog });
       try {
-        plan = await GenerationPipeline.generatePlan({
+        plan = await GenerationEngine.generatePlan({
           intent:   userPrompt,
           userLang,
           apiKey:   planRoute.apiKey,
@@ -4291,7 +4305,7 @@ export const useStudio = () => {
         traceStepIds.delete(stepId);
       };
 
-      const runOnce = (intentArg: string, buildRouteOverride?: AgentExecutionRoute) => GenerationPipeline.run({
+      const runOnce = (intentArg: string, buildRouteOverride?: AgentExecutionRoute) => GenerationEngine.run({
         intent:       intentArg,
         history,
         files:        contextWithTheme,
@@ -4644,7 +4658,7 @@ export const useStudio = () => {
         if (isParseFailure) {
           addLog('LLM returned invalid format — no parseable artifact found', 'error');
         } else {
-          addLog(`[GenerationPipeline] failed: ${failMsg}`, 'error');
+          addLog(`[GenerationEngine] failed: ${failMsg}`, 'error');
         }
         startTransition(() => {
           chatPatchLast({
@@ -5717,7 +5731,7 @@ export const useStudio = () => {
     currentSnapshotId, historyIndex,
     logs, addLog, clearLogs, downloadLogs,
     attachments, addAttachment, removeAttachment, clearAttachments,
-    composerContextItems, activeProjectContext, addComposerContextFromPlan, setChatContext, removeComposerContextItem, clearComposerContextItems,
+    composerContextItems, activeProjectContext, addComposerContextFromPlan, setChatContext, removeComposerContextItem, clearComposerContextItems, composerDocPack,
     startTrendIdeaDraftSession,
     startExternalChatDraftSession,
     handleSend,
@@ -5757,6 +5771,7 @@ export const useStudio = () => {
     autoRoute, setAutoRoute,
     // generation mode
     generationMode, setGenerationMode,
+    generationPath, setGenerationPath,
     generationSource, setGenerationSource,
     designClassification,
     classifyAndStore,
@@ -5812,7 +5827,7 @@ export const useStudio = () => {
     // state — re-memoize only when actual data changes
     // messages/input intentionally excluded — returned directly below
     files, activeFile, theme, apiKey, selectedModel,
-    isGenerating, device, progress, currentPhase, kickoffPhase, fullContextMode, autoRoute, generationMode, previewLifecycle, previewBlockedReason, previewUrl, previewReady, pendingProjectSaveMeta, machineState,
+    isGenerating, device, progress, currentPhase, kickoffPhase, fullContextMode, autoRoute, generationMode, generationPath, previewLifecycle, previewBlockedReason, previewUrl, previewReady, pendingProjectSaveMeta, machineState,
     designClassification,
     projectGraph,
     snapshots, historyIndex, currentProjectId, currentProject, currentSnapshotId, stableSnapshotId, projectPersistenceState, chatThreadKey,
@@ -5829,7 +5844,7 @@ export const useStudio = () => {
     componentRegistry,
     pendingPlan, pendingDiff, pendingAdmission,
     // stable callbacks (useCallback — listed for ESLint correctness, never change)
-    setInput, setDevice, setTheme, setApiKey, setSelectedModel, setFullContextMode, setAutoRoute, setGenerationMode,
+    setInput, setDevice, setTheme, setApiKey, setSelectedModel, setFullContextMode, setAutoRoute, setGenerationMode, setGenerationPath,
     setActiveFile, addSnapshot, restoreSnapshot, undo, redo, clearSnapshots, markSnapshotStable, rollbackToStable,
     addLog, clearLogs, downloadLogs,
     addAttachment, removeAttachment, clearAttachments,

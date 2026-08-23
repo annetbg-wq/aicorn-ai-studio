@@ -22,7 +22,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import type { FileMap } from '../hooks/useStudio';
 import { previewController, type PreviewState } from '../services/PreviewController';
 import { revisionManager } from '../services/RevisionManager';
-import { SimpleGeneration } from '../services/SimpleGeneration';
+import { GenerationEngine } from '../services/GenerationEngine';
 import { useProjectScreenshot } from '../hooks/useProjectScreenshot';
 import { resolvePreviewUI } from '../services/previewLifecycleResolver';
 import { appendPreviewSessionToUrl } from '../services/PreviewSessionService';
@@ -763,7 +763,7 @@ export const SandpackView: React.FC<SandpackViewProps> = ({
                   setIsFixing(true);
                   setFixFailed(false);
                   try {
-                    const ok = await SimpleGeneration.autoFix({
+                    const ok = await GenerationEngine.autoFix({
                       errorMsg: ui.error?.message ?? '',
                       apiKey: apiKey,
                     });

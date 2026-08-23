@@ -27,5 +27,20 @@
     "src/config/app.ts",
     "src/data/content.ts",
     "src/App.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/content.ts": [
+      { "name": "NAV_LINKS" },
+      { "name": "SOCIAL_PROOF_LOGOS" },
+      { "name": "FEATURES" },
+      { "name": "STEPS" },
+      { "name": "PricingTier" },
+      { "name": "PRICING" },
+      { "name": "FAQ" },
+      { "name": "FOOTER_COLUMNS" }
+    ],
+    "config/app.ts": [
+      { "name": "APP_CONFIG" }
+    ]
+  }
 }

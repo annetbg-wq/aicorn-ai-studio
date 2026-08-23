@@ -2,6 +2,10 @@
 import { createClient } from '@supabase/supabase-js';
 import type { WebSocketLikeConstructor } from '@supabase/realtime-js';
 
+const viteEnv = ((import.meta as ImportMeta & {
+  env?: Record<string, string | undefined>;
+}).env) ?? {};
+
 // Primary: env vars (build time)
 // Fallback: localStorage (persisted from Settings UI)
 // Last resort: hardcoded dev values
@@ -11,12 +15,12 @@ const _localStorage: Storage | undefined =
   typeof localStorage !== 'undefined' ? localStorage : undefined;
 
 const SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL ||
+  viteEnv.VITE_SUPABASE_URL ||
   _localStorage?.getItem('SUPABASE_URL') ||
   'https://zdzuaodphrlpvorutpyc.supabase.co';
 
 const SUPABASE_ANON_KEY =
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  viteEnv.VITE_SUPABASE_ANON_KEY ||
   _localStorage?.getItem('SUPABASE_ANON_KEY') ||
   '';
 

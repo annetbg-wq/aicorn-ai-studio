@@ -42,6 +42,7 @@ export interface ProjectRecord {
   activeBranchId?: string;
   branches?: Record<string, PersistedProjectBranch>;
   userId?:     string;
+  generationPath?: string; // 'skeleton_assembly' | 'blank_canvas'
 }
 
 export interface ProjectMetaSummary {
@@ -367,6 +368,7 @@ export const ProjectRepository = {
               version:     data.version ?? 1,
               activeBranchId: snap?.activeBranchId,
               branches: snap?.branches,
+              generationPath: snap?.generationPath ?? undefined,
             };
             if (snap?.revisions) (record as any).revisions = snap.revisions;
             const { activeBranchId, branches } = normalizeProjectBranches(record);
@@ -396,6 +398,7 @@ export const ProjectRepository = {
         version:     1,
         activeBranchId: legacy.activeBranchId,
         branches: legacy.branches,
+        generationPath: (legacy as any).generationPath ?? undefined,
       };
       const { activeBranchId, branches } = normalizeProjectBranches(record);
       const activeBranch = branches[activeBranchId];
@@ -455,6 +458,7 @@ export const ProjectRepository = {
       ...((normalizedProject as any).modelId        !== undefined && { modelId:        (normalizedProject as any).modelId }),
       ...((normalizedProject as any).durationMs     !== undefined && { durationMs:     (normalizedProject as any).durationMs }),
       ...((normalizedProject as any).generationMode !== undefined && { generationMode: (normalizedProject as any).generationMode }),
+      ...((normalizedProject as any).generationPath !== undefined && { generationPath: (normalizedProject as any).generationPath }),
       ...((normalizedProject as any).billingCost    !== undefined && { billingCost:    (normalizedProject as any).billingCost }),
       ...((normalizedProject as any).billingTokens  !== undefined && { billingTokens:  (normalizedProject as any).billingTokens }),
       ...((normalizedProject as any).revisions      !== undefined && { revisions:      (normalizedProject as any).revisions }),

@@ -37,10 +37,38 @@ export interface AggregateBaseline {
   modelId:           string;
   runId:             string;
   createdAt:         string;
-  previewReadyRate:  number;   // 0–1
+  intentCount:       number;
   avgFileCount:      number;
   avgDurationMs:     number;
-  intentCount:       number;
+  // ── E2E axis (Layer 2 — requires backend compile) ──────────────────────────
+  previewReadyRate:  number;   // 0–1
+  // ── Structural axes (Layer 1 — apply-step dependency, no backend compile needed) ─
+  designContractCleanRate: number;  // 0–1: pre-repair coder quality (substrate signal; low on flash)
+  designContractFinalRate: number;  // 0–1: post-repair committed code quality (repair reliability)
+  qualityPassRate:         number;  // 0–1: fraction that passed GenerationQualityService
+  avgVisualScore:          number;  // 0–100: average of VisualQualityService.score
+}
+
+export function buildAggregateBaseline(report: BenchmarkReport): AggregateBaseline {
+  const total = report.summary.total;
+  const visualResults = report.results.filter(r => r.visualQuality != null);
+  const avgVisualScore = visualResults.length > 0
+    ? Math.round(visualResults.reduce((s, r) => s + (r.visualQuality?.score ?? 0), 0) / visualResults.length)
+    : 0;
+
+  return {
+    modelId:           report.modelId,
+    runId:             report.runId,
+    createdAt:         report.finishedAt,
+    intentCount:       total,
+    avgFileCount:      report.summary.avgFileCount,
+    avgDurationMs:     report.summary.avgDurationMs,
+    previewReadyRate:        total > 0 ? report.summary.previewReady / total : 0,
+    designContractCleanRate: report.summary.designContractCleanRate,
+    designContractFinalRate: report.summary.designContractFinalRate,
+    qualityPassRate:         report.summary.qualityPassRate,
+    avgVisualScore,
+  };
 }
 
 // ── Table name ─────────────────────────────────────────────────────────────────
@@ -102,8 +130,18 @@ export const BaselineStore = {
       return null;
     }
     if (!data) return null;
+    const aggregate = rowToAggregate(data as BaselineRow, modelId);
+    const intents = await this.getRunIntents(aggregate.runId);
+    if (intents.length === 0) {
+      return aggregate;
+    }
 
-    return rowToAggregate(data as BaselineRow, modelId);
+    const previewReady = intents.filter((row) => row.outcome === 'preview-ready').length;
+    return {
+      ...aggregate,
+      previewReadyRate: previewReady / intents.length,
+      intentCount: intents.length,
+    };
   },
 
   /**
@@ -188,12 +226,16 @@ export const BaselineStore = {
 function rowToAggregate(row: BaselineRow, modelId: string): AggregateBaseline {
   return {
     modelId,
-    runId:            row.run_id,
-    createdAt:        row.created_at ?? new Date().toISOString(),
-    // previewReadyRate not directly stored — caller must compute from intent rows or pass 0
-    previewReadyRate: 0,
-    avgFileCount:     row.file_count,
-    avgDurationMs:    row.duration_ms,
-    intentCount:      0, // populated by getBaseline callers when needed
+    runId:             row.run_id,
+    createdAt:         row.created_at ?? new Date().toISOString(),
+    intentCount:       0,       // populated by getBaseline callers when needed
+    avgFileCount:      row.file_count,
+    avgDurationMs:     row.duration_ms,
+    // Rates not stored in the legacy DB schema — caller must compute or re-run baseline.
+    previewReadyRate:        0,
+    designContractCleanRate: 0,
+    designContractFinalRate: 0,
+    qualityPassRate:         0,
+    avgVisualScore:          0,
   };
 }

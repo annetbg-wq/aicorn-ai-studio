@@ -48,5 +48,23 @@
     "src/pages/Lobby.tsx",
     "src/pages/Promotions.tsx",
     "src/pages/ResponsibleGaming.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "games" },
+      { "name": "bonuses" },
+      { "name": "tournaments" }
+    ],
+    "data/types.ts": [
+      { "name": "Game" },
+      { "name": "Bonus" },
+      { "name": "Tournament" }
+    ],
+    "config/app.ts": [
+      { "name": "appConfig" }
+    ],
+    "config/navigation.ts": [
+      { "name": "navigationItems" }
+    ]
+  }
 }

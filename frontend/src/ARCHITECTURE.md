@@ -3,7 +3,7 @@
 ## Canonical generation path (PRODUCTION)
 
 ```
-SimpleGeneration.run()
+GenerationEngine.run()
   → Architect LLM (plan JSON with thinking)
   → Coder LLM (FILE markers)
   → RevisionManager.createCandidate() + writeCandidateFile() × N

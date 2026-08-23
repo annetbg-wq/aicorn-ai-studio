@@ -23,14 +23,18 @@
 
 import { llmFetch } from './LLMProxy';
 import { ConfigService, type AgentSlot } from './ConfigService';
+import { metricsService } from './MetricsService';
+import type { GenerationOutcomeEvent } from '../shared/projectModel';
 import { Orchestrator } from './Orchestrator';
 import {
   type SkeletonId,
   SKELETON_REGISTRY,
   buildSkeletonPromptBlock,
+  checkExportIntegrity,
   getEditableSkeletonFiles,
   getSkeletonInstalledFiles,
   isProtectedSkeletonFile,
+  mergeSkeletonExports,
 } from './SkeletonRegistry';
 import { previewController } from './PreviewController';
 import {
@@ -109,6 +113,7 @@ import {
 import {
   buildMarketAwareBuilderBrief,
   buildBuilderOwnedSelfPlanInstructions,
+  buildProductIdentitySubstitutionContract,
   evaluateMarketAwareBuilderBriefDiagnostics,
   serializeMarketAwareBriefDiagnosticsTelemetry,
   serializeMarketAwareBuilderBriefForCoder,
@@ -128,7 +133,16 @@ import {
   type BuildMinimalArchitectPlanAdapterInput,
 } from './ArchitectReplacementAdapter';
 import { validateDownscopedArchitectOutput } from './ArchitectOutputValidator';
-import { executeWithClassifiedRetry, recordLlmCallDiagnostics } from './LLMTransportError';
+import { executeWithClassifiedRetry, recordLlmCallDiagnostics, recordLlmCallOutcome, LlmTransportError } from './LLMTransportError';
+import {
+  buildCoderOutputBudgetDiagnostics,
+  recordCoderOutputBudgetDiagnostics,
+} from './CoderOutputBudgetDiagnostics';
+import { buildSkeletonContractForCoder } from './SkeletonContractForCoder';
+import {
+  measureCoderPromptBlockSizes,
+  recordCoderPromptBlockSizes,
+} from './CoderPromptBlockSizeDiagnostics';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -389,6 +403,8 @@ export interface ProtoPipelineConfig {
   skipClarify?: boolean;
   signal?:      AbortSignal;
   routeOverrides?: Partial<Record<AgentSlot, ResolvedRoute>>;
+  /** Unified run id — passed by SimpleGeneration so fail() and success share one id. */
+  runId?:       string;
   /** Step lifecycle events for the progress UI. */
   onStep:       (e: StepEvent) => void;
   /** Free-form log output (debug pane, telemetry). */
@@ -409,6 +425,17 @@ export interface ProtoPipelineResult {
   stepResults?:       Partial<Record<StepId, StepExecutionMetrics>>;
   fastPathTelemetry?: FastPathTelemetry;
   runTelemetry?:      GenerationRunTelemetry;
+  /** Data for the flywheel outcome event — populated by both success and fail() paths. */
+  outcomeData?: {
+    repairPasses:          number;
+    /** Pre-repair: was the coder's FIRST output contract-clean? (signal for substrate quality) */
+    designContractOk?:      boolean;
+    /** Post-repair: does the FINAL committed code satisfy the contract? (signal for repair reliability) */
+    designContractFinalOk?: boolean;
+    compiled:              boolean;
+    failedStep?:           StepId;
+    errorMessage?:         string;
+  };
 }
 
 export interface ArchitectPlan {
@@ -463,6 +490,13 @@ const STEP_BUDGET = {
   repair:        { maxTokens: 12_000, timeoutMs: 120_000 },
   qualityRepair: { maxTokens:  8_000, timeoutMs:  90_000 },
 } as const;
+
+/**
+ * Exported for diagnostics/tests — proves coder.maxTokens was not lowered
+ * as part of the coder-skeleton-context-contract fix.
+ * The fix reduces INPUT payload (skeleton contract), not OUTPUT budget.
+ */
+export const CODER_MAX_TOKENS = STEP_BUDGET.coder.maxTokens;
 
 const MAX_REPAIR_PASSES = 2;
 
@@ -1444,6 +1478,14 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     const stepStartedAt = new Map<StepId, number>();
     let compileCount = 0;
     let finalPreviewMounted = false;
+    // ── Outcome telemetry state (captured by fail() closure) ──────────────────
+    const runId = config.runId ?? config.buildId;
+    let capturedPlan: ArchitectPlan | undefined;
+    let designContractOk:      boolean | undefined;  // pre-repair (coder first pass)
+    let designContractFinalOk: boolean | undefined;  // post-repair (committed code)
+    let repairPasses = 0;
+    // true once the final build compile loop starts (not the skeleton compile)
+    let buildCompileAttempted = false;
     const updateStepTimeline = (
       step: StepId,
       status: StepStatus,
@@ -1497,7 +1539,41 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     const fail = (step: StepId, error: string): ProtoPipelineResult => {
       log(`[ProtoPipeline] ${step} failed: ${error}`, 'error');
       emit(step, 'error', error);
-      return { success: false, buildId: config.buildId, error, stepResults };
+      const isAborted = error === 'aborted';
+      const outcomeEvent: GenerationOutcomeEvent = {
+        runId,
+        prompt:          config.prompt.slice(0, 600),
+        skeletonId:      config.skeletonId,
+        planSummary:     capturedPlan?.summary,
+        deltaFileCount:  capturedPlan?.deltaFiles.length,
+        // compiled: only meaningful after build was actually attempted; aborts = undefined
+        compiled:        !isAborted && buildCompileAttempted ? false : undefined,
+        // repairPasses/designContractOk: undefined if we never reached architect/apply
+        repairPasses:    capturedPlan !== undefined ? repairPasses : undefined,
+        designContractOk,
+        durationMs:      Date.now() - runStartedAt,
+        outcome:         isAborted ? 'aborted' : 'failed',
+        failedStep:      step,
+        errorMessage:    error,
+      };
+      metricsService.logOutcomeEvent(outcomeEvent);
+      // Include outcomeData so callers (GenerationEngine, BenchmarkService) can read
+      // designContractOk even for failed runs. Previously this was only logged to telemetry,
+      // making designContractOkRate always 0 for suites where every intent failed at build.
+      return {
+        success: false,
+        buildId: config.buildId,
+        error,
+        stepResults,
+        outcomeData: {
+          repairPasses:          capturedPlan !== undefined ? repairPasses : 0,
+          designContractOk,
+          designContractFinalOk,
+          compiled:              false,
+          failedStep:            step,
+          errorMessage:          error,
+        },
+      };
     };
 
     if (!SKELETON_REGISTRY[config.skeletonId]) {
@@ -1589,6 +1665,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       if (isAbort(err)) return fail('architect', 'aborted');
       return fail('architect', (err as Error).message);
     }
+    capturedPlan = plan;
 
     // ── Controlled adapter fallback (rescue before pipeline guard) ────────────
     // Fires only when runArchitect output fails isArchitectPlanUsableForPipeline.
@@ -1899,6 +1976,8 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
 
     // Validate the design contract — fail loudly so the coder is forced to use tokens.
     const verdict = validateDesignContract(deltaFiles, designCtx);
+    designContractOk      = verdict.ok;   // pre-repair: coder first-pass quality signal
+    designContractFinalOk = verdict.ok;   // default = same; overwritten if repair runs
     if (!verdict.ok) {
       const summary = describeViolations(verdict.violations);
       log(`[design] ${verdict.violations.length} contract violation(s):\n${summary}`, 'warn');
@@ -1919,6 +1998,73 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     }
     if (Object.keys(filteredFiles).length === 0) {
       return fail('apply', 'All produced files are skeleton-protected — nothing to write');
+    }
+
+    // ── Scaffold merge (механизм Б) — BEFORE export integrity check ──────────
+    // For rich-skeleton project types (old-5 with scaffold+markers), restore any
+    // scaffold export the coder dropped.  Deterministic, no LLM call.
+    // Runs BEFORE checkExportIntegrity so merge closes the "coder dropped carcass
+    // export" gap and integrity check handles "coder's own symbol missing".
+    if (config.skeletonId) {
+      const merged = mergeSkeletonExports(config.skeletonId, filteredFiles);
+      if (merged !== filteredFiles) {
+        const restoredCount = Object.keys(filteredFiles).filter(
+          k => merged[k] !== filteredFiles[k],
+        ).length;
+        log(`[apply] scaffold merge: restored exports in ${restoredCount} file(s)`, 'info');
+        filteredFiles = merged;
+      }
+    }
+
+    // ── Export integrity check — targeted retry at source, BEFORE repair ────
+    // Verify that every required export listed in the manifest is present in the
+    // coder output.  If any are missing, issue ONE targeted retry asking the coder
+    // to re-emit only the offending files with the missing exports added.
+    const exportViolations = checkExportIntegrity(config.skeletonId, filteredFiles);
+    if (exportViolations.length > 0) {
+      const byFile = new Map<string, typeof exportViolations>();
+      for (const v of exportViolations) {
+        if (!byFile.has(v.file)) byFile.set(v.file, []);
+        byFile.get(v.file)!.push(v);
+      }
+      const instructions = Array.from(byFile.entries()).map(([file, vs]) => {
+        const exports = vs.map(v => (v.type ? `${v.name}: ${v.type}` : v.name)).join(', ');
+        return `${file} is missing required export(s) ${vs.map(v => v.name).join(', ')} — re-emit it exporting ${exports}`;
+      });
+      log(
+        `[apply] export-integrity violations (${exportViolations.length}): ${instructions.join(' | ')}`,
+        'warn',
+      );
+      const retryFiles = Array.from(byFile.keys());
+      const retrySystem =
+        `Same task as before. Some files are missing required exports that locked skeleton files import.\n` +
+        `Re-emit ONLY the files listed below with ALL existing content preserved AND the missing exports added.\n\n` +
+        `EXPORT VIOLATIONS:\n${instructions.map(i => `- ${i}`).join('\n')}\n\n` +
+        `FILES TO RE-EMIT:\n${retryFiles.map(f => `  - ${f}`).join('\n')}`;
+      try {
+        let retryBody = '';
+        await streamCall({
+          slot:          'build',
+          system:        retrySystem,
+          user:          'Re-emit the listed files with all required exports present.',
+          maxTokens:     STEP_BUDGET.coder.maxTokens,
+          timeoutMs:     STEP_BUDGET.coder.timeoutMs,
+          signal:        config.signal,
+          routeOverrides: config.routeOverrides,
+          onChunk:       (delta) => { retryBody += delta; },
+          onUsage:       (usage) => { coderUsage = mergeLlmUsage(coderUsage, usage); },
+        });
+        const retryParsed = parseFileMarkers(retryBody);
+        for (const [retryPath, retryContent] of Object.entries(retryParsed)) {
+          if (retryPath in filteredFiles) {
+            filteredFiles[retryPath] = retryContent;
+            log(`[apply] export-integrity retry: updated ${retryPath}`, 'info');
+          }
+        }
+      } catch (err) {
+        if (isAbort(err)) throw err;
+        log(`[apply] export-integrity retry failed: ${(err as Error).message}`, 'warn');
+      }
     }
     const selectedPremiumComponentIds = designCtx.premiumComponentSelection.selectedComponents
       .map(component => component.id)
@@ -2072,14 +2218,19 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
           currentFiles:                 filteredFiles,
           blockingReasons:              qualityGate.blockingReasons,
           repairInstructions:           qualityGate.repairInstructions,
+          designContractViolations:     verdict.ok ? [] : verdict.violations,
+          visualUsageDiagnostics,
           designCtx,
           productSpecificityDiagnostics,
           signal:                       config.signal,
           routeOverrides:               config.routeOverrides,
           onLog:                        log,
         });
+        repairPasses += 1;
         // Re-run diagnostics on repaired files — pure JS, no LLM
         const repairedVerdict = validateDesignContract(filteredFiles, designCtx);
+        // post-repair state: did the repair make the final code contract-clean?
+        designContractFinalOk = repairedVerdict.ok;
         const repairedVisualUsage = buildVisualUsageDiagnostics({
           files:                      filteredFiles,
           skeletonId:                 config.skeletonId,
@@ -2119,11 +2270,18 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         }
       } catch (err) {
         if (isAbort(err)) return fail('apply', 'aborted');
-        log(`[quality-gate] repair attempt failed: ${(err as Error).message}`, 'warn');
+        const repairErrMsg = (err as Error).message;
+        log(`[quality-gate] repair attempt failed: ${repairErrMsg}`, 'warn');
+        metricsService.recordError('orchestrator', `quality-repair infra failure: ${repairErrMsg}`, {
+          step: 'quality_repair',
+          blockingCount: qualityGate.blockingReasons.length,
+        });
         // Repair infrastructure failure (no FILE/END blocks, timeout, etc.) — we cannot
         // determine whether it would have fixed the issues. Degrade ALL blocking reasons to
         // advisory and continue. Hard-fail is reserved for when repair runs successfully but
         // re-evaluation still shows hard-blocking issues (handled in the try block above).
+        // Repair infra failed → final state unknown; mark as not verified.
+        designContractFinalOk = false;
         log(
           `[quality-gate] repair infrastructure failure — all ${qualityGate.blockingReasons.length} quality issue(s) downgraded to advisory (best-effort)`,
           'warn',
@@ -2138,6 +2296,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     let lastBuildErr: string | null = null;
     let currentFiles = filteredFiles;
     let buildOk = false;
+    buildCompileAttempted = true;
     for (let attempt = 0; attempt <= MAX_REPAIR_PASSES; attempt++) {
       try {
         compileCount += 1;
@@ -2171,10 +2330,16 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
             designCtx,
             mediaHints:  mediaMaterialization.mediaHints,
           });
+          repairPasses += 1;
           currentFiles = { ...currentFiles, ...repaired };
         } catch (repairErr) {
           if (isAbort(repairErr)) return fail('build', 'aborted');
-          log(`[repair] LLM call failed: ${(repairErr as Error).message}`, 'warn');
+          const repairErrMsg = (repairErr as Error).message;
+          log(`[repair] LLM call failed: ${repairErrMsg}`, 'warn');
+          metricsService.recordError('orchestrator', `build-repair LLM failure: ${repairErrMsg}`, {
+            step: 'build_repair',
+            attempt: attempt + 1,
+          });
           break;
         }
       }
@@ -2280,6 +2445,12 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       stepResults,
       fastPathTelemetry,
       runTelemetry,
+      outcomeData: {
+        repairPasses,
+        designContractOk,
+        designContractFinalOk,
+        compiled: true,
+      },
     };
   }
 
@@ -2653,6 +2824,10 @@ export function buildCoderPlanningBlocks(input: {
     input.skeletonIntegrationPlan ? buildSkeletonIntegrationPromptBlock(input.skeletonIntegrationPlan) : '',
     input.productSpecificityPlan ? buildProductSpecificityPromptBlock(input.productSpecificityPlan) : '',
     input.marketAwareBuilderBrief ? serializeMarketAwareBuilderBriefForCoder(input.marketAwareBuilderBrief) : '',
+    // Product Identity Substitution Contract — injected when a market-aware brief is present.
+    // Must appear after the brief (so the coder has product context) and before the
+    // self-plan instructions (so the substitution rules are in scope during planning).
+    input.marketAwareBuilderBrief ? buildProductIdentitySubstitutionContract() : '',
     input.marketAwareBuilderBrief ? buildBuilderOwnedSelfPlanInstructions(input.marketAwareBuilderBrief) : '',
   ].filter(Boolean).join('\n');
 }
@@ -2726,64 +2901,84 @@ async function runCoder(input: {
   const advertisedUiPrimitives = filterAdvertisedUiPrimitiveNames(skeleton.uiPrimitives);
   const uiPrimitiveImportCatalog = buildUiPrimitiveImportCatalog(advertisedUiPrimitives);
 
-  const system = `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.
+  // Compact skeleton contract: describes installed foundation, navigation config exports,
+  // and per-skeleton import rules. Replaces hardcoded mobile-specific nav lines.
+  // Does NOT include raw skeleton source code — structural contract only.
+  const skeletonContractBlock = buildSkeletonContractForCoder(input.skeletonId);
 
-SKELETON: ${skeleton.label} (${skeleton.id})
-PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}
-PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}
-UI PRIMITIVES: ${advertisedUiPrimitives.join(', ') || '(see registry)'}
-${contractBlock ? `\n${contractBlock}\n` : ''}${planningBlocks ? '\n' + planningBlocks + '\n' : ''}
-${skeletonPromptBlock}
-DELTA FILE TREE FROM ARCHITECT (source of truth):
-${fileTreeBlock || '  - (none)'}
+  // ── Prompt sub-blocks (measured for diagnostics) ───────────────────────────
+  const skeletonHeaderBlock =
+    `You are a senior React + TypeScript + Tailwind engineer. You are completing an app on top of an existing skeleton.\n\n` +
+    `SKELETON: ${skeleton.label} (${skeleton.id})\n` +
+    `PROVIDED COMPONENTS: ${skeleton.providedComponents.join(', ') || '(see registry)'}\n` +
+    `PROVIDED HOOKS: ${skeleton.providedHooks.join(', ') || '(see registry)'}\n` +
+    `UI PRIMITIVES: ${advertisedUiPrimitives.join(', ') || '(see registry)'}`;
 
-YOU MUST write EXACTLY these files and only these files:
-${fileList}
+  const filePlanBlock =
+    `DELTA FILE TREE FROM ARCHITECT (source of truth):\n${fileTreeBlock || '  - (none)'}\n\n` +
+    `YOU MUST write EXACTLY these files and only these files:\n${fileList}\n\n` +
+    `PAGES TO WIRE INTO THE ROUTER:\n${pageList}` +
+    dataModelBlock + notesBlock;
 
-PAGES TO WIRE INTO THE ROUTER:
-${pageList}
-${dataModelBlock}${notesBlock}
-OUTPUT FORMAT — CRITICAL
-Emit each file enclosed in plain-text markers, nothing else around them:
+  const outputFormatBlock =
+    `OUTPUT FORMAT — CRITICAL\n` +
+    `Emit each file enclosed in plain-text markers, nothing else around them:\n\n` +
+    `<<<FILE: pages/Dashboard.tsx>>>\n// full file contents here\n<<<END>>>\n\n` +
+    `<<<FILE: components/StatCard.tsx>>>\n// full file contents here\n<<<END>>>`;
 
-<<<FILE: pages/Dashboard.tsx>>>
-// full file contents here
-<<<END>>>
+  const importRulesBlock =
+    `IMPORT RULES — follow exactly, never mix paths\n` +
+    `Available UI primitive import catalog (use only these exact paths):\n` +
+    uiPrimitiveImportCatalog + `\n\n` +
+    `From '@/components/EmptyState' (NOT from ui): EmptyState\n` +
+    `From '@/components/LoadingScreen' (NOT from ui): LoadingScreen\n` +
+    `From '@/components/ErrorBoundary' (NOT from ui): ErrorBoundary\n` +
+    `From 'lucide-react': any icon component\n` +
+    `From '@/config/routes': ROUTES\n\n` +
+    `NEVER import EmptyState, LoadingScreen, or ErrorBoundary from '@/components/ui'.\n\n` +
+    skeletonContractBlock;
 
-<<<FILE: components/StatCard.tsx>>>
-// full file contents here
-<<<END>>>
+  const rulesBlock =
+    `RULES\n` +
+    `- Paths relative to preview-workspace/src/. No leading "src/" or "/".\n` +
+    `- Each file must be a complete, compilable .tsx/.ts file. No diffs, no patches.\n` +
+    `- Do not import UI primitives that are not listed in the UI primitive import catalog or not physically present in src/components/ui.\n` +
+    `- If a component is needed but not available in the UI catalog, implement it as a local component under components/ instead of importing a nonexistent shadcn primitive.\n` +
+    `- Only import from skeleton-provided modules listed above, exact UI primitive paths listed above, "lucide-react", "react", and files you yourself emit.\n` +
+    `- For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, use the named import: import { useLocalStorage } from "@/hooks/useLocalStorage".\n` +
+    `- You are extending the installed skeleton by delta. NEVER rebuild the app shell, router, providers, or placeholder app from scratch when the selected skeleton already provides them.\n` +
+    `- Do not modify any skeleton-locked path.\n` +
+    `- No commentary outside the markers. No markdown. No code fences.\n` +
+    `- Quality over verbosity: real content, no lorem ipsum, no TODOs.\n` +
+    `- DESIGN TOKENS: ALWAYS use Tailwind design token classes — bg-background, bg-card, bg-muted, bg-primary, text-foreground, text-muted-foreground, text-primary, text-primary-foreground, border-border. NEVER use raw color utilities (bg-white, bg-black, bg-gray-100, text-gray-900, border-gray-200). Use var(--primary) / var(--foreground) in style props when tokens are needed inline.\n` +
+    `- REAL DATA: Write actual domain entities with real business labels, realistic numbers, and meaningful copy. Never write "Lorem ipsum", "placeholder", "TODO", or generic "Item 1 / Item 2" lists.\n` +
+    `- COMPLETENESS: Every emitted file must be fully functional — no partial stubs, no "// rest of implementation" comments, no empty component bodies.`;
 
-IMPORT RULES — follow exactly, never mix paths
-Available UI primitive import catalog (use only these exact paths):
-${uiPrimitiveImportCatalog}
+  const system = [
+    skeletonHeaderBlock,
+    contractBlock ? `\n${contractBlock}` : '',
+    planningBlocks ? `\n${planningBlocks}` : '',
+    `\n${skeletonPromptBlock}`,
+    `\n${filePlanBlock}`,
+    `\n${outputFormatBlock}`,
+    `\n${importRulesBlock}`,
+    `\n${rulesBlock}`,
+  ].join('\n');
 
-From '@/components/EmptyState' (NOT from ui): EmptyState
-From '@/components/BottomTabs'  (NOT from ui): BottomTabs
-From '@/components/LoadingScreen' (NOT from ui): LoadingScreen
-From '@/components/ErrorBoundary' (NOT from ui): ErrorBoundary
-From 'lucide-react': any icon component
-From '@/config/navigation': BOTTOM_TABS (read-only; do NOT re-import or re-export)
-From '@/config/routes': ROUTES
-
-NEVER import EmptyState, BottomTabs, LoadingScreen, or ErrorBoundary from '@/components/ui'.
-CRITICAL: config/navigation.ts MUST export BOTTOM_TABS (readonly TabDefinition[] with {to, label, icon} matching ROUTES).
-         config/routes.ts MUST export ROUTES object with home/create/detail/progress/profile keys.
-
-RULES
-- Paths relative to preview-workspace/src/. No leading "src/" or "/".
-- Each file must be a complete, compilable .tsx/.ts file. No diffs, no patches.
-- Do not import UI primitives that are not listed in the UI primitive import catalog or not physically present in src/components/ui.
-- If a component is needed but not available in the UI catalog, implement it as a local component under components/ instead of importing a nonexistent shadcn primitive.
-- Only import from skeleton-provided modules listed above, exact UI primitive paths listed above, "lucide-react", "react", and files you yourself emit.
-- For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, use the named import: import { useLocalStorage } from "@/hooks/useLocalStorage".
-- You are extending the installed skeleton by delta. NEVER rebuild the app shell, router, providers, or placeholder app from scratch when the selected skeleton already provides them.
-- Do not modify any skeleton-locked path.
-- No commentary outside the markers. No markdown. No code fences.
-- Quality over verbosity: real content, no lorem ipsum, no TODOs.
-- DESIGN TOKENS: ALWAYS use Tailwind design token classes — bg-background, bg-card, bg-muted, bg-primary, text-foreground, text-muted-foreground, text-primary, text-primary-foreground, border-border. NEVER use raw color utilities (bg-white, bg-black, bg-gray-100, text-gray-900, border-gray-200). Use var(--primary) / var(--foreground) in style props when tokens are needed inline.
-- REAL DATA: Write actual domain entities with real business labels, realistic numbers, and meaningful copy. Never write "Lorem ipsum", "placeholder", "TODO", or generic "Item 1 / Item 2" lists.
-- COMPLETENESS: Every emitted file must be fully functional — no partial stubs, no "// rest of implementation" comments, no empty component bodies.`;
+  // Measure and log prompt block sizes (chars only, no content) for diagnostics.
+  const promptBlockSizes = measureCoderPromptBlockSizes({
+    skeletonHeader:       skeletonHeaderBlock,
+    contractBlock:        contractBlock,
+    planningBlocks:       planningBlocks,
+    skeletonFoundation:   skeletonPromptBlock,
+    skeletonContract:     skeletonContractBlock,
+    filePlan:             filePlanBlock,
+    outputFormat:         outputFormatBlock,
+    importRules:          importRulesBlock,
+    rules:                rulesBlock,
+    userMessage:          input.prompt + '\n\nSummary: ' + input.plan.summary,
+  });
+  recordCoderPromptBlockSizes(promptBlockSizes);
 
   let firstReason = '';
   let body = '';
@@ -2857,6 +3052,27 @@ ${missing.map(p => `  - ${p}`).join('\n')}`;
   if (missing.length > 0) {
     input.onLog(`[coder] still missing after retry: ${missing.join(', ')}`, 'warn');
   }
+
+  // ── Output-budget diagnostics (safe, no code/prompt/secrets logged) ─────────
+  const parseStatus =
+    Object.keys(parsed).length === 0 ? 'parse_failed'
+    : missing.length > 0 ? 'missing_files'
+    : firstReason === 'length' ? 'retry_recovered'
+    : 'ok';
+
+  const budgetDiag = buildCoderOutputBudgetDiagnostics({
+    requestedMaxTokens:          STEP_BUDGET.coder.maxTokens,
+    expectedFileCount:           input.plan.deltaFiles.length,
+    parsedFileCount:             Object.keys(parsed).length,
+    outputCharCount:             body.length,
+    parseStatus,
+    truncatedArtifactDetected:   firstReason === 'length',
+    missingExpectedFilesCount:   missing.length,
+    finishReason:                firstReason,
+    parsedFiles:                 parsed,
+  });
+  recordCoderOutputBudgetDiagnostics(budgetDiag);
+
   if (usageAcc) input.onUsage?.(usageAcc);
   return parsed;
 }
@@ -2985,34 +3201,179 @@ export function buildRepairPrompt(input: {
 }
 
 /**
+ * Computes the scoped file subset that quality repair should edit.
+ *
+ * Union of paths from all three violation sources:
+ *   1. DesignViolation[].path        — design-contract token violations
+ *   2. vudGenericFindings[]          — "path: label" from VisualUsageDiagnostics
+ *   3. psdGenericFindings[]          — "path: label" from ProductSpecificityDiagnostics
+ *   4. psdEmptyMetricFindings[]      — "path: detail" for empty/generic KPI cards
+ *
+ * Only paths already present in currentFiles are included (safe subset).
+ * When no paths can be resolved, falls back to all files with an explanation.
+ *
+ * Exported for unit testing — pure function, no LLM calls.
+ */
+export function computeRepairScopedFiles(
+  currentFiles:          Record<string, string>,
+  designContractViolations?: DesignViolation[] | null,
+  vudGenericFindings?:   string[] | null,
+  psdGenericFindings?:   string[] | null,
+  psdEmptyMetricFindings?: string[] | null,
+): {
+  scopedFiles: Record<string, string>;
+  isFallback: boolean;
+  fallbackReason?: string;
+  rawPaths: string[];
+  resolvedPaths: string[];
+  sourcePathCounts: {
+    designContract: number;
+    visualPlaceholders: number;
+    specificityPlaceholders: number;
+    specificityEmptyMetrics: number;
+  };
+} {
+  const rawPaths = new Set<string>();
+  const sourcePathCounts = {
+    designContract: 0,
+    visualPlaceholders: 0,
+    specificityPlaceholders: 0,
+    specificityEmptyMetrics: 0,
+  };
+
+  // Source 1: design-contract token violations — path is a direct string field
+  for (const v of (designContractViolations ?? [])) {
+    if (typeof v.path === 'string' && v.path) {
+      rawPaths.add(v.path);
+      sourcePathCounts.designContract += 1;
+    }
+  }
+
+  // Sources 2 & 3: "path: label" findings — extract everything before the first ': '
+  for (const finding of (vudGenericFindings ?? [])) {
+    const idx = finding.indexOf(': ');
+    if (idx > 0) {
+      rawPaths.add(finding.slice(0, idx));
+      sourcePathCounts.visualPlaceholders += 1;
+    }
+  }
+  for (const finding of (psdGenericFindings ?? [])) {
+    const idx = finding.indexOf(': ');
+    if (idx > 0) {
+      rawPaths.add(finding.slice(0, idx));
+      sourcePathCounts.specificityPlaceholders += 1;
+    }
+  }
+  // Source 4: empty/generic metric findings also carry "path: detail"
+  for (const finding of (psdEmptyMetricFindings ?? [])) {
+    const idx = finding.indexOf(': ');
+    if (idx > 0) {
+      rawPaths.add(finding.slice(0, idx));
+      sourcePathCounts.specificityEmptyMetrics += 1;
+    }
+  }
+
+  // Normalize and filter to paths actually present in currentFiles
+  const currentKeys = new Set(Object.keys(currentFiles));
+  const uniqueScoped = Array.from(
+    new Set(Array.from(rawPaths).map(p => normalizeOutputPath(p))),
+  ).filter(p => currentKeys.has(p));
+  const rawPathList = Array.from(rawPaths);
+  const resolvedPaths = [...uniqueScoped];
+
+  if (uniqueScoped.length > 0) {
+    const scopedFiles = Object.fromEntries(uniqueScoped.map(p => [p, currentFiles[p]!]));
+    return {
+      scopedFiles,
+      isFallback: false,
+      rawPaths: rawPathList,
+      resolvedPaths,
+      sourcePathCounts,
+    };
+  }
+
+  const fallbackReason = rawPaths.size === 0
+    ? 'no violation sources provided file paths'
+    : `${rawPaths.size} raw path(s) could not be matched to currentFiles after normalization`;
+  return {
+    scopedFiles: currentFiles,
+    isFallback: true,
+    fallbackReason,
+    rawPaths: rawPathList,
+    resolvedPaths,
+    sourcePathCounts,
+  };
+}
+
+/**
  * Bounded one-shot quality repair — separate from compile repair (runRepair).
  *
  * Called only when evaluatePrototypeQualityGate() returns blockingReasons.length > 0.
  * Makes exactly ONE LLM call via the 'fix' slot with a quality-focused prompt.
+ * Scopes the LLM input to only the files that contain violations (2-5 files instead of
+ * all 34), so the 8k output budget can cover all violating files rather than just one.
+ * Context (prompt, designCtx, psd) remains full — needed for PRODUCT/label resolution.
  * Parses output using parseFileMarkers; only accepts paths already in currentFiles
  * (safety filter — prevents injecting new skeleton-protected files).
  *
  * No loops, no retry. At most one repair attempt per pipeline run.
  */
 export async function runQualityRepair(input: {
-  prompt:                       string;
-  skeletonId:                   SkeletonId;
-  currentFiles:                 Record<string, string>;
-  blockingReasons:              string[];
-  repairInstructions:           string[];
-  designCtx?:                   DesignContext;
+  prompt:                        string;
+  skeletonId:                    SkeletonId;
+  currentFiles:                  Record<string, string>;
+  blockingReasons:               string[];
+  repairInstructions:            string[];
+  designContractViolations?:     DesignViolation[] | null;
+  visualUsageDiagnostics?:       VisualUsageDiagnostics | null;
+  designCtx?:                    DesignContext;
   productSpecificityDiagnostics?: ProductSpecificityDiagnostics | null;
-  signal?:                      AbortSignal;
-  routeOverrides?:              RouteOverrideMap;
-  onLog:                        (msg: string, level?: 'info' | 'warn' | 'error') => void;
-  onUsage?:                     (usage: StepLlmMetrics) => void;
+  signal?:                       AbortSignal;
+  routeOverrides?:               RouteOverrideMap;
+  onLog:                         (msg: string, level?: 'info' | 'warn' | 'error') => void;
+  onUsage?:                      (usage: StepLlmMetrics) => void;
 }): Promise<Record<string, string>> {
-  const { system, user } = buildRepairPrompt(input);
+  const {
+    scopedFiles,
+    isFallback,
+    fallbackReason,
+    rawPaths,
+    resolvedPaths,
+    sourcePathCounts,
+  } = computeRepairScopedFiles(
+    input.currentFiles,
+    input.designContractViolations,
+    input.visualUsageDiagnostics?.genericPlaceholderFindings,
+    input.productSpecificityDiagnostics?.genericPlaceholderFindings,
+    input.productSpecificityDiagnostics?.emptyMetricFindings,
+  );
 
   input.onLog(
-    `[quality-repair] attempting repair of ${input.blockingReasons.length} issue(s) across ` +
-    `${Object.keys(input.currentFiles).length} file(s)`,
+    `[quality-repair] scope sources: design=${sourcePathCounts.designContract}, ` +
+      `visual-placeholder=${sourcePathCounts.visualPlaceholders}, ` +
+      `specificity-placeholder=${sourcePathCounts.specificityPlaceholders}, ` +
+      `specificity-empty-metric=${sourcePathCounts.specificityEmptyMetrics}, ` +
+      `raw=${rawPaths.length}, resolved=${resolvedPaths.length}` +
+      (resolvedPaths.length > 0 ? ` -> ${resolvedPaths.join(', ')}` : ''),
   );
+
+  if (isFallback) {
+    input.onLog(
+      `[quality-repair] scoped-repair: no paths resolved (${fallbackReason}); ` +
+      `falling back to all ${Object.keys(input.currentFiles).length} file(s) — repair may patch fewer issues than intended`,
+      'warn',
+    );
+  }
+
+  const scopedCount = Object.keys(scopedFiles).length;
+  const totalCount  = Object.keys(input.currentFiles).length;
+  input.onLog(
+    `[quality-repair] attempting repair of ${input.blockingReasons.length} issue(s) across ` +
+    `${scopedCount}/${totalCount} file(s)` +
+    (isFallback ? ' (fallback: all files)' : ' (scoped to violations)'),
+  );
+
+  const { system, user } = buildRepairPrompt({ ...input, currentFiles: scopedFiles });
 
   let body = '';
   await streamCall({
@@ -3033,14 +3394,44 @@ export async function runQualityRepair(input: {
   }
 
   // Safety filter: only accept patches for paths already present in currentFiles.
-  const safePatches = Object.fromEntries(
-    Object.entries(patches).filter(([path]) => path in input.currentFiles),
+  // Use a normalised-key map so that src/-prefix mismatches (e.g. patch emits
+  // "config/navigation.ts" but currentFiles key is "src/config/navigation.ts") are
+  // resolved the same way the export-retry pattern does — normaliseDeltaPath both sides.
+  const normToOriginal = new Map<string, string>(
+    Object.keys(input.currentFiles).map(k => [normaliseDeltaPath(k), k]),
   );
+  const safePatches: Record<string, string> = {};
+  const unexpectedPaths: string[] = [];
+  for (const [patchPath, patchContent] of Object.entries(patches)) {
+    if (patchPath in input.currentFiles) {
+      safePatches[patchPath] = patchContent;
+    } else {
+      // patchPath already normalised by parseFileMarkers; look up by normalised currentFiles key
+      const originalKey = normToOriginal.get(patchPath);
+      if (originalKey !== undefined) {
+        safePatches[originalKey] = patchContent;
+      } else {
+        unexpectedPaths.push(patchPath);
+      }
+    }
+  }
   if (Object.keys(safePatches).length === 0) {
-    input.onLog('[quality-repair] all patched paths were unexpected — no files merged', 'warn');
+    const attempted = Object.keys(patches).slice(0, 5).join(', ');
+    const available = Object.keys(input.currentFiles).slice(0, 5).join(', ');
+    input.onLog(
+      `[quality-repair] all patched paths were unexpected — no files merged` +
+      ` (attempted: ${attempted}; available sample: ${available})`,
+      'warn',
+    );
     return input.currentFiles;
   }
-
+  if (unexpectedPaths.length > 0) {
+    input.onLog(
+      `[quality-repair] ${unexpectedPaths.length} patch path(s) skipped (not in currentFiles): ` +
+      unexpectedPaths.slice(0, 5).join(', '),
+      'warn',
+    );
+  }
   input.onLog(`[quality-repair] repair patched ${Object.keys(safePatches).length} file(s)`);
   return { ...input.currentFiles, ...safePatches };
 }
@@ -3136,10 +3527,12 @@ function waitForIframeMounted(buildId: string, signal?: AbortSignal, previewUrl 
 // ── LLM helpers ──────────────────────────────────────────────────────────────
 
 export interface ResolvedRoute {
-  modelId:  string;
-  apiKey:   string;
-  endpoint: string;
-  provider: string;
+  modelId:          string;
+  apiKey:           string;
+  endpoint:         string;
+  provider:         string;
+  endpointKind?:    string;  // direct_provider | supabase_proxy | openrouter_proxy | unknown
+  sourceAuthority?: string;  // user_set | backend_runtime_saved | backend_factory_template | etc.
 }
 
 type RouteOverrideMap = Partial<Record<AgentSlot, ResolvedRoute>>;
@@ -3169,6 +3562,27 @@ function extractUsageMetric(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+// ── Diagnostic helper: classify endpoint for route telemetry ─────────────────
+
+const NATIVE_ROUTE_HOSTS = new Set([
+  'api.deepseek.com',
+  'api.openai.com',
+  'api.anthropic.com',
+  'generativelanguage.googleapis.com',
+  'api.mistral.ai',
+  'api.groq.com',
+]);
+
+function routeEndpointKind(endpoint: string, provider: string): string {
+  if (provider === 'claude-cli' || provider === 'codex-cli') return 'direct_provider';
+  try {
+    const host = new URL(endpoint).hostname;
+    if (host.endsWith('openrouter.ai')) return 'openrouter_proxy';
+    if (NATIVE_ROUTE_HOSTS.has(host))  return 'supabase_proxy';
+  } catch { /* malformed endpoint */ }
+  return 'unknown';
+}
+
 function resolveRoute(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRoute {
   const override = overrides?.[slot];
   if (override) {
@@ -3179,9 +3593,11 @@ function resolveRoute(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRo
     }
     return {
       modelId,
-      apiKey: override.apiKey ?? '',
+      apiKey:          override.apiKey ?? '',
       endpoint,
-      provider: override.provider,
+      provider:        override.provider,
+      endpointKind:    override.endpointKind ?? routeEndpointKind(endpoint, override.provider),
+      sourceAuthority: override.sourceAuthority ?? 'override',
     };
   }
   const modelId = ConfigService.resolveModel(slot);
@@ -3198,7 +3614,15 @@ function resolveRoute(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRo
   }
   const provider = ConfigService.getAgentConfig(`agent_${slot}`).provider || 'openrouter';
   const endpoint = Orchestrator.getEndpoint(provider);
-  return { modelId, apiKey, endpoint, provider };
+  const { authority } = ConfigService.resolveModelWithAuthority(slot);
+  return {
+    modelId,
+    apiKey,
+    endpoint,
+    provider,
+    endpointKind:    routeEndpointKind(endpoint, provider),
+    sourceAuthority: authority,
+  };
 }
 
 function resolveRouteOrSkip(slot: AgentSlot, overrides?: RouteOverrideMap): ResolvedRoute | null {
@@ -3279,15 +3703,23 @@ async function streamCall(input: {
 
   // Pre-call diagnostics: safe payload metrics only — no prompt text, no API key.
   // Route authority is logged upstream by the route resolver.
+  const systemCharCount = input.system.length;
+  const userCharCount   = input.user.length;
+  const totalCharCount  = systemCharCount + userCharCount;
   recordLlmCallDiagnostics({
-    llm_call_step:         slotToStepName(input.slot),
-    provider:              route.provider,
-    model_id:              Orchestrator.normalizeModelId(route.modelId, route.endpoint),
-    prompt_char_count:     input.system.length + input.user.length,
-    estimated_token_count: Math.round((input.system.length + input.user.length) / 4),
-    messages_count:        2,
-    max_tokens:            input.maxTokens,
-    payload_byte_size:     body.length,
+    llm_call_step:              slotToStepName(input.slot),
+    provider:                   route.provider,
+    model_id:                   Orchestrator.normalizeModelId(route.modelId, route.endpoint),
+    endpoint_kind:              route.endpointKind    ?? 'unknown',
+    route_authority:            route.sourceAuthority ?? 'unknown_authority',
+    system_prompt_char_count:   systemCharCount,
+    user_payload_char_count:    userCharCount,
+    total_prompt_char_count:    totalCharCount,
+    estimated_token_count:      Math.round(totalCharCount / 4),
+    messages_count:             2,
+    max_tokens:                 input.maxTokens,
+    request_payload_byte_size:  body.length,
+    streaming_enabled:          false,
   });
 
   const ctrl = new AbortController();
@@ -3295,6 +3727,7 @@ async function streamCall(input: {
   const onCallerAbort = () => ctrl.abort();
   input.signal?.addEventListener('abort', onCallerAbort, { once: true });
 
+  const callStart = Date.now();
   try {
     const doFetch = async (): Promise<string> => {
       if (input.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -3317,10 +3750,31 @@ async function streamCall(input: {
       }
       return resp.text();
     };
-    const { result: raw } = await executeWithClassifiedRetry(
-      slotToStepName(input.slot),
-      doFetch,
-    );
+    let retryUsed = false;
+    let raw: string;
+    try {
+      const callResult = await executeWithClassifiedRetry(
+        slotToStepName(input.slot),
+        doFetch,
+      );
+      retryUsed = callResult.retryUsed;
+      raw = callResult.result;
+    } catch (llmErr) {
+      recordLlmCallOutcome({
+        llm_call_step:    slotToStepName(input.slot),
+        response_time_ms: Date.now() - callStart,
+        final_status:     (llmErr instanceof LlmTransportError) ? 'failed' : 'aborted',
+        http_status:      (llmErr instanceof LlmTransportError) ? llmErr.httpStatus : 0,
+        error_category:   (llmErr instanceof LlmTransportError) ? llmErr.category : undefined,
+      });
+      throw llmErr;
+    }
+    recordLlmCallOutcome({
+      llm_call_step:    slotToStepName(input.slot),
+      response_time_ms: Date.now() - callStart,
+      final_status:     retryUsed ? 'retry_success' : 'success',
+      http_status:      0,
+    });
     let parsed: any;
     try {
       parsed = JSON.parse(raw);

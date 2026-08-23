@@ -48,5 +48,23 @@
     "src/pages/Profile.tsx",
     "src/pages/Progress.tsx",
     "src/pages/Quiz.tsx"
-  ]
+  ],
+  "requiredExports": {
+    "data/seed.ts": [
+      { "name": "courses" },
+      { "name": "lessons" },
+      { "name": "quiz" }
+    ],
+    "data/types.ts": [
+      { "name": "Course" },
+      { "name": "Lesson" },
+      { "name": "QuizQuestion" }
+    ],
+    "config/app.ts": [
+      { "name": "appConfig" }
+    ],
+    "config/navigation.ts": [
+      { "name": "navigationItems" }
+    ]
+  }
 }

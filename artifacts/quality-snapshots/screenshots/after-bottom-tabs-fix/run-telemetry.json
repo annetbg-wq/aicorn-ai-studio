@@ -1,0 +1,125 @@
+[
+  {
+    "runId": "run1",
+    "label": "Run 1 — first daily idea",
+    "ideaTitle": "В диалог",
+    "directLaunchConfirmed": true,
+    "packagingCompleted": false,
+    "skeletonObserved": "saas-dashboard",
+    "repairDetected": false,
+    "bottomTabsErrorSeen": false,
+    "bottomTabsExportedInNav": false,
+    "productTokenFixed": false,
+    "emptyArrayFixed": false,
+    "productTokenFiles": [
+      "components/ErrorBoundary.tsx",
+      "components/LoadingScreen.tsx",
+      "config/app.ts",
+      "context/AppContext.tsx",
+      "data/types.ts",
+      "pages/Dashboard.tsx"
+    ],
+    "emptyArrayFiles": [
+      "components/sections/FAQ.tsx",
+      "components/sections/Marquee.tsx"
+    ],
+    "navigationExports": [
+      "SIDEBAR_NAV"
+    ],
+    "scannedFiles": 45,
+    "previewStatus": "timeout",
+    "finalResult": "timeout",
+    "error": "",
+    "elapsedSec": 495,
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    ],
+    "bodySnippet": ""
+  },
+  {
+    "runId": "run2",
+    "label": "Run 2 — second daily idea",
+    "ideaTitle": "В диалог",
+    "directLaunchConfirmed": true,
+    "packagingCompleted": false,
+    "skeletonObserved": "saas-dashboard",
+    "repairDetected": false,
+    "bottomTabsErrorSeen": false,
+    "bottomTabsExportedInNav": false,
+    "productTokenFixed": false,
+    "emptyArrayFixed": false,
+    "productTokenFiles": [
+      "components/ErrorBoundary.tsx",
+      "components/LoadingScreen.tsx",
+      "config/app.ts",
+      "context/AppContext.tsx",
+      "data/types.ts",
+      "pages/Dashboard.tsx"
+    ],
+    "emptyArrayFiles": [
+      "components/sections/FAQ.tsx",
+      "components/sections/Marquee.tsx"
+    ],
+    "navigationExports": [
+      "SIDEBAR_NAV"
+    ],
+    "scannedFiles": 45,
+    "previewStatus": "timeout",
+    "finalResult": "timeout",
+    "error": "",
+    "elapsedSec": 495,
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    ],
+    "bodySnippet": ""
+  },
+  {
+    "runId": "run3",
+    "label": "Run 3 — third daily idea",
+    "ideaTitle": "В диалог",
+    "directLaunchConfirmed": true,
+    "packagingCompleted": false,
+    "skeletonObserved": "saas-dashboard",
+    "repairDetected": false,
+    "bottomTabsErrorSeen": false,
+    "bottomTabsExportedInNav": false,
+    "productTokenFixed": false,
+    "emptyArrayFixed": false,
+    "productTokenFiles": [
+      "components/ErrorBoundary.tsx",
+      "components/LoadingScreen.tsx",
+      "config/app.ts",
+      "context/AppContext.tsx",
+      "data/types.ts",
+      "pages/Dashboard.tsx"
+    ],
+    "emptyArrayFiles": [
+      "components/sections/FAQ.tsx",
+      "components/sections/Marquee.tsx"
+    ],
+    "navigationExports": [
+      "SIDEBAR_NAV"
+    ],
+    "scannedFiles": 45,
+    "previewStatus": "timeout",
+    "finalResult": "timeout",
+    "error": "",
+    "elapsedSec": 494,
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    ],
+    "bodySnippet": ""
+  }
+]

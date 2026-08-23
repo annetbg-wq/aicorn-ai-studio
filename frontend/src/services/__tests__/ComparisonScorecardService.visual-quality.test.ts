@@ -19,6 +19,9 @@ function createResult(
     outcome: partial.outcome,
     blockingCodes: partial.blockingCodes ?? [],
     error: partial.error ?? null,
+    designContractCleanPassed: partial.designContractCleanPassed ?? partial.outcome === 'preview-ready',
+    designContractFinalPassed: partial.designContractFinalPassed ?? partial.outcome === 'preview-ready',
+    qualityPassed:             partial.qualityPassed ?? partial.outcome === 'preview-ready',
     visualQuality: partial.visualQuality,
   };
 }
