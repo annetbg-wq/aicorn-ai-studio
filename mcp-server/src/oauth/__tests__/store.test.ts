@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+process.env.MCP_BEARER_TOKEN = 'test-static-bearer-token';
+
 import {
   consumeAuthorizationCode,
   consumeRefreshToken,

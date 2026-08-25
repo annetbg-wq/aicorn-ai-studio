@@ -35,12 +35,22 @@ has its own auth boundary and its own (much more powerful) credentials. See the 
     tokens live 1 hour; refresh tokens rotate on every use (the old one stops working the instant a
     new one is issued).
 
-All OAuth state (registered clients, auth codes, access/refresh tokens) is **in-memory, not
-persisted** — this is one free-tier Render instance for one admin's own tools; losing sessions on a
-redeploy/restart just means reconnecting the ChatGPT connector once. No new Render secret is required
-for OAuth — the login step re-uses `MCP_BEARER_TOKEN`. The one new env var, `PUBLIC_BASE_URL`, is
-optional and auto-derived from Render's own `RENDER_EXTERNAL_URL` in production; it only needs
-setting for local development against a non-`localhost` callback.
+**Client registration, authorization codes, and access tokens are stateless** — HMAC-signed,
+self-contained tokens (`oauth/signedToken.ts`), not entries in an in-memory Map. Resolving any of
+them is a pure function of the token itself plus `MCP_BEARER_TOKEN` (an env var, which survives
+restarts by definition), so a Render free-tier idle spin-down/restart between steps of the flow
+(register → authorize → token are separate requests, realistically minutes apart once a human has to
+type the login-form token) can no longer break it — this is the fix for a prod bug where exactly that
+made client resolution intermittently fail with "failed to resolve OAuth client." Refresh tokens are
+the one piece still kept in an in-memory Map: rotating them (detecting reuse of an already-exchanged
+refresh token) needs real shared state to check against, which can't be done statelessly without a
+revocation list — losing an active refresh token to a restart just means ChatGPT silently re-runs the
+OAuth flow, a much smaller failure than what was actually broken.
+
+No new Render secret is required for OAuth — the login step re-uses `MCP_BEARER_TOKEN`, and it also
+becomes the signing key's source (via a fixed-context HMAC derivation, not used directly). The one new
+env var, `PUBLIC_BASE_URL`, is optional and auto-derived from Render's own `RENDER_EXTERNAL_URL` in
+production; it only needs setting for local development against a non-`localhost` callback.
 
 ## What it can do
 
