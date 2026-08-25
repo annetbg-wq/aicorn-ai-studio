@@ -7,6 +7,7 @@
 
 import { supabase } from '../lib/supabase';
 import { canUseDevAuthBypass } from './internalAccess';
+import { interceptForDiagnosticRun, interceptForDiagnosticRunStream } from './DiagnosticIntercept';
 
 const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL ||
@@ -180,7 +181,11 @@ export async function llmFetch(
   endpoint: string,
   headers: Record<string, string>,
   body: string,
+  diagnosticStepName?: string,
 ): Promise<Response> {
+  const intercepted = await interceptForDiagnosticRun(endpoint, headers, body, diagnosticStepName);
+  if (intercepted) return intercepted;
+
   await rateLimiter.acquire();
   const resp = await proxyRequestWithSessionFallback(endpoint, headers, body, false, 'POST');
   // Re-wrap so callers can .json() / .text() as usual
@@ -199,7 +204,11 @@ export async function llmFetchStream(
   headers: Record<string, string>,
   body: string,
   signal?: AbortSignal,
+  diagnosticStepName?: string,
 ): Promise<Response> {
+  const intercepted = await interceptForDiagnosticRunStream(endpoint, headers, body, diagnosticStepName);
+  if (intercepted) return intercepted;
+
   await rateLimiter.acquire();
   const resp = await proxyRequestWithSessionFallback(endpoint, headers, body, true, 'POST', signal);
   if (!resp.ok) {
