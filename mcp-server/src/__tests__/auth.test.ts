@@ -7,32 +7,42 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'x';
 process.env.SUPABASE_DB_URL = 'postgres://x';
 process.env.RENDER_API_KEY = 'x';
 
-const { requireBearerAuth } = await import('../auth.js');
+const { requireAuth } = await import('../auth.js');
 
 function mockRes() {
-  const res: { statusCode?: number; body?: unknown; status: (n: number) => typeof res; json: (b: unknown) => typeof res } = {
+  const res: {
+    statusCode?: number;
+    body?: unknown;
+    headers: Record<string, string>;
+    status: (n: number) => typeof res;
+    json: (b: unknown) => typeof res;
+    setHeader: (name: string, value: string) => typeof res;
+  } = {
+    headers: {},
     status(n: number) { res.statusCode = n; return res; },
     json(b: unknown) { res.body = b; return res; },
+    setHeader(name: string, value: string) { res.headers[name] = value; return res; },
   };
   return res;
 }
 
-describe('requireBearerAuth', () => {
+describe('requireAuth', () => {
   let next: ReturnType<typeof vi.fn>;
   beforeEach(() => { next = vi.fn(); });
 
-  it('rejects a missing Authorization header', () => {
+  it('rejects a missing Authorization header, pointing at protected-resource metadata', () => {
     const req = { headers: {} } as never;
     const res = mockRes();
-    requireBearerAuth(req, res as never, next as never);
+    requireAuth(req, res as never, next as never);
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
+    expect(res.headers['WWW-Authenticate']).toContain('oauth-protected-resource');
   });
 
   it('rejects the wrong token', () => {
     const req = { headers: { authorization: 'Bearer wrong-token' } } as never;
     const res = mockRes();
-    requireBearerAuth(req, res as never, next as never);
+    requireAuth(req, res as never, next as never);
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
   });
@@ -40,7 +50,7 @@ describe('requireBearerAuth', () => {
   it('rejects a non-Bearer scheme', () => {
     const req = { headers: { authorization: 'Basic correct-token-value' } } as never;
     const res = mockRes();
-    requireBearerAuth(req, res as never, next as never);
+    requireAuth(req, res as never, next as never);
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
   });
@@ -48,7 +58,7 @@ describe('requireBearerAuth', () => {
   it('accepts the correct token', () => {
     const req = { headers: { authorization: 'Bearer correct-token-value' } } as never;
     const res = mockRes();
-    requireBearerAuth(req, res as never, next as never);
+    requireAuth(req, res as never, next as never);
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBeUndefined();
   });

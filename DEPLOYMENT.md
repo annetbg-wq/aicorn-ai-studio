@@ -74,6 +74,17 @@ per-service scoping). It never touches any other product's resources because it 
 credentials for any other product. Full tool list and how the interactive pipeline execution
 primitive works: [`mcp-server/README.md`](mcp-server/README.md).
 
+## Connecting ChatGPT's custom MCP connector
+
+ChatGPT's custom-connector UI only offers OAuth configuration, no field for a static token, so
+`aicorn-ai-studio-mcp` speaks OAuth 2.1 for it while keeping `MCP_BEARER_TOKEN` working as-is for
+every other caller. **No new Render secret is required for this** — the OAuth `/authorize` login
+step re-uses `MCP_BEARER_TOKEN` itself, so there is nothing extra to configure beyond what's already
+in the table above. In ChatGPT: add a custom connector pointed at
+`https://aicorn-ai-studio-mcp.onrender.com/mcp`; ChatGPT self-registers as an OAuth client and will
+prompt for the bearer token on the login screen the first time it connects. Full protocol details:
+[`mcp-server/README.md`](mcp-server/README.md#authentication).
+
 ## Known limitation: ephemeral backend disk
 
 Render's free plan gives the backend an ephemeral filesystem. `projects-store/` (saved projects) and

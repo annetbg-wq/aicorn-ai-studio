@@ -34,6 +34,18 @@ export const env = {
 
   BACKEND_HEALTH_URL: optional('BACKEND_HEALTH_URL') ?? 'https://aicorn-ai-studio-backend.onrender.com/health',
   PAGES_URL: optional('PAGES_URL') ?? 'https://annetbg-wq.github.io/aicorn-ai-studio/',
+
+  /**
+   * This service's own externally-reachable base URL — needed for OAuth discovery
+   * metadata (issuer/authorization_endpoint/token_endpoint all have to be absolute
+   * URLs pointing back at this service). RENDER_EXTERNAL_URL is set automatically
+   * by Render on every web service, no configuration needed there; PUBLIC_BASE_URL
+   * is only for local dev / overriding it.
+   */
+  get PUBLIC_BASE_URL() {
+    return (optional('PUBLIC_BASE_URL') ?? optional('RENDER_EXTERNAL_URL') ?? `http://localhost:${this.PORT}`)
+      .replace(/\/+$/, '');
+  },
 };
 
 export function repoSlug(): string {
