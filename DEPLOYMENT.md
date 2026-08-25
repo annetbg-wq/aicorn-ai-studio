@@ -27,6 +27,23 @@ Neither target requires a local machine to be running. No Docker — both use na
    it would ship a shared key inside a publicly readable JS bundle. Each user configures their own
    provider key via the in-app Settings panel instead (existing behavior, unchanged).
 
+## Required manual step: Supabase Auth redirect URLs
+
+Google sign-in redirects to `http://localhost:3000` after the Pages deploy unless this is done —
+**this cannot be fixed from code**, it's a Supabase project setting:
+
+1. Supabase Dashboard → your project → Authentication → URL Configuration.
+2. **Site URL**: change from `http://localhost:3000` (or whatever local value is there now) to
+   `https://annetbg-wq.github.io/aicorn-ai-studio/`.
+3. **Redirect URLs**: add `https://annetbg-wq.github.io/aicorn-ai-studio/` (and keep
+   `http://localhost:5183/` for local dev — the app now sends exactly these two values as
+   `redirectTo`, nothing else).
+
+Why: `signInWithOAuth`'s `redirectTo` in the app code is correct and dynamic (see
+`AuthContext.tsx`) — but Supabase silently ignores any `redirectTo` that isn't on this allow list
+and falls back to Site URL instead. If Site URL is still the original local dev default, that's
+where every environment ends up regardless of what the app requests.
+
 ## Known limitation: ephemeral backend disk
 
 Render's free plan gives the backend an ephemeral filesystem. `projects-store/` (saved projects) and
