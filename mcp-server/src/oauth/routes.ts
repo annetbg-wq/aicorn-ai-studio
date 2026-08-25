@@ -14,6 +14,25 @@ import {
 
 const SCOPE = 'mcp';
 
+/**
+ * Structured, safe-by-construction logging for the OAuth flow — the whole
+ * point is making a live "why did this fail" diagnosable from Render's log
+ * stream alone. NEVER pass token/code/verifier/secret values here, even
+ * truncated; only identifiers and outcomes. `truncate` exists for the one
+ * case (client_id) that's long, non-secret (RFC 7591 client_ids are opaque
+ * but not sensitive — see signedToken.ts, they're just base64url; nothing
+ * about them is a bearer credential on its own), and useful to correlate
+ * across log lines without spamming a 200-char string into every line.
+ */
+function truncate(value: string | undefined, length = 16): string {
+  if (!value) return '(none)';
+  return value.length > length ? `${value.slice(0, length)}…` : value;
+}
+
+function logOauthEvent(event: string, fields: Record<string, unknown>): void {
+  console.log(JSON.stringify({ ts: new Date().toISOString(), scope: 'oauth', event, ...fields }));
+}
+
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
@@ -105,11 +124,13 @@ export function oauthRouter(): Router {
     const body = req.body as { redirect_uris?: unknown; client_name?: unknown };
     const redirectUris = Array.isArray(body.redirect_uris) ? body.redirect_uris.filter((u): u is string => typeof u === 'string') : [];
     if (redirectUris.length === 0) {
+      logOauthEvent('register', { outcome: 'rejected', reason: 'missing redirect_uris', bodyKeys: Object.keys(body ?? {}) });
       res.status(400).json({ error: 'invalid_client_metadata', error_description: 'redirect_uris is required' });
       return;
     }
     const clientName = typeof body.client_name === 'string' ? body.client_name : undefined;
     const client = registerClient(redirectUris, clientName);
+    logOauthEvent('register', { outcome: 'ok', clientId: truncate(client.clientId), clientName, redirectUris });
     res.status(201).json({
       client_id: client.clientId,
       client_name: client.clientName,
@@ -135,14 +156,17 @@ export function oauthRouter(): Router {
     // redirect_uri are confirmed registered — otherwise this becomes an
     // open redirect. Anything wrong before that gets a plain error page.
     if (!client || !client.redirectUris.includes(redirectUri)) {
+      logOauthEvent('authorize_get', { outcome: 'rejected', reason: !client ? 'client not resolved' : 'redirect_uri not registered for this client', clientId: truncate(clientId), redirectUri });
       res.status(400).send('Unknown client or redirect_uri. Register the client via /register first.');
       return;
     }
     if (responseType !== 'code' || codeChallengeMethod !== 'S256' || !codeChallenge) {
+      logOauthEvent('authorize_get', { outcome: 'rejected', reason: 'unsupported response_type/code_challenge_method', clientId: truncate(clientId), responseType, codeChallengeMethod });
       res.status(400).send('This server only supports response_type=code with code_challenge_method=S256 (PKCE).');
       return;
     }
 
+    logOauthEvent('authorize_get', { outcome: 'ok', clientId: truncate(clientId), redirectUri });
     res.type('html').send(loginPage({ clientId, redirectUri, codeChallenge, codeChallengeMethod, state }));
   });
 
@@ -150,24 +174,29 @@ export function oauthRouter(): Router {
     const body = req.body as Record<string, string>;
     const { client_id: clientId, redirect_uri: redirectUri, code_challenge: codeChallenge, code_challenge_method: codeChallengeMethod, token, state } = body;
 
+    const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+
     const client = getClient(clientId);
     if (!client || !client.redirectUris.includes(redirectUri)) {
+      logOauthEvent('authorize_post', { outcome: 'rejected', reason: !client ? 'client not resolved' : 'redirect_uri not registered for this client', clientId: truncate(clientId), redirectUri, ip });
       res.status(400).send('Unknown client or redirect_uri.');
       return;
     }
 
-    const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
     if (loginRateLimited(ip)) {
+      logOauthEvent('authorize_post', { outcome: 'rate_limited', clientId: truncate(clientId), ip });
       res.status(429).type('html').send(loginPage({ clientId, redirectUri, codeChallenge, codeChallengeMethod, state, error: 'Too many attempts. Try again later.' }));
       return;
     }
 
     if (!token || !safeEqual(token, env.MCP_BEARER_TOKEN)) {
+      logOauthEvent('authorize_post', { outcome: 'wrong_token', clientId: truncate(clientId), ip });
       res.status(401).type('html').send(loginPage({ clientId, redirectUri, codeChallenge, codeChallengeMethod, state, error: 'Incorrect token.' }));
       return;
     }
 
     const code = createAuthorizationCode({ clientId, redirectUri, codeChallenge });
+    logOauthEvent('authorize_post', { outcome: 'ok', clientId: truncate(clientId), ip });
     const redirect = new URL(redirectUri);
     redirect.searchParams.set('code', code);
     if (state) redirect.searchParams.set('state', state);
@@ -189,11 +218,19 @@ export function oauthRouter(): Router {
         !codeVerifier ||
         !verifyPkce(codeVerifier, record.codeChallenge)
       ) {
+        logOauthEvent('token', {
+          grantType, outcome: 'invalid_grant', clientId: truncate(clientId),
+          reason: !record ? 'code not resolved (unknown/expired/already used)'
+            : record.clientId !== clientId ? 'client_id mismatch'
+              : record.redirectUri !== redirectUri ? 'redirect_uri mismatch'
+                : !codeVerifier ? 'missing code_verifier' : 'PKCE verification failed',
+        });
         res.status(400).json({ error: 'invalid_grant', error_description: 'The authorization code is invalid, expired, already used, or the PKCE verifier does not match.' });
         return;
       }
       const { accessToken, expiresIn } = issueAccessToken(clientId);
       const refreshToken = issueRefreshToken(clientId);
+      logOauthEvent('token', { grantType, outcome: 'ok', clientId: truncate(clientId) });
       res.json({ access_token: accessToken, token_type: 'Bearer', expires_in: expiresIn, refresh_token: refreshToken, scope: SCOPE });
       return;
     }
@@ -202,15 +239,18 @@ export function oauthRouter(): Router {
       const { refresh_token: refreshToken, client_id: clientId } = body;
       const record = refreshToken ? consumeRefreshToken(refreshToken) : undefined;
       if (!record || (clientId && record.clientId !== clientId)) {
+        logOauthEvent('token', { grantType, outcome: 'invalid_grant', clientId: truncate(clientId), reason: !record ? 'refresh token not resolved' : 'client_id mismatch' });
         res.status(400).json({ error: 'invalid_grant', error_description: 'The refresh token is invalid, expired, or already used.' });
         return;
       }
       const { accessToken, expiresIn } = issueAccessToken(record.clientId);
       const newRefreshToken = issueRefreshToken(record.clientId);
+      logOauthEvent('token', { grantType, outcome: 'ok', clientId: truncate(record.clientId) });
       res.json({ access_token: accessToken, token_type: 'Bearer', expires_in: expiresIn, refresh_token: newRefreshToken, scope: SCOPE });
       return;
     }
 
+    logOauthEvent('token', { outcome: 'unsupported_grant_type', grantType: grantType ?? '(none)' });
     res.status(400).json({ error: 'unsupported_grant_type', error_description: 'Only authorization_code and refresh_token are supported.' });
   });
 

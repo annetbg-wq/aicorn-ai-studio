@@ -39,15 +39,55 @@ export const env = {
    * This service's own externally-reachable base URL — needed for OAuth discovery
    * metadata (issuer/authorization_endpoint/token_endpoint all have to be absolute
    * URLs pointing back at this service). RENDER_EXTERNAL_URL is set automatically
-   * by Render on every web service, no configuration needed there; PUBLIC_BASE_URL
-   * is only for local dev / overriding it.
+   * by Render on every web service (always the full https://<name>.onrender.com,
+   * per Render's docs — never just the bare service name), no configuration needed
+   * there; PUBLIC_BASE_URL is only for local dev / overriding it. See
+   * resolvePublicBaseUrl() below for why an override here is worth double-checking.
    */
   get PUBLIC_BASE_URL() {
-    return (optional('PUBLIC_BASE_URL') ?? optional('RENDER_EXTERNAL_URL') ?? `http://localhost:${this.PORT}`)
-      .replace(/\/+$/, '');
+    return resolvePublicBaseUrl().url;
   },
+
+  // Render auto-populates these — surfaced (not secret) for /health and startup
+  // diagnostics, so "is the right code actually deployed, with the right config"
+  // is answerable with one curl instead of dashboard access.
+  RENDER_EXTERNAL_URL: optional('RENDER_EXTERNAL_URL'),
+  RENDER_GIT_COMMIT: optional('RENDER_GIT_COMMIT'),
+  RENDER_SERVICE_NAME: optional('RENDER_SERVICE_NAME'),
 };
 
 export function repoSlug(): string {
   return `${env.GITHUB_OWNER}/${env.GITHUB_REPO}`;
+}
+
+export interface PublicBaseUrlResolution {
+  url: string;
+  source: 'PUBLIC_BASE_URL' | 'RENDER_EXTERNAL_URL' | 'localhost-fallback';
+  /** Set when PUBLIC_BASE_URL was manually configured and disagrees with Render's own RENDER_EXTERNAL_URL — almost always a typo'd override, not an intentional one. */
+  warning?: string;
+}
+
+export function resolvePublicBaseUrl(): PublicBaseUrlResolution {
+  const manual = optional('PUBLIC_BASE_URL');
+  const renderUrl = optional('RENDER_EXTERNAL_URL');
+
+  if (manual) {
+    const url = manual.replace(/\/+$/, '');
+    if (renderUrl && renderUrl.replace(/\/+$/, '') !== url) {
+      return {
+        url,
+        source: 'PUBLIC_BASE_URL',
+        warning: `PUBLIC_BASE_URL="${url}" does not match Render's own RENDER_EXTERNAL_URL="${renderUrl}". ` +
+          'OAuth discovery metadata will advertise the wrong endpoints unless this is intentional (e.g. a custom domain in front of Render). ' +
+          'If not: delete the PUBLIC_BASE_URL env var in the Render dashboard so it auto-derives correctly.',
+      };
+    }
+    return { url, source: 'PUBLIC_BASE_URL' };
+  }
+
+  if (renderUrl) {
+    return { url: renderUrl.replace(/\/+$/, ''), source: 'RENDER_EXTERNAL_URL' };
+  }
+
+  return { url: `http://localhost:${optional('PORT') ?? '8787'}`, source: 'localhost-fallback' };
 }

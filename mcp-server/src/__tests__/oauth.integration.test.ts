@@ -60,6 +60,17 @@ async function callMcpInitialize(token?: string) {
   });
 }
 
+describe('/health diagnostics', () => {
+  it('exposes the resolved public base URL and its source — the fastest way to confirm what is actually deployed', async () => {
+    const res = await fetch(`${baseUrl}/health`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { status: string; publicBaseUrl: string; publicBaseUrlSource: string };
+    expect(body.status).toBe('ok');
+    expect(body.publicBaseUrl).toBe(baseUrl);
+    expect(body.publicBaseUrlSource).toBe('PUBLIC_BASE_URL'); // set explicitly in beforeAll for this test server
+  });
+});
+
 describe('OAuth discovery metadata', () => {
   it('exposes RFC 9728 protected resource metadata', async () => {
     const res = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`);
