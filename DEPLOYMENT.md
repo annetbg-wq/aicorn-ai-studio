@@ -10,7 +10,14 @@ GitHub stays the source of truth. Two independent, auto-deploying targets:
   Blueprint is connected (Render dashboard → New → Blueprint → select this repo).
   URL: `https://aicorn-ai-studio-backend.onrender.com`
 
-Neither target requires a local machine to be running. No Docker — both use native Node buildpacks.
+- **Superadmin MCP** (dev-only remote tools for an external assistant — not a public API) →
+  **Render.com** web service `aicorn-ai-studio-mcp`, also defined in [`render.yaml`](render.yaml).
+  Same repo, same Blueprint, separate service — own bearer-auth boundary, own (far more powerful)
+  credentials. See [`mcp-server/README.md`](mcp-server/README.md) for what it can do.
+  URL: `https://aicorn-ai-studio-mcp.onrender.com/mcp`
+
+Neither Studio target requires a local machine to be running. No Docker — all three use native Node
+buildpacks.
 
 ## One-time setup
 
@@ -20,8 +27,22 @@ Neither target requires a local machine to be running. No Docker — both use na
    `AIC_DEV_TOKEN`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`,
    `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`.
    These are marked `sync: false` in `render.yaml` — Render never stores them in git.
-3. GitHub Pages is already enabled (Settings → Pages → Source: GitHub Actions).
-4. GitHub Actions secrets/variables (already set for this repo):
+3. The same Blueprint sync also adds `aicorn-ai-studio-mcp`. In its Render dashboard, fill in:
+   - `MCP_BEARER_TOKEN` — mint your own (e.g. `openssl rand -hex 32`); this is what you'll put in
+     the MCP host/connector config, not a credential from anywhere else.
+   - `GITHUB_TOKEN` — a **fine-grained PAT scoped to only this repo**
+     (github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens →
+     Only select repositories → `aicorn-ai-studio`). Repository permissions: Contents (read/write),
+     Pull requests (read/write), Actions (read/write), Workflows (read/write). Nothing else — no
+     Administration, no org-wide access.
+   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — Project Settings → API. The service role key
+     bypasses RLS; it's only ever held by this service and is never returned through any MCP tool.
+   - `SUPABASE_DB_URL` — Project Settings → Database → Connection string. Only the schema/migration/
+     read-only-query tools use this (they need real multi-statement SQL, which the REST/RPC surface
+     can't run).
+   - `RENDER_API_KEY` — Account Settings → API Keys.
+4. GitHub Pages is already enabled (Settings → Pages → Source: GitHub Actions).
+5. GitHub Actions secrets/variables (already set for this repo):
    `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (secrets), `VITE_API_URL` (variable, points at the
    Render URL above). `VITE_OPENROUTER_API_KEY` is intentionally **not** set for the public build —
    it would ship a shared key inside a publicly readable JS bundle. Each user configures their own
@@ -43,6 +64,15 @@ Why: `signInWithOAuth`'s `redirectTo` in the app code is correct and dynamic (se
 `AuthContext.tsx`) — but Supabase silently ignores any `redirectTo` that isn't on this allow list
 and falls back to Site URL instead. If Site URL is still the original local dev default, that's
 where every environment ends up regardless of what the app requests.
+
+## Superadmin MCP resource boundary
+
+Everything this service can reach is scoped by which credentials it holds, not by per-tool ACLs:
+the GitHub PAT only has access to this one repo, the Supabase service role only reaches this one
+project, the Render API key can only see this account's services (Render doesn't offer finer
+per-service scoping). It never touches any other product's resources because it is never given
+credentials for any other product. Full tool list and how the interactive pipeline execution
+primitive works: [`mcp-server/README.md`](mcp-server/README.md).
 
 ## Known limitation: ephemeral backend disk
 
