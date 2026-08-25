@@ -5,8 +5,42 @@ inspect → diagnose → edit → test → repair → deploy → verify capabili
 dev/sandbox infrastructure only** — not a public product API.
 
 Deployed as its own Render service (`aicorn-ai-studio-mcp`), separate from the Studio backend, so it
-has its own bearer-auth boundary and its own (much more powerful) credentials. See the repo root
+has its own auth boundary and its own (much more powerful) credentials. See the repo root
 `DEPLOYMENT.md` for exact setup steps and the required environment variable names.
+
+## Authentication
+
+`/mcp` accepts either credential:
+
+- **`MCP_BEARER_TOKEN`** — the original static token, sent as `Authorization: Bearer <token>`. Still
+  works exactly as before, for local dev, `curl`, or any CLI-style caller. No client registration or
+  OAuth flow needed.
+- **An OAuth 2.1 access token** — for ChatGPT's custom connector UI, which only offers an OAuth
+  configuration screen (no field for a static bearer token). This service *is* the OAuth
+  authorization server for itself — a small, purpose-built one, not a general-purpose IdP:
+  - `GET /.well-known/oauth-protected-resource` (RFC 9728) and
+    `GET /.well-known/oauth-authorization-server` (RFC 8414) — discovery metadata. `/mcp` also sends
+    `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"` on a 401 so
+    an OAuth-only client can find its way to these on its own.
+  - `POST /register` (RFC 7591) — dynamic client registration; ChatGPT self-registers here, no manual
+    client setup. Public clients only (no client secret — PKCE carries the security instead).
+  - `GET/POST /authorize` — PKCE (S256) required. `GET` renders a plain login form; the only thing it
+    asks for is `MCP_BEARER_TOKEN` itself. **The OAuth layer doesn't add a second, independently
+    weaker credential — it's a protocol-shaped wrapper around the one credential that already exists.**
+    Only redirects back to the client once both `client_id` and `redirect_uri` are confirmed
+    registered (no open redirect); rate-limited per IP as a backstop against brute-forcing the token
+    through the form (the token itself is a long random secret, so this is defense in depth, not the
+    primary protection).
+  - `POST /token` — authorization_code (with PKCE verification) and refresh_token grants. Access
+    tokens live 1 hour; refresh tokens rotate on every use (the old one stops working the instant a
+    new one is issued).
+
+All OAuth state (registered clients, auth codes, access/refresh tokens) is **in-memory, not
+persisted** — this is one free-tier Render instance for one admin's own tools; losing sessions on a
+redeploy/restart just means reconnecting the ChatGPT connector once. No new Render secret is required
+for OAuth — the login step re-uses `MCP_BEARER_TOKEN`. The one new env var, `PUBLIC_BASE_URL`, is
+optional and auto-derived from Render's own `RENDER_EXTERNAL_URL` in production; it only needs
+setting for local development against a non-`localhost` callback.
 
 ## What it can do
 
