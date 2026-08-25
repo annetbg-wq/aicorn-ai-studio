@@ -52,6 +52,19 @@ becomes the signing key's source (via a fixed-context HMAC derivation, not used 
 env var, `PUBLIC_BASE_URL`, is optional and auto-derived from Render's own `RENDER_EXTERNAL_URL` in
 production; it only needs setting for local development against a non-`localhost` callback.
 
+**If a `PUBLIC_BASE_URL` is ever set manually and it disagrees with Render's own `RENDER_EXTERNAL_URL`,
+every absolute URL in the OAuth discovery metadata is wrong** (this shipped as a real prod incident —
+someone had set `PUBLIC_BASE_URL` to the bare service name, missing the `.onrender.com` suffix, which
+silently broke `registration_endpoint`/`authorization_endpoint`/`token_endpoint` and surfaced only as
+ChatGPT's generic "failed to resolve OAuth client"). Two ways to catch this without dashboard access:
+- `GET /health` returns `publicBaseUrl`, `publicBaseUrlSource`, and — only when there's a mismatch —
+  `publicBaseUrlWarning` explaining exactly what's wrong and how to fix it. It also returns `commit`
+  (Render's `RENDER_GIT_COMMIT`) and `service`, so "is the fix actually deployed" is one `curl` away.
+- The same warning is logged loudly at process startup (`[mcp] CONFIG WARNING: …`), and every
+  `/register`, `/authorize`, and `/token` call logs a single structured JSON line (`oauth/routes.ts`,
+  `scope: "oauth"`) with the outcome and, on failure, why — client_ids are truncated for readability
+  and calling out to correlate log lines, never full tokens/codes/verifiers/secrets.
+
 ## What it can do
 
 - **Repo**: read files, search code, git status/diff/log, create branches, write+commit+push files,

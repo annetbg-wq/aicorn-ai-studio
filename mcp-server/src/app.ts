@@ -1,7 +1,7 @@
 import express from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { repoSlug } from './env.js';
+import { env, repoSlug, resolvePublicBaseUrl } from './env.js';
 import { requireAuth } from './auth.js';
 import { oauthRouter } from './oauth/routes.js';
 import { registerRepoTools } from './tools/repo.js';
@@ -34,13 +34,36 @@ function createServer(): McpServer {
 
 export function createApp(): express.Express {
   const app = express();
+  // Render sits in front as a proxy — without this, req.ip is always Render's
+  // internal proxy address for every caller, making the /authorize rate
+  // limiter and the ip field in oauth/routes.ts's structured logs useless.
+  app.set('trust proxy', true);
   app.use(express.json({ limit: '5mb' }));
   // OAuth's /authorize (HTML form post) and /token (RFC 6749) both use
   // application/x-www-form-urlencoded, not JSON.
   app.use(express.urlencoded({ extended: false }));
 
+  // Loud and immediate, not just discoverable via /health — this exact
+  // misconfiguration (a manually-set PUBLIC_BASE_URL missing the .onrender.com
+  // suffix) previously broke every OAuth discovery URL silently, surfacing to
+  // ChatGPT only as a generic "failed to resolve OAuth client".
+  const baseUrlInfo = resolvePublicBaseUrl();
+  if (baseUrlInfo.warning) {
+    console.warn(`[mcp] CONFIG WARNING: ${baseUrlInfo.warning}`);
+  }
+  console.log(`[mcp] publicBaseUrl=${baseUrlInfo.url} (source: ${baseUrlInfo.source}) commit=${env.RENDER_GIT_COMMIT ?? 'unknown'}`);
+
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', repo: repoSlug() });
+    const info = resolvePublicBaseUrl();
+    res.json({
+      status: 'ok',
+      repo: repoSlug(),
+      publicBaseUrl: info.url,
+      publicBaseUrlSource: info.source,
+      ...(info.warning ? { publicBaseUrlWarning: info.warning } : {}),
+      commit: env.RENDER_GIT_COMMIT ?? null,
+      service: env.RENDER_SERVICE_NAME ?? null,
+    });
   });
 
   // Public — discovery metadata, dynamic client registration, and the login/
