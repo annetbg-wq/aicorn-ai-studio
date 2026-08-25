@@ -61,7 +61,12 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     flowType:           'pkce',
     autoRefreshToken:   true,
     persistSession:     true,
-    detectSessionInUrl: false,
+    // Must be true: signInWithOAuth's PKCE redirect lands back on this app with
+    // ?code=... in the URL. This is what tells the client to exchange it for a
+    // session on load. Nothing else in the app calls exchangeCodeForSession
+    // manually — with this false, the code is never exchanged, no session is
+    // ever created, and AuthGate falls through to the login screen every time.
+    detectSessionInUrl: true,
     storage:            _localStorage,
   },
   ...(_realtimeTransport ? { realtime: { transport: _realtimeTransport } } : {}),
