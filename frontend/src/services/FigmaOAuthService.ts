@@ -100,9 +100,14 @@ export const FigmaOAuthService = {
     }
   },
 
-  /** The redirect URI for the current app origin (always the root). */
+  /**
+   * The redirect URI for the current app origin. Uses Vite's BASE_URL (the app's
+   * own `base` config — '/' locally, '/aicorn-ai-studio/' on GitHub Pages) instead
+   * of a hardcoded root slash, so this still resolves correctly when the app is
+   * served from a subpath instead of the domain root.
+   */
   redirectUri(): string {
-    return window.location.origin + '/';
+    return window.location.origin + import.meta.env.BASE_URL;
   },
 
   /** Store which view to restore after the OAuth redirect round-trip. */

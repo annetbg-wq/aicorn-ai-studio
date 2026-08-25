@@ -220,10 +220,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signInWithGoogle = async () => {
+    // window.location.origin alone drops the GitHub Pages project-page subpath
+    // (e.g. https://annetbg-wq.github.io has no /aicorn-ai-studio/), sending the
+    // user back to the bare domain root after Google auth. import.meta.env.BASE_URL
+    // is Vite's own `base` config value — '/' locally, '/aicorn-ai-studio/' on Pages —
+    // so this always resolves to wherever the app is actually being served from.
+    const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}`;
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin,
+        redirectTo,
         scopes: 'email profile',
         queryParams: {
           access_type: 'offline',
