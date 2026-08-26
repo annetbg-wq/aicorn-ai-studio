@@ -169,7 +169,10 @@ describe('buildCoderPlanningBlocks — market brief injection', () => {
       marketAwareBuilderBrief: HEALTH_BRIEF,
     });
     expect(result).toContain('MARKET-AWARE BUILDER BRIEF');
-    expect(result).toContain('PRODUCT CATEGORY: mobile-health');
+    // buildCoderPlanningBlocks embeds the compact serializer's field labels
+    // (lowercase camelCase), not serializeMarketAwareBuilderBriefForCoder's
+    // "PRODUCT CATEGORY:" — see the compact-form tests below.
+    expect(result).toContain('productCategory: mobile-health');
   });
 
   it('returns empty string when no inputs are passed', () => {
@@ -182,23 +185,24 @@ describe('buildCoderPlanningBlocks — market brief injection', () => {
     expect(result).not.toContain('MARKET-AWARE BUILDER BRIEF');
   });
 
-  it('with only marketAwareBuilderBrief, output contains serialized brief and self-plan instructions', () => {
-    const briefBlock = serializeMarketAwareBuilderBriefForCoder(HEALTH_BRIEF);
-    const selfPlanBlock = buildBuilderOwnedSelfPlanInstructions(HEALTH_BRIEF);
+  it('with only marketAwareBuilderBrief, output contains both the brief and self-plan sections', () => {
+    // buildCoderPlanningBlocks embeds the compact serializers (private to
+    // ProtoPipeline.ts), not serializeMarketAwareBuilderBriefForCoder /
+    // buildBuilderOwnedSelfPlanInstructions tested above — assert on the
+    // compact section headers instead of exact block containment.
     const result = buildCoderPlanningBlocks({
       marketAwareBuilderBrief: HEALTH_BRIEF,
     });
-    expect(result).toContain(briefBlock);
-    expect(result).toContain(selfPlanBlock);
+    expect(result).toContain('MARKET-AWARE BUILDER BRIEF — MANDATORY BUILDER GUIDANCE');
+    expect(result).toContain('BUILDER-OWNED PRODUCT ASSEMBLY PLAN & SELF-TEST — MANDATORY');
   });
 
-  it('market brief block does not replace other blocks — no-brief output is subset of with-brief output', () => {
-    // When the brief is not passed, the function returns empty; verify that
-    // adding brief only appends — the function filter(Boolean).join is safe.
-    const briefOnly = serializeMarketAwareBuilderBriefForCoder(HEALTH_BRIEF);
+  it('market brief block does not replace other blocks — brief content stays present alongside the self-plan block', () => {
     const withBrief = buildCoderPlanningBlocks({ marketAwareBuilderBrief: HEALTH_BRIEF });
-    // The brief block must be present intact
-    expect(withBrief).toContain(briefOnly);
+    const briefIdx = withBrief.indexOf('MARKET-AWARE BUILDER BRIEF — MANDATORY BUILDER GUIDANCE');
+    const selfPlanIdx = withBrief.indexOf('BUILDER-OWNED PRODUCT ASSEMBLY PLAN & SELF-TEST — MANDATORY');
+    expect(briefIdx).toBeGreaterThanOrEqual(0);
+    expect(selfPlanIdx).toBeGreaterThan(briefIdx);
   });
 });
 

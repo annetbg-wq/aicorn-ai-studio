@@ -340,13 +340,15 @@ function premiumSelectionPromptBlock(selection: PremiumComponentSelection): stri
 
   lines.push(
     '',
-    'CODER PREMIUM COMPONENT INSTRUCTIONS:',
-    '- Before inventing UI, check selected premium component recipe.',
-    '- Prefer these imported premium components before inventing generic cards.',
-    '- If a selected premium component fits a screen slot, use it directly and wrap it with product-specific copy/state.',
-    '- Do not downgrade selected premium blocks to generic Card layouts.',
-    '- Do not use remote random media.',
-    '- Use generated media slots or local fallback assets.',
+    'CODER COMPONENT INSTRUCTIONS:',
+    '- PRIMARY PATH — compose the UI from the modern shadcn/radix primitives already in @/components/ui/* ',
+    '  (Button, Card, Dialog, Sheet, Tabs, Accordion, AlertDialog, Select, ScrollArea, Badge, Avatar, Progress, Input, Label, Skeleton).',
+    '  These are real, current, premium-grade components (the shadcn registry over @radix-ui) — reach for them first and compose richly.',
+    '- OPTIONAL ACCELERATOR — the selected premium component recipe above is available when a block cleanly fits a screen slot;',
+    '  if it fits, use it directly and wrap with product-specific copy/state. It is NOT mandatory and NOT the last word —',
+    '  never force-fit a premium block where a shadcn/radix composition is cleaner or more modern.',
+    '- Whichever path you choose, never downgrade to low-quality generic cards or placeholder layouts.',
+    '- Do not use remote random media. Use generated media slots or local fallback assets.',
   );
 
   return lines.join('\n');

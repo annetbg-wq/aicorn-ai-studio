@@ -3,7 +3,7 @@
 // Generation runs are also logged to Supabase (generation_metrics table) fire-and-forget.
 
 import { supabase } from '../lib/supabase';
-import type { DesignRecipeTelemetry } from '../shared/projectModel';
+import type { DesignRecipeTelemetry, GenerationOutcomeEvent } from '../shared/projectModel';
 
 const STORAGE_KEY = 'STUDIO_METRICS';
 const MAX_ENTRIES = 500;
@@ -151,6 +151,23 @@ class MetricsServiceClass {
     this.entries = [];
     localStorage.removeItem(STORAGE_KEY);
     window.dispatchEvent(new CustomEvent('studio-metrics', { detail: null }));
+  }
+
+  /**
+   * Emit one canonical flywheel event per generation run (S0.2).
+   * Stored locally as an AgentMetrics entry so it shows in MetricsSummary.
+   * Does NOT write to Supabase — the generation_metrics table schema is frozen.
+   */
+  logOutcomeEvent(event: GenerationOutcomeEvent): void {
+    this.record({
+      phase: 'orchestrator',
+      durationMs: event.durationMs,
+      error: event.errorMessage,
+      extra: {
+        event_type: 'generation_outcome',
+        ...event,
+      },
+    });
   }
 
   getDesignTelemetry(): DesignRecipeTelemetry[] {

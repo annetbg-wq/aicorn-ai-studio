@@ -152,7 +152,8 @@ describe('DesignContract — prompt fragments', () => {
     expect(txt).toMatch(/colorTokens:/);
     expect(txt).toMatch(/variationPreset:/);
     expect(txt).toMatch(/Use this selected visual variant as the source of design truth/);
-    expect(txt).toMatch(/Before inventing UI, check selected premium component recipe/);
+    expect(txt).toMatch(/PRIMARY PATH/);
+    expect(txt).toMatch(/shadcn\/radix primitives/);
   });
 
   it('includes generated import path hints for selected premium components', async () => {
@@ -171,8 +172,8 @@ describe('DesignContract — prompt fragments', () => {
 
     expect(txt).toContain(`generatedImportPath: ${expectedImportPath}`);
     expect(txt).toContain(`import: import ${component.name} from '${expectedImportPath}';`);
-    expect(txt).toMatch(/Prefer these imported premium components before inventing generic cards/);
-    expect(txt).toMatch(/Do not downgrade selected premium blocks to generic Card layouts/);
+    expect(txt).toMatch(/OPTIONAL ACCELERATOR/);
+    expect(txt).toMatch(/never downgrade to low-quality generic cards/);
   });
 
   it('marks hardcoded visual selection as fallback when file packs are unavailable', async () => {

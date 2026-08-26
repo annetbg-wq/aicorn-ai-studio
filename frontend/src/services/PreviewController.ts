@@ -41,6 +41,14 @@ export interface PreviewState {
   lastReadyAt?: number;
   buildStage?: PreviewBuildStage;
   /**
+   * Origin of the current 'ready' status. Distinguishes the early static-build
+   * mount ('static_build_complete' — technical mount, not a user preview) from the
+   * authoritative pipeline-complete ready ('proto_pipeline_complete') and restore
+   * remounts. The state machine promotes Preview-ready/Save only on a real
+   * pipeline-complete (or restore), never on the early static mount.
+   */
+  readySource?: string;
+  /**
    * Fine-grained materialize diagnostic. Updated at each checkpoint inside
    * compileCandidate → triggerCompile → waitForReady → mount.
    * Null before the first compile cycle.
@@ -132,6 +140,7 @@ export class PreviewController {
       lastReadyAt: Date.now(),
       fileProgress: undefined,
       buildStage: buildStage ?? this.state.buildStage ?? 'unknown',
+      readySource: source,
     });
     previewLog('ready_set', {
       source,

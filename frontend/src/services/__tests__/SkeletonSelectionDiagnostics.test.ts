@@ -73,10 +73,10 @@ describe('selectSkeletonWithDiagnostics', () => {
   });
 
   it('social intent with unrelated skeleton produces mismatch warning', () => {
-    // Force a single 'social' tag — score may be low enough to fall back, or land
-    // on a non-social skeleton; in either case a mismatch warning should fire.
-    // We pass no other tags so the score stays at 1.
-    const result = selectSkeletonWithDiagnostics('', ['network', 'share']);
+    // A precise social signal ('social media' phrase) that doesn't score enough
+    // social-community tags to win → falls back to a non-social skeleton; the
+    // advisory mismatch warning should still fire.
+    const result = selectSkeletonWithDiagnostics('social media platform', []);
     expect(result.intentSignals).toContain('social-intent');
     if (!['social-community', 'dating-matching-app', 'marketplace-platform'].includes(result.selectedSkeletonId)) {
       expect(result.mismatchWarnings.some(w => w.includes('Social'))).toBe(true);
