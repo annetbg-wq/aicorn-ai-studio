@@ -264,16 +264,25 @@ describe('buildCoderPlanningBlocks — self-plan injection', () => {
     expect(selfPlanIdx).toBeGreaterThan(briefIdx);
   });
 
-  it('market-aware brief block is preserved intact', () => {
-    const briefBlock = serializeMarketAwareBuilderBriefForCoder(HEALTH_BRIEF);
+  it('market-aware brief content is present in compact form', () => {
+    // buildCoderPlanningBlocks embeds the compact brief serializer
+    // (buildCompactMarketAwareBuilderBriefForCoder, private to ProtoPipeline.ts),
+    // not the verbose serializeMarketAwareBuilderBriefForCoder exercised above —
+    // assert on the compact header/fields instead of exact block containment.
     const result = buildCoderPlanningBlocks({ marketAwareBuilderBrief: HEALTH_BRIEF });
-    expect(result).toContain(briefBlock);
+    expect(result).toContain('MARKET-AWARE BUILDER BRIEF — MANDATORY BUILDER GUIDANCE');
+    expect(result).toContain('productCategory: mobile-health');
+    expect(result).toContain('CODER_INSTRUCTIONS:');
   });
 
-  it('self-plan instructions block is preserved intact', () => {
-    const selfPlanBlock = buildBuilderOwnedSelfPlanInstructions(HEALTH_BRIEF);
+  it('self-plan instructions content is present in compact form', () => {
+    // Same: buildCoderPlanningBlocks embeds the compact self-plan serializer
+    // (buildCompactBuilderOwnedSelfPlanForCoder), not buildBuilderOwnedSelfPlanInstructions.
     const result = buildCoderPlanningBlocks({ marketAwareBuilderBrief: HEALTH_BRIEF });
-    expect(result).toContain(selfPlanBlock);
+    expect(result).toContain('BUILDER-OWNED PRODUCT ASSEMBLY PLAN & SELF-TEST — MANDATORY');
+    expect(result).toContain('ARCHITECTURE_OWNERSHIP:');
+    expect(result).toContain('WRITE_PRODUCT_ASSEMBLY_PLAN_FIRST:');
+    expect(result).toContain('SELF_TEST_BEFORE_FINAL_OUTPUT:');
   });
 
   it('returns empty string when no inputs are passed', () => {

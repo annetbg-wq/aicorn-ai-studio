@@ -226,21 +226,24 @@ describe('buildCoderPlanningBlocks — trend direct-launch includes Product Asse
   });
 
   it('prompt requires coder to choose its own screen/section roles', () => {
+    // buildCoderPlanningBlocks embeds the compact self-plan serializer
+    // (buildCompactBuilderOwnedSelfPlanForCoder), whose WRITE_PRODUCT_ASSEMBLY_PLAN_FIRST
+    // section asks for 3-6 screen/section roles without prescribing them, but drops the
+    // old verbose "(your choice — not prescribed externally)" qualifier for brevity.
     const result = buildCoderPlanningBlocks({
       marketAwareBuilderBrief: DASHBOARD_BRIEF,
     });
     expect(result).toContain('screen/section roles');
-    expect(result.toLowerCase()).toContain('not prescribed');
+    expect(result).toContain('Define 3-6 screen/section roles with purpose, action, data, and component role.');
   });
 
   it('prompt maps market-aware brief context to UI via screen purpose', () => {
     const result = buildCoderPlanningBlocks({
       marketAwareBuilderBrief: DASHBOARD_BRIEF,
     });
-    // Market brief is injected AND plan requires tying screen purpose to it
+    // Market brief is injected AND CODER_INSTRUCTIONS ties it to the current screen batch.
     expect(result).toContain('MARKET-AWARE BUILDER BRIEF');
-    expect(result.toLowerCase()).toContain('product-specific purpose');
-    expect(result.toLowerCase()).toContain('market brief');
+    expect(result).toContain('Reflect this brief in the current screen batch');
   });
 
   it('prompt does not prescribe a fixed external component list', () => {
@@ -254,19 +257,22 @@ describe('buildCoderPlanningBlocks — trend direct-launch includes Product Asse
   });
 
   it('prompt states coder owns architecture and implementation', () => {
+    // Compact ARCHITECTURE_OWNERSHIP line replaces the old verbose "YOU own" phrasing.
     const result = buildCoderPlanningBlocks({
       marketAwareBuilderBrief: DASHBOARD_BRIEF,
     });
-    expect(result).toContain('YOU own');
-    expect(result.toLowerCase()).toContain('implementation');
+    expect(result).toContain('coder owns final composition and implementation');
   });
 
-  it('includes the full self-plan instructions block verbatim', () => {
-    const selfPlanBlock = buildBuilderOwnedSelfPlanInstructions(DASHBOARD_BRIEF);
+  it('includes the self-plan instructions section headers', () => {
+    // buildCoderPlanningBlocks embeds the compact serializer, not
+    // buildBuilderOwnedSelfPlanInstructions's verbatim block (tested above).
     const result = buildCoderPlanningBlocks({
       marketAwareBuilderBrief: DASHBOARD_BRIEF,
     });
-    expect(result).toContain(selfPlanBlock);
+    expect(result).toContain('BUILDER-OWNED PRODUCT ASSEMBLY PLAN & SELF-TEST — MANDATORY');
+    expect(result).toContain('ARCHITECTURE_OWNERSHIP:');
+    expect(result).toContain('SELF_TEST_BEFORE_FINAL_OUTPUT:');
   });
 
   it('health app brief also receives Product Assembly Plan block', () => {
@@ -274,7 +280,7 @@ describe('buildCoderPlanningBlocks — trend direct-launch includes Product Asse
       marketAwareBuilderBrief: HEALTH_BRIEF,
     });
     expect(result).toContain('PRODUCT ASSEMBLY PLAN');
-    expect(result).toContain('YOU own');
+    expect(result).toContain('coder owns final composition and implementation');
   });
 });
 
