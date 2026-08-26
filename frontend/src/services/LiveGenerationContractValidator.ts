@@ -1,5 +1,7 @@
 import {
   getSkeletonInstalledFiles,
+  getSkeletonOwnedShellFiles,
+  getSkeletonProductSlotFiles,
   getRequiredSkeletonDataFiles,
   isProtectedSkeletonFile,
   type SkeletonId,
@@ -99,6 +101,21 @@ interface ModuleExportInfo {
 }
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'] as const;
+const LOCAL_GRAPH_EXTENSIONS = [...SOURCE_EXTENSIONS, '.css', '.json'] as const;
+
+/**
+ * Import specifiers for non-code assets (images / fonts / media) that Vite resolves
+ * from disk as URL strings — they are NOT text modules in the candidate graph, so the
+ * import/export contract must not treat them as missing local modules. Their on-disk
+ * presence is ensured by media/placeholder materialization; Vite reports any that are
+ * genuinely absent. (.css and .json ARE collected into the graph and remain checked.)
+ */
+const NON_GRAPH_ASSET_IMPORT_RE =
+  /\.(?:svg|png|jpe?g|webp|gif|avif|ico|bmp|woff2?|ttf|otf|eot|mp4|webm|ogg|mp3|wav)(?:\?[^'"`]*)?$/i;
+function isNonGraphAssetSpecifier(specifier: string): boolean {
+  return NON_GRAPH_ASSET_IMPORT_RE.test(specifier.trim());
+}
+
 const ROOT_SHELL_OWNERS = ['src/App.tsx', 'src/components/AppShell.tsx', 'src/components/DashboardShell.tsx'];
 
 const PROTECTED_SHELL_COMPONENTS_BY_SKELETON: Partial<Record<SkeletonId, readonly string[]>> = {
@@ -118,6 +135,28 @@ const GLOBAL_PROTECTED_SHELL_COMPONENTS = new Set([
   'Sidebar',
   'TopBar',
   'Topbar',
+]);
+
+const SHELL_CONTRACT_PATHS = new Set([
+  'src/config/navigation.ts',
+  'src/config/routes.ts',
+  'src/route-manifest.json',
+]);
+
+const DISALLOWED_REACT_ROUTER_IMPORTS = new Set([
+  'BrowserRouter',
+  'HashRouter',
+  'Navigate',
+  'Outlet',
+  'Route',
+  'RouterProvider',
+  'Routes',
+  'createBrowserRouter',
+  'createHashRouter',
+  'createMemoryRouter',
+  'createRoutesFromChildren',
+  'createRoutesFromElements',
+  'useRoutes',
 ]);
 
 function normalizeSlashes(value: string): string {
@@ -222,9 +261,9 @@ function buildCandidateGraphSummary(input: LiveGenerationContractValidationInput
     generatedDeltaCount: generatedFiles.size,
     materializedFileCount: materializedFiles.size,
     skeletonFileCount: Object.keys(finalFiles).filter(filePath => skeletonFiles.has(filePath)).length,
-    hasMain: Boolean(finalFiles['src/main.tsx']),
-    hasApp: Boolean(finalFiles['src/App.tsx']),
-    hasRouteManifest: Boolean(finalFiles['src/route-manifest.json']),
+    hasMain: Object.prototype.hasOwnProperty.call(finalFiles, 'src/main.tsx'),
+    hasApp: Object.prototype.hasOwnProperty.call(finalFiles, 'src/App.tsx'),
+    hasRouteManifest: Object.prototype.hasOwnProperty.call(finalFiles, 'src/route-manifest.json'),
     shellOwnerFiles,
   };
 }
@@ -525,9 +564,9 @@ function resolveLocalImportTarget(
 
   if (!basePath) return null;
 
-  const candidates = SOURCE_EXTENSIONS.map(ext => `${basePath}${ext}`);
+  const candidates = LOCAL_GRAPH_EXTENSIONS.map(ext => `${basePath}${ext}`);
   candidates.unshift(basePath);
-  for (const ext of SOURCE_EXTENSIONS) {
+  for (const ext of LOCAL_GRAPH_EXTENSIONS) {
     candidates.push(`${basePath}/index${ext}`);
   }
 
@@ -598,6 +637,59 @@ function getProtectedShellComponents(skeletonId?: SkeletonId): Set<string> {
   return names;
 }
 
+function isShellBoundaryConsumerFile(filePath: string): boolean {
+  return /^src\/(?:pages|components)\/[^/].*\.(?:tsx?|jsx?)$/i.test(filePath)
+    && !/^src\/components\/ui\//i.test(filePath);
+}
+
+function importedBindingNames(parsedImport: ParsedImport): string[] {
+  return [
+    parsedImport.defaultImport,
+    parsedImport.namespaceImport,
+    ...parsedImport.namedImports,
+  ].filter((value): value is string => !!value);
+}
+
+function describeShellLayerFromPath(path: string): string {
+  if (path === 'src/config/routes.ts' || path === 'src/route-manifest.json') {
+    return 'route contract';
+  }
+  if (path === 'src/config/navigation.ts') {
+    return 'navigation contract';
+  }
+  if (/\/context\//i.test(path) || /\/providers?\//i.test(path)) {
+    return 'provider layer';
+  }
+  if (/\/components\/(?:BottomTabs|Nav|NavigationShell|Sidebar|TopBar|Topbar)\.tsx$/i.test(path)) {
+    return 'navigation shell';
+  }
+  if (/\/components\/(?:AppShell|DashboardShell)\.tsx$/i.test(path) || path === 'src/App.tsx') {
+    return 'layout shell';
+  }
+  if (path === 'src/main.tsx') {
+    return 'preview bootstrap';
+  }
+  return 'shell infrastructure';
+}
+
+function buildProtectedShellDiagnostic(
+  summary: CandidateGraphSummary,
+  input: LiveGenerationContractValidationInput,
+  filePath: string,
+  importPath: string,
+  layer: string,
+  detail: string,
+): LiveGenerationContractDiagnostic {
+  return createDiagnostic(summary, 'protected_shell_import', {
+    file: filePath,
+    import_path: importPath,
+    expected: 'product slot files must leave router, providers, layout shell, and navigation ownership to the skeleton shell',
+    actual: `${filePath} tries to own shell layer ${layer}: ${detail}`,
+    suggested_fix: `Remove the shell ownership from ${filePath}. Keep ${layer} logic in the skeleton shell or its dedicated product-slot config file instead.`,
+    raw_error_excerpt: input.rawErrorExcerpt,
+  });
+}
+
 export function validateCandidateGraphContract(
   input: LiveGenerationContractValidationInput,
 ): LiveGenerationContractValidationResult {
@@ -647,7 +739,7 @@ export function validateCandidateGraphContract(
   }
 
   for (const requiredFile of requiredLocalFiles) {
-    if (finalFiles[requiredFile]) continue;
+    if (Object.prototype.hasOwnProperty.call(finalFiles, requiredFile)) continue;
     diagnostics.push(createDiagnostic(summary, 'missing_required_manifest_file', {
       file: requiredFile,
       import_path: requiredFile.startsWith('src/')
@@ -692,10 +784,13 @@ export function validateImportExportContract(
     if (!isSourceModule(filePath)) continue;
     for (const parsedImport of parseImports(content, filePath)) {
       if (parsedImport.typeOnly) continue;
+      // Asset imports (svg/png/fonts/media) are Vite URL resolutions, not text
+      // modules in the candidate graph — skip them here; Vite resolves from disk.
+      if (isNonGraphAssetSpecifier(parsedImport.specifier)) continue;
       const resolvedTarget = resolveLocalImportTarget(filePath, parsedImport.specifier, finalFiles);
       if (!resolvedTarget) continue;
 
-      if (!finalFiles[resolvedTarget]) {
+      if (!Object.prototype.hasOwnProperty.call(finalFiles, resolvedTarget)) {
         const primitive = isUiPrimitiveSpecifier(parsedImport.specifier, resolvedTarget);
         if (primitive) {
           diagnostics.push(createDiagnostic(summary, 'missing_ui_primitive', {
@@ -718,6 +813,8 @@ export function validateImportExportContract(
         }
         continue;
       }
+
+      if (!isSourceModule(resolvedTarget)) continue;
 
       const exportInfo = collectModuleExports(resolvedTarget, finalFiles, exportCache);
       if (parsedImport.defaultImport && !parsedImport.typeOnly && !exportInfo.hasDefault) {
@@ -760,23 +857,115 @@ export function validateProtectedShellBoundary(
   input: LiveGenerationContractValidationInput,
 ): LiveGenerationContractValidationResult {
   const finalFiles = normalizeGraph(input.finalFiles);
+  const generatedDeltaFiles = normalizeGraph(input.generatedDeltaFiles);
   const summary = buildCandidateGraphSummary(input);
   const diagnostics: LiveGenerationContractDiagnostic[] = [];
   const protectedShellComponents = getProtectedShellComponents(input.skeletonId);
+  const shellOwnedPaths = new Set(
+    (input.skeletonId ? getSkeletonOwnedShellFiles(input.skeletonId) : [])
+      .map(path => normalizeCandidatePath(path)),
+  );
+  const productSlotPaths = new Set(
+    (input.skeletonId ? getSkeletonProductSlotFiles(input.skeletonId) : [])
+      .map(path => normalizeCandidatePath(path)),
+  );
+  const filesToInspect = Object.keys(generatedDeltaFiles).length > 0 ? generatedDeltaFiles : finalFiles;
 
-  for (const [filePath, content] of Object.entries(finalFiles)) {
-    if (!/^src\/pages\/[^/]+\.(?:tsx?|jsx?)$/i.test(filePath)) continue;
+  for (const [filePath, content] of Object.entries(filesToInspect)) {
+    if (!isSourceModule(filePath)) continue;
+    if (!isShellBoundaryConsumerFile(filePath)) continue;
+    if (shellOwnedPaths.has(filePath)) continue;
+    if (productSlotPaths.has(filePath) && !/^src\/pages\//i.test(filePath)) {
+      // Product-slot config/data files are allowed to own route/navigation contracts.
+      continue;
+    }
+
     for (const parsedImport of parseImports(content, filePath)) {
-      const componentName = parsedImport.specifier.split('/').pop()?.replace(/\.(?:tsx?|jsx?)$/i, '') ?? '';
-      if (!protectedShellComponents.has(componentName)) continue;
-      diagnostics.push(createDiagnostic(summary, 'protected_shell_import', {
-        file: filePath,
-        import_path: parsedImport.specifier,
-        expected: 'page files must export page content only and leave shell ownership to App.tsx',
-        actual: `${filePath} imports protected shell component ${componentName}`,
-        suggested_fix: `Remove ${componentName} from ${filePath} and let App.tsx or the skeleton shell own that component.`,
-        raw_error_excerpt: input.rawErrorExcerpt,
-      }));
+      const importPath = parsedImport.specifier;
+      const importedBindings = importedBindingNames(parsedImport);
+      const resolvedTarget = resolveLocalImportTarget(filePath, importPath, finalFiles);
+      const componentName = importPath.split('/').pop()?.replace(/\.(?:tsx?|jsx?)$/i, '') ?? '';
+      const importsContextConsumer = Boolean(
+        resolvedTarget && (/\/context\//i.test(resolvedTarget) || /\/providers?\//i.test(resolvedTarget)),
+      );
+
+      if (importPath === 'react-router-dom') {
+        const owningBindings = importedBindings.filter(binding => DISALLOWED_REACT_ROUTER_IMPORTS.has(binding));
+        if (owningBindings.length > 0) {
+          diagnostics.push(buildProtectedShellDiagnostic(
+            summary,
+            input,
+            filePath,
+            importPath,
+            'router',
+            `imports ${owningBindings.join(', ')} from react-router-dom`,
+          ));
+          continue;
+        }
+
+        if (
+          parsedImport.namespaceImport
+          && /\b(?:BrowserRouter|HashRouter|RouterProvider|Routes|Route|createBrowserRouter|createHashRouter|useRoutes|Outlet)\b/.test(content)
+        ) {
+          diagnostics.push(buildProtectedShellDiagnostic(
+            summary,
+            input,
+            filePath,
+            importPath,
+            'router',
+            `uses router ownership APIs via namespace import ${parsedImport.namespaceImport}`,
+          ));
+          continue;
+        }
+      }
+
+      const providerBindings = importedBindings.filter(binding => /Provider$/.test(binding));
+      if (
+        providerBindings.length > 0 &&
+        (
+          resolvedTarget?.includes('/context/')
+          || resolvedTarget?.includes('/providers/')
+          || importPath.includes('/context/')
+          || importPath.includes('/providers/')
+        )
+      ) {
+        diagnostics.push(buildProtectedShellDiagnostic(
+          summary,
+          input,
+          filePath,
+          importPath,
+          'provider layer',
+          `imports ${providerBindings.join(', ')} from ${resolvedTarget ?? importPath}`,
+        ));
+        continue;
+      }
+
+      if (resolvedTarget && SHELL_CONTRACT_PATHS.has(resolvedTarget)) {
+        diagnostics.push(buildProtectedShellDiagnostic(
+          summary,
+          input,
+          filePath,
+          importPath,
+          describeShellLayerFromPath(resolvedTarget),
+          `imports ${resolvedTarget}`,
+        ));
+        continue;
+      }
+
+      if (
+        (resolvedTarget && shellOwnedPaths.has(resolvedTarget) && !importsContextConsumer)
+        || protectedShellComponents.has(componentName)
+      ) {
+        const layerPath = resolvedTarget ?? `src/components/${componentName}.tsx`;
+        diagnostics.push(buildProtectedShellDiagnostic(
+          summary,
+          input,
+          filePath,
+          importPath,
+          describeShellLayerFromPath(layerPath),
+          `imports protected shell module ${resolvedTarget ?? componentName}`,
+        ));
+      }
     }
   }
 

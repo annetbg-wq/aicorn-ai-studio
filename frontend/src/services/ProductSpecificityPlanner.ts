@@ -2175,7 +2175,10 @@ function collectPlanSignals(
 
 function collectGenericKpiFindings(files: Array<[string, string]>): string[] {
   return uniqueStrings(
-    files.flatMap(([path, content]) => {
+    files
+      // Navigation and routes config files contain page-section labels by design (not KPI metrics)
+      .filter(([path]) => !/\/(navigation|routes)\.(ts|tsx)$/.test(normalizeOutputPath(path)))
+      .flatMap(([path, content]) => {
       const labels = KPI_GENERIC_TERMS.filter(label => {
         const rx = new RegExp(`(?:label|title|heading)\\s*[:=]\\s*["'\`]\\s*${label}\\s*["'\`]`, 'i');
         return rx.test(content);

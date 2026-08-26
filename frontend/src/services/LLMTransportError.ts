@@ -62,14 +62,102 @@ export interface LlmTransportTelemetry {
  * Contains only safe payload metrics — never prompt text, API keys, or generated code.
  */
 export interface LlmCallDiagnostics {
-  llm_call_step:          string;  // architect | coder | repair | etc.
-  provider:               string;  // deepseek | openrouter | openai | etc.
-  model_id:               string;  // normalized model identifier
-  prompt_char_count:      number;  // system + user character lengths combined
-  estimated_token_count:  number;  // rough estimate: prompt_char_count / 4
-  messages_count:         number;  // always 2 (system + user) for pipeline calls
-  max_tokens:             number;  // max_tokens budget for this step
-  payload_byte_size:      number;  // JSON-serialized request body length in bytes
+  llm_call_step:              string;   // architect | coder | repair | etc.
+  provider:                   string;   // deepseek | openrouter | openai | etc.
+  model_id:                   string;   // normalized model identifier
+  endpoint_kind:              string;   // direct_provider | supabase_proxy | openrouter_proxy | unknown
+  route_authority:            string;   // user_set | backend_runtime_saved | backend_factory_template | etc.
+  system_prompt_char_count:   number;   // system message character length
+  user_payload_char_count:    number;   // user message character length
+  total_prompt_char_count:    number;   // system + user combined
+  estimated_token_count:      number;   // rough estimate: total_prompt_char_count / 4
+  messages_count:             number;   // always 2 (system + user) for pipeline calls
+  max_tokens:                 number;   // max_tokens budget for this step
+  request_payload_byte_size:  number;   // JSON-serialized request body length in bytes
+  streaming_enabled:          boolean;  // whether streaming (SSE) is active for this call
+}
+
+/**
+ * Post-call outcome diagnostics. Emitted after each LLM HTTP call completes or fails.
+ * Captures timing and outcome without repeating pre-call payload metrics.
+ */
+export interface LlmCallOutcomeDiagnostics {
+  llm_call_step:    string;                                             // architect | coder | repair | etc.
+  response_time_ms: number;                                            // wall-clock ms from call start to outcome
+  final_status:     'success' | 'retry_success' | 'failed' | 'aborted';
+  http_status:      number;                                            // 0 on success; error HTTP status otherwise
+  error_category?:  LlmErrorCategory;                                  // set only on failure
+}
+
+// ── Payload risk classification ───────────────────────────────────────────────
+
+export interface LlmPayloadRiskResult {
+  level:   'low' | 'medium' | 'high';
+  reasons: string[];
+}
+
+/**
+ * Pure helper — classifies payload size risk based on call diagnostics.
+ * Does NOT block generation; diagnostics only.
+ *
+ * Risk thresholds are tuned for the DeepSeek HTTP 546 investigation:
+ *   - 546 occurs at the coder step where combined context (system + planning blocks
+ *     + architect plan summary) can reach 50k–100k+ chars before max_tokens is added.
+ *   - DeepSeek-v4-pro context window is ~64k tokens; Supabase Edge Function has
+ *     CPU/memory/wall-clock limits that can fire before the provider does.
+ */
+export function evaluateLlmPayloadRisk(
+  metrics: Pick<
+    LlmCallDiagnostics,
+    | 'request_payload_byte_size'
+    | 'total_prompt_char_count'
+    | 'estimated_token_count'
+    | 'max_tokens'
+    | 'messages_count'
+  >,
+): LlmPayloadRiskResult {
+  const reasons: string[] = [];
+
+  // ── High-risk signals ───────────────────────────────────────────────────────
+  if (metrics.request_payload_byte_size > 120_000) {
+    reasons.push(`request_payload_byte_size=${metrics.request_payload_byte_size} exceeds 120 KB`);
+  }
+  if (metrics.total_prompt_char_count > 80_000) {
+    reasons.push(`total_prompt_char_count=${metrics.total_prompt_char_count} exceeds 80 000 chars`);
+  }
+  if (metrics.estimated_token_count > 40_000) {
+    reasons.push(`estimated_token_count=${metrics.estimated_token_count} exceeds 40 000 tokens`);
+  }
+  if (metrics.max_tokens > 32_000) {
+    reasons.push(`max_tokens=${metrics.max_tokens} is unusually high (>32 000)`);
+  }
+  if (metrics.messages_count > 10) {
+    reasons.push(`messages_count=${metrics.messages_count} is unusually high (>10)`);
+  }
+
+  if (reasons.length > 0) {
+    return { level: 'high', reasons };
+  }
+
+  // ── Medium-risk signals ──────────────────────────────────────────────────────
+  if (metrics.request_payload_byte_size > 40_000) {
+    reasons.push(`request_payload_byte_size=${metrics.request_payload_byte_size} exceeds 40 KB`);
+  }
+  if (metrics.total_prompt_char_count > 20_000) {
+    reasons.push(`total_prompt_char_count=${metrics.total_prompt_char_count} exceeds 20 000 chars`);
+  }
+  if (metrics.estimated_token_count > 16_000) {
+    reasons.push(`estimated_token_count=${metrics.estimated_token_count} exceeds 16 000 tokens`);
+  }
+  if (metrics.max_tokens > 16_000) {
+    reasons.push(`max_tokens=${metrics.max_tokens} is elevated (>16 000)`);
+  }
+
+  if (reasons.length > 0) {
+    return { level: 'medium', reasons };
+  }
+
+  return { level: 'low', reasons: [] };
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -110,9 +198,11 @@ export function classifyLlmHttpError(
   if (httpStatus === 429) return 'provider_rate_limit';
   if (httpStatus === 401 || httpStatus === 403) return 'missing_provider_key';
 
-  // HTTP 546 is a non-standard code used by the OpenRouter→DeepSeek proxy chain
-  // to signal upstream provider capacity / resource limits. Not retried — the
-  // same payload will hit the same limit on an immediate retry.
+  // HTTP 546 is a non-standard status code indicating upstream provider capacity
+  // or resource limits. It can originate from DeepSeek's own API directly
+  // (when the Supabase proxy forwards to api.deepseek.com) or from OpenRouter
+  // when it acts as an intermediary. Not retried — the same payload will hit
+  // the same capacity limit on an immediate retry.
   if (httpStatus === 546) return 'proxy_resource_limit';
 
   if (httpStatus === 400 || httpStatus >= 500) {
@@ -166,18 +256,46 @@ export function recordLlmTransportTelemetry(data: LlmTransportTelemetry): void {
 /**
  * Emits a compact pre-call diagnostic log for each LLM request.
  * Provides payload size visibility without logging prompt text, API keys,
- * or generated code. Route authority is logged upstream by the route resolver.
+ * or generated code. Also emits a risk classification for the payload.
  */
 export function recordLlmCallDiagnostics(data: LlmCallDiagnostics): void {
+  const risk = evaluateLlmPayloadRisk({
+    request_payload_byte_size: data.request_payload_byte_size,
+    total_prompt_char_count:   data.total_prompt_char_count,
+    estimated_token_count:     data.estimated_token_count,
+    max_tokens:                data.max_tokens,
+    messages_count:            data.messages_count,
+  });
   console.log('[llm_call_diag]', {
-    llm_call_step:          data.llm_call_step,
-    provider:               data.provider,
-    model_id:               data.model_id,
-    prompt_char_count:      data.prompt_char_count,
-    estimated_token_count:  data.estimated_token_count,
-    messages_count:         data.messages_count,
-    max_tokens:             data.max_tokens,
-    payload_byte_size:      data.payload_byte_size,
+    llm_call_step:            data.llm_call_step,
+    provider:                 data.provider,
+    model_id:                 data.model_id,
+    endpoint_kind:            data.endpoint_kind,
+    route_authority:          data.route_authority,
+    system_prompt_char_count: data.system_prompt_char_count,
+    user_payload_char_count:  data.user_payload_char_count,
+    total_prompt_char_count:  data.total_prompt_char_count,
+    estimated_token_count:    data.estimated_token_count,
+    messages_count:           data.messages_count,
+    max_tokens:               data.max_tokens,
+    request_payload_byte_size: data.request_payload_byte_size,
+    streaming_enabled:        data.streaming_enabled,
+    payload_risk_level:       risk.level,
+    payload_risk_reasons:     risk.reasons,
+  });
+}
+
+/**
+ * Emits a compact post-call outcome log for each LLM request.
+ * Captures timing and outcome. Never logs prompt text, API keys, or generated code.
+ */
+export function recordLlmCallOutcome(data: LlmCallOutcomeDiagnostics): void {
+  console.log('[llm_call_outcome]', {
+    llm_call_step:    data.llm_call_step,
+    response_time_ms: data.response_time_ms,
+    final_status:     data.final_status,
+    http_status:      data.http_status,
+    error_category:   data.error_category ?? null,
   });
 }
 
