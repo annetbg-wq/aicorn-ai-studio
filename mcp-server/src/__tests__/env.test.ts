@@ -9,7 +9,7 @@ process.env.RENDER_API_KEY = 'x';
 
 const { resolvePublicBaseUrl } = await import('../env.js');
 
-const ENV_KEYS = ['PUBLIC_BASE_URL', 'RENDER_EXTERNAL_URL', 'PORT'] as const;
+const ENV_KEYS = ['PUBLIC_BASE_URL', 'RAILWAY_PUBLIC_DOMAIN', 'RENDER_EXTERNAL_URL', 'PORT'] as const;
 let saved: Record<string, string | undefined>;
 
 describe('resolvePublicBaseUrl', () => {
@@ -31,6 +31,22 @@ describe('resolvePublicBaseUrl', () => {
     expect(result.url).toBe('https://aicorn-ai-studio-mcp.onrender.com');
     expect(result.source).toBe('RENDER_EXTERNAL_URL');
     expect(result.warning).toBeUndefined();
+  });
+
+  it('builds an HTTPS URL from Railway\'s bare RAILWAY_PUBLIC_DOMAIN', () => {
+    process.env.RAILWAY_PUBLIC_DOMAIN = 'aicorn-ai-studio-mcp-production.up.railway.app';
+    const result = resolvePublicBaseUrl();
+    expect(result.url).toBe('https://aicorn-ai-studio-mcp-production.up.railway.app');
+    expect(result.source).toBe('RAILWAY_PUBLIC_DOMAIN');
+    expect(result.warning).toBeUndefined();
+  });
+
+  it('prefers Railway over a stale Render URL when both provider variables exist', () => {
+    process.env.RAILWAY_PUBLIC_DOMAIN = 'aicorn-ai-studio-mcp-production.up.railway.app';
+    process.env.RENDER_EXTERNAL_URL = 'https://aicorn-ai-studio-mcp.onrender.com';
+    const result = resolvePublicBaseUrl();
+    expect(result.url).toBe('https://aicorn-ai-studio-mcp-production.up.railway.app');
+    expect(result.source).toBe('RAILWAY_PUBLIC_DOMAIN');
   });
 
   it('falls back to localhost when nothing is set at all', () => {
@@ -62,6 +78,16 @@ describe('resolvePublicBaseUrl', () => {
     expect(result.warning).toContain('RENDER_EXTERNAL_URL');
   });
 
+  it('flags a PUBLIC_BASE_URL that disagrees with RAILWAY_PUBLIC_DOMAIN', () => {
+    process.env.RAILWAY_PUBLIC_DOMAIN = 'aicorn-ai-studio-mcp-production.up.railway.app';
+    process.env.PUBLIC_BASE_URL = 'http://localhost:8080';
+    const result = resolvePublicBaseUrl();
+    expect(result.url).toBe('https://aicorn-ai-studio-mcp-production.up.railway.app');
+    expect(result.source).toBe('RAILWAY_PUBLIC_DOMAIN');
+    expect(result.warning).toContain('Ignoring PUBLIC_BASE_URL="http://localhost:8080"');
+    expect(result.warning).toContain('RAILWAY_PUBLIC_DOMAIN');
+  });
+
   it('does not warn about a manual override when RENDER_EXTERNAL_URL is not set at all (e.g. local dev)', () => {
     process.env.PUBLIC_BASE_URL = 'http://localhost:8787';
     const result = resolvePublicBaseUrl();
@@ -71,5 +97,10 @@ describe('resolvePublicBaseUrl', () => {
   it('strips trailing slashes from either source', () => {
     process.env.RENDER_EXTERNAL_URL = 'https://aicorn-ai-studio-mcp.onrender.com/';
     expect(resolvePublicBaseUrl().url).toBe('https://aicorn-ai-studio-mcp.onrender.com');
+  });
+
+  it('does not duplicate a scheme if Railway exposes a full URL', () => {
+    process.env.RAILWAY_PUBLIC_DOMAIN = 'https://aicorn-ai-studio-mcp-production.up.railway.app/';
+    expect(resolvePublicBaseUrl().url).toBe('https://aicorn-ai-studio-mcp-production.up.railway.app');
   });
 });

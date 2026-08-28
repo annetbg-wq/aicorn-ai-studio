@@ -1,6 +1,6 @@
 // Central, typed access to this service's own configuration. Every secret named
-// here lives ONLY in this service's environment (set directly in the Render
-// dashboard — never in git, never echoed back through any tool response).
+// here lives ONLY in this service's environment (set directly in the hosting
+// provider dashboard — never in git, never echoed back through any tool response).
 
 function optional(name: string): string | undefined {
   const v = process.env[name];
@@ -38,22 +38,31 @@ export const env = {
   /**
    * This service's own externally-reachable base URL — needed for OAuth discovery
    * metadata (issuer/authorization_endpoint/token_endpoint all have to be absolute
-   * URLs pointing back at this service). RENDER_EXTERNAL_URL is set automatically
-   * by Render on every web service (always the full https://<name>.onrender.com,
-   * per Render's docs — never just the bare service name), no configuration needed
-   * there; PUBLIC_BASE_URL is only for local dev / overriding it. See
-   * resolvePublicBaseUrl() below for why an override here is worth double-checking.
+   * URLs pointing back at this service). Railway supplies RAILWAY_PUBLIC_DOMAIN as
+   * a bare hostname; Render supplies RENDER_EXTERNAL_URL as a complete URL.
+   * PUBLIC_BASE_URL remains available for local dev or a deliberate custom-domain
+   * override. See resolvePublicBaseUrl() for precedence and mismatch diagnostics.
    */
   get PUBLIC_BASE_URL() {
     return resolvePublicBaseUrl().url;
   },
 
-  // Render auto-populates these — surfaced (not secret) for /health and startup
-  // diagnostics, so "is the right code actually deployed, with the right config"
-  // is answerable with one curl instead of dashboard access.
+  // Hosting providers auto-populate these — surfaced (not secret) for /health and
+  // startup diagnostics, so "is the right code actually deployed, with the right
+  // config" is answerable with one curl instead of dashboard access.
+  RAILWAY_PUBLIC_DOMAIN: optional('RAILWAY_PUBLIC_DOMAIN'),
+  RAILWAY_GIT_COMMIT_SHA: optional('RAILWAY_GIT_COMMIT_SHA'),
+  RAILWAY_SERVICE_NAME: optional('RAILWAY_SERVICE_NAME'),
   RENDER_EXTERNAL_URL: optional('RENDER_EXTERNAL_URL'),
   RENDER_GIT_COMMIT: optional('RENDER_GIT_COMMIT'),
   RENDER_SERVICE_NAME: optional('RENDER_SERVICE_NAME'),
+
+  get DEPLOY_GIT_COMMIT() {
+    return optional('RAILWAY_GIT_COMMIT_SHA') ?? optional('RENDER_GIT_COMMIT');
+  },
+  get DEPLOY_SERVICE_NAME() {
+    return optional('RAILWAY_SERVICE_NAME') ?? optional('RENDER_SERVICE_NAME');
+  },
 };
 
 export function repoSlug(): string {
@@ -62,31 +71,57 @@ export function repoSlug(): string {
 
 export interface PublicBaseUrlResolution {
   url: string;
-  source: 'PUBLIC_BASE_URL' | 'RENDER_EXTERNAL_URL' | 'localhost-fallback';
-  /** Set when PUBLIC_BASE_URL was manually configured and disagrees with Render's own RENDER_EXTERNAL_URL — almost always a typo'd override, not an intentional one. */
+  source: 'PUBLIC_BASE_URL' | 'RAILWAY_PUBLIC_DOMAIN' | 'RENDER_EXTERNAL_URL' | 'localhost-fallback';
+  /** Set when PUBLIC_BASE_URL disagrees with the active hosting provider's URL. */
   warning?: string;
+}
+
+function stripTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function railwayPublicUrl(domain: string): string {
+  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(domain) ? domain : `https://${domain}`;
+  return stripTrailingSlashes(withScheme);
 }
 
 export function resolvePublicBaseUrl(): PublicBaseUrlResolution {
   const manual = optional('PUBLIC_BASE_URL');
+  const railwayDomain = optional('RAILWAY_PUBLIC_DOMAIN');
   const renderUrl = optional('RENDER_EXTERNAL_URL');
 
+  // On Railway this system variable is authoritative. In particular, do not
+  // let a copied PUBLIC_BASE_URL=http://localhost:... poison production OAuth
+  // metadata. Railway updates the value when the service domain changes.
+  if (railwayDomain) {
+    const url = railwayPublicUrl(railwayDomain);
+    const manualUrl = manual ? stripTrailingSlashes(manual) : undefined;
+    return {
+      url,
+      source: 'RAILWAY_PUBLIC_DOMAIN',
+      ...(manualUrl && manualUrl !== url
+        ? { warning: `Ignoring PUBLIC_BASE_URL="${manualUrl}" because Railway provides RAILWAY_PUBLIC_DOMAIN="${url}".` }
+        : {}),
+    };
+  }
+
   if (manual) {
-    const url = manual.replace(/\/+$/, '');
-    if (renderUrl && renderUrl.replace(/\/+$/, '') !== url) {
+    const url = stripTrailingSlashes(manual);
+    const normalizedRenderUrl = renderUrl ? stripTrailingSlashes(renderUrl) : undefined;
+    if (normalizedRenderUrl && normalizedRenderUrl !== url) {
       return {
         url,
         source: 'PUBLIC_BASE_URL',
-        warning: `PUBLIC_BASE_URL="${url}" does not match Render's own RENDER_EXTERNAL_URL="${renderUrl}". ` +
-          'OAuth discovery metadata will advertise the wrong endpoints unless this is intentional (e.g. a custom domain in front of Render). ' +
-          'If not: delete the PUBLIC_BASE_URL env var in the Render dashboard so it auto-derives correctly.',
+        warning: `PUBLIC_BASE_URL="${url}" does not match RENDER_EXTERNAL_URL="${normalizedRenderUrl}". ` +
+          'OAuth discovery metadata will advertise the wrong endpoints unless this is intentional (e.g. a custom domain in front of the hosting provider). ' +
+          'If not: delete PUBLIC_BASE_URL so the service auto-derives the provider URL.',
       };
     }
     return { url, source: 'PUBLIC_BASE_URL' };
   }
 
   if (renderUrl) {
-    return { url: renderUrl.replace(/\/+$/, ''), source: 'RENDER_EXTERNAL_URL' };
+    return { url: stripTrailingSlashes(renderUrl), source: 'RENDER_EXTERNAL_URL' };
   }
 
   return { url: `http://localhost:${optional('PORT') ?? '8787'}`, source: 'localhost-fallback' };
