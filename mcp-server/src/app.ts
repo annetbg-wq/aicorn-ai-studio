@@ -1,7 +1,7 @@
 import express from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { env, repoSlug, resolvePublicBaseUrl } from './env.js';
+import { capabilityMatrix, env, repoSlug, resolvePublicBaseUrl } from './env.js';
 import { requireAuth } from './auth.js';
 import { oauthRouter } from './oauth/routes.js';
 import { registerRepoTools } from './tools/repo.js';
@@ -11,47 +11,51 @@ import { registerSupabaseAdminTools } from './tools/supabaseAdmin.js';
 import { registerPipelineTools } from './tools/pipeline.js';
 
 function createServer(): McpServer {
+  const capabilities = capabilityMatrix();
   const mcp = new McpServer(
-    { name: 'aicorn-ai-studio-superadmin', version: '0.1.0' },
+    { name: 'aicorn-ai-studio-superadmin', version: '0.2.0' },
     {
       instructions:
         `Superadmin dev/staging tools for the ${repoSlug()} repo and its dev/sandbox infrastructure only ` +
-        '(GitHub Pages frontend, Render backend, one Supabase project). This is not a public product API — ' +
-        'it exists so an external assistant can inspect, diagnose, edit, test, and deploy this one project, ' +
-        'and drive its generation pipeline interactively for diagnostics. Destructive tools are marked as such ' +
-        'in their own descriptions; read those before calling them.',
+        '(GitHub Pages frontend, Railway backend/MCP, one Supabase project). This is not a public product API. ' +
+        'Tool groups are registered only when this MCP service has the credentials they require; ChatGPT may also ' +
+        'use separately connected GitHub, Railway, and Supabase connectors for infrastructure operations.',
     },
   );
 
-  registerRepoTools(mcp);
-  registerCiTools(mcp);
-  registerDeployTools(mcp);
-  registerSupabaseAdminTools(mcp);
-  registerPipelineTools(mcp);
+  // Health is credential-free and always useful. Legacy Render controls are
+  // registered only when the legacy Render credential is deliberately present.
+  registerDeployTools(mcp, { github: capabilities.github, renderLegacy: capabilities.renderLegacy });
+
+  if (capabilities.github) {
+    registerRepoTools(mcp);
+    registerCiTools(mcp);
+  }
+  if (capabilities.github && capabilities.supabaseDb) {
+    registerSupabaseAdminTools(mcp);
+  }
+  if (capabilities.pipelineDiagnostics) {
+    registerPipelineTools(mcp);
+  }
 
   return mcp;
 }
 
 export function createApp(): express.Express {
   const app = express();
-  // The hosting edge sits in front as a proxy — without this, req.ip is always
-  // the proxy address for every caller, making the /authorize rate
-  // limiter and the ip field in oauth/routes.ts's structured logs useless.
   app.set('trust proxy', true);
   app.use(express.json({ limit: '5mb' }));
-  // OAuth's /authorize (HTML form post) and /token (RFC 6749) both use
-  // application/x-www-form-urlencoded, not JSON.
   app.use(express.urlencoded({ extended: false }));
 
-  // Loud and immediate, not just discoverable via /health — this exact
-  // misconfiguration (an absent or incorrect provider URL) breaks every OAuth
-  // discovery URL silently, surfacing to ChatGPT only as a generic connection
-  // or OAuth-client-resolution failure.
   const baseUrlInfo = resolvePublicBaseUrl();
+  const capabilities = capabilityMatrix();
   if (baseUrlInfo.warning) {
     console.warn(`[mcp] CONFIG WARNING: ${baseUrlInfo.warning}`);
   }
-  console.log(`[mcp] publicBaseUrl=${baseUrlInfo.url} (source: ${baseUrlInfo.source}) commit=${env.DEPLOY_GIT_COMMIT ?? 'unknown'}`);
+  console.log(
+    `[mcp] publicBaseUrl=${baseUrlInfo.url} (source: ${baseUrlInfo.source}) ` +
+    `commit=${env.DEPLOY_GIT_COMMIT ?? 'unknown'} capabilities=${JSON.stringify(capabilities)}`,
+  );
 
   app.get('/health', (_req, res) => {
     const info = resolvePublicBaseUrl();
@@ -61,19 +65,15 @@ export function createApp(): express.Express {
       publicBaseUrl: info.url,
       publicBaseUrlSource: info.source,
       ...(info.warning ? { publicBaseUrlWarning: info.warning } : {}),
+      backendHealthUrl: env.BACKEND_HEALTH_URL,
+      capabilities: capabilityMatrix(),
       commit: env.DEPLOY_GIT_COMMIT ?? null,
       service: env.DEPLOY_SERVICE_NAME ?? null,
     });
   });
 
-  // Public — discovery metadata, dynamic client registration, and the login/
-  // token endpoints are how a client gets a credential in the first place, so
-  // none of these can themselves require the auth they're issuing.
   app.use(oauthRouter());
 
-  // Stateless mode: a fresh McpServer+transport pair per request. Reusing one
-  // transport across unrelated requests breaks the SDK's internal request
-  // correlation — each HTTP call here is a self-contained JSON-RPC round trip.
   async function handleMcpRequest(req: express.Request, res: express.Response): Promise<void> {
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     const server = createServer();
@@ -92,9 +92,6 @@ export function createApp(): express.Express {
   }
 
   app.post('/mcp', requireAuth, handleMcpRequest);
-  // Streamable HTTP also uses GET (server-initiated notifications) and DELETE
-  // (session teardown) on the same route — stateless mode has nothing to do
-  // for either, but must still respond rather than 404.
   app.get('/mcp', requireAuth, handleMcpRequest);
   app.delete('/mcp', requireAuth, handleMcpRequest);
 

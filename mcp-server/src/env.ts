@@ -13,11 +13,20 @@ function required(name: string): string {
   return v;
 }
 
+function has(...names: string[]): boolean {
+  return names.every(name => Boolean(optional(name)));
+}
+
+function normalizeUrl(value: string): string {
+  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`;
+  return withScheme.replace(/\/+$/, '');
+}
+
 export const env = {
   PORT: Number(optional('PORT') ?? '8787'),
   HOST: optional('HOST') ?? '0.0.0.0',
 
-  /** Bearer token the MCP host (ChatGPT connector) must present. Minted by us, not GitHub/Supabase/Render. */
+  /** Bearer token the MCP host (ChatGPT connector) must present. */
   get MCP_BEARER_TOKEN() { return required('MCP_BEARER_TOKEN'); },
 
   get GITHUB_TOKEN() { return required('GITHUB_TOKEN'); },
@@ -26,30 +35,27 @@ export const env = {
 
   get SUPABASE_URL() { return required('SUPABASE_URL'); },
   get SUPABASE_SERVICE_ROLE_KEY() { return required('SUPABASE_SERVICE_ROLE_KEY'); },
-  /** Direct Postgres connection string (Project Settings -> Database -> Connection string). Used only by schema/migration/query tools, which need real multi-statement SQL — the REST/RPC surface can't run migration files as-is. */
   get SUPABASE_DB_URL() { return required('SUPABASE_DB_URL'); },
 
+  // Render support is legacy-only. The live Studio services are on Railway.
   get RENDER_API_KEY() { return required('RENDER_API_KEY'); },
   RENDER_BACKEND_SERVICE_ID: optional('RENDER_BACKEND_SERVICE_ID'),
 
-  BACKEND_HEALTH_URL: optional('BACKEND_HEALTH_URL') ?? 'https://aicorn-ai-studio-backend.onrender.com/health',
+  // Railway injects a cross-service URL for the backend into the MCP service.
+  RAILWAY_BACKEND_URL: optional('RAILWAY_SERVICE_AICORN_AI_STUDIO_BACKEND_URL'),
+  get BACKEND_HEALTH_URL() {
+    const explicit = optional('BACKEND_HEALTH_URL');
+    if (explicit) return explicit;
+    const railwayBackend = optional('RAILWAY_SERVICE_AICORN_AI_STUDIO_BACKEND_URL');
+    if (railwayBackend) return `${normalizeUrl(railwayBackend)}/health`;
+    return 'https://aicorn-ai-studio-backend-production.up.railway.app/health';
+  },
   PAGES_URL: optional('PAGES_URL') ?? 'https://annetbg-wq.github.io/aicorn-ai-studio/',
 
-  /**
-   * This service's own externally-reachable base URL — needed for OAuth discovery
-   * metadata (issuer/authorization_endpoint/token_endpoint all have to be absolute
-   * URLs pointing back at this service). Railway supplies RAILWAY_PUBLIC_DOMAIN as
-   * a bare hostname; Render supplies RENDER_EXTERNAL_URL as a complete URL.
-   * PUBLIC_BASE_URL remains available for local dev or a deliberate custom-domain
-   * override. See resolvePublicBaseUrl() for precedence and mismatch diagnostics.
-   */
   get PUBLIC_BASE_URL() {
     return resolvePublicBaseUrl().url;
   },
 
-  // Hosting providers auto-populate these — surfaced (not secret) for /health and
-  // startup diagnostics, so "is the right code actually deployed, with the right
-  // config" is answerable with one curl instead of dashboard access.
   RAILWAY_PUBLIC_DOMAIN: optional('RAILWAY_PUBLIC_DOMAIN'),
   RAILWAY_GIT_COMMIT_SHA: optional('RAILWAY_GIT_COMMIT_SHA'),
   RAILWAY_SERVICE_NAME: optional('RAILWAY_SERVICE_NAME'),
@@ -65,6 +71,29 @@ export const env = {
   },
 };
 
+export interface CapabilityMatrix {
+  github: boolean;
+  supabaseApi: boolean;
+  supabaseDb: boolean;
+  pipelineDiagnostics: boolean;
+  renderLegacy: boolean;
+  railwayRuntime: boolean;
+}
+
+export function capabilityMatrix(): CapabilityMatrix {
+  const github = has('GITHUB_TOKEN');
+  const supabaseApi = has('SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY');
+  const supabaseDb = has('SUPABASE_DB_URL');
+  return {
+    github,
+    supabaseApi,
+    supabaseDb,
+    pipelineDiagnostics: github && supabaseApi,
+    renderLegacy: has('RENDER_API_KEY'),
+    railwayRuntime: has('RAILWAY_SERVICE_ID', 'RAILWAY_ENVIRONMENT_ID'),
+  };
+}
+
 export function repoSlug(): string {
   return `${env.GITHUB_OWNER}/${env.GITHUB_REPO}`;
 }
@@ -72,7 +101,6 @@ export function repoSlug(): string {
 export interface PublicBaseUrlResolution {
   url: string;
   source: 'PUBLIC_BASE_URL' | 'RAILWAY_PUBLIC_DOMAIN' | 'RENDER_EXTERNAL_URL' | 'localhost-fallback';
-  /** Set when PUBLIC_BASE_URL disagrees with the active hosting provider's URL. */
   warning?: string;
 }
 
@@ -81,8 +109,7 @@ function stripTrailingSlashes(value: string): string {
 }
 
 function railwayPublicUrl(domain: string): string {
-  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(domain) ? domain : `https://${domain}`;
-  return stripTrailingSlashes(withScheme);
+  return normalizeUrl(domain);
 }
 
 export function resolvePublicBaseUrl(): PublicBaseUrlResolution {
@@ -90,9 +117,6 @@ export function resolvePublicBaseUrl(): PublicBaseUrlResolution {
   const railwayDomain = optional('RAILWAY_PUBLIC_DOMAIN');
   const renderUrl = optional('RENDER_EXTERNAL_URL');
 
-  // On Railway this system variable is authoritative. In particular, do not
-  // let a copied PUBLIC_BASE_URL=http://localhost:... poison production OAuth
-  // metadata. Railway updates the value when the service domain changes.
   if (railwayDomain) {
     const url = railwayPublicUrl(railwayDomain);
     const manualUrl = manual ? stripTrailingSlashes(manual) : undefined;
@@ -113,8 +137,8 @@ export function resolvePublicBaseUrl(): PublicBaseUrlResolution {
         url,
         source: 'PUBLIC_BASE_URL',
         warning: `PUBLIC_BASE_URL="${url}" does not match RENDER_EXTERNAL_URL="${normalizedRenderUrl}". ` +
-          'OAuth discovery metadata will advertise the wrong endpoints unless this is intentional (e.g. a custom domain in front of the hosting provider). ' +
-          'If not: delete PUBLIC_BASE_URL so the service auto-derives the provider URL.',
+          'OAuth discovery metadata will advertise the wrong endpoints unless this is intentional. ' +
+          'Delete PUBLIC_BASE_URL to use the hosting-provider URL automatically.',
       };
     }
     return { url, source: 'PUBLIC_BASE_URL' };
