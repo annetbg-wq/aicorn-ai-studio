@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { findBackendServiceId, getLogs, getService, listDeploys, listEnvVarKeys, triggerDeploy } from '../lib/render.js';
+import {
+  getBackendLogs,
+  getBackendServiceInstance,
+  listBackendEnvVarKeys,
+  listDeployments,
+  triggerBackendDeploy,
+} from '../lib/railway.js';
 import { github, repo } from '../lib/github.js';
 import { env } from '../env.js';
 
@@ -12,41 +18,46 @@ export function registerDeployTools(server: McpServer): void {
   server.registerTool(
     'deploy_trigger_backend',
     {
-      title: 'Trigger legacy Render backend deploy',
-      description: 'Legacy-only compatibility tool. The active Studio backend is on Railway; this call requires RENDER_API_KEY inside the MCP service.',
+      title: 'Trigger Railway backend deploy',
+      description:
+        'Triggers a deployment of the active Railway Studio backend. Requires a Railway project token scoped to this production environment. ' +
+        'The legacy clearCache input is retained only to keep the MCP schema stable; Railway does not expose the same Render cache flag.',
       inputSchema: { clearCache: z.boolean().default(false) },
     },
     async ({ clearCache }) => {
-      const serviceId = await findBackendServiceId();
-      return text(await triggerDeploy(serviceId, clearCache));
+      const deploy = await triggerBackendDeploy();
+      return text({
+        ...deploy,
+        provider: 'railway',
+        ...(clearCache ? { note: 'clearCache is a legacy compatibility input and has no Railway equivalent; deploy was triggered normally.' } : {}),
+      });
     },
   );
 
   server.registerTool(
     'deploy_get_backend_status',
     {
-      title: 'Get legacy Render backend status/history',
-      description: 'Legacy-only compatibility tool requiring RENDER_API_KEY inside the MCP service.',
+      title: 'Get Railway backend status/history',
+      description: 'Returns the active Railway backend service instance plus recent deployments. Requires the MCP Railway deploy capability.',
       inputSchema: { limit: z.number().int().min(1).max(30).default(5) },
     },
     async ({ limit }) => {
-      const serviceId = await findBackendServiceId();
-      const [service, deploys] = await Promise.all([getService(serviceId), listDeploys(serviceId, limit)]);
-      return text({ service, deploys });
+      const [service, deployments] = await Promise.all([
+        getBackendServiceInstance(),
+        listDeployments(limit),
+      ]);
+      return text({ provider: 'railway', service, deployments });
     },
   );
 
   server.registerTool(
     'deploy_get_backend_logs',
     {
-      title: 'Get legacy Render backend logs',
-      description: 'Legacy-only compatibility tool requiring RENDER_API_KEY inside the MCP service.',
+      title: 'Get Railway backend logs',
+      description: 'Returns runtime logs for the latest Railway backend deployment. Requires the MCP Railway deploy capability.',
       inputSchema: { limit: z.number().int().min(1).max(500).default(100) },
     },
-    async ({ limit }) => {
-      const serviceId = await findBackendServiceId();
-      return text(await getLogs(serviceId, limit));
-    },
+    async ({ limit }) => text({ provider: 'railway', ...(await getBackendLogs(limit)) }),
   );
 
   server.registerTool(
@@ -67,7 +78,7 @@ export function registerDeployTools(server: McpServer): void {
     'deploy_get_health',
     {
       title: 'Check live Studio health',
-      description: 'Hits the active Railway backend /health endpoint and the GitHub Pages URL. Requires no GitHub, Supabase, or Render credential.',
+      description: 'Hits the active Railway backend /health endpoint and the GitHub Pages URL. Requires no GitHub, Supabase, Render, or Railway API credential.',
       inputSchema: {},
     },
     async () => {
@@ -82,13 +93,10 @@ export function registerDeployTools(server: McpServer): void {
   server.registerTool(
     'config_list_backend_env_keys',
     {
-      title: 'List legacy Render backend env var names',
-      description: 'Legacy-only compatibility tool requiring RENDER_API_KEY inside the MCP service. Values are never returned.',
+      title: 'List Railway backend env var names',
+      description: 'Returns only variable names for the active Railway backend. Values are always discarded. Requires the MCP Railway deploy capability.',
       inputSchema: {},
     },
-    async () => {
-      const serviceId = await findBackendServiceId();
-      return text((await listEnvVarKeys(serviceId)).sort());
-    },
+    async () => text(await listBackendEnvVarKeys()),
   );
 }

@@ -10,7 +10,7 @@ GitHub is the source of truth. The active remote topology is:
   URL: `https://aicorn-ai-studio-mcp-production.up.railway.app/mcp`
 - **Development data/diagnostics** → Supabase project `AICRG-studio`.
 
-Render configuration remains in the repository only as legacy migration history/fallback. It is not the active Studio backend hosting target.
+There is no active Render deployment contract. The old `render.yaml` blueprint and Render API client were removed after migration to Railway. `RENDER_EXTERNAL_URL` is recognized only as a passive public-base-url fallback when old deployments are run; it is not a deployment control path and requires no Render API key.
 
 Neither Studio service requires a local machine or Docker. Railway uses native Node builds from the same GitHub repository.
 
@@ -31,18 +31,19 @@ Source: `annetbg-wq/aicorn-ai-studio`, branch `main`.
 Source: the same repo/branch.
 
 - build: `npm --prefix mcp-server install && npm --prefix mcp-server run build --if-present`
+- start: `cd mcp-server && npm start`, which resolves to `tsx src/index.ts`
 - healthcheck: `/health`
 - OAuth public origin is derived from Railway's `RAILWAY_PUBLIC_DOMAIN`
 - `BACKEND_HEALTH_URL` may be set explicitly, but the service can derive/fallback to the Railway backend URL
 
-The MCP always needs `MCP_BEARER_TOKEN` for its own authentication. Privileged tool groups are capability-driven:
+The MCP always needs `MCP_BEARER_TOKEN` for its own authentication. The 38-tool catalog is stable; privileged calls fail with an explicit capability error when their MCP-internal credential is absent. Capability requirements are documented in `mcp-server/CAPABILITY_MATRIX.md`.
 
-- `GITHUB_TOKEN` enables MCP-internal repo/CI tools.
-- `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` enable MCP-internal Supabase API / diagnostic-run access.
+- `GITHUB_TOKEN` enables MCP-internal repo/CI and Git-source introspection tools. Prefer the separately connected GitHub connector unless an internal token is actually required; if added, it must be fine-grained and scoped to this repository only.
+- `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` enable MCP-internal diagnostic-run lifecycle access.
 - `SUPABASE_DB_URL` enables direct schema/query/migration primitives.
-- `RENDER_API_KEY` is legacy-only; when absent, old Render deploy/log/env tools are not registered.
+- `RAILWAY_PROJECT_TOKEN` + Railway project/environment IDs + `RAILWAY_BACKEND_SERVICE_ID` enable MCP-internal Railway deploy/status/log/env-key tools. Use a project token scoped to the production environment, never an account-wide token.
 
-ChatGPT also has separately connected GitHub, Railway, and Supabase connectors. Those connections are independent of the credentials stored inside the MCP Railway service and can be used for infrastructure operations even when the corresponding MCP-internal capability is disabled.
+ChatGPT also has separately connected GitHub, Railway, and Supabase connectors. Those connections are independent of credentials stored inside the MCP Railway service and are the preferred path for general infrastructure administration.
 
 `GET /health` is the canonical self-diagnostic endpoint. It reports the effective public URL, backend health URL, deployed commit/service, and a boolean capability matrix without exposing secret values.
 
@@ -63,7 +64,7 @@ Keep local development redirect URLs only when local development is intentionall
 
 The MCP is a development/staging control surface, not a public product API. It is scoped to this Studio repository and this Studio infrastructure. Destructive operations remain explicit and auditable.
 
-The service intentionally does not pretend that an unavailable credential exists. Tool groups that require missing internal credentials are omitted from MCP discovery instead of being advertised and then failing with `Missing required environment variable` at execution time.
+The service intentionally does not pretend that an unavailable credential exists. Tools remain discoverable for schema stability, but each privileged call reports the exact missing MCP-internal capability instead of failing ambiguously or implying that the ChatGPT connector itself is disconnected.
 
 ## Persistence note
 

@@ -9,7 +9,10 @@ const ENV_KEYS = [
   'RAILWAY_PUBLIC_DOMAIN',
   'RAILWAY_SERVICE_AICORN_AI_STUDIO_BACKEND_URL',
   'RAILWAY_SERVICE_ID',
+  'RAILWAY_PROJECT_ID',
   'RAILWAY_ENVIRONMENT_ID',
+  'RAILWAY_BACKEND_SERVICE_ID',
+  'RAILWAY_PROJECT_TOKEN',
   'RENDER_EXTERNAL_URL',
   'PORT',
   'BACKEND_HEALTH_URL',
@@ -17,7 +20,6 @@ const ENV_KEYS = [
   'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
   'SUPABASE_DB_URL',
-  'RENDER_API_KEY',
 ] as const;
 let saved: Record<string, string | undefined>;
 
@@ -34,7 +36,7 @@ afterEach(() => {
 });
 
 describe('resolvePublicBaseUrl', () => {
-  it('uses RENDER_EXTERNAL_URL as a legacy fallback when no Railway URL exists', () => {
+  it('uses RENDER_EXTERNAL_URL as a legacy hosting fallback when no Railway URL exists', () => {
     process.env.RENDER_EXTERNAL_URL = 'https://aicorn-ai-studio-mcp.onrender.com';
     const result = resolvePublicBaseUrl();
     expect(result.url).toBe('https://aicorn-ai-studio-mcp.onrender.com');
@@ -112,7 +114,7 @@ describe('capabilityMatrix', () => {
       supabaseApi: false,
       supabaseDb: false,
       pipelineDiagnostics: false,
-      renderLegacy: false,
+      railwayDeploy: false,
       railwayRuntime: false,
     });
   });
@@ -122,16 +124,18 @@ describe('capabilityMatrix', () => {
     process.env.SUPABASE_URL = 'https://x.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service';
     process.env.SUPABASE_DB_URL = 'postgres://x';
-    process.env.RENDER_API_KEY = 'legacy';
-    process.env.RAILWAY_SERVICE_ID = 'service-id';
+    process.env.RAILWAY_PROJECT_TOKEN = 'project-token';
+    process.env.RAILWAY_PROJECT_ID = 'project-id';
+    process.env.RAILWAY_SERVICE_ID = 'mcp-service-id';
     process.env.RAILWAY_ENVIRONMENT_ID = 'env-id';
+    process.env.RAILWAY_BACKEND_SERVICE_ID = 'backend-service-id';
 
     expect(capabilityMatrix()).toEqual({
       github: true,
       supabaseApi: true,
       supabaseDb: true,
       pipelineDiagnostics: true,
-      renderLegacy: true,
+      railwayDeploy: true,
       railwayRuntime: true,
     });
   });

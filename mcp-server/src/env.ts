@@ -41,8 +41,13 @@ export const env = {
   get SUPABASE_SERVICE_ROLE_KEY() { return required('SUPABASE_SERVICE_ROLE_KEY'); },
   get SUPABASE_DB_URL() { return required('SUPABASE_DB_URL'); },
 
-  get RENDER_API_KEY() { return required('RENDER_API_KEY'); },
-  RENDER_BACKEND_SERVICE_ID: optional('RENDER_BACKEND_SERVICE_ID'),
+  // Railway deploy API: use a project token scoped to this production environment,
+  // never an account-wide token. Railway injects project/environment IDs itself;
+  // the backend service ID is explicit because this MCP service operates on a sibling service.
+  get RAILWAY_PROJECT_TOKEN() { return required('RAILWAY_PROJECT_TOKEN'); },
+  get RAILWAY_PROJECT_ID() { return required('RAILWAY_PROJECT_ID'); },
+  get RAILWAY_ENVIRONMENT_ID() { return required('RAILWAY_ENVIRONMENT_ID'); },
+  get RAILWAY_BACKEND_SERVICE_ID() { return required('RAILWAY_BACKEND_SERVICE_ID'); },
 
   RAILWAY_BACKEND_URL: optional('RAILWAY_SERVICE_AICORN_AI_STUDIO_BACKEND_URL'),
   get BACKEND_HEALTH_URL() {
@@ -61,6 +66,8 @@ export const env = {
   RAILWAY_PUBLIC_DOMAIN: optional('RAILWAY_PUBLIC_DOMAIN'),
   RAILWAY_GIT_COMMIT_SHA: optional('RAILWAY_GIT_COMMIT_SHA'),
   RAILWAY_SERVICE_NAME: optional('RAILWAY_SERVICE_NAME'),
+
+  // Hosting fallback only. Render API control was retired when deploy tools moved to Railway.
   RENDER_EXTERNAL_URL: optional('RENDER_EXTERNAL_URL'),
   RENDER_GIT_COMMIT: optional('RENDER_GIT_COMMIT'),
   RENDER_SERVICE_NAME: optional('RENDER_SERVICE_NAME'),
@@ -73,27 +80,45 @@ export const env = {
   },
 };
 
+export const CAPABILITY_REQUIREMENTS = {
+  github: ['GITHUB_TOKEN'],
+  supabaseApi: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
+  supabaseDb: ['SUPABASE_DB_URL'],
+  pipelineDiagnostics: ['GITHUB_TOKEN', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
+  railwayDeploy: ['RAILWAY_PROJECT_TOKEN', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_BACKEND_SERVICE_ID'],
+} as const;
+
 export interface CapabilityMatrix {
   github: boolean;
   supabaseApi: boolean;
   supabaseDb: boolean;
   pipelineDiagnostics: boolean;
-  renderLegacy: boolean;
+  railwayDeploy: boolean;
   railwayRuntime: boolean;
 }
 
 export function capabilityMatrix(): CapabilityMatrix {
-  const github = has('GITHUB_TOKEN');
-  const supabaseApi = has('SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY');
-  const supabaseDb = has('SUPABASE_DB_URL');
   return {
-    github,
-    supabaseApi,
-    supabaseDb,
-    pipelineDiagnostics: github && supabaseApi,
-    renderLegacy: has('RENDER_API_KEY'),
+    github: has(...CAPABILITY_REQUIREMENTS.github),
+    supabaseApi: has(...CAPABILITY_REQUIREMENTS.supabaseApi),
+    supabaseDb: has(...CAPABILITY_REQUIREMENTS.supabaseDb),
+    pipelineDiagnostics: has(...CAPABILITY_REQUIREMENTS.pipelineDiagnostics),
+    railwayDeploy: has(...CAPABILITY_REQUIREMENTS.railwayDeploy),
     railwayRuntime: has('RAILWAY_SERVICE_ID', 'RAILWAY_ENVIRONMENT_ID'),
   };
+}
+
+export function capabilityDetails() {
+  const matrix = capabilityMatrix();
+  return Object.fromEntries(
+    Object.entries(CAPABILITY_REQUIREMENTS).map(([name, requirements]) => [
+      name,
+      {
+        configured: matrix[name as keyof CapabilityMatrix] ?? false,
+        missing: requirements.filter(variable => !optional(variable)),
+      },
+    ]),
+  );
 }
 
 export function repoSlug(): string {
@@ -138,9 +163,8 @@ export function resolvePublicBaseUrl(): PublicBaseUrlResolution {
       return {
         url,
         source: 'PUBLIC_BASE_URL',
-        warning: `PUBLIC_BASE_URL="${url}" does not match RENDER_EXTERNAL_URL="${normalizedRenderUrl}". ` +
-          'OAuth discovery metadata will advertise the wrong endpoints unless this is intentional. ' +
-          'Delete PUBLIC_BASE_URL to use the hosting-provider URL automatically.',
+        warning: `PUBLIC_BASE_URL="${url}" does not match legacy RENDER_EXTERNAL_URL="${normalizedRenderUrl}". ` +
+          'OAuth discovery metadata will advertise the wrong endpoints unless this is intentional.',
       };
     }
     return { url, source: 'PUBLIC_BASE_URL' };
