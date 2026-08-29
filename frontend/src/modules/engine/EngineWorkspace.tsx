@@ -415,7 +415,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             previewLifecycle={previewLifecycle}
             previewBlockedReason={previewBlockedReason}
             projectId={currentProjectId ?? ''}
-            previewUrl={previewUrl}
+            previewUrl={previewUrl || (isGenerating ? '/preview/__bootstrap__' : '')}
             appLanguage={appLanguage}
             onVisualElementSelected={handleVisualElementSelected}
           />
