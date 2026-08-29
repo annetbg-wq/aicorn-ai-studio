@@ -593,6 +593,24 @@ test.describe('Chat → generation → blueprint → preview', () => {
       }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [2_000, 3_000, 5_000] });
       console.log('CANARY_STEP: build_status_ready');
 
+      // ── TEMP DIAGNOSTIC (Claude investigation — remove before merge) ──────────
+      for (let i = 0; i < 4; i++) {
+        await page.waitForTimeout(5_000);
+        const diag = await page.evaluate(() => {
+          const w = window;
+          return {
+            hasHook: !!w.__E2E_PREVIEW_TEST,
+            controller: w.__E2E_PREVIEW_TEST?.getDiagnostics?.().controller ?? null,
+            revision: w.__E2E_PREVIEW_TEST?.getDiagnostics?.().revision ?? null,
+            iframeCount: document.querySelectorAll('iframe').length,
+            hasTestidIframe: !!document.querySelector('[data-testid="preview-iframe"]'),
+          };
+        });
+        console.log(`DEBUG_DIAG[${i}]: ` + JSON.stringify(diag));
+      }
+      console.log('DEBUG_TIMELINE_TAIL: ' + JSON.stringify(timelineLines(logs).slice(-25)));
+      // ───────────────────────────────────────────────────────────────────────────
+
       // Compile is now confirmed ready by backend; iframe should be rendered.
       const iframe = page.locator('[data-testid="preview-iframe"]');
       await expect(iframe).toBeVisible({ timeout: FLOW_TIMEOUT });
