@@ -96,6 +96,54 @@ describe('OAuth discovery metadata', () => {
   });
 });
 
+describe('Railway public URL propagation', () => {
+  it('uses the Railway origin in /health, OAuth discovery, and the /mcp auth challenge', async () => {
+    const savedPublicBaseUrl = process.env.PUBLIC_BASE_URL;
+    const savedRailwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
+    const savedRenderUrl = process.env.RENDER_EXTERNAL_URL;
+    const railwayOrigin = 'https://aicorn-ai-studio-mcp-production.up.railway.app';
+
+    delete process.env.PUBLIC_BASE_URL;
+    process.env.RAILWAY_PUBLIC_DOMAIN = 'aicorn-ai-studio-mcp-production.up.railway.app';
+    // A copied/stale Render variable must not win on a Railway deployment.
+    process.env.RENDER_EXTERNAL_URL = 'https://aicorn-ai-studio-mcp.onrender.com';
+
+    try {
+      const healthRes = await fetch(`${baseUrl}/health`);
+      const health = await healthRes.json() as { publicBaseUrl: string; publicBaseUrlSource: string };
+      expect(health.publicBaseUrl).toBe(railwayOrigin);
+      expect(health.publicBaseUrlSource).toBe('RAILWAY_PUBLIC_DOMAIN');
+
+      const protectedResourceRes = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`);
+      const protectedResource = await protectedResourceRes.json() as { resource: string; authorization_servers: string[] };
+      expect(protectedResource.resource).toBe(`${railwayOrigin}/mcp`);
+      expect(protectedResource.authorization_servers).toEqual([railwayOrigin]);
+
+      const authorizationServerRes = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`);
+      const authorizationServer = await authorizationServerRes.json() as {
+        issuer: string; authorization_endpoint: string; token_endpoint: string; registration_endpoint: string;
+      };
+      expect(authorizationServer.issuer).toBe(railwayOrigin);
+      expect(authorizationServer.authorization_endpoint).toBe(`${railwayOrigin}/authorize`);
+      expect(authorizationServer.token_endpoint).toBe(`${railwayOrigin}/token`);
+      expect(authorizationServer.registration_endpoint).toBe(`${railwayOrigin}/register`);
+
+      const unauthorizedMcpRes = await callMcpInitialize();
+      expect(unauthorizedMcpRes.status).toBe(401);
+      expect(unauthorizedMcpRes.headers.get('www-authenticate')).toBe(
+        `Bearer resource_metadata="${railwayOrigin}/.well-known/oauth-protected-resource"`,
+      );
+    } finally {
+      if (savedPublicBaseUrl === undefined) delete process.env.PUBLIC_BASE_URL;
+      else process.env.PUBLIC_BASE_URL = savedPublicBaseUrl;
+      if (savedRailwayDomain === undefined) delete process.env.RAILWAY_PUBLIC_DOMAIN;
+      else process.env.RAILWAY_PUBLIC_DOMAIN = savedRailwayDomain;
+      if (savedRenderUrl === undefined) delete process.env.RENDER_EXTERNAL_URL;
+      else process.env.RENDER_EXTERNAL_URL = savedRenderUrl;
+    }
+  });
+});
+
 describe('Dynamic client registration', () => {
   it('registers a public client and returns a client_id', async () => {
     const client = await registerTestClient('https://chatgpt.com/connector_platform_oauth_redirect');

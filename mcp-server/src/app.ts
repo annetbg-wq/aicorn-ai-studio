@@ -34,8 +34,8 @@ function createServer(): McpServer {
 
 export function createApp(): express.Express {
   const app = express();
-  // Render sits in front as a proxy — without this, req.ip is always Render's
-  // internal proxy address for every caller, making the /authorize rate
+  // The hosting edge sits in front as a proxy — without this, req.ip is always
+  // the proxy address for every caller, making the /authorize rate
   // limiter and the ip field in oauth/routes.ts's structured logs useless.
   app.set('trust proxy', true);
   app.use(express.json({ limit: '5mb' }));
@@ -44,14 +44,14 @@ export function createApp(): express.Express {
   app.use(express.urlencoded({ extended: false }));
 
   // Loud and immediate, not just discoverable via /health — this exact
-  // misconfiguration (a manually-set PUBLIC_BASE_URL missing the .onrender.com
-  // suffix) previously broke every OAuth discovery URL silently, surfacing to
-  // ChatGPT only as a generic "failed to resolve OAuth client".
+  // misconfiguration (an absent or incorrect provider URL) breaks every OAuth
+  // discovery URL silently, surfacing to ChatGPT only as a generic connection
+  // or OAuth-client-resolution failure.
   const baseUrlInfo = resolvePublicBaseUrl();
   if (baseUrlInfo.warning) {
     console.warn(`[mcp] CONFIG WARNING: ${baseUrlInfo.warning}`);
   }
-  console.log(`[mcp] publicBaseUrl=${baseUrlInfo.url} (source: ${baseUrlInfo.source}) commit=${env.RENDER_GIT_COMMIT ?? 'unknown'}`);
+  console.log(`[mcp] publicBaseUrl=${baseUrlInfo.url} (source: ${baseUrlInfo.source}) commit=${env.DEPLOY_GIT_COMMIT ?? 'unknown'}`);
 
   app.get('/health', (_req, res) => {
     const info = resolvePublicBaseUrl();
@@ -61,8 +61,8 @@ export function createApp(): express.Express {
       publicBaseUrl: info.url,
       publicBaseUrlSource: info.source,
       ...(info.warning ? { publicBaseUrlWarning: info.warning } : {}),
-      commit: env.RENDER_GIT_COMMIT ?? null,
-      service: env.RENDER_SERVICE_NAME ?? null,
+      commit: env.DEPLOY_GIT_COMMIT ?? null,
+      service: env.DEPLOY_SERVICE_NAME ?? null,
     });
   });
 

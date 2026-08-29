@@ -4,8 +4,8 @@ A remote MCP server that gives an external assistant (e.g. ChatGPT via a custom 
 inspect → diagnose → edit → test → repair → deploy → verify capability over **this one repo and its
 dev/sandbox infrastructure only** — not a public product API.
 
-Deployed as its own Render service (`aicorn-ai-studio-mcp`), separate from the Studio backend, so it
-has its own auth boundary and its own (much more powerful) credentials. See the repo root
+Deployed as its own Railway service (`aicorn-ai-studio-mcp`), separate from the Studio backend, so
+it has its own auth boundary and its own (much more powerful) credentials. See the repo root
 `DEPLOYMENT.md` for exact setup steps and the required environment variable names.
 
 ## Authentication
@@ -47,19 +47,21 @@ refresh token) needs real shared state to check against, which can't be done sta
 revocation list — losing an active refresh token to a restart just means ChatGPT silently re-runs the
 OAuth flow, a much smaller failure than what was actually broken.
 
-No new Render secret is required for OAuth — the login step re-uses `MCP_BEARER_TOKEN`, and it also
+No new hosting-provider secret is required for OAuth — the login step re-uses `MCP_BEARER_TOKEN`, and it also
 becomes the signing key's source (via a fixed-context HMAC derivation, not used directly). The one new
-env var, `PUBLIC_BASE_URL`, is optional and auto-derived from Render's own `RENDER_EXTERNAL_URL` in
-production; it only needs setting for local development against a non-`localhost` callback.
+env var, `PUBLIC_BASE_URL`, is optional: production auto-derives it from Railway's
+`RAILWAY_PUBLIC_DOMAIN` (or Render's `RENDER_EXTERNAL_URL` for legacy deployments). It only needs
+setting for local development or a deliberate custom-domain override.
 
-**If a `PUBLIC_BASE_URL` is ever set manually and it disagrees with Render's own `RENDER_EXTERNAL_URL`,
+**If a `PUBLIC_BASE_URL` is ever set manually and it disagrees with the hosting provider's URL,
 every absolute URL in the OAuth discovery metadata is wrong** (this shipped as a real prod incident —
 someone had set `PUBLIC_BASE_URL` to the bare service name, missing the `.onrender.com` suffix, which
 silently broke `registration_endpoint`/`authorization_endpoint`/`token_endpoint` and surfaced only as
 ChatGPT's generic "failed to resolve OAuth client"). Two ways to catch this without dashboard access:
 - `GET /health` returns `publicBaseUrl`, `publicBaseUrlSource`, and — only when there's a mismatch —
   `publicBaseUrlWarning` explaining exactly what's wrong and how to fix it. It also returns `commit`
-  (Render's `RENDER_GIT_COMMIT`) and `service`, so "is the fix actually deployed" is one `curl` away.
+  and `service` from Railway (with Render as a legacy fallback), so "is the fix actually deployed" is
+  one `curl` away.
 - The same warning is logged loudly at process startup (`[mcp] CONFIG WARNING: …`), and every
   `/register`, `/authorize`, and `/token` call logs a single structured JSON line (`oauth/routes.ts`,
   `scope: "oauth"`) with the outcome and, on failure, why — client_ids are truncated for readability

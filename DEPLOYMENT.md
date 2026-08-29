@@ -1,6 +1,6 @@
 # Remote dev/staging deployment
 
-GitHub stays the source of truth. Two independent, auto-deploying targets:
+GitHub stays the source of truth. Three independent, auto-deploying targets:
 
 - **Frontend** (static Vite build) → **GitHub Pages**, deployed by
   [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) on every push to `main`.
@@ -11,10 +11,11 @@ GitHub stays the source of truth. Two independent, auto-deploying targets:
   URL: `https://aicorn-ai-studio-backend.onrender.com`
 
 - **Superadmin MCP** (dev-only remote tools for an external assistant — not a public API) →
-  **Render.com** web service `aicorn-ai-studio-mcp`, also defined in [`render.yaml`](render.yaml).
-  Same repo, same Blueprint, separate service — own bearer-auth boundary, own (far more powerful)
-  credentials. See [`mcp-server/README.md`](mcp-server/README.md) for what it can do.
-  URL: `https://aicorn-ai-studio-mcp.onrender.com/mcp`
+  **Railway** service `aicorn-ai-studio-mcp`. Separate from the Render-hosted Studio backend, with
+  its own bearer-auth boundary and its own (far more powerful) credentials. Railway deploys the
+  `mcp-server` directory from `main`. See
+  [`mcp-server/README.md`](mcp-server/README.md) for what it can do.
+  URL: `https://aicorn-ai-studio-mcp-production.up.railway.app/mcp`
 
 Neither Studio target requires a local machine to be running. No Docker — all three use native Node
 buildpacks.
@@ -27,7 +28,8 @@ buildpacks.
    `AIC_DEV_TOKEN`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`,
    `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`.
    These are marked `sync: false` in `render.yaml` — Render never stores them in git.
-3. The same Blueprint sync also adds `aicorn-ai-studio-mcp`. In its Render dashboard, fill in:
+3. **Railway**: connect this repository to the `aicorn-ai-studio-mcp` service, set its root directory
+   to `mcp-server`, and fill in these service variables:
    - `MCP_BEARER_TOKEN` — mint your own (e.g. `openssl rand -hex 32`); this is what you'll put in
      the MCP host/connector config, not a credential from anywhere else.
    - `GITHUB_TOKEN` — a **fine-grained PAT scoped to only this repo**
@@ -78,10 +80,10 @@ primitive works: [`mcp-server/README.md`](mcp-server/README.md).
 
 ChatGPT's custom-connector UI only offers OAuth configuration, no field for a static token, so
 `aicorn-ai-studio-mcp` speaks OAuth 2.1 for it while keeping `MCP_BEARER_TOKEN` working as-is for
-every other caller. **No new Render secret is required for this** — the OAuth `/authorize` login
+every other caller. **No additional hosting-provider secret is required for this** — the OAuth `/authorize` login
 step re-uses `MCP_BEARER_TOKEN` itself, so there is nothing extra to configure beyond what's already
 in the table above. In ChatGPT: add a custom connector pointed at
-`https://aicorn-ai-studio-mcp.onrender.com/mcp`; ChatGPT self-registers as an OAuth client and will
+`https://aicorn-ai-studio-mcp-production.up.railway.app/mcp`; ChatGPT self-registers as an OAuth client and will
 prompt for the bearer token on the login screen the first time it connects. Full protocol details:
 [`mcp-server/README.md`](mcp-server/README.md#authentication).
 
