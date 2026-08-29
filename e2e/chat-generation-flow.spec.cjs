@@ -609,6 +609,10 @@ test.describe('Chat → generation → blueprint → preview', () => {
         console.log(`DEBUG_DIAG[${i}]: ` + JSON.stringify(diag));
       }
       console.log('DEBUG_TIMELINE_TAIL: ' + JSON.stringify(timelineLines(logs).slice(-25)));
+      console.log('DEBUG_RAW_LOG_TAIL: ' + JSON.stringify(logs.slice(-60)));
+      console.log('DEBUG_CRASH_LINES: ' + JSON.stringify(logs.filter(l =>
+        l.includes('crashed') || l.includes('SimpleGeneration') || l.toLowerCase().includes('error')
+      )));
       // ───────────────────────────────────────────────────────────────────────────
 
       // Compile is now confirmed ready by backend; iframe should be rendered.
