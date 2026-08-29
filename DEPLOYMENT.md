@@ -1,113 +1,74 @@
 # Remote dev/staging deployment
 
-GitHub stays the source of truth. Three independent, auto-deploying targets:
+GitHub is the source of truth. The active remote topology is:
 
-- **Frontend** (static Vite build) → **GitHub Pages**, deployed by
-  [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) on every push to `main`.
+- **Frontend** → GitHub Pages, deployed by `.github/workflows/deploy-pages.yml` from `main`.
   URL: `https://annetbg-wq.github.io/aicorn-ai-studio/`
-- **Backend** (Express: sessions, preview compile, project store) → **Render.com** web service,
-  defined by [`render.yaml`](render.yaml). Render auto-deploys on every push to `main` once the
-  Blueprint is connected (Render dashboard → New → Blueprint → select this repo).
-  URL: `https://aicorn-ai-studio-backend.onrender.com`
-
-- **Superadmin MCP** (dev-only remote tools for an external assistant — not a public API) →
-  **Railway** service `aicorn-ai-studio-mcp`. Separate from the Render-hosted Studio backend, with
-  its own bearer-auth boundary and its own (far more powerful) credentials. Railway deploys the
-  `mcp-server` directory from `main`. See
-  [`mcp-server/README.md`](mcp-server/README.md) for what it can do.
+- **Backend** → Railway service `aicorn-ai-studio-backend`.
+  URL: `https://aicorn-ai-studio-backend-production.up.railway.app`
+- **Superadmin MCP** → Railway service `aicorn-ai-studio-mcp`.
   URL: `https://aicorn-ai-studio-mcp-production.up.railway.app/mcp`
+- **Development data/diagnostics** → Supabase project `AICRG-studio`.
 
-Neither Studio target requires a local machine to be running. No Docker — all three use native Node
-buildpacks.
+Render configuration remains in the repository only as legacy migration history/fallback. It is not the active Studio backend hosting target.
 
-## One-time setup
+Neither Studio service requires a local machine or Docker. Railway uses native Node builds from the same GitHub repository.
 
-1. **Render**: New → Blueprint → connect `annetbg-wq/aicorn-ai-studio` → Render reads `render.yaml`
-   and provisions the `aicorn-ai-studio-backend` web service on the free plan.
-2. In the Render dashboard, fill in the provider keys you actually use (only the ones you need):
-   `AIC_DEV_TOKEN`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`,
-   `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`.
-   These are marked `sync: false` in `render.yaml` — Render never stores them in git.
-3. **Railway**: connect this repository to the `aicorn-ai-studio-mcp` service, set its root directory
-   to `mcp-server`, and fill in these service variables:
-   - `MCP_BEARER_TOKEN` — mint your own (e.g. `openssl rand -hex 32`); this is what you'll put in
-     the MCP host/connector config, not a credential from anywhere else.
-   - `GITHUB_TOKEN` — a **fine-grained PAT scoped to only this repo**
-     (github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens →
-     Only select repositories → `aicorn-ai-studio`). Repository permissions: Contents (read/write),
-     Pull requests (read/write), Actions (read/write), Workflows (read/write). Nothing else — no
-     Administration, no org-wide access.
-   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — Project Settings → API. The service role key
-     bypasses RLS; it's only ever held by this service and is never returned through any MCP tool.
-   - `SUPABASE_DB_URL` — Project Settings → Database → Connection string. Only the schema/migration/
-     read-only-query tools use this (they need real multi-statement SQL, which the REST/RPC surface
-     can't run).
-   - `RENDER_API_KEY` — Account Settings → API Keys.
-4. GitHub Pages is already enabled (Settings → Pages → Source: GitHub Actions).
-5. GitHub Actions secrets/variables (already set for this repo):
-   `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (secrets), `VITE_API_URL` (variable, points at the
-   Render URL above). `VITE_OPENROUTER_API_KEY` is intentionally **not** set for the public build —
-   it would ship a shared key inside a publicly readable JS bundle. Each user configures their own
-   provider key via the in-app Settings panel instead (existing behavior, unchanged).
+## Railway services
 
-## Required manual step: Supabase Auth redirect URLs
+### `aicorn-ai-studio-backend`
 
-Google sign-in redirects to `http://localhost:3000` after the Pages deploy unless this is done —
-**this cannot be fixed from code**, it's a Supabase project setting:
+Source: `annetbg-wq/aicorn-ai-studio`, branch `main`.
 
-1. Supabase Dashboard → your project → Authentication → URL Configuration.
-2. **Site URL**: change from `http://localhost:3000` (or whatever local value is there now) to
-   `https://annetbg-wq.github.io/aicorn-ai-studio/`.
-3. **Redirect URLs**: add `https://annetbg-wq.github.io/aicorn-ai-studio/` (and keep
-   `http://localhost:5183/` for local dev — the app now sends exactly these two values as
-   `redirectTo`, nothing else).
+- build: `npm ci`
+- start: `npx tsx backend/auth-token.ts`
+- healthcheck: `/health`
+- required runtime configuration includes `HOST`, `AIC_ALLOWED_ORIGINS`, and `AIC_SERVER_MODE`
+- provider/model credentials are configured only when needed; no provider/model is committed as a product default
 
-Why: `signInWithOAuth`'s `redirectTo` in the app code is correct and dynamic (see
-`AuthContext.tsx`) — but Supabase silently ignores any `redirectTo` that isn't on this allow list
-and falls back to Site URL instead. If Site URL is still the original local dev default, that's
-where every environment ends up regardless of what the app requests.
+### `aicorn-ai-studio-mcp`
 
-## Superadmin MCP resource boundary
+Source: the same repo/branch.
 
-Everything this service can reach is scoped by which credentials it holds, not by per-tool ACLs:
-the GitHub PAT only has access to this one repo, the Supabase service role only reaches this one
-project, the Render API key can only see this account's services (Render doesn't offer finer
-per-service scoping). It never touches any other product's resources because it is never given
-credentials for any other product. Full tool list and how the interactive pipeline execution
-primitive works: [`mcp-server/README.md`](mcp-server/README.md).
+- build: `npm --prefix mcp-server install && npm --prefix mcp-server run build --if-present`
+- healthcheck: `/health`
+- OAuth public origin is derived from Railway's `RAILWAY_PUBLIC_DOMAIN`
+- `BACKEND_HEALTH_URL` may be set explicitly, but the service can derive/fallback to the Railway backend URL
 
-## Connecting ChatGPT's custom MCP connector
+The MCP always needs `MCP_BEARER_TOKEN` for its own authentication. Privileged tool groups are capability-driven:
 
-ChatGPT's custom-connector UI only offers OAuth configuration, no field for a static token, so
-`aicorn-ai-studio-mcp` speaks OAuth 2.1 for it while keeping `MCP_BEARER_TOKEN` working as-is for
-every other caller. **No additional hosting-provider secret is required for this** — the OAuth `/authorize` login
-step re-uses `MCP_BEARER_TOKEN` itself, so there is nothing extra to configure beyond what's already
-in the table above. In ChatGPT: add a custom connector pointed at
-`https://aicorn-ai-studio-mcp-production.up.railway.app/mcp`; ChatGPT self-registers as an OAuth client and will
-prompt for the bearer token on the login screen the first time it connects. Full protocol details:
-[`mcp-server/README.md`](mcp-server/README.md#authentication).
+- `GITHUB_TOKEN` enables MCP-internal repo/CI tools.
+- `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` enable MCP-internal Supabase API / diagnostic-run access.
+- `SUPABASE_DB_URL` enables direct schema/query/migration primitives.
+- `RENDER_API_KEY` is legacy-only; when absent, old Render deploy/log/env tools are not registered.
 
-## Known limitation: ephemeral backend disk
+ChatGPT also has separately connected GitHub, Railway, and Supabase connectors. Those connections are independent of the credentials stored inside the MCP Railway service and can be used for infrastructure operations even when the corresponding MCP-internal capability is disabled.
 
-Render's free plan gives the backend an ephemeral filesystem. `projects-store/` (saved projects) and
-`_local_runtime/backend/sessions/` (chat sessions) live on local disk exactly as they do today —
-that part of the architecture was intentionally left untouched. On every redeploy (including auto-
-deploys triggered by a push to `main`) or dyno restart after idle, **that disk resets and all
-projects/sessions saved since the last deploy are lost.** Supabase-backed data (auth, staging
-access) is unaffected. Moving `project-store` persistence to Supabase would remove this limitation
-but is a separate, later change — see the comment already in `backend/project-store.ts`.
+`GET /health` is the canonical self-diagnostic endpoint. It reports the effective public URL, backend health URL, deployed commit/service, and a boolean capability matrix without exposing secret values.
 
-## What changed to make this possible
+## GitHub Pages
 
-- Backend now binds to `HOST` (default `127.0.0.1`, set to `0.0.0.0` on Render) and reads `PORT`
-  from the environment instead of hardcoding `127.0.0.1:3000`.
-- `AIC_ALLOWED_ORIGINS` / `AIC_SERVER_MODE=production` (already-existing CORS + prod-guard code)
-  now get exercised for real, pointed at the Pages origin.
-- The handful of frontend fetch/iframe calls that assumed the backend was same-origin (proxied by
-  Vite locally) now resolve against `VITE_API_URL` when set, exactly like every other backend call
-  in this codebase already did.
-- `vite.config.ts` takes a `GITHUB_PAGES_BASE` build-time base path for the Pages subpath.
+GitHub Pages remains the frontend target. GitHub Actions variables/secrets used by the public build must never expose shared provider API keys in the browser bundle. Each user configures provider credentials through the product's existing settings flow.
 
-No change to `ProtoPipeline`, `generationPath`, `skeleton_assembly`, `blank_canvas`, `LVPipeline`,
-`SimpleGeneration`, manifests, `DesignContract`, generation prompts, or provider/model selection
-logic.
+## Supabase Auth redirect URLs
+
+For hosted authentication, Supabase Authentication → URL Configuration must allow:
+
+- Site URL: `https://annetbg-wq.github.io/aicorn-ai-studio/`
+- Redirect URL: `https://annetbg-wq.github.io/aicorn-ai-studio/`
+
+Keep local development redirect URLs only when local development is intentionally needed.
+
+## Superadmin MCP boundary
+
+The MCP is a development/staging control surface, not a public product API. It is scoped to this Studio repository and this Studio infrastructure. Destructive operations remain explicit and auditable.
+
+The service intentionally does not pretend that an unavailable credential exists. Tool groups that require missing internal credentials are omitted from MCP discovery instead of being advertised and then failing with `Missing required environment variable` at execution time.
+
+## Persistence note
+
+The backend still has filesystem-backed project/session paths. Railway container filesystems are not a durable application datastore across replacement/redeploy scenarios. Supabase-backed state is durable; moving remaining project/session persistence to a durable datastore is a separate architecture task.
+
+## Validation contract
+
+Changes to the MCP must pass the mandatory `MCP TypeScript + Unit Tests` GitHub Actions job in addition to the existing frontend/build/preview/benchmark jobs. After merge, verify the Railway deployment and run the live MCP health smoke test.
