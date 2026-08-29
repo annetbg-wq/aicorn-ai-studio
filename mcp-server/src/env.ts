@@ -9,7 +9,12 @@ function optional(name: string): string | undefined {
 
 function required(name: string): string {
   const v = optional(name);
-  if (!v) throw new Error(`Missing required environment variable: ${name}`);
+  if (!v) {
+    throw new Error(
+      `Studio MCP capability unavailable: ${name} is not configured in the Railway MCP service. ` +
+      'This does not mean the ChatGPT connector is disconnected. Use the separately connected GitHub/Railway/Supabase connector when applicable, or configure this MCP-internal credential for tools that must execute inside the MCP runtime.',
+    );
+  }
   return v;
 }
 
@@ -26,7 +31,6 @@ export const env = {
   PORT: Number(optional('PORT') ?? '8787'),
   HOST: optional('HOST') ?? '0.0.0.0',
 
-  /** Bearer token the MCP host (ChatGPT connector) must present. */
   get MCP_BEARER_TOKEN() { return required('MCP_BEARER_TOKEN'); },
 
   get GITHUB_TOKEN() { return required('GITHUB_TOKEN'); },
@@ -37,11 +41,9 @@ export const env = {
   get SUPABASE_SERVICE_ROLE_KEY() { return required('SUPABASE_SERVICE_ROLE_KEY'); },
   get SUPABASE_DB_URL() { return required('SUPABASE_DB_URL'); },
 
-  // Render support is legacy-only. The live Studio services are on Railway.
   get RENDER_API_KEY() { return required('RENDER_API_KEY'); },
   RENDER_BACKEND_SERVICE_ID: optional('RENDER_BACKEND_SERVICE_ID'),
 
-  // Railway injects a cross-service URL for the backend into the MCP service.
   RAILWAY_BACKEND_URL: optional('RAILWAY_SERVICE_AICORN_AI_STUDIO_BACKEND_URL'),
   get BACKEND_HEALTH_URL() {
     const explicit = optional('BACKEND_HEALTH_URL');

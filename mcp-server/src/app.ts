@@ -11,32 +11,25 @@ import { registerSupabaseAdminTools } from './tools/supabaseAdmin.js';
 import { registerPipelineTools } from './tools/pipeline.js';
 
 function createServer(): McpServer {
-  const capabilities = capabilityMatrix();
   const mcp = new McpServer(
-    { name: 'aicorn-ai-studio-superadmin', version: '0.2.0' },
+    { name: 'aicorn-ai-studio-superadmin', version: '0.2.1' },
     {
       instructions:
         `Superadmin dev/staging tools for the ${repoSlug()} repo and its dev/sandbox infrastructure only ` +
         '(GitHub Pages frontend, Railway backend/MCP, one Supabase project). This is not a public product API. ' +
-        'Tool groups are registered only when this MCP service has the credentials they require; ChatGPT may also ' +
+        'The tool catalog is intentionally stable across deployments so MCP clients can cache schemas safely. ' +
+        'GET /health reports which internal credential-backed capabilities are currently configured. ChatGPT may also ' +
         'use separately connected GitHub, Railway, and Supabase connectors for infrastructure operations.',
     },
   );
 
-  // Health is credential-free and always useful. Legacy Render controls are
-  // registered only when the legacy Render credential is deliberately present.
-  registerDeployTools(mcp, { github: capabilities.github, renderLegacy: capabilities.renderLegacy });
-
-  if (capabilities.github) {
-    registerRepoTools(mcp);
-    registerCiTools(mcp);
-  }
-  if (capabilities.github && capabilities.supabaseDb) {
-    registerSupabaseAdminTools(mcp);
-  }
-  if (capabilities.pipelineDiagnostics) {
-    registerPipelineTools(mcp);
-  }
+  // Keep names/schemas stable. Individual calls report a clear configuration
+  // error when their MCP-internal credential is not configured.
+  registerRepoTools(mcp);
+  registerCiTools(mcp);
+  registerDeployTools(mcp);
+  registerSupabaseAdminTools(mcp);
+  registerPipelineTools(mcp);
 
   return mcp;
 }
