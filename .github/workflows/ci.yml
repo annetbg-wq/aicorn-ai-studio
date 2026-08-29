@@ -12,6 +12,34 @@ env:
   BENCHMARK_MODEL_ID: openai/gpt-4o-mini
 
 jobs:
+  mcp:
+    name: MCP TypeScript + Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp-server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+        env:
+          MCP_BEARER_TOKEN: ci-test-bearer-token
+
   # ── Type check + unit tests ────────────────────────────────────────────────
   test:
     name: TypeScript + Unit Tests
@@ -39,7 +67,7 @@ jobs:
       - name: Unit tests
         run: npm test
         env:
-          VITE_OPENROUTER_API_KEY: placeholder   # tests must not require real keys
+          VITE_OPENROUTER_API_KEY: placeholder
           VITE_SUPABASE_URL:       https://placeholder.supabase.co
           VITE_SUPABASE_ANON_KEY:  placeholder-anon-key
 
@@ -50,7 +78,6 @@ jobs:
           VITE_SUPABASE_URL:       https://placeholder.supabase.co
           VITE_SUPABASE_ANON_KEY:  placeholder-anon-key
 
-  # ── Production build ───────────────────────────────────────────────────────
   build:
     name: Production Build
     runs-on: ubuntu-latest
@@ -78,7 +105,6 @@ jobs:
           VITE_SUPABASE_URL:      https://placeholder.supabase.co
           VITE_SUPABASE_ANON_KEY: placeholder-anon-key
 
-  # ── Live preview release canary ───────────────────────────────────────────
   preview-live-canary:
     name: Live Preview Canary
     runs-on: ubuntu-latest
@@ -115,8 +141,6 @@ jobs:
           PLAYWRIGHT_PRODUCTION_ARTIFACT: '1'
           VITE_OPENROUTER_API_KEY: e2e-live-preview-key
 
-  # ── BenchmarkGate quality gate ─────────────────────────────────────────────
-  # Skips gracefully when OPENROUTER_API_KEY is absent (forks, branches without the secret).
   benchmark:
     name: BenchmarkGate
     runs-on: ubuntu-latest
