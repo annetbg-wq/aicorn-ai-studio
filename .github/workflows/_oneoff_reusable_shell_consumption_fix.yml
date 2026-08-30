@@ -1,0 +1,193 @@
+name: One-off reusable shell consumption fix
+
+on:
+  push:
+    branches: [test/live-preview-canary-matrix]
+    paths: [.github/workflows/_oneoff_reusable_shell_consumption_fix.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/live-preview-canary-matrix
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch shell-consumption semantics and terminal polling
+        shell: python
+        run: |
+          from pathlib import Path
+
+          validator = Path('frontend/src/services/LiveGenerationContractValidator.ts')
+          source = validator.read_text()
+          old = """      if (
+        (resolvedTarget && shellOwnedPaths.has(resolvedTarget) && !importsContextConsumer)
+        || protectedShellComponents.has(componentName)
+      ) {
+        const layerPath = resolvedTarget ?? `src/components/${componentName}.tsx`;
+        diagnostics.push(buildProtectedShellDiagnostic(
+          summary,
+          input,
+          filePath,
+          importPath,
+          describeShellLayerFromPath(layerPath),
+          `imports protected shell module ${resolvedTarget ?? componentName}`,
+        ));
+      }
+"""
+          new = """      // skeletonOwned / agentReadOnly describes edit ownership, not import visibility.
+      // Product pages may consume reusable shell-provided components (EmptyState,
+      // LoadingScreen, cards, hooks, etc.) without taking ownership of the shell.
+      // Only explicit shell-owner component families remain forbidden here.
+      if (protectedShellComponents.has(componentName)) {
+        const layerPath = resolvedTarget ?? `src/components/${componentName}.tsx`;
+        diagnostics.push(buildProtectedShellDiagnostic(
+          summary,
+          input,
+          filePath,
+          importPath,
+          describeShellLayerFromPath(layerPath),
+          `imports protected shell module ${resolvedTarget ?? componentName}`,
+        ));
+      }
+"""
+          if old not in source:
+            raise SystemExit('blanket shellOwned import block not found')
+          source = source.replace(old, new)
+          validator.write_text(source)
+
+          test = Path('frontend/src/services/__tests__/LiveGenerationContractManifestOwnership.test.ts')
+          source = test.read_text()
+          marker = """  it('still blocks page-level router ownership APIs', () => {
+"""
+          insert = """  it('allows product pages to consume reusable read-only skeleton components', () => {
+    const detailPage = [
+      \"import EmptyState from '@/components/EmptyState';\",
+      'export default function Detail() {',
+      \"  return <EmptyState title=\\\"Nothing yet\\\" />;\",
+      '}',
+    ].join('\\n');
+
+    const result = validateProtectedShellBoundary({
+      finalFiles: {
+        'src/main.tsx': 'export {};',
+        'src/App.tsx': 'export default function App() { return null; }',
+        'src/components/EmptyState.tsx': 'export default function EmptyState() { return null; }',
+        'src/pages/Detail.tsx': detailPage,
+      },
+      generatedDeltaFiles: {},
+      skeletonId: 'mobile-app',
+    });
+
+    expect(result.diagnostics.filter(d => d.root_cause_type === 'protected_shell_import')).toEqual([]);
+  });
+
+  it('still blocks importing an actual navigation-shell owner into a product page', () => {
+    const detailPage = [
+      \"import BottomTabs from '@/components/BottomTabs';\",
+      'export default function Detail() {',
+      '  return <BottomTabs />;',
+      '}',
+    ].join('\\n');
+
+    const result = validateProtectedShellBoundary({
+      finalFiles: {
+        'src/main.tsx': 'export {};',
+        'src/App.tsx': 'export default function App() { return null; }',
+        'src/components/BottomTabs.tsx': 'export default function BottomTabs() { return null; }',
+        'src/pages/Detail.tsx': detailPage,
+      },
+      generatedDeltaFiles: { 'src/pages/Detail.tsx': detailPage },
+      skeletonId: 'mobile-app',
+    });
+
+    expect(result.diagnostics.some(d =>
+      d.root_cause_type === 'protected_shell_import' && d.import_path === '@/components/BottomTabs',
+    )).toBe(true);
+  });
+
+"""
+          if marker not in source:
+            raise SystemExit('test insertion marker not found')
+          if "allows product pages to consume reusable read-only skeleton components" not in source:
+            source = source.replace(marker, insert + marker)
+          test.write_text(source)
+
+          e2e = Path('e2e/chat-generation-flow.spec.cjs')
+          source = e2e.read_text()
+          old = """      // Poll backend build status until ready. Replaces frontend ready_set signal.
+      let _lastStatusSeen = null;
+      await expect(async () => {
+        if (!canaryBuildId) throw new Error('buildId not found in controller_compiling log');
+        const statusRes = await page.request.get(
+          `${BASE_URL}/api/preview/${canaryBuildId}/status`,
+          { headers: { 'X-Preview-Session': canaryPreviewSession ?? '' } },
+        );
+        if (statusRes.status() === 404) throw new Error('build status not registered yet');
+        const body = await statusRes.json();
+        const s = body?.status;
+        if (s !== _lastStatusSeen) {
+          console.log(`CANARY_STEP: build_status_${s}`);
+          _lastStatusSeen = s;
+        }
+        if (s === 'failed') {
+          throw new Error(
+            `[Live Preview Canary] preview build failed: ${body?.error ?? body?.message ?? JSON.stringify(body)}`,
+          );
+        }
+        expect(s).toBe('ready');
+      }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [2_000, 3_000, 5_000] });
+      console.log('CANARY_STEP: build_status_ready');
+"""
+          new = """      // Poll backend build status until ready. Terminal failures must not be
+      // swallowed by expect().toPass(), which retries thrown errors until timeout.
+      let _lastStatusSeen = null;
+      const buildStatusDeadline = Date.now() + LIVE_FLOW_TIMEOUT;
+      let buildReady = false;
+      while (Date.now() < buildStatusDeadline) {
+        if (!canaryBuildId) throw new Error('buildId not found in controller_compiling log');
+        const statusRes = await page.request.get(
+          `${BASE_URL}/api/preview/${canaryBuildId}/status`,
+          { headers: { 'X-Preview-Session': canaryPreviewSession ?? '' } },
+        );
+        if (statusRes.status() === 404) {
+          await page.waitForTimeout(2_000);
+          continue;
+        }
+        const body = await statusRes.json();
+        const s = body?.status;
+        if (s !== _lastStatusSeen) {
+          console.log(`CANARY_STEP: build_status_${s}`);
+          _lastStatusSeen = s;
+        }
+        if (s === 'failed') {
+          throw new Error(
+            `[Live Preview Canary] preview build failed: ${body?.error ?? body?.message ?? JSON.stringify(body)}`,
+          );
+        }
+        if (s === 'ready') {
+          buildReady = true;
+          break;
+        }
+        await page.waitForTimeout(2_000);
+      }
+      expect(buildReady, `preview build did not become ready; last status=${_lastStatusSeen}`).toBe(true);
+      console.log('CANARY_STEP: build_status_ready');
+"""
+          if old not in source:
+            raise SystemExit('status polling block not found')
+          e2e.write_text(source.replace(old, new))
+
+      - name: Remove one-off workflow
+        run: rm .github/workflows/_oneoff_reusable_shell_consumption_fix.yml
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/services/LiveGenerationContractValidator.ts frontend/src/services/__tests__/LiveGenerationContractManifestOwnership.test.ts e2e/chat-generation-flow.spec.cjs .github/workflows/_oneoff_reusable_shell_consumption_fix.yml
+          git commit -m "fix: distinguish shell consumption from shell ownership"
+          git push origin HEAD:test/live-preview-canary-matrix
