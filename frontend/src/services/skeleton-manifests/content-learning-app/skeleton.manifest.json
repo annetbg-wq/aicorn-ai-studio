@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "content-learning-app",
   "label": "Content Learning App",
   "workingGroups": [
@@ -13,40 +13,18 @@
     { "label": "runtime", "paths": ["src/lib/cn.ts"] },
     { "label": "pages", "paths": ["src/pages/CourseCatalog.tsx", "src/pages/CourseDetail.tsx", "src/pages/Home.tsx", "src/pages/LessonPlayer.tsx", "src/pages/Profile.tsx", "src/pages/Progress.tsx", "src/pages/Quiz.tsx"] }
   ],
-  "protectedFiles": [
-    "src/main.tsx",
-    "src/index.css",
-    "src/lib/**",
-    "src/hooks/**",
-    "src/context/**",
-    "src/components/**",
-    "src/config/routes.ts",
-    "src/config/theme.ts"
-  ],
-  "editableFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/CourseCatalog.tsx",
-    "src/pages/CourseDetail.tsx",
-    "src/pages/Home.tsx",
-    "src/pages/LessonPlayer.tsx",
-    "src/pages/Profile.tsx",
-    "src/pages/Progress.tsx",
-    "src/pages/Quiz.tsx"
-  ],
-  "deltaFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/CourseCatalog.tsx",
-    "src/pages/CourseDetail.tsx",
-    "src/pages/Home.tsx",
-    "src/pages/LessonPlayer.tsx",
-    "src/pages/Profile.tsx",
-    "src/pages/Progress.tsx",
-    "src/pages/Quiz.tsx"
-  ]
+  "ownership": {
+    "skeletonOwned": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "requiredProductSlots": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/CourseCatalog.tsx", "src/pages/CourseDetail.tsx", "src/pages/Home.tsx", "src/pages/LessonPlayer.tsx", "src/pages/Profile.tsx", "src/pages/Progress.tsx", "src/pages/Quiz.tsx"],
+    "optionalProductSlots": [],
+    "agentEditable": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/CourseCatalog.tsx", "src/pages/CourseDetail.tsx", "src/pages/Home.tsx", "src/pages/LessonPlayer.tsx", "src/pages/Profile.tsx", "src/pages/Progress.tsx", "src/pages/Quiz.tsx"],
+    "agentReadOnly": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "carcassFiles": []
+  },
+  "protectedFiles": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+  "editableFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/CourseCatalog.tsx", "src/pages/CourseDetail.tsx", "src/pages/Home.tsx", "src/pages/LessonPlayer.tsx", "src/pages/Profile.tsx", "src/pages/Progress.tsx", "src/pages/Quiz.tsx"],
+  "deltaFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/CourseCatalog.tsx", "src/pages/CourseDetail.tsx", "src/pages/Home.tsx", "src/pages/LessonPlayer.tsx", "src/pages/Profile.tsx", "src/pages/Progress.tsx", "src/pages/Quiz.tsx"],
+  "requiredExports": {},
+  "qualityContract": {"minMeaningfulScreens": 4, "requiredCapabilities": ["catalog", "course-detail", "lesson-player", "progress"], "requiredFlows": ["catalog-to-course", "course-to-lesson"]},
+  "selectionContract": {"productTypes": ["learning"], "surfaces": ["catalog", "course-detail", "lesson-player", "progress"], "capabilities": ["learning-content", "progress", "quiz"], "incompatibleArchetypes": ["dashboard", "marketing", "gaming"]}
 }
