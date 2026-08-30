@@ -816,6 +816,11 @@ test.describe('Chat → generation → blueprint → preview', () => {
           console.log(`CANARY_STEP: build_status_${s}`);
           _lastStatusSeen = s;
         }
+        if (s === 'failed') {
+          throw new Error(
+            `[Live Preview Canary] preview build failed: ${body?.error ?? body?.message ?? JSON.stringify(body)}`,
+          );
+        }
         expect(s).toBe('ready');
       }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [2_000, 3_000, 5_000] });
       console.log('CANARY_STEP: build_status_ready');

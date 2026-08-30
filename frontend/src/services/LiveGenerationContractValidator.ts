@@ -940,7 +940,14 @@ export function validateProtectedShellBoundary(
         continue;
       }
 
-      if (resolvedTarget && SHELL_CONTRACT_PATHS.has(resolvedTarget)) {
+      const resolvedTargetIsProductSlot = Boolean(
+        resolvedTarget && productSlotPaths.has(resolvedTarget),
+      );
+      if (
+        resolvedTarget &&
+        SHELL_CONTRACT_PATHS.has(resolvedTarget) &&
+        !resolvedTargetIsProductSlot
+      ) {
         diagnostics.push(buildProtectedShellDiagnostic(
           summary,
           input,
