@@ -39,6 +39,8 @@ export interface SkeletonManifestV1 {
   carcassFiles?: string[];
 }
 
+type RawSkeletonManifest = SkeletonManifestV1 | SkeletonManifestV2;
+
 export interface CompiledSkeletonContract {
   version: 2;
   id: SkeletonId;
@@ -53,21 +55,21 @@ export interface CompiledSkeletonContract {
   requiredExports: Record<string, Array<{ name: string; type?: string }>>;
 }
 
-const manifests: Record<SkeletonId, SkeletonManifestV1> = {
-  'mobile-app': mobileAppManifest as SkeletonManifestV1,
-  'saas-dashboard': saasDashboardManifest as SkeletonManifestV1,
-  'landing-page': landingPageManifest as SkeletonManifestV1,
-  'social-community': socialCommunityManifest as SkeletonManifestV1,
-  'productivity-tool': productivityToolManifest as SkeletonManifestV1,
-  ecommerce: ecommerceManifest as SkeletonManifestV1,
-  'b2b-operations-workspace': b2bOperationsWorkspaceManifest as SkeletonManifestV1,
-  'marketplace-platform': marketplacePlatformManifest as SkeletonManifestV1,
-  'creator-editor-workspace': creatorEditorWorkspaceManifest as SkeletonManifestV1,
-  'dating-matching-app': datingMatchingAppManifest as SkeletonManifestV1,
-  'gaming-casino-app': gamingCasinoAppManifest as SkeletonManifestV1,
-  'game-interactive-app': gameInteractiveAppManifest as SkeletonManifestV1,
-  'booking-service-app': bookingServiceAppManifest as SkeletonManifestV1,
-  'content-learning-app': contentLearningAppManifest as SkeletonManifestV1,
+const manifests: Record<SkeletonId, RawSkeletonManifest> = {
+  'mobile-app': mobileAppManifest as RawSkeletonManifest,
+  'saas-dashboard': saasDashboardManifest as RawSkeletonManifest,
+  'landing-page': landingPageManifest as RawSkeletonManifest,
+  'social-community': socialCommunityManifest as RawSkeletonManifest,
+  'productivity-tool': productivityToolManifest as RawSkeletonManifest,
+  ecommerce: ecommerceManifest as RawSkeletonManifest,
+  'b2b-operations-workspace': b2bOperationsWorkspaceManifest as RawSkeletonManifest,
+  'marketplace-platform': marketplacePlatformManifest as RawSkeletonManifest,
+  'creator-editor-workspace': creatorEditorWorkspaceManifest as RawSkeletonManifest,
+  'dating-matching-app': datingMatchingAppManifest as RawSkeletonManifest,
+  'gaming-casino-app': gamingCasinoAppManifest as RawSkeletonManifest,
+  'game-interactive-app': gameInteractiveAppManifest as RawSkeletonManifest,
+  'booking-service-app': bookingServiceAppManifest as RawSkeletonManifest,
+  'content-learning-app': contentLearningAppManifest as RawSkeletonManifest,
 };
 
 function unique(paths: string[]): string[] {
@@ -94,7 +96,11 @@ function pathMatchesPattern(path: string, pattern: string): boolean {
   return normalizedPath === normalizedPattern;
 }
 
-export function getRawSkeletonManifest(id: SkeletonId): SkeletonManifestV1 {
+function isV2(manifest: RawSkeletonManifest): manifest is SkeletonManifestV2 {
+  return manifest.version === 2;
+}
+
+export function getRawSkeletonManifest(id: SkeletonId): RawSkeletonManifest {
   return manifests[id];
 }
 
@@ -122,27 +128,28 @@ function assertCompiledContractIsV2(contract: CompiledSkeletonContract): void {
   }
 }
 
-/**
- * Compiles the current manifest representation into the only runtime contract
- * downstream stages should consume. During the v1 -> v2 manifest migration the
- * compiler makes the required/optional distinction explicit without changing
- * the behaviour of any existing skeleton:
- *
- *   deltaFiles                 -> requiredProductSlots
- *   editableFiles - deltaFiles -> optionalProductSlots
- *   protectedFiles             -> agentReadOnly / skeletonOwned
- *
- * Every compiled result is validated against the strict v2 ownership invariant.
- * Once every manifest is stored as schema v2, this compatibility input shape
- * can be deleted without changing consumers.
- */
-export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContract {
-  const manifest = manifests[id];
-  if (!manifest) throw new Error(`Unknown skeleton manifest: ${id}`);
-  if (manifest.id !== id) {
-    throw new Error(`Skeleton manifest id mismatch: expected ${id}, got ${manifest.id}`);
+function compileNativeV2(manifest: SkeletonManifestV2): CompiledSkeletonContract {
+  const errors = validateSkeletonManifestV2(manifest);
+  if (errors.length > 0) {
+    throw new Error(`Invalid skeleton manifest v2 for ${manifest.id}:\n${errors.join('\n')}`);
   }
 
+  return {
+    version: 2,
+    id: manifest.id,
+    workingGroups: manifest.workingGroups,
+    requiredProductSlots: normalizePaths(manifest.ownership.requiredProductSlots),
+    optionalProductSlots: normalizePaths(manifest.ownership.optionalProductSlots),
+    agentEditable: normalizePaths(manifest.ownership.agentEditable),
+    agentReadOnly: normalizePaths(manifest.ownership.agentReadOnly),
+    protectedFiles: normalizePaths(manifest.protectedFiles),
+    skeletonOwned: normalizePaths(manifest.ownership.skeletonOwned),
+    carcassFiles: normalizePaths(manifest.ownership.carcassFiles),
+    requiredExports: manifest.requiredExports ?? {},
+  };
+}
+
+function compileLegacyV1(manifest: SkeletonManifestV1): CompiledSkeletonContract {
   const editable = normalizePaths(manifest.editableFiles ?? []);
   const required = normalizePaths(manifest.deltaFiles ?? []);
   const protectedFiles = normalizePaths(manifest.protectedFiles ?? []);
@@ -151,24 +158,24 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
 
   for (const requiredPath of required) {
     if (!editable.includes(requiredPath)) {
-      throw new Error(`${id}: required delta file is not editable: ${requiredPath}`);
+      throw new Error(`${manifest.id}: required delta file is not editable: ${requiredPath}`);
     }
     const protectedBy = protectedFiles.find(pattern => pathMatchesPattern(requiredPath, pattern));
     if (protectedBy) {
-      throw new Error(`${id}: required product slot ${requiredPath} is protected by ${protectedBy}`);
+      throw new Error(`${manifest.id}: required product slot ${requiredPath} is protected by ${protectedBy}`);
     }
   }
 
   for (const optionalPath of optional) {
     const protectedBy = protectedFiles.find(pattern => pathMatchesPattern(optionalPath, pattern));
     if (protectedBy) {
-      throw new Error(`${id}: optional product slot ${optionalPath} is protected by ${protectedBy}`);
+      throw new Error(`${manifest.id}: optional product slot ${optionalPath} is protected by ${protectedBy}`);
     }
   }
 
-  const contract: CompiledSkeletonContract = {
+  return {
     version: 2,
-    id,
+    id: manifest.id,
     workingGroups: manifest.workingGroups,
     requiredProductSlots: required,
     optionalProductSlots: optional,
@@ -179,6 +186,24 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
     carcassFiles: normalizePaths(manifest.carcassFiles ?? []),
     requiredExports: manifest.requiredExports ?? {},
   };
+}
+
+/**
+ * Canonical compiler for both native v2 manifests and temporary legacy v1 files.
+ * Native v2 manifests are consumed directly. Legacy v1 manifests are adapted
+ * explicitly until the 14/14 migration is complete; no downstream consumer
+ * should inspect legacy fields itself.
+ */
+export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContract {
+  const manifest = manifests[id];
+  if (!manifest) throw new Error(`Unknown skeleton manifest: ${id}`);
+  if (manifest.id !== id) {
+    throw new Error(`Skeleton manifest id mismatch: expected ${id}, got ${manifest.id}`);
+  }
+
+  const contract = isV2(manifest)
+    ? compileNativeV2(manifest)
+    : compileLegacyV1(manifest);
 
   assertCompiledContractIsV2(contract);
   return contract;
