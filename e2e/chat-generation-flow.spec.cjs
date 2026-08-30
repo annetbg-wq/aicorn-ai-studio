@@ -222,7 +222,7 @@ const LIVE_CANARY_QUALITY_APP_TSX = [
   '  );',
   '}',
   '',
-].join('\\n');
+].join('\n');
 
 const LIVE_CANARY_QUALITY_HERO_TSX = [
   'type HeroProps = { onShowProof: () => void };',
@@ -240,7 +240,7 @@ const LIVE_CANARY_QUALITY_HERO_TSX = [
   '  );',
   '}',
   '',
-].join('\\n');
+].join('\n');
 
 const LIVE_CANARY_QUALITY_PREVIEW_TSX = [
   "import { useState } from 'react';",
@@ -262,13 +262,13 @@ const LIVE_CANARY_QUALITY_PREVIEW_TSX = [
   '  );',
   '}',
   '',
-].join('\\n');
+].join('\n');
 
 const LIVE_CANARY_QUALITY_REPAIR_RESPONSE = [
-  `<<<FILE: App.tsx>>>\\n${LIVE_CANARY_QUALITY_APP_TSX}\\n<<<END>>>`,
-  `<<<FILE: pages/Hero.tsx>>>\\n${LIVE_CANARY_QUALITY_HERO_TSX}\\n<<<END>>>`,
-  `<<<FILE: pages/ProductPreviewOrWorkflowExplanation.tsx>>>\\n${LIVE_CANARY_QUALITY_PREVIEW_TSX}\\n<<<END>>>`,
-].join('\\n');
+  `<<<FILE: App.tsx>>>\n${LIVE_CANARY_QUALITY_APP_TSX}\n<<<END>>>`,
+  `<<<FILE: pages/Hero.tsx>>>\n${LIVE_CANARY_QUALITY_HERO_TSX}\n<<<END>>>`,
+  `<<<FILE: pages/ProductPreviewOrWorkflowExplanation.tsx>>>\n${LIVE_CANARY_QUALITY_PREVIEW_TSX}\n<<<END>>>`,
+].join('\n');
 
 const LIVE_CANARY_PLAN_RESPONSE = JSON.stringify({
   appName: 'Live Canary Counter',
