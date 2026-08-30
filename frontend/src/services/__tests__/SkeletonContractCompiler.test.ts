@@ -27,6 +27,15 @@ const expectedSkeletonIds: SkeletonId[] = [
   'content-learning-app',
 ];
 
+const migratedLegacyFamilies: SkeletonId[] = [
+  'mobile-app',
+  'saas-dashboard',
+  'landing-page',
+  'social-community',
+  'productivity-tool',
+  'ecommerce',
+];
+
 function getSkeletonSrcRoot(id: SkeletonId): string {
   return path.join(repoRoot, 'skeletons', id, `skeleton-${id}`, 'src');
 }
@@ -73,15 +82,22 @@ describe('Skeleton Contract Compiler — 14/14 matrix gate', () => {
     expect(manifest.id).toBe(id);
   });
 
+  it.each(migratedLegacyFamilies)('%s is permanently migrated to native manifest v2', id => {
+    expect(getRawSkeletonManifest(id).version).toBe(2);
+  });
+
   it('makes editable-but-not-required routes explicit optional product slots', () => {
     expect(compileSkeletonContract('saas-dashboard').optionalProductSlots).toContain('src/config/routes.ts');
     expect(compileSkeletonContract('social-community').optionalProductSlots).toContain('src/config/routes.ts');
     expect(compileSkeletonContract('productivity-tool').optionalProductSlots).toContain('src/config/routes.ts');
+    expect(compileSkeletonContract('ecommerce').optionalProductSlots).toContain('src/config/routes.ts');
   });
 
   it('treats mobile routes as required and never protected', () => {
     const contract = compileSkeletonContract('mobile-app');
     expect(contract.requiredProductSlots).toContain('src/config/routes.ts');
+    expect(contract.optionalProductSlots).not.toContain('src/config/routes.ts');
     expect(contract.agentEditable).toContain('src/config/routes.ts');
+    expect(contract.agentReadOnly).not.toContain('src/config/routes.ts');
   });
 });
