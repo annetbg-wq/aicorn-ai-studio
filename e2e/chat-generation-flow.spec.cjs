@@ -185,6 +185,91 @@ const LIVE_CANARY_PASS2_IMPLEMENTER_RESPONSE = [
   `<<<FILE: src/pages/ProductPreviewOrWorkflowExplanation.tsx>>>\n${LIVE_CANARY_PASS2_PREVIEW_TSX}\n<<<END>>>`,
 ].join('\n');
 
+
+const LIVE_CANARY_QUALITY_APP_TSX = [
+  "import { useRef, useState } from 'react';",
+  "import Hero from './pages/Hero';",
+  "import ProductPreviewOrWorkflowExplanation from './pages/ProductPreviewOrWorkflowExplanation';",
+  '',
+  'export default function App() {',
+  '  const [count, setCount] = useState(0);',
+  "  const [activeSection, setActiveSection] = useState('hero');",
+  '  const previewRef = useRef<HTMLElement | null>(null);',
+  '',
+  '  const showProductProof = () => {',
+  "    setActiveSection('product-preview');",
+  "    previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });",
+  '  };',
+  '',
+  '  return (',
+  '    <main className="min-h-screen bg-background text-foreground grid place-items-center p-6">',
+  '      <section data-testid="live-canary-surface" data-active-section={activeSection} className="w-full max-w-2xl grid gap-5">',
+  '        <Hero onShowProof={showProductProof} />',
+  '        <div id="counter" className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">',
+  '          <strong data-testid="count-value" className="text-4xl">{count}</strong>',
+  '          <button type="button" onClick={() => setCount(value => value + 1)} className="rounded-lg bg-primary px-4 py-3 font-semibold text-primary-foreground">Increment</button>',
+  '        </div>',
+  '        <section ref={previewRef} id="product-proof">',
+  '          <ProductPreviewOrWorkflowExplanation />',
+  '        </section>',
+  '        <ul id="status" className="grid gap-1 pl-5 text-muted-foreground list-disc">',
+  '          <li>Candidate materialized</li>',
+  '          <li>Compiled preview mounted</li>',
+  '          <li>Final live check passed</li>',
+  '        </ul>',
+  '      </section>',
+  '    </main>',
+  '  );',
+  '}',
+  '',
+].join('\\n');
+
+const LIVE_CANARY_QUALITY_HERO_TSX = [
+  'type HeroProps = { onShowProof: () => void };',
+  '',
+  'export default function Hero({ onShowProof }: HeroProps) {',
+  '  return (',
+  '    <section aria-labelledby="canary-hero-title" className="grid gap-3 rounded-2xl border border-border bg-card p-5">',
+  '      <p className="text-sm font-semibold uppercase tracking-wide text-accent-foreground">Live preview canary</p>',
+  '      <h1 id="canary-hero-title" className="text-4xl font-bold">Counter ready</h1>',
+  '      <p className="text-muted-foreground">A deterministic surface that proves generation, repair, compilation, and promotion.</p>',
+  '      <div>',
+  '        <button type="button" onClick={onShowProof} className="rounded-lg border border-border bg-secondary px-4 py-2 font-semibold text-secondary-foreground">Show product proof</button>',
+  '      </div>',
+  '    </section>',
+  '  );',
+  '}',
+  '',
+].join('\\n');
+
+const LIVE_CANARY_QUALITY_PREVIEW_TSX = [
+  "import { useState } from 'react';",
+  '',
+  "const PANELS = { overview: 'Candidate materialized and compiled.', interaction: 'Interactive state survives the generated revision.', release: 'Final live check can release preview ownership.' } as const;",
+  'type PreviewTab = keyof typeof PANELS;',
+  '',
+  'export default function ProductPreviewOrWorkflowExplanation() {',
+  "  const [activePreviewTab, setActivePreviewTab] = useState<PreviewTab>('overview');",
+  '  return (',
+  '    <section aria-label="Product preview" className="grid gap-3 rounded-2xl border border-border bg-muted p-4">',
+  '      <div role="tablist" aria-label="Preview states" className="flex flex-wrap gap-2">',
+  '        {(Object.keys(PANELS) as PreviewTab[]).map(tabId => (',
+  '          <button key={tabId} type="button" role="tab" aria-selected={activePreviewTab === tabId} onClick={() => setActivePreviewTab(tabId)} className={activePreviewTab === tabId ? "rounded-lg bg-primary px-3 py-2 text-primary-foreground" : "rounded-lg bg-card px-3 py-2 text-foreground"}>{tabId}</button>',
+  '        ))}',
+  '      </div>',
+  '      <p data-testid="product-preview-panel" className="text-foreground">{PANELS[activePreviewTab]}</p>',
+  '    </section>',
+  '  );',
+  '}',
+  '',
+].join('\\n');
+
+const LIVE_CANARY_QUALITY_REPAIR_RESPONSE = [
+  `<<<FILE: App.tsx>>>\\n${LIVE_CANARY_QUALITY_APP_TSX}\\n<<<END>>>`,
+  `<<<FILE: pages/Hero.tsx>>>\\n${LIVE_CANARY_QUALITY_HERO_TSX}\\n<<<END>>>`,
+  `<<<FILE: pages/ProductPreviewOrWorkflowExplanation.tsx>>>\\n${LIVE_CANARY_QUALITY_PREVIEW_TSX}\\n<<<END>>>`,
+].join('\\n');
+
 const LIVE_CANARY_PLAN_RESPONSE = JSON.stringify({
   appName: 'Live Canary Counter',
   summary: 'A stable one-screen counter used to prove live preview promotion.',
@@ -406,6 +491,9 @@ async function typeInChat(page, text) {
 
 function responseTextForLLM(systemText, userText, stream) {
   if (!stream) {
+    if (systemText.includes('fixing prototype quality gate failures')) {
+      return LIVE_CANARY_QUALITY_REPAIR_RESPONSE;
+    }
     if (systemText.includes('Pass 2 critic')) {
       return LIVE_CANARY_PASS2_CRITIC_RESPONSE;
     }
@@ -520,17 +608,20 @@ async function serializeConsoleMessage(msg) {
 }
 
 async function collectLiveCanaryDiagnostics(page, logs, error) {
-  const iframeState = await page.locator('[data-testid="preview-iframe"]').evaluate((iframe) => {
-    const frame = iframe;
-    const doc = frame.contentDocument;
-    const root = doc?.getElementById('root');
-    return {
-      src: frame.getAttribute('src'),
-      rootText: root?.textContent?.trim().slice(0, 500) ?? '',
-      rootChildCount: root?.children.length ?? null,
-      bodyText: doc?.body?.textContent?.trim().slice(0, 500) ?? '',
-    };
-  }).catch(err => ({ error: String(err) }));
+  const iframeLocator = page.locator('[data-testid="preview-iframe"]');
+  const iframeState = await iframeLocator.count() > 0
+    ? iframeLocator.evaluate((iframe) => {
+        const frame = iframe;
+        const doc = frame.contentDocument;
+        const root = doc?.getElementById('root');
+        return {
+          src: frame.getAttribute('src'),
+          rootText: root?.textContent?.trim().slice(0, 500) ?? '',
+          rootChildCount: root?.children.length ?? null,
+          bodyText: doc?.body?.textContent?.trim().slice(0, 500) ?? '',
+        };
+      }).catch(err => ({ error: String(err) }))
+    : { missing: true };
 
   const e2eDiagnostics = await page.evaluate(() =>
     window.__E2E_PREVIEW_TEST?.getDiagnostics?.() ?? null,
