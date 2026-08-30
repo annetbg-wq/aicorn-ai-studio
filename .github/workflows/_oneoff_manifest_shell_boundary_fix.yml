@@ -17,136 +17,27 @@ jobs:
           ref: test/live-preview-canary-matrix
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Patch validator and canary fast-fail
         shell: python
         run: |
           from pathlib import Path
-
+          import base64
+          dec = lambda value: base64.b64decode(value).decode()
           validator = Path('frontend/src/services/LiveGenerationContractValidator.ts')
-          s = validator.read_text()
-          old = """      if (resolvedTarget && SHELL_CONTRACT_PATHS.has(resolvedTarget)) {
-        diagnostics.push(buildProtectedShellDiagnostic(
-          summary,
-          input,
-          filePath,
-          importPath,
-          describeShellLayerFromPath(resolvedTarget),
-          `imports ${resolvedTarget}`,
-        ));
-        continue;
-      }
-"""
-          new = """      const resolvedTargetIsProductSlot = Boolean(
-        resolvedTarget && productSlotPaths.has(resolvedTarget),
-      );
-      if (
-        resolvedTarget &&
-        SHELL_CONTRACT_PATHS.has(resolvedTarget) &&
-        !resolvedTargetIsProductSlot
-      ) {
-        diagnostics.push(buildProtectedShellDiagnostic(
-          summary,
-          input,
-          filePath,
-          importPath,
-          describeShellLayerFromPath(resolvedTarget),
-          `imports ${resolvedTarget}`,
-        ));
-        continue;
-      }
-"""
-          if old not in s:
-            raise SystemExit('protected shell contract block not found')
-          validator.write_text(s.replace(old, new))
-
-          test = Path('frontend/src/services/__tests__/LiveGenerationContractManifestOwnership.test.ts')
-          test.write_text("""import { describe, expect, it } from 'vitest';
-import { validateProtectedShellBoundary } from '../LiveGenerationContractValidator';
-
-describe('LiveGenerationContract manifest ownership', () => {
-  it('allows a mobile product page to consume manifest-declared editable route config', () => {
-    const createPage = [
-      \"import { useNavigate } from 'react-router-dom';\",
-      \"import { ROUTES } from '@/config/routes';\",
-      'export default function Create() {',
-      '  const navigate = useNavigate();',
-      \"  return <button onClick={() => navigate(ROUTES.home)}>Save</button>;\",
-      '}',
-    ].join('\\n');
-
-    const result = validateProtectedShellBoundary({
-      finalFiles: {
-        'src/main.tsx': 'export {};',
-        'src/App.tsx': 'export default function App() { return null; }',
-        'src/route-manifest.json': '{}',
-        'src/config/routes.ts': \"export const ROUTES = { home: '/' } as const;\",
-        'src/pages/Create.tsx': createPage,
-      },
-      generatedDeltaFiles: {
-        'src/pages/Create.tsx': createPage,
-      },
-      skeletonId: 'mobile-app',
-    });
-
-    expect(result.diagnostics.filter(d => d.root_cause_type === 'protected_shell_import')).toEqual([]);
-  });
-
-  it('still blocks page-level router ownership APIs', () => {
-    const createPage = [
-      \"import { Routes, Route } from 'react-router-dom';\",
-      'export default function Create() {',
-      \"  return <Routes><Route path=\\\"/\\\" element={null} /></Routes>;\",
-      '}',
-    ].join('\\n');
-
-    const result = validateProtectedShellBoundary({
-      finalFiles: {
-        'src/main.tsx': 'export {};',
-        'src/App.tsx': 'export default function App() { return null; }',
-        'src/pages/Create.tsx': createPage,
-      },
-      generatedDeltaFiles: {
-        'src/pages/Create.tsx': createPage,
-      },
-      skeletonId: 'mobile-app',
-    });
-
-    expect(result.diagnostics.some(d =>
-      d.root_cause_type === 'protected_shell_import' && d.import_path === 'react-router-dom',
-    )).toBe(true);
-  });
-});
-""")
-
+          source = validator.read_text()
+          old = dec('ICAgICAgaWYgKHJlc29sdmVkVGFyZ2V0ICYmIFNIRUxMX0NPTlRSQUNUX1BBVEhTLmhhcyhyZXNvbHZlZFRhcmdldCkpIHsKICAgICAgICBkaWFnbm9zdGljcy5wdXNoKGJ1aWxkUHJvdGVjdGVkU2hlbGxEaWFnbm9zdGljKAogICAgICAgICAgc3VtbWFyeSwKICAgICAgICAgIGlucHV0LAogICAgICAgICAgZmlsZVBhdGgsCiAgICAgICAgICBpbXBvcnRQYXRoLAogICAgICAgICAgZGVzY3JpYmVTaGVsbExheWVyRnJvbVBhdGgocmVzb2x2ZWRUYXJnZXQpLAogICAgICAgICAgYGltcG9ydHMgJHtyZXNvbHZlZFRhcmdldH1gLAogICAgICAgICkpOwogICAgICAgIGNvbnRpbnVlOwogICAgICB9Cg==')
+          new = dec('ICAgICAgY29uc3QgcmVzb2x2ZWRUYXJnZXRJc1Byb2R1Y3RTbG90ID0gQm9vbGVhbigKICAgICAgICByZXNvbHZlZFRhcmdldCAmJiBwcm9kdWN0U2xvdFBhdGhzLmhhcyhyZXNvbHZlZFRhcmdldCksCiAgICAgICk7CiAgICAgIGlmICgKICAgICAgICByZXNvbHZlZFRhcmdldCAmJgogICAgICAgIFNIRUxMX0NPTlRSQUNUX1BBVEhTLmhhcyhyZXNvbHZlZFRhcmdldCkgJiYKICAgICAgICAhcmVzb2x2ZWRUYXJnZXRJc1Byb2R1Y3RTbG90CiAgICAgICkgewogICAgICAgIGRpYWdub3N0aWNzLnB1c2goYnVpbGRQcm90ZWN0ZWRTaGVsbERpYWdub3N0aWMoCiAgICAgICAgICBzdW1tYXJ5LAogICAgICAgICAgaW5wdXQsCiAgICAgICAgICBmaWxlUGF0aCwKICAgICAgICAgIGltcG9ydFBhdGgsCiAgICAgICAgICBkZXNjcmliZVNoZWxsTGF5ZXJGcm9tUGF0aChyZXNvbHZlZFRhcmdldCksCiAgICAgICAgICBgaW1wb3J0cyAke3Jlc29sdmVkVGFyZ2V0fWAsCiAgICAgICAgKSk7CiAgICAgICAgY29udGludWU7CiAgICAgIH0K')
+          if old not in source: raise SystemExit('validator block not found')
+          validator.write_text(source.replace(old, new))
+          Path('frontend/src/services/__tests__/LiveGenerationContractManifestOwnership.test.ts').write_text(dec('aW1wb3J0IHsgZGVzY3JpYmUsIGV4cGVjdCwgaXQgfSBmcm9tICd2aXRlc3QnOwppbXBvcnQgeyB2YWxpZGF0ZVByb3RlY3RlZFNoZWxsQm91bmRhcnkgfSBmcm9tICcuLi9MaXZlR2VuZXJhdGlvbkNvbnRyYWN0VmFsaWRhdG9yJzsKCmRlc2NyaWJlKCdMaXZlR2VuZXJhdGlvbkNvbnRyYWN0IG1hbmlmZXN0IG93bmVyc2hpcCcsICgpID0+IHsKICBpdCgnYWxsb3dzIGEgbW9iaWxlIHByb2R1Y3QgcGFnZSB0byBjb25zdW1lIG1hbmlmZXN0LWRlY2xhcmVkIGVkaXRhYmxlIHJvdXRlIGNvbmZpZycsICgpID0+IHsKICAgIGNvbnN0IGNyZWF0ZVBhZ2UgPSBbCiAgICAgICJpbXBvcnQgeyB1c2VOYXZpZ2F0ZSB9IGZyb20gJ3JlYWN0LXJvdXRlci1kb20nOyIsCiAgICAgICJpbXBvcnQgeyBST1VURVMgfSBmcm9tICdAL2NvbmZpZy9yb3V0ZXMnOyIsCiAgICAgICdleHBvcnQgZGVmYXVsdCBmdW5jdGlvbiBDcmVhdGUoKSB7JywKICAgICAgJyAgY29uc3QgbmF2aWdhdGUgPSB1c2VOYXZpZ2F0ZSgpOycsCiAgICAgICcgIHJldHVybiA8YnV0dG9uIG9uQ2xpY2s9eygpID0+IG5hdmlnYXRlKFJPVVRFUy5ob21lKX0+U2F2ZTwvYnV0dG9uPjsnLAogICAgICAnfScsCiAgICBdLmpvaW4oJ1xuJyk7CgogICAgY29uc3QgcmVzdWx0ID0gdmFsaWRhdGVQcm90ZWN0ZWRTaGVsbEJvdW5kYXJ5KHsKICAgICAgZmluYWxGaWxlczogewogICAgICAgICdzcmMvbWFpbi50c3gnOiAnZXhwb3J0IHt9OycsCiAgICAgICAgJ3NyYy9BcHAudHN4JzogJ2V4cG9ydCBkZWZhdWx0IGZ1bmN0aW9uIEFwcCgpIHsgcmV0dXJuIG51bGw7IH0nLAogICAgICAgICdzcmMvcm91dGUtbWFuaWZlc3QuanNvbic6ICd7fScsCiAgICAgICAgJ3NyYy9jb25maWcvcm91dGVzLnRzJzogImV4cG9ydCBjb25zdCBST1VURVMgPSB7IGhvbWU6ICcvJyB9IGFzIGNvbnN0OyIsCiAgICAgICAgJ3NyYy9wYWdlcy9DcmVhdGUudHN4JzogY3JlYXRlUGFnZSwKICAgICAgfSwKICAgICAgZ2VuZXJhdGVkRGVsdGFGaWxlczogewogICAgICAgICdzcmMvcGFnZXMvQ3JlYXRlLnRzeCc6IGNyZWF0ZVBhZ2UsCiAgICAgIH0sCiAgICAgIHNrZWxldG9uSWQ6ICdtb2JpbGUtYXBwJywKICAgIH0pOwoKICAgIGV4cGVjdChyZXN1bHQuZGlhZ25vc3RpY3MuZmlsdGVyKGQgPT4gZC5yb290X2NhdXNlX3R5cGUgPT09ICdwcm90ZWN0ZWRfc2hlbGxfaW1wb3J0JykpLnRvRXF1YWwoW10pOwogIH0pOwoKICBpdCgnc3RpbGwgYmxvY2tzIHBhZ2UtbGV2ZWwgcm91dGVyIG93bmVyc2hpcCBBUElzJywgKCkgPT4gewogICAgY29uc3QgY3JlYXRlUGFnZSA9IFsKICAgICAgImltcG9ydCB7IFJvdXRlcywgUm91dGUgfSBmcm9tICdyZWFjdC1yb3V0ZXItZG9tJzsiLAogICAgICAnZXhwb3J0IGRlZmF1bHQgZnVuY3Rpb24gQ3JlYXRlKCkgeycsCiAgICAgICcgIHJldHVybiA8Um91dGVzPjxSb3V0ZSBwYXRoPSIvIiBlbGVtZW50PXtudWxsfSAvPjwvUm91dGVzPjsnLAogICAgICAnfScsCiAgICBdLmpvaW4oJ1xuJyk7CgogICAgY29uc3QgcmVzdWx0ID0gdmFsaWRhdGVQcm90ZWN0ZWRTaGVsbEJvdW5kYXJ5KHsKICAgICAgZmluYWxGaWxlczogewogICAgICAgICdzcmMvbWFpbi50c3gnOiAnZXhwb3J0IHt9OycsCiAgICAgICAgJ3NyYy9BcHAudHN4JzogJ2V4cG9ydCBkZWZhdWx0IGZ1bmN0aW9uIEFwcCgpIHsgcmV0dXJuIG51bGw7IH0nLAogICAgICAgICdzcmMvcGFnZXMvQ3JlYXRlLnRzeCc6IGNyZWF0ZVBhZ2UsCiAgICAgIH0sCiAgICAgIGdlbmVyYXRlZERlbHRhRmlsZXM6IHsKICAgICAgICAnc3JjL3BhZ2VzL0NyZWF0ZS50c3gnOiBjcmVhdGVQYWdlLAogICAgICB9LAogICAgICBza2VsZXRvbklkOiAnbW9iaWxlLWFwcCcsCiAgICB9KTsKCiAgICBleHBlY3QocmVzdWx0LmRpYWdub3N0aWNzLnNvbWUoZCA9PgogICAgICBkLnJvb3RfY2F1c2VfdHlwZSA9PT0gJ3Byb3RlY3RlZF9zaGVsbF9pbXBvcnQnICYmIGQuaW1wb3J0X3BhdGggPT09ICdyZWFjdC1yb3V0ZXItZG9tJywKICAgICkpLnRvQmUodHJ1ZSk7CiAgfSk7Cn0pOwo='))
           e2e = Path('e2e/chat-generation-flow.spec.cjs')
-          s = e2e.read_text()
-          old = """        const s = body?.status;
-        if (s !== _lastStatusSeen) {
-          console.log(`CANARY_STEP: build_status_${s}`);
-          _lastStatusSeen = s;
-        }
-        expect(s).toBe('ready');
-"""
-          new = """        const s = body?.status;
-        if (s !== _lastStatusSeen) {
-          console.log(`CANARY_STEP: build_status_${s}`);
-          _lastStatusSeen = s;
-        }
-        if (s === 'failed') {
-          throw new Error(
-            `[Live Preview Canary] preview build failed: ${body?.error ?? body?.message ?? JSON.stringify(body)}`,
-          );
-        }
-        expect(s).toBe('ready');
-"""
-          if old not in s:
-            raise SystemExit('canary build status block not found')
-          e2e.write_text(s.replace(old, new))
-
+          source = e2e.read_text()
+          old = dec('ICAgICAgICBjb25zdCBzID0gYm9keT8uc3RhdHVzOwogICAgICAgIGlmIChzICE9PSBfbGFzdFN0YXR1c1NlZW4pIHsKICAgICAgICAgIGNvbnNvbGUubG9nKGBDQU5BUllfU1RFUDogYnVpbGRfc3RhdHVzXyR7c31gKTsKICAgICAgICAgIF9sYXN0U3RhdHVzU2VlbiA9IHM7CiAgICAgICAgfQogICAgICAgIGV4cGVjdChzKS50b0JlKCdyZWFkeScpOwo=')
+          new = dec('ICAgICAgICBjb25zdCBzID0gYm9keT8uc3RhdHVzOwogICAgICAgIGlmIChzICE9PSBfbGFzdFN0YXR1c1NlZW4pIHsKICAgICAgICAgIGNvbnNvbGUubG9nKGBDQU5BUllfU1RFUDogYnVpbGRfc3RhdHVzXyR7c31gKTsKICAgICAgICAgIF9sYXN0U3RhdHVzU2VlbiA9IHM7CiAgICAgICAgfQogICAgICAgIGlmIChzID09PSAnZmFpbGVkJykgewogICAgICAgICAgdGhyb3cgbmV3IEVycm9yKAogICAgICAgICAgICBgW0xpdmUgUHJldmlldyBDYW5hcnldIHByZXZpZXcgYnVpbGQgZmFpbGVkOiAke2JvZHk/LmVycm9yID8/IGJvZHk/Lm1lc3NhZ2UgPz8gSlNPTi5zdHJpbmdpZnkoYm9keSl9YCwKICAgICAgICAgICk7CiAgICAgICAgfQogICAgICAgIGV4cGVjdChzKS50b0JlKCdyZWFkeScpOwo=')
+          if old not in source: raise SystemExit('canary status block not found')
+          e2e.write_text(source.replace(old, new))
       - name: Remove one-off workflow
         run: rm .github/workflows/_oneoff_manifest_shell_boundary_fix.yml
-
       - name: Commit patch
         run: |
           git config user.name "github-actions[bot]"
