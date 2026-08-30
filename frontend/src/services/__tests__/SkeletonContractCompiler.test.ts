@@ -27,15 +27,6 @@ const expectedSkeletonIds: SkeletonId[] = [
   'content-learning-app',
 ];
 
-const migratedLegacyFamilies: SkeletonId[] = [
-  'mobile-app',
-  'saas-dashboard',
-  'landing-page',
-  'social-community',
-  'productivity-tool',
-  'ecommerce',
-];
-
 function getSkeletonSrcRoot(id: SkeletonId): string {
   return path.join(repoRoot, 'skeletons', id, `skeleton-${id}`, 'src');
 }
@@ -52,6 +43,10 @@ function pathExists(id: SkeletonId, manifestPath: string): boolean {
 describe('Skeleton Contract Compiler — 14/14 matrix gate', () => {
   it('covers every registered skeleton family exactly once', () => {
     expect([...listSkeletonContractIds()].sort()).toEqual([...expectedSkeletonIds].sort());
+  });
+
+  it.each(expectedSkeletonIds)('%s is a native schema-v2 manifest', id => {
+    expect(getRawSkeletonManifest(id).version).toBe(2);
   });
 
   it.each(expectedSkeletonIds)('%s compiles into a non-ambiguous runtime contract', id => {
@@ -80,10 +75,6 @@ describe('Skeleton Contract Compiler — 14/14 matrix gate', () => {
     expect(new Set(contract.requiredProductSlots).size).toBe(contract.requiredProductSlots.length);
     expect(new Set(contract.optionalProductSlots).size).toBe(contract.optionalProductSlots.length);
     expect(manifest.id).toBe(id);
-  });
-
-  it.each(migratedLegacyFamilies)('%s is permanently migrated to native manifest v2', id => {
-    expect(getRawSkeletonManifest(id).version).toBe(2);
   });
 
   it('makes editable-but-not-required routes explicit optional product slots', () => {
