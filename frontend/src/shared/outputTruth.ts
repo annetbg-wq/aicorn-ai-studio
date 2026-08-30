@@ -4,6 +4,7 @@ import {
   pathMatchesSkeletonPattern,
   type SkeletonId,
 } from '../services/SkeletonRegistry';
+import { getSkeletonRuntimePolicy } from '../services/SkeletonRuntimePolicy';
 
 export const BLOCKED_PLACEHOLDER_PATTERNS = [
   'Test',
@@ -406,8 +407,11 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
     .filter((hit) => !isDesignPackMetadataPath(hit.path));
   const genericFallbackHits = matchRuleHits(files, uniqueChangedPaths, GENERIC_FALLBACK_RULES, 'generic-fallback');
   const blockers: OutputTruthBlocker[] = [];
+  const skeletonProductSlots = skeletonId
+    ? getSkeletonRuntimePolicy(skeletonId).fileContract.requiredProductSlots.map(normalizeProjectPath)
+    : [];
   const skeletonDeltaClasses = skeletonId
-    ? getStructureClassesForPaths(SKELETON_REGISTRY[skeletonId].deltaFiles.map(normalizeProjectPath), previewEntryFile)
+    ? getStructureClassesForPaths(skeletonProductSlots, previewEntryFile)
         .filter((id) => id !== 'root-shell' && id !== 'styles-theme')
     : [];
   const fallbackDeltaClasses: OutputStructureClassId[] = (input.routeCount ?? 0) >= 2
@@ -419,12 +423,12 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
   ) as OutputStructureClassId[];
   const minMeaningfulChangedFiles = input.minMeaningfulChangedFiles ?? (
     skeletonId
-      ? Math.max(4, Math.min(6, Math.ceil(SKELETON_REGISTRY[skeletonId].deltaFiles.length * 0.4)))
+      ? Math.max(4, Math.min(6, Math.ceil(skeletonProductSlots.length * 0.4)))
       : 3
   );
   const minMeaningfulPageFiles = input.minMeaningfulPageFiles ?? (() => {
     const skeletonPageCount = skeletonId
-      ? countMatchingPaths(SKELETON_REGISTRY[skeletonId].deltaFiles, (path) => isPageLikePath(normalizeProjectPath(path)))
+      ? countMatchingPaths(skeletonProductSlots, (path) => isPageLikePath(normalizeProjectPath(path)))
       : 0;
     const routeBasedMinimum = (input.routeCount ?? 0) >= 2 ? 2 : 1;
     return skeletonPageCount >= 4 ? Math.max(2, routeBasedMinimum) : routeBasedMinimum;

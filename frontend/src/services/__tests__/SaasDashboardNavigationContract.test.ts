@@ -8,7 +8,7 @@
  *   4. The import path @/config/navigation used by BottomTabs.tsx resolves to the
  *      canonical skeleton navigation file.
  *   5. BOTTOM_TABS routes are a subset of the routes registered in ROUTES (routes.ts).
- *   6. The navigation.ts is listed in the skeleton's deltaFiles so the coder sees
+ *   6. The navigation.ts is a required product slot so the coder sees
  *      both SIDEBAR_NAV and BOTTOM_TABS as template signals to preserve.
  *
  * No real LLM calls are made.
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import saasDashboardManifest from '../skeleton-manifests/saas-dashboard/skeleton.manifest.json';
-import { SKELETON_REGISTRY } from '../SkeletonRegistry';
+import { getSkeletonProductSlotFiles } from '../SkeletonRegistry';
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -114,13 +114,13 @@ describe('saas-dashboard navigation.ts — BottomTabs.tsx import compatibility',
 });
 
 describe('saas-dashboard skeleton — materialization preserves BOTTOM_TABS', () => {
-  it('navigation.ts is listed in deltaFiles so coder sees both nav shapes', () => {
-    const manifest = saasDashboardManifest as { deltaFiles: string[] };
-    expect(manifest.deltaFiles).toContain('src/config/navigation.ts');
+  it('navigation.ts is a required product slot so coder sees both nav shapes', () => {
+    const manifest = saasDashboardManifest as { ownership: { requiredProductSlots: string[] } };
+    expect(manifest.ownership.requiredProductSlots).toContain('src/config/navigation.ts');
   });
 
-  it('skeleton registry deltaFiles for saas-dashboard includes navigation.ts', () => {
-    expect(SKELETON_REGISTRY['saas-dashboard'].deltaFiles).toContain('src/config/navigation.ts');
+  it('runtime product-slot adapter for saas-dashboard includes navigation.ts', () => {
+    expect(getSkeletonProductSlotFiles('saas-dashboard')).toContain('src/config/navigation.ts');
   });
 
   it('BOTTOM_TABS export is present in the physical file the install step copies', () => {

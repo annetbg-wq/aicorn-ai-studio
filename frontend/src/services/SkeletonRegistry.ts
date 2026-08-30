@@ -56,10 +56,6 @@ export interface SkeletonMeta {
   /** App type tags used by architect to select skeleton */
   tags: string[];
   navigation: 'bottom-tabs' | 'sidebar' | 'anchor-scroll' | 'top-nav';
-  /** Relative paths (from skeleton src/) of files the BUILD agent MUST write */
-  deltaFiles: string[];
-  /** Glob prefixes the BUILD agent must NOT touch */
-  lockedPrefixes: string[];
   /** Components already provided — agent should import, not recreate */
   providedComponents: string[];
   providedHooks: string[];
@@ -100,16 +96,13 @@ export interface SkeletonOwnershipContract {
   productSlots: string[];
 }
 
-/** Transitional internal view while Registry consumers move to the canonical v2 compiler. */
 interface SkeletonManifestOwnershipContract {
-  ownedBySkeleton?: string[];
-  productSlots?: string[];
-  skeletonOwned?: string[];
-  requiredProductSlots?: string[];
-  optionalProductSlots?: string[];
-  agentEditable?: string[];
-  agentReadOnly?: string[];
-  carcassFiles?: string[];
+  skeletonOwned: string[];
+  requiredProductSlots: string[];
+  optionalProductSlots: string[];
+  agentEditable: string[];
+  agentReadOnly: string[];
+  carcassFiles: string[];
 }
 
 export interface ExportContractEntry {
@@ -127,16 +120,13 @@ interface SkeletonManifest {
   id: SkeletonId;
   workingGroups: SkeletonManifestGroup[];
   protectedFiles: string[];
-  editableFiles: string[];
-  deltaFiles: string[];
-  ownership?: SkeletonManifestOwnershipContract;
+  ownership: SkeletonManifestOwnershipContract;
   requiredExports?: Record<string, ExportContractEntry[]>;
   /**
    * Paths of "carcass files" (scaffold+marker files) whose exported symbols the
    * apply step must restore if the coder drops them.  Rich-skeleton mode only.
    * Path format: with src/ prefix (matches skeleton disk layout).
    */
-  carcassFiles?: string[];
 }
 
 const SKELETON_MANIFESTS: Record<SkeletonId, SkeletonManifest> = {
@@ -168,28 +158,6 @@ export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
       'lifestyle', 'habit', 'journal', 'feed', 'onboarding', 'learning',
     ],
     navigation: 'bottom-tabs',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Onboarding.tsx',
-      'src/pages/Home.tsx',
-      'src/pages/Detail.tsx',
-      'src/pages/Create.tsx',
-      'src/pages/Progress.tsx',
-      'src/pages/Profile.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState',
       'BottomTabs', 'PaywallSheet',
@@ -240,25 +208,6 @@ CRITICAL RULES:
       'sidebar', 'enterprise', 'tool', 'crm', 'cms', 'metrics',
     ],
     navigation: 'sidebar',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Dashboard.tsx',
-      'src/pages/DataView.tsx',
-      'src/pages/Settings.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState',
       'Sidebar', 'TopBar', 'KPICard', 'Sparkline',
@@ -317,17 +266,6 @@ CRITICAL RULES:
       'portfolio', 'hero', 'pricing', 'testimonials', 'faq',
     ],
     navigation: 'anchor-scroll',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/data/content.ts',
-      'src/App.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/components/',
-    ],
     providedComponents: [
       'ErrorBoundary', 'Nav',
       'sections/Hero', 'sections/SocialProof', 'sections/Features',
@@ -366,28 +304,6 @@ Do NOT import from '@/context/AppContext'.
       'user-generated', 'instagram', 'twitter', 'forum', 'club',
     ],
     navigation: 'bottom-tabs',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Feed.tsx',
-      'src/pages/Explore.tsx',
-      'src/pages/Create.tsx',
-      'src/pages/PostDetail.tsx',
-      'src/pages/Notifications.tsx',
-      'src/pages/Profile.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState',
       'BottomTabs', 'PostCard', 'CommentItem', 'NotificationItem', 'UserAvatar',
@@ -435,23 +351,6 @@ CRITICAL RULES:
       'project-management', 'trello', 'notion', 'linear', 'jira',
     ],
     navigation: 'sidebar',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Workspace.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState',
       'Sidebar', 'TopBar', 'KanbanBoard', 'ListView',
@@ -510,29 +409,6 @@ CRITICAL RULES:
       'catalog', 'shopify', 'amazon', 'retail', 'buy', 'sell',
     ],
     navigation: 'bottom-tabs',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Home.tsx',
-      'src/pages/Search.tsx',
-      'src/pages/ProductDetail.tsx',
-      'src/pages/Cart.tsx',
-      'src/pages/Checkout.tsx',
-      'src/pages/Wishlist.tsx',
-      'src/pages/Account.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState',
       'BottomTabs', 'ProductCard', 'ProductImage', 'ImageGallery',
@@ -589,29 +465,6 @@ CRITICAL RULES:
       'team', 'admin', 'business', 'enterprise', 'kpi', 'table', 'management',
     ],
     navigation: 'sidebar',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Dashboard.tsx',
-      'src/pages/RecordDetail.tsx',
-      'src/pages/Records.tsx',
-      'src/pages/Reports.tsx',
-      'src/pages/Settings.tsx',
-      'src/pages/Team.tsx',
-      'src/pages/Workflow.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState',
       'Sidebar', 'PageHeader', 'KPICard', 'RecordTable',
@@ -649,28 +502,6 @@ CRITICAL RULES:
       'multi-vendor', 'messages', 'storefront', 'ecommerce', 'peer-to-peer',
     ],
     navigation: 'bottom-tabs',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Browse.tsx',
-      'src/pages/Home.tsx',
-      'src/pages/Listing.tsx',
-      'src/pages/Messages.tsx',
-      'src/pages/Profile.tsx',
-      'src/pages/SellerDashboard.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
     ],
@@ -706,28 +537,6 @@ CRITICAL RULES:
       'sidebar', 'assets', 'project', 'content-creation', 'studio',
     ],
     navigation: 'sidebar',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Analytics.tsx',
-      'src/pages/Editor.tsx',
-      'src/pages/Home.tsx',
-      'src/pages/Media.tsx',
-      'src/pages/Publications.tsx',
-      'src/pages/Settings.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'Sidebar',
     ],
@@ -763,28 +572,6 @@ CRITICAL RULES:
       'mobile', 'social', 'romance', 'connect', 'conversation', 'onboarding',
     ],
     navigation: 'bottom-tabs',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Conversation.tsx',
-      'src/pages/Discover.tsx',
-      'src/pages/Matches.tsx',
-      'src/pages/Onboarding.tsx',
-      'src/pages/Profile.tsx',
-      'src/pages/Settings.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
     ],
@@ -821,29 +608,6 @@ CRITICAL RULES:
       'mobile', 'play', 'betting', 'slots', 'entertainment', 'rewards',
     ],
     navigation: 'bottom-tabs',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Account.tsx',
-      'src/pages/GameDetail.tsx',
-      'src/pages/Lobby.tsx',
-      'src/pages/Games.tsx',
-      'src/pages/Leaderboard.tsx',
-      'src/pages/Promotions.tsx',
-      'src/pages/ResponsibleGaming.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
     ],
@@ -879,28 +643,6 @@ CRITICAL RULES:
       'mobile', 'casual', 'arcade', 'canvas', 'level-select', 'gamification',
     ],
     navigation: 'bottom-tabs',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/Achievements.tsx',
-      'src/pages/GameScreen.tsx',
-      'src/pages/Home.tsx',
-      'src/pages/Leaderboard.tsx',
-      'src/pages/LevelSelect.tsx',
-      'src/pages/Profile.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
     ],
@@ -937,28 +679,6 @@ CRITICAL RULES:
       'mobile', 'provider', 'availability', 'confirm', 'my-bookings', 'flow',
     ],
     navigation: 'bottom-tabs',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/BookingFlow.tsx',
-      'src/pages/Home.tsx',
-      'src/pages/MyBookings.tsx',
-      'src/pages/Profile.tsx',
-      'src/pages/Search.tsx',
-      'src/pages/ServiceDetail.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
     ],
@@ -995,29 +715,6 @@ CRITICAL RULES:
       'mobile', 'catalog', 'player', 'progress', 'quiz', 'study', 'e-learning',
     ],
     navigation: 'bottom-tabs',
-    deltaFiles: [
-      'src/config/app.ts',
-      'src/config/navigation.ts',
-      'src/data/types.ts',
-      'src/data/seed.ts',
-      'src/pages/CourseCatalog.tsx',
-      'src/pages/CourseDetail.tsx',
-      'src/pages/Home.tsx',
-      'src/pages/LessonPlayer.tsx',
-      'src/pages/Profile.tsx',
-      'src/pages/Progress.tsx',
-      'src/pages/Quiz.tsx',
-    ],
-    lockedPrefixes: [
-      'src/main.tsx',
-      'src/index.css',
-      'src/lib/',
-      'src/hooks/',
-      'src/context/',
-      'src/components/',
-      'src/config/routes.ts',
-      'src/config/theme.ts',
-    ],
     providedComponents: [
       'ErrorBoundary', 'LoadingScreen', 'EmptyState', 'BottomTabs',
     ],
@@ -1483,13 +1180,13 @@ export function getSkeletonInstalledFiles(skeletonId: SkeletonId): string[] {
 export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
   const manifest = SKELETON_MANIFESTS[skeletonId];
   if (!manifest) return [];
-  return uniqueSorted(manifest.editableFiles);
+  return uniqueSorted(manifest.ownership.agentEditable);
 }
 
 function deriveOwnedSkeletonShellFiles(manifest: SkeletonManifest | undefined): string[] {
   if (!manifest) return [];
-  const explicit = manifest.ownership?.ownedBySkeleton;
-  if (explicit && explicit.length > 0) {
+  const explicit = manifest.ownership.skeletonOwned;
+  if (explicit.length > 0) {
     return uniqueSorted(explicit);
   }
 
@@ -1508,7 +1205,7 @@ export function getSkeletonOwnershipContract(skeletonId: SkeletonId): SkeletonOw
   const manifest = SKELETON_MANIFESTS[skeletonId];
   return {
     ownedBySkeleton: deriveOwnedSkeletonShellFiles(manifest),
-    productSlots: uniqueSorted(manifest?.ownership?.productSlots ?? manifest?.editableFiles ?? []),
+    productSlots: uniqueSorted(manifest?.ownership.agentEditable ?? []),
   };
 }
 
@@ -1522,12 +1219,11 @@ export function getSkeletonProductSlotFiles(skeletonId: SkeletonId): string[] {
 
 export function getRequiredSkeletonDataFiles(skeletonId: SkeletonId): string[] {
   const manifest = SKELETON_MANIFESTS[skeletonId];
-  const meta = SKELETON_REGISTRY[skeletonId];
   const candidates = [
     ...(manifest?.workingGroups.flatMap(group => group.paths) ?? []),
-    ...(manifest?.editableFiles ?? []),
-    ...(manifest?.deltaFiles ?? []),
-    ...(meta?.deltaFiles ?? []),
+    ...(manifest?.ownership.requiredProductSlots ?? []),
+    ...(manifest?.ownership.optionalProductSlots ?? []),
+    ...(manifest?.ownership.agentEditable ?? []),
   ];
 
   return uniqueSorted(candidates.filter(file => (
@@ -1775,16 +1471,7 @@ export function isProtectedSkeletonFile(skeletonId: SkeletonId, path: string): b
  * Returns true if the given path falls under any of the skeleton's locked prefixes.
  */
 function isLockedSkeletonPath(skeletonId: SkeletonId, path: string): boolean {
-  const meta = SKELETON_REGISTRY[skeletonId];
-  if (!meta) return false;
-  const normalized = normalizeSkeletonPath(path);
-  return meta.lockedPrefixes.some(prefix => {
-    const normalizedPrefix = normalizeSkeletonPath(prefix);
-    return (
-      normalized.toLowerCase() === normalizedPrefix.toLowerCase() ||
-      normalized.toLowerCase().startsWith(normalizedPrefix.toLowerCase().replace(/\/?$/, '/'))
-    );
-  });
+  return isProtectedSkeletonFile(skeletonId, path);
 }
 
 /**
@@ -1862,8 +1549,8 @@ export function buildSkeletonPromptBlock(
       installedFiles.includes(path) && !isProtectedSkeletonFile(skeletonId, path),
     ),
   );
-  const manifestDeltaFiles = manifest?.deltaFiles ?? s.deltaFiles;
-  const manifestEditableFiles = manifest?.editableFiles ?? s.deltaFiles;
+  const manifestDeltaFiles = manifest?.ownership.requiredProductSlots ?? [];
+  const manifestEditableFiles = manifest?.ownership.agentEditable ?? [];
   const mustOutputFiles = uniqueSorted([
     ...manifestDeltaFiles,
     ...editableSkeletonFiles,

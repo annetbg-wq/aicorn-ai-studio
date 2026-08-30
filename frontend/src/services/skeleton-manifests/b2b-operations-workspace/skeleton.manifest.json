@@ -3,28 +3,181 @@
   "id": "b2b-operations-workspace",
   "label": "B2B Operations Workspace",
   "workingGroups": [
-    { "label": "core", "paths": ["src/App.tsx", "src/main.tsx", "src/index.css", "src/route-manifest.json"] },
-    { "label": "config", "paths": ["src/config/app.ts", "src/config/navigation.ts", "src/config/routes.ts", "src/config/theme.ts"] },
-    { "label": "context", "paths": ["src/context/AppContext.tsx"] },
-    { "label": "hooks", "paths": ["src/hooks/useLocalStorage.ts", "src/hooks/useTheme.ts"] },
-    { "label": "data", "paths": ["src/data/seed.ts", "src/data/types.ts"] },
-    { "label": "components", "paths": ["src/components/EmptyState.tsx", "src/components/ErrorBoundary.tsx", "src/components/KPICard.tsx", "src/components/LoadingScreen.tsx", "src/components/PageHeader.tsx", "src/components/RecordTable.tsx", "src/components/Sidebar.tsx"] },
-    { "label": "ui", "paths": ["src/components/ui/Badge.tsx", "src/components/ui/Button.tsx", "src/components/ui/Card.tsx", "src/components/ui/Input.tsx", "src/components/ui/Progress.tsx", "src/components/ui/Tabs.tsx", "src/components/ui/scroll-area.tsx"] },
-    { "label": "runtime", "paths": ["src/lib/cn.ts"] },
-    { "label": "pages", "paths": ["src/pages/Dashboard.tsx", "src/pages/RecordDetail.tsx", "src/pages/Records.tsx", "src/pages/Reports.tsx", "src/pages/Settings.tsx", "src/pages/Team.tsx", "src/pages/Workflow.tsx"] }
+    {
+      "label": "core",
+      "paths": [
+        "src/App.tsx",
+        "src/main.tsx",
+        "src/index.css",
+        "src/route-manifest.json"
+      ]
+    },
+    {
+      "label": "config",
+      "paths": [
+        "src/config/app.ts",
+        "src/config/navigation.ts",
+        "src/config/routes.ts",
+        "src/config/theme.ts"
+      ]
+    },
+    {
+      "label": "context",
+      "paths": [
+        "src/context/AppContext.tsx"
+      ]
+    },
+    {
+      "label": "hooks",
+      "paths": [
+        "src/hooks/useLocalStorage.ts",
+        "src/hooks/useTheme.ts"
+      ]
+    },
+    {
+      "label": "data",
+      "paths": [
+        "src/data/seed.ts",
+        "src/data/types.ts"
+      ]
+    },
+    {
+      "label": "components",
+      "paths": [
+        "src/components/EmptyState.tsx",
+        "src/components/ErrorBoundary.tsx",
+        "src/components/KPICard.tsx",
+        "src/components/LoadingScreen.tsx",
+        "src/components/PageHeader.tsx",
+        "src/components/RecordTable.tsx",
+        "src/components/Sidebar.tsx"
+      ]
+    },
+    {
+      "label": "ui",
+      "paths": [
+        "src/components/ui/Badge.tsx",
+        "src/components/ui/Button.tsx",
+        "src/components/ui/Card.tsx",
+        "src/components/ui/Input.tsx",
+        "src/components/ui/Progress.tsx",
+        "src/components/ui/Tabs.tsx",
+        "src/components/ui/scroll-area.tsx"
+      ]
+    },
+    {
+      "label": "runtime",
+      "paths": [
+        "src/lib/cn.ts"
+      ]
+    },
+    {
+      "label": "pages",
+      "paths": [
+        "src/pages/Dashboard.tsx",
+        "src/pages/RecordDetail.tsx",
+        "src/pages/Records.tsx",
+        "src/pages/Reports.tsx",
+        "src/pages/Settings.tsx",
+        "src/pages/Team.tsx",
+        "src/pages/Workflow.tsx"
+      ]
+    }
   ],
   "ownership": {
-    "skeletonOwned": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
-    "requiredProductSlots": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Dashboard.tsx", "src/pages/RecordDetail.tsx", "src/pages/Records.tsx", "src/pages/Reports.tsx", "src/pages/Settings.tsx", "src/pages/Team.tsx", "src/pages/Workflow.tsx"],
+    "skeletonOwned": [
+      "src/main.tsx",
+      "src/index.css",
+      "src/lib/**",
+      "src/hooks/**",
+      "src/context/**",
+      "src/components/**",
+      "src/config/routes.ts",
+      "src/config/theme.ts"
+    ],
+    "requiredProductSlots": [
+      "src/config/app.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Dashboard.tsx",
+      "src/pages/RecordDetail.tsx",
+      "src/pages/Records.tsx",
+      "src/pages/Reports.tsx",
+      "src/pages/Settings.tsx",
+      "src/pages/Team.tsx",
+      "src/pages/Workflow.tsx"
+    ],
     "optionalProductSlots": [],
-    "agentEditable": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Dashboard.tsx", "src/pages/RecordDetail.tsx", "src/pages/Records.tsx", "src/pages/Reports.tsx", "src/pages/Settings.tsx", "src/pages/Team.tsx", "src/pages/Workflow.tsx"],
-    "agentReadOnly": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "agentEditable": [
+      "src/config/app.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Dashboard.tsx",
+      "src/pages/RecordDetail.tsx",
+      "src/pages/Records.tsx",
+      "src/pages/Reports.tsx",
+      "src/pages/Settings.tsx",
+      "src/pages/Team.tsx",
+      "src/pages/Workflow.tsx"
+    ],
+    "agentReadOnly": [
+      "src/main.tsx",
+      "src/index.css",
+      "src/lib/**",
+      "src/hooks/**",
+      "src/context/**",
+      "src/components/**",
+      "src/config/routes.ts",
+      "src/config/theme.ts"
+    ],
     "carcassFiles": []
   },
-  "protectedFiles": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
-  "editableFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Dashboard.tsx", "src/pages/RecordDetail.tsx", "src/pages/Records.tsx", "src/pages/Reports.tsx", "src/pages/Settings.tsx", "src/pages/Team.tsx", "src/pages/Workflow.tsx"],
-  "deltaFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Dashboard.tsx", "src/pages/RecordDetail.tsx", "src/pages/Records.tsx", "src/pages/Reports.tsx", "src/pages/Settings.tsx", "src/pages/Team.tsx", "src/pages/Workflow.tsx"],
+  "protectedFiles": [
+    "src/main.tsx",
+    "src/index.css",
+    "src/lib/**",
+    "src/hooks/**",
+    "src/context/**",
+    "src/components/**",
+    "src/config/routes.ts",
+    "src/config/theme.ts"
+  ],
   "requiredExports": {},
-  "qualityContract": {"minMeaningfulScreens": 4, "requiredCapabilities": ["dashboard", "records", "record-detail", "workflow"], "requiredFlows": ["dashboard-to-records", "records-to-detail"]},
-  "selectionContract": {"productTypes": ["dashboard"], "surfaces": ["operations", "sidebar", "records", "workflow", "reports"], "capabilities": ["records", "workflow", "analytics"], "incompatibleArchetypes": ["marketing", "dating", "gaming"]}
+  "qualityContract": {
+    "minMeaningfulScreens": 4,
+    "requiredCapabilities": [
+      "dashboard",
+      "records",
+      "record-detail",
+      "workflow"
+    ],
+    "requiredFlows": [
+      "dashboard-to-records",
+      "records-to-detail"
+    ]
+  },
+  "selectionContract": {
+    "productTypes": [
+      "dashboard"
+    ],
+    "surfaces": [
+      "operations",
+      "sidebar",
+      "records",
+      "workflow",
+      "reports"
+    ],
+    "capabilities": [
+      "records",
+      "workflow",
+      "analytics"
+    ],
+    "incompatibleArchetypes": [
+      "marketing",
+      "dating",
+      "gaming"
+    ]
+  }
 }
