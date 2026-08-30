@@ -63,6 +63,19 @@ const LIVE_CANARY_APP_TSX = [
   '',
 ].join('\n');
 
+const LIVE_CANARY_APP_CONFIG_TS = [
+  'export const APP_CONFIG = {',
+  "  name: 'Live Canary Counter',",
+  "  tagline: 'Preview pipeline confidence.',",
+  "  subtitle: 'A deterministic counter used to verify compiled preview promotion.',",
+  "  primaryCtaLabel: 'Increment',",
+  "  primaryCtaHref: '#counter',",
+  "  secondaryCtaLabel: 'View status',",
+  "  secondaryCtaHref: '#status',",
+  '} as const;',
+  '',
+].join('\n');
+
 const LIVE_CANARY_PLAN_RESPONSE = JSON.stringify({
   appName: 'Live Canary Counter',
   summary: 'A stable one-screen counter used to prove live preview promotion.',
@@ -171,6 +184,7 @@ const LIVE_CANARY_TECH_RESPONSE = JSON.stringify({
     },
     fileStructure: [
       { file: 'App.tsx', purpose: 'Render the counter canary surface' },
+      { file: 'config/app.ts', purpose: 'Provide product identity for the landing skeleton' },
     ],
     componentContracts: [
       {
@@ -196,6 +210,10 @@ const LIVE_CANARY_CODER_RESPONSE = JSON.stringify({
         path: 'src/App.tsx',
         content: LIVE_CANARY_APP_TSX,
       },
+      {
+        path: 'src/config/app.ts',
+        content: LIVE_CANARY_APP_CONFIG_TS,
+      },
     ],
   },
 });
@@ -216,11 +234,14 @@ const LIVE_CANARY_PROTO_ARCHITECT_PLAN = JSON.stringify({
   summary: 'A minimal counter that proves the preview pipeline works end-to-end.',
   fileTree: {
     'src/App.tsx': 'Root app: renders the live canary counter surface with a visible section and increment button',
+    'src/config/app.ts': 'Product identity: stable name and CTA metadata required by the landing skeleton',
   },
 });
 
-const LIVE_CANARY_PROTO_CODER_PLAN =
-  `<<<FILE: src/App.tsx>>>\n${LIVE_CANARY_APP_TSX}\n<<<END>>>`;
+const LIVE_CANARY_PROTO_CODER_PLAN = [
+  `<<<FILE: src/App.tsx>>>\n${LIVE_CANARY_APP_TSX}\n<<<END>>>`,
+  `<<<FILE: src/config/app.ts>>>\n${LIVE_CANARY_APP_CONFIG_TS}\n<<<END>>>`,
+].join('\n');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
