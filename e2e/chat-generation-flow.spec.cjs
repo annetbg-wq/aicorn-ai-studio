@@ -437,6 +437,29 @@ const LIVE_CANARY_PROTO_CODER_PLAN = [
   `<<<FILE: src/config/app.ts>>>\n${LIVE_CANARY_APP_CONFIG_TS}\n<<<END>>>`,
 ].join('\n');
 
+const LIVE_CANARY_MOBILE_NAVIGATION_TS = [
+  "export const NAVIGATION = [",
+  "  { id: 'home', label: 'Home', path: '/' },",
+  "  { id: 'progress', label: 'Progress', path: '/progress' },",
+  "  { id: 'profile', label: 'Profile', path: '/profile' },",
+  "] as const;",
+  "",
+].join('\n');
+
+const LIVE_CANARY_MOBILE_SEED_TS = [
+  "export const HABIT_SEED = [",
+  "  { id: 'hydrate', title: 'Drink water', streak: 7 },",
+  "  { id: 'walk', title: 'Daily walk', streak: 4 },",
+  "] as const;",
+  "",
+].join('\n');
+
+const LIVE_CANARY_MOBILE_PROTO_CODER_PLAN = [
+  LIVE_CANARY_PROTO_CODER_PLAN,
+  `<<<FILE: src/config/navigation.ts>>>\n${LIVE_CANARY_MOBILE_NAVIGATION_TS}\n<<<END>>>`,
+  `<<<FILE: src/data/seed.ts>>>\n${LIVE_CANARY_MOBILE_SEED_TS}\n<<<END>>>`,
+].join('\n');
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function parseMsLiteral(raw) {
@@ -507,7 +530,9 @@ function responseTextForLLM(systemText, userText, stream) {
       systemText.includes('senior React') ||
       systemText.includes('fixing build errors')
     ) {
-      return LIVE_CANARY_PROTO_CODER_PLAN;
+      return LIVE_CANARY_PROMPT.includes('mobile consumer habit tracking app')
+        ? LIVE_CANARY_MOBILE_PROTO_CODER_PLAN
+        : LIVE_CANARY_PROTO_CODER_PLAN;
     }
     return LIVE_CANARY_ARCHITECT_ANALYSIS_RESPONSE;
   }
