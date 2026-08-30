@@ -1,9 +1,10 @@
 import {
+  SKELETON_REGISTRY,
   getSkeletonInstalledFiles,
-  getSkeletonProductSlotFiles,
   pathMatchesSkeletonPattern,
   type SkeletonId,
 } from '../services/SkeletonRegistry';
+import { getSkeletonRuntimePolicy } from '../services/SkeletonRuntimePolicy';
 
 export const BLOCKED_PLACEHOLDER_PATTERNS = [
   'Test',
@@ -407,7 +408,7 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
   const genericFallbackHits = matchRuleHits(files, uniqueChangedPaths, GENERIC_FALLBACK_RULES, 'generic-fallback');
   const blockers: OutputTruthBlocker[] = [];
   const skeletonProductSlots = skeletonId
-    ? getSkeletonProductSlotFiles(skeletonId).map(normalizeProjectPath)
+    ? getSkeletonRuntimePolicy(skeletonId).fileContract.requiredProductSlots.map(normalizeProjectPath)
     : [];
   const skeletonDeltaClasses = skeletonId
     ? getStructureClassesForPaths(skeletonProductSlots, previewEntryFile)

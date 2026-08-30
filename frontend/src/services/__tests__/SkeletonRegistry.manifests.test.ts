@@ -15,6 +15,7 @@ import {
   buildSkeletonPromptBlock,
   getSkeletonInstalledFiles,
   getSkeletonProductSlotFiles,
+  SKELETON_REGISTRY,
   type SkeletonId,
 } from '../SkeletonRegistry';
 
