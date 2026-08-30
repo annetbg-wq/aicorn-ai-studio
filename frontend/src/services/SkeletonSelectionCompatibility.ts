@@ -29,6 +29,36 @@ export interface SkeletonSelectionCompatibilityContract {
   incompatibleArchetypes: ProductArchetype[];
 }
 
+export interface IntentCompatibilityProfile {
+  signal: string;
+  label: string;
+  archetypes: ProductArchetype[];
+}
+
+export interface SkeletonIntentCompatibilityEvaluation {
+  signal: string;
+  label: string;
+  selectedSkeletonId: SkeletonId;
+  selectedScores: number[];
+  explicitlyCompatible: boolean;
+  explicitlyIncompatible: boolean;
+  mismatch: boolean;
+  preferredSkeletonId: SkeletonId | null;
+}
+
+/**
+ * Intent vocabulary is textual interpretation. Skeleton fit itself is never
+ * encoded here: it is read from each manifest selectionContract.
+ * Archetype order is preference order when an intent spans multiple product types.
+ */
+const INTENT_COMPATIBILITY_PROFILES: ReadonlyArray<IntentCompatibilityProfile> = [
+  { signal: 'landing-intent', label: 'Landing/marketing', archetypes: ['marketing'] },
+  { signal: 'dashboard-intent', label: 'Dashboard/analytics', archetypes: ['dashboard'] },
+  { signal: 'marketplace-intent', label: 'Marketplace/ecommerce', archetypes: ['commerce', 'marketplace'] },
+  { signal: 'social-intent', label: 'Social/community', archetypes: ['social'] },
+  { signal: 'game-intent', label: 'Game/RPG', archetypes: ['interactive-game', 'gaming'] },
+];
+
 function parseArchetypes(id: SkeletonId, values: string[] | undefined, field: string): ProductArchetype[] {
   const result = values ?? [];
   for (const value of result) {
@@ -73,4 +103,69 @@ export function scoreSkeletonCompatibility(
   if (contract.incompatibleArchetypes.includes(archetype)) return -100;
   if (contract.archetypes.includes(archetype)) return 100;
   return 0;
+}
+
+export function getIntentCompatibilityProfile(signal: string): IntentCompatibilityProfile | null {
+  const profile = INTENT_COMPATIBILITY_PROFILES.find(item => item.signal === signal);
+  return profile
+    ? { ...profile, archetypes: [...profile.archetypes] }
+    : null;
+}
+
+/**
+ * Picks a compatible skeleton from manifests only. For multi-archetype intents,
+ * earlier archetypes win; manifest registry order is the deterministic tie-break.
+ */
+export function resolvePreferredSkeletonForIntent(
+  signal: string,
+  candidateIds: SkeletonId[] = listSkeletonSelectionCompatibilityIds(),
+): SkeletonId | null {
+  const profile = getIntentCompatibilityProfile(signal);
+  if (!profile) return null;
+
+  for (const archetype of profile.archetypes) {
+    const candidate = candidateIds.find(id => scoreSkeletonCompatibility(id, archetype) === 100);
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Evaluates a selected skeleton against an intent using manifest declarations.
+ * A weak universal fallback (typically mobile-app with tag score <2) is also a
+ * mismatch when another skeleton explicitly declares compatibility.
+ */
+export function evaluateSkeletonIntentCompatibility(input: {
+  selectedSkeletonId: SkeletonId;
+  signal: string;
+  weakFallback?: boolean;
+  candidateIds?: SkeletonId[];
+}): SkeletonIntentCompatibilityEvaluation | null {
+  const profile = getIntentCompatibilityProfile(input.signal);
+  if (!profile) return null;
+
+  const candidateIds = input.candidateIds ?? listSkeletonSelectionCompatibilityIds();
+  const selectedScores = profile.archetypes.map(archetype =>
+    scoreSkeletonCompatibility(input.selectedSkeletonId, archetype),
+  );
+  const explicitlyCompatible = selectedScores.includes(100);
+  const explicitlyIncompatible = !explicitlyCompatible && selectedScores.includes(-100);
+  const preferredSkeletonId = resolvePreferredSkeletonForIntent(input.signal, candidateIds);
+  const mismatch = explicitlyIncompatible || Boolean(
+    input.weakFallback
+    && !explicitlyCompatible
+    && preferredSkeletonId
+    && preferredSkeletonId !== input.selectedSkeletonId,
+  );
+
+  return {
+    signal: input.signal,
+    label: profile.label,
+    selectedSkeletonId: input.selectedSkeletonId,
+    selectedScores,
+    explicitlyCompatible,
+    explicitlyIncompatible,
+    mismatch,
+    preferredSkeletonId,
+  };
 }
