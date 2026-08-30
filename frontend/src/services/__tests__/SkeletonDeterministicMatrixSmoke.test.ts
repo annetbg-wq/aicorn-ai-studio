@@ -3,6 +3,7 @@ import {
   buildSkeletonPromptBlock,
   getEditableSkeletonFiles,
   getSkeletonInstalledFiles,
+  getSkeletonProductSlotFiles,
 } from '../SkeletonRegistry';
 import { listSkeletonContractIds } from '../SkeletonContractCompiler';
 import { getSkeletonRuntimePolicy } from '../SkeletonRuntimePolicy';
@@ -12,10 +13,13 @@ describe('Skeleton deterministic matrix smoke — 14/14', () => {
     const policy = getSkeletonRuntimePolicy(id);
     const installed = getSkeletonInstalledFiles(id);
     const editable = getEditableSkeletonFiles(id);
+    const productSlots = getSkeletonProductSlotFiles(id);
     const prompt = buildSkeletonPromptBlock(id);
 
     expect(installed.length).toBeGreaterThan(0);
     expect(editable.length).toBeGreaterThan(0);
+    expect([...productSlots].sort(), `${id}: legacy product slots drifted from canonical agentEditable`)
+      .toEqual([...policy.fileContract.agentEditable].sort());
 
     for (const path of policy.fileContract.requiredProductSlots) {
       expect(editable, `${id}: required slot missing from legacy editable bridge: ${path}`).toContain(path);
