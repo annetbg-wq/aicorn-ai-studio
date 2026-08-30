@@ -1,0 +1,63 @@
+name: One-off weighted manifest selection scoring
+on:
+  push:
+    paths:
+      - '.github/workflows/_oneoff_manifest_selection_weighted_scoring.yml'
+permissions:
+  contents: write
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/skeleton-selection-manifest-compatibility
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Weight manifest compatibility by detected intent evidence
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/services/SkeletonRegistry.ts')
+          s = p.read_text()
+
+          old_import = """import {\n  evaluateSkeletonIntentCompatibility,\n} from './SkeletonSelectionCompatibility';\n"""
+          new_import = """import {\n  evaluateSkeletonIntentCompatibility,\n  getIntentCompatibilityProfile,\n  scoreSkeletonCompatibility,\n} from './SkeletonSelectionCompatibility';\n"""
+          if old_import not in s:
+              raise SystemExit('selection compatibility import anchor missing')
+          s = s.replace(old_import, new_import, 1)
+
+          helper_anchor = """function detectIntentSignalMatches(input: string): Array<{ signal: string; matchedKeywords: string[] }> {\n  return INTENT_SIGNAL_GROUPS\n    .map(group => ({\n      signal: group.signal,\n      matchedKeywords: group.keywords.filter(keyword => input.includes(keyword)),\n    }))\n    .filter(group => group.matchedKeywords.length > 0);\n}\n"""
+          helper = helper_anchor + """\nfunction buildSkeletonSelectionScores(\n  input: string,\n  intentSignalMatches = detectIntentSignalMatches(input),\n): Array<[SkeletonId, number]> {\n  const scores = (Object.values(SKELETON_REGISTRY) as SkeletonMeta[])\n    .filter(skeleton => skeleton.available)\n    .map(skeleton => {\n      const tagScore = skeleton.tags.reduce(\n        (acc, tag) => acc + (input.includes(tag) ? 1 : 0),\n        0,\n      );\n      const compatibilityScore = intentSignalMatches.reduce((total, match) => {\n        const profile = getIntentCompatibilityProfile(match.signal);\n        if (!profile) return total;\n        const archetypeScore = Math.max(\n          ...profile.archetypes.map(archetype => scoreSkeletonCompatibility(skeleton.id, archetype)),\n        );\n        // One point of compatibility per matched intent keyword: enough to break\n        // conflicting semantic evidence without swamping the existing tag rank.\n        return total + (archetypeScore / 100) * match.matchedKeywords.length;\n      }, 0);\n      return [skeleton.id, tagScore + compatibilityScore] as [SkeletonId, number];\n    });\n\n  return scores.sort((a, b) => b[1] - a[1]);\n}\n"""
+          if 'function buildSkeletonSelectionScores(' not in s:
+              if helper_anchor not in s:
+                  raise SystemExit('intent helper anchor missing')
+              s = s.replace(helper_anchor, helper, 1)
+
+          old_select_scores = """  // Check each skeleton's tag score\n  const scores: [SkeletonId, number][] = (\n    Object.values(SKELETON_REGISTRY) as SkeletonMeta[]\n  )\n    .filter(s => s.available)\n    .map(s => {\n      const score = s.tags.reduce(\n        (acc, tag) => acc + (input.includes(tag) ? 1 : 0),\n        0,\n      );\n      return [s.id, score] as [SkeletonId, number];\n    });\n\n  scores.sort((a, b) => b[1] - a[1]);\n"""
+          new_select_scores = """  // Rank textual relevance together with manifest-declared intent compatibility.\n  const scores = buildSkeletonSelectionScores(input);\n"""
+          if old_select_scores not in s:
+              raise SystemExit('selectSkeleton legacy scoring block missing')
+          s = s.replace(old_select_scores, new_select_scores, 1)
+
+          old_diag_scores = """  const scores: [SkeletonId, number][] = (\n    Object.values(SKELETON_REGISTRY) as SkeletonMeta[]\n  )\n    .filter(s => s.available)\n    .map(s => {\n      const score = s.tags.reduce(\n        (acc, tag) => acc + (input.includes(tag) ? 1 : 0),\n        0,\n      );\n      return [s.id, score] as [SkeletonId, number];\n    });\n\n  scores.sort((a, b) => b[1] - a[1]);\n\n  const best = scores[0];\n"""
+          new_diag_scores = """  const intentSignalMatches = detectIntentSignalMatches(input);\n  const scores = buildSkeletonSelectionScores(input, intentSignalMatches);\n\n  const best = scores[0];\n"""
+          if old_diag_scores not in s:
+              raise SystemExit('diagnostics legacy scoring block missing')
+          s = s.replace(old_diag_scores, new_diag_scores, 1)
+
+          duplicate_signal = """  // Detect intent signals from keyword groups.\n  const intentSignalMatches = detectIntentSignalMatches(input);\n  const intentSignals = intentSignalMatches.map(group => group.signal);\n"""
+          replacement_signal = """  // Intent signals also contributed evidence to the manifest-aware ranking above.\n  const intentSignals = intentSignalMatches.map(group => group.signal);\n"""
+          if duplicate_signal not in s:
+              raise SystemExit('duplicate signal block missing')
+          s = s.replace(duplicate_signal, replacement_signal, 1)
+
+          p.write_text(s)
+          PY
+          rm .github/workflows/_oneoff_manifest_selection_weighted_scoring.yml
+      - name: Commit scoring migration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src/services/SkeletonRegistry.ts .github/workflows/_oneoff_manifest_selection_weighted_scoring.yml
+          git commit -m 'fix: rank skeletons with weighted manifest intent evidence'
+          git push origin HEAD:refactor/skeleton-selection-manifest-compatibility
