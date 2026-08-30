@@ -109,6 +109,7 @@ jobs:
     name: Live Preview Canary
     runs-on: ubuntu-latest
     needs: build
+    timeout-minutes: 35
 
     steps:
       - uses: actions/checkout@v4
@@ -135,11 +136,25 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run live preview canary
-        run: npm run test:e2e:preview-live
+      - name: Run representative live preview canary matrix
+        shell: bash
         env:
           PLAYWRIGHT_PRODUCTION_ARTIFACT: '1'
           VITE_OPENROUTER_API_KEY: e2e-live-preview-key
+        run: |
+          set -euo pipefail
+          run_case() {
+            local case_id="$1"
+            local prompt="$2"
+            echo "::group::Live Preview Canary — ${case_id}"
+            LIVE_CANARY_PROMPT="${prompt}" npm run test:e2e:preview-live
+            echo "::endgroup::"
+          }
+
+          run_case "landing-page" "Build a launch-ready SaaS marketing landing page with hero, pricing, testimonials, FAQ and a primary Start free CTA."
+          run_case "mobile-app" "Build a mobile consumer habit tracking app with onboarding, bottom tab navigation, home feed, detail screen, create action, progress and profile."
+          run_case "saas-dashboard" "Build a B2B SaaS admin analytics dashboard with sidebar navigation, KPI metrics, reports, data table and settings."
+          run_case "ecommerce" "Build an ecommerce storefront with product catalog, search, product detail, wishlist, cart, checkout and account screens."
 
       - name: Upload live preview diagnostics
         if: failure()
