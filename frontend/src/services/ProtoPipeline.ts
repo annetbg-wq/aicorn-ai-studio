@@ -38,6 +38,7 @@ import {
   isProtectedSkeletonFile,
   mergeSkeletonExports,
 } from './SkeletonRegistry';
+import { getSkeletonQualityContract } from './SkeletonQualityContract';
 import { previewController } from './PreviewController';
 import { isLocalDevHost } from './internalAccess';
 import { getLocalDevAgentProvider } from './devAgentMode';
@@ -2723,8 +2724,11 @@ export function buildVisualUsageDiagnostics(input: {
   if (mediaUsageChecked && !mediaUsageObserved) {
     visualUsageNotes.push('Generated media assets were materialized, but generated source did not reference them.');
   }
-  if (input.skeletonId === 'saas-dashboard' && meaningfulScreenFiles.length < 3) {
-    visualUsageNotes.push('SaaS dashboard selected but fewer than 3 meaningful screens were observed.');
+  const qualityContract = getSkeletonQualityContract(input.skeletonId);
+  if (meaningfulScreenFiles.length < qualityContract.minMeaningfulScreens) {
+    visualUsageNotes.push(
+      `${input.skeletonId} quality contract requires at least ${qualityContract.minMeaningfulScreens} meaningful screens; observed ${meaningfulScreenFiles.length}.`,
+    );
   }
   if (genericPlaceholderFindings.length > 0) {
     visualUsageNotes.push('Obvious generic placeholder content remains in generated source.');
