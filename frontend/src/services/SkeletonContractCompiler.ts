@@ -12,6 +12,10 @@ import mobileAppManifest from './skeleton-manifests/mobile-app/skeleton.manifest
 import productivityToolManifest from './skeleton-manifests/productivity-tool/skeleton.manifest.json';
 import saasDashboardManifest from './skeleton-manifests/saas-dashboard/skeleton.manifest.json';
 import socialCommunityManifest from './skeleton-manifests/social-community/skeleton.manifest.json';
+import {
+  validateSkeletonManifestV2,
+  type SkeletonManifestV2,
+} from './SkeletonManifestContract';
 import type { SkeletonId } from './SkeletonRegistry';
 
 export interface SkeletonManifestGroup {
@@ -94,6 +98,30 @@ export function getRawSkeletonManifest(id: SkeletonId): SkeletonManifestV1 {
   return manifests[id];
 }
 
+function assertCompiledContractIsV2(contract: CompiledSkeletonContract): void {
+  const manifestView: SkeletonManifestV2 = {
+    version: 2,
+    id: contract.id,
+    workingGroups: contract.workingGroups,
+    ownership: {
+      skeletonOwned: contract.skeletonOwned,
+      requiredProductSlots: contract.requiredProductSlots,
+      optionalProductSlots: contract.optionalProductSlots,
+      agentEditable: contract.agentEditable,
+      agentReadOnly: contract.agentReadOnly,
+      carcassFiles: contract.carcassFiles,
+    },
+    protectedFiles: contract.protectedFiles,
+    requiredExports: contract.requiredExports,
+    qualityContract: {},
+    selectionContract: {},
+  };
+  const errors = validateSkeletonManifestV2(manifestView);
+  if (errors.length > 0) {
+    throw new Error(`Invalid compiled skeleton contract for ${contract.id}:\n${errors.join('\n')}`);
+  }
+}
+
 /**
  * Compiles the current manifest representation into the only runtime contract
  * downstream stages should consume. During the v1 -> v2 manifest migration the
@@ -104,6 +132,7 @@ export function getRawSkeletonManifest(id: SkeletonId): SkeletonManifestV1 {
  *   editableFiles - deltaFiles -> optionalProductSlots
  *   protectedFiles             -> agentReadOnly / skeletonOwned
  *
+ * Every compiled result is validated against the strict v2 ownership invariant.
  * Once every manifest is stored as schema v2, this compatibility input shape
  * can be deleted without changing consumers.
  */
@@ -137,7 +166,7 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
     }
   }
 
-  return {
+  const contract: CompiledSkeletonContract = {
     version: 2,
     id,
     workingGroups: manifest.workingGroups,
@@ -150,6 +179,9 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
     carcassFiles: normalizePaths(manifest.carcassFiles ?? []),
     requiredExports: manifest.requiredExports ?? {},
   };
+
+  assertCompiledContractIsV2(contract);
+  return contract;
 }
 
 export function listSkeletonContractIds(): SkeletonId[] {
