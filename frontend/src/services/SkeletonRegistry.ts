@@ -32,11 +32,7 @@ import {
   getSkeletonCarcassMap,
   hasCarcassContent,
 } from './SkeletonCarcassContent';
-import {
-  evaluateSkeletonIntentCompatibility,
-  getIntentCompatibilityProfile,
-  scoreSkeletonCompatibility,
-} from './SkeletonSelectionCompatibility';
+import { evaluateSkeletonIntentCompatibility } from './SkeletonSelectionCompatibility';
 
 export type SkeletonId =
   | 'mobile-app'
@@ -836,10 +832,7 @@ function detectIntentSignalMatches(input: string): Array<{ signal: string; match
     .filter(group => group.matchedKeywords.length > 0);
 }
 
-function buildSkeletonSelectionScores(
-  input: string,
-  intentSignalMatches = detectIntentSignalMatches(input),
-): Array<[SkeletonId, number]> {
+function buildSkeletonSelectionScores(input: string): Array<[SkeletonId, number]> {
   const scores = (Object.values(SKELETON_REGISTRY) as SkeletonMeta[])
     .filter(skeleton => skeleton.available)
     .map(skeleton => {
@@ -847,17 +840,7 @@ function buildSkeletonSelectionScores(
         (acc, tag) => acc + (input.includes(tag) ? 1 : 0),
         0,
       );
-      const compatibilityScore = intentSignalMatches.reduce((total, match) => {
-        const profile = getIntentCompatibilityProfile(match.signal);
-        if (!profile) return total;
-        const archetypeScore = Math.max(
-          ...profile.archetypes.map(archetype => scoreSkeletonCompatibility(skeleton.id, archetype)),
-        );
-        // One point of compatibility per matched intent keyword: enough to break
-        // conflicting semantic evidence without swamping the existing tag rank.
-        return total + (archetypeScore / 100) * match.matchedKeywords.length;
-      }, 0);
-      return [skeleton.id, tagScore + compatibilityScore] as [SkeletonId, number];
+      return [skeleton.id, tagScore] as [SkeletonId, number];
     });
 
   return scores.sort((a, b) => b[1] - a[1]);
@@ -884,7 +867,7 @@ export function selectSkeletonWithDiagnostics(
     .replace(/[^a-zа-яё0-9\s]/gi, ' ');
 
   const intentSignalMatches = detectIntentSignalMatches(input);
-  const scores = buildSkeletonSelectionScores(input, intentSignalMatches);
+  const scores = buildSkeletonSelectionScores(input);
 
   const best = scores[0];
   const runnerUp = scores[1] ?? null;
