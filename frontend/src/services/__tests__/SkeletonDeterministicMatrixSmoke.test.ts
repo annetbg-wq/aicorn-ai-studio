@@ -5,7 +5,7 @@ import {
   getSkeletonInstalledFiles,
   getSkeletonProductSlotFiles,
 } from '../SkeletonRegistry';
-import { listSkeletonContractIds } from '../SkeletonContractCompiler';
+import { getRawSkeletonManifest, listSkeletonContractIds } from '../SkeletonContractCompiler';
 import { getSkeletonRuntimePolicy } from '../SkeletonRuntimePolicy';
 
 describe('Skeleton deterministic matrix smoke — 14/14', () => {
@@ -13,6 +13,12 @@ describe('Skeleton deterministic matrix smoke — 14/14', () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../SkeletonRegistry.ts', import.meta.url), 'utf8'));
     expect(source).not.toContain('lockedPrefixes:');
     expect(source).not.toContain('deltaFiles: string[]');
+  });
+
+  it.each(listSkeletonContractIds())('%s has no legacy manifest file-policy mirrors', id => {
+    const manifest = getRawSkeletonManifest(id) as unknown as Record<string, unknown>;
+    expect(manifest).not.toHaveProperty('editableFiles');
+    expect(manifest).not.toHaveProperty('deltaFiles');
   });
 
   it.each(listSkeletonContractIds())('%s keeps installed/editable/prompt semantics aligned with canonical policy', id => {
