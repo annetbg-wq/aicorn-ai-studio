@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "marketplace-platform",
   "label": "Marketplace Platform",
   "workingGroups": [
@@ -13,38 +13,18 @@
     { "label": "runtime", "paths": ["src/lib/cn.ts"] },
     { "label": "pages", "paths": ["src/pages/Browse.tsx", "src/pages/Home.tsx", "src/pages/Listing.tsx", "src/pages/Messages.tsx", "src/pages/Profile.tsx", "src/pages/SellerDashboard.tsx"] }
   ],
-  "protectedFiles": [
-    "src/main.tsx",
-    "src/index.css",
-    "src/lib/**",
-    "src/hooks/**",
-    "src/context/**",
-    "src/components/**",
-    "src/config/routes.ts",
-    "src/config/theme.ts"
-  ],
-  "editableFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/Browse.tsx",
-    "src/pages/Home.tsx",
-    "src/pages/Listing.tsx",
-    "src/pages/Messages.tsx",
-    "src/pages/Profile.tsx",
-    "src/pages/SellerDashboard.tsx"
-  ],
-  "deltaFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/Browse.tsx",
-    "src/pages/Home.tsx",
-    "src/pages/Listing.tsx",
-    "src/pages/Messages.tsx",
-    "src/pages/Profile.tsx",
-    "src/pages/SellerDashboard.tsx"
-  ]
+  "ownership": {
+    "skeletonOwned": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "requiredProductSlots": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Browse.tsx", "src/pages/Home.tsx", "src/pages/Listing.tsx", "src/pages/Messages.tsx", "src/pages/Profile.tsx", "src/pages/SellerDashboard.tsx"],
+    "optionalProductSlots": [],
+    "agentEditable": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Browse.tsx", "src/pages/Home.tsx", "src/pages/Listing.tsx", "src/pages/Messages.tsx", "src/pages/Profile.tsx", "src/pages/SellerDashboard.tsx"],
+    "agentReadOnly": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "carcassFiles": []
+  },
+  "protectedFiles": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+  "editableFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Browse.tsx", "src/pages/Home.tsx", "src/pages/Listing.tsx", "src/pages/Messages.tsx", "src/pages/Profile.tsx", "src/pages/SellerDashboard.tsx"],
+  "deltaFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Browse.tsx", "src/pages/Home.tsx", "src/pages/Listing.tsx", "src/pages/Messages.tsx", "src/pages/Profile.tsx", "src/pages/SellerDashboard.tsx"],
+  "requiredExports": {},
+  "qualityContract": {"minMeaningfulScreens": 4, "requiredCapabilities": ["browse", "listing-detail", "messages", "seller-surface"], "requiredFlows": ["browse-to-listing", "listing-to-message"]},
+  "selectionContract": {"productTypes": ["marketplace", "commerce"], "surfaces": ["browse", "listing-detail", "messages", "seller-dashboard"], "capabilities": ["listings", "messaging", "seller-tools"], "incompatibleArchetypes": ["marketing", "dashboard", "interactive-game"]}
 }
