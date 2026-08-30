@@ -100,6 +100,18 @@ export interface SkeletonOwnershipContract {
   productSlots: string[];
 }
 
+/** Transitional internal view while Registry consumers move to the canonical v2 compiler. */
+interface SkeletonManifestOwnershipContract {
+  ownedBySkeleton?: string[];
+  productSlots?: string[];
+  skeletonOwned?: string[];
+  requiredProductSlots?: string[];
+  optionalProductSlots?: string[];
+  agentEditable?: string[];
+  agentReadOnly?: string[];
+  carcassFiles?: string[];
+}
+
 export interface ExportContractEntry {
   name: string;
   type?: string;
@@ -117,7 +129,7 @@ interface SkeletonManifest {
   protectedFiles: string[];
   editableFiles: string[];
   deltaFiles: string[];
-  ownership?: SkeletonOwnershipContract;
+  ownership?: SkeletonManifestOwnershipContract;
   requiredExports?: Record<string, ExportContractEntry[]>;
   /**
    * Paths of "carcass files" (scaffold+marker files) whose exported symbols the
