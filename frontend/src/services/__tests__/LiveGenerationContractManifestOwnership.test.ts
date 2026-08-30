@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { validateProtectedShellBoundary } from '../LiveGenerationContractValidator';
 
+// Regression: product slots may consume manifest-declared route config without taking router ownership.
 describe('LiveGenerationContract manifest ownership', () => {
   it('allows a mobile product page to consume manifest-declared editable route config', () => {
     const createPage = [
