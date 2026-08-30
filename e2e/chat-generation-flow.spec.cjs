@@ -76,6 +76,115 @@ const LIVE_CANARY_APP_CONFIG_TS = [
   '',
 ].join('\n');
 
+const LIVE_CANARY_PASS2_HERO_TSX = [
+  'type HeroProps = {',
+  '  onShowProof: () => void;',
+  '};',
+  '',
+  'export default function Hero({ onShowProof }: HeroProps) {',
+  '  return (',
+  '    <section aria-labelledby="canary-hero-title" style={{ display: "grid", gap: 10 }}>',
+  '      <p style={{ margin: 0, color: "#93c5fd", fontSize: 13, fontWeight: 700, textTransform: "uppercase" }}>Live preview canary</p>',
+  '      <h1 id="canary-hero-title" style={{ margin: 0, fontSize: 42, lineHeight: 1.05 }}>Counter ready</h1>',
+  '      <p style={{ margin: 0, color: "#cbd5e1", lineHeight: 1.6 }}>A deterministic surface that proves generation, repair, compilation, and promotion.</p>',
+  '      <div>',
+  '        <button type="button" onClick={onShowProof} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #60a5fa", background: "transparent", color: "#bfdbfe", fontWeight: 700, cursor: "pointer" }}>Show product proof</button>',
+  '      </div>',
+  '    </section>',
+  '  );',
+  '}',
+  '',
+].join('\n');
+
+const LIVE_CANARY_PASS2_PREVIEW_TSX = [
+  "import { useState } from 'react';",
+  '',
+  "const PANELS = { overview: 'Candidate materialized and compiled.', interaction: 'Interactive state survives the generated revision.', release: 'Final live check can release preview ownership.' } as const;",
+  'type PreviewTab = keyof typeof PANELS;',
+  '',
+  'export default function ProductPreviewOrWorkflowExplanation() {',
+  "  const [activePreviewTab, setActivePreviewTab] = useState<PreviewTab>('overview');",
+  '  return (',
+  '    <section aria-label="Product preview" style={{ display: "grid", gap: 10, padding: 14, border: "1px solid #334155", borderRadius: 10 }}>',
+  '      <div role="tablist" aria-label="Preview states" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>',
+  '        {(Object.keys(PANELS) as PreviewTab[]).map(tabId => (',
+  '          <button key={tabId} type="button" role="tab" aria-selected={activePreviewTab === tabId} onClick={() => setActivePreviewTab(tabId)} style={{ padding: "8px 10px", borderRadius: 7, border: "1px solid #475569", background: activePreviewTab === tabId ? "#1d4ed8" : "#0f172a", color: "#f8fafc", cursor: "pointer" }}>{tabId}</button>',
+  '        ))}',
+  '      </div>',
+  '      <p data-testid="product-preview-panel" style={{ margin: 0, color: "#dbeafe" }}>{PANELS[activePreviewTab]}</p>',
+  '    </section>',
+  '  );',
+  '}',
+  '',
+].join('\n');
+
+const LIVE_CANARY_PASS2_APP_TSX = [
+  "import { useRef, useState } from 'react';",
+  "import Hero from './pages/Hero';",
+  "import ProductPreviewOrWorkflowExplanation from './pages/ProductPreviewOrWorkflowExplanation';",
+  '',
+  'export default function App() {',
+  '  const [count, setCount] = useState(0);',
+  "  const [activeSection, setActiveSection] = useState('hero');",
+  '  const previewRef = useRef<HTMLElement | null>(null);',
+  '',
+  '  const showProductProof = () => {',
+  "    setActiveSection('product-preview');",
+  "    previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });",
+  '  };',
+  '',
+  '  return (',
+  '    <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24, background: "#111827", color: "#f9fafb", fontFamily: "system-ui, sans-serif" }}>',
+  '      <section data-testid="live-canary-surface" data-active-section={activeSection} style={{ width: "min(620px, 100%)", display: "grid", gap: 18 }}>',
+  '        <Hero onShowProof={showProductProof} />',
+  '        <div id="counter" style={{ display: "flex", alignItems: "center", gap: 12 }}>',
+  '          <strong data-testid="count-value" style={{ fontSize: 36 }}>{count}</strong>',
+  '          <button type="button" onClick={() => setCount(value => value + 1)} style={{ padding: "12px 16px", borderRadius: 8, border: "0", background: "#22c55e", color: "#052e16", fontWeight: 800, cursor: "pointer" }}>Increment</button>',
+  '        </div>',
+  '        <section ref={previewRef} id="product-proof">',
+  '          <ProductPreviewOrWorkflowExplanation />',
+  '        </section>',
+  '        <ul id="status" style={{ margin: 0, paddingLeft: 20, color: "#d1d5db" }}>',
+  '          <li>Candidate materialized</li>',
+  '          <li>Compiled preview mounted</li>',
+  '          <li>Final live check passed</li>',
+  '        </ul>',
+  '      </section>',
+  '    </main>',
+  '  );',
+  '}',
+  '',
+].join('\n');
+
+const LIVE_CANARY_PASS2_CRITIC_RESPONSE = JSON.stringify([
+  {
+    id: 'gap-001',
+    briefPoint: 'Use the primary CTA to move to product proof is implemented end-to-end',
+    status: 'missing',
+    evidence: 'The initial canary surface has no product-proof navigation flow.',
+    targetFile: 'pages/Hero.tsx',
+    requiredAction: 'Add a visible CTA that updates local section state and scrolls to product proof.',
+    priority: 'must',
+    source: 'completeness',
+  },
+  {
+    id: 'gap-002',
+    briefPoint: 'Switch the product preview content is implemented end-to-end',
+    status: 'missing',
+    evidence: 'The initial canary surface has no stateful product-preview tabs.',
+    targetFile: 'pages/ProductPreviewOrWorkflowExplanation.tsx',
+    requiredAction: 'Add deterministic preview tabs that swap visible panel content with React state.',
+    priority: 'must',
+    source: 'completeness',
+  },
+]);
+
+const LIVE_CANARY_PASS2_IMPLEMENTER_RESPONSE = [
+  `<<<FILE: src/App.tsx>>>\n${LIVE_CANARY_PASS2_APP_TSX}\n<<<END>>>`,
+  `<<<FILE: src/pages/Hero.tsx>>>\n${LIVE_CANARY_PASS2_HERO_TSX}\n<<<END>>>`,
+  `<<<FILE: src/pages/ProductPreviewOrWorkflowExplanation.tsx>>>\n${LIVE_CANARY_PASS2_PREVIEW_TSX}\n<<<END>>>`,
+].join('\n');
+
 const LIVE_CANARY_PLAN_RESPONSE = JSON.stringify({
   appName: 'Live Canary Counter',
   summary: 'A stable one-screen counter used to prove live preview promotion.',
@@ -297,6 +406,12 @@ async function typeInChat(page, text) {
 
 function responseTextForLLM(systemText, userText, stream) {
   if (!stream) {
+    if (systemText.includes('Pass 2 critic')) {
+      return LIVE_CANARY_PASS2_CRITIC_RESPONSE;
+    }
+    if (systemText.includes('Pass 2 implementer')) {
+      return LIVE_CANARY_PASS2_IMPLEMENTER_RESPONSE;
+    }
     if (systemText.includes('senior product architect')) {
       return LIVE_CANARY_PROTO_ARCHITECT_PLAN;
     }
