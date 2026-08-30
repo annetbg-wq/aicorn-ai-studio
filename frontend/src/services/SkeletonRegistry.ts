@@ -34,6 +34,8 @@ import {
 } from './SkeletonCarcassContent';
 import {
   evaluateSkeletonIntentCompatibility,
+  getIntentCompatibilityProfile,
+  scoreSkeletonCompatibility,
 } from './SkeletonSelectionCompatibility';
 
 export type SkeletonId =
@@ -765,20 +767,8 @@ export function selectSkeleton(
     .toLowerCase()
     .replace(/[^a-zа-яё0-9\s]/gi, ' ');
 
-  // Check each skeleton's tag score
-  const scores: [SkeletonId, number][] = (
-    Object.values(SKELETON_REGISTRY) as SkeletonMeta[]
-  )
-    .filter(s => s.available)
-    .map(s => {
-      const score = s.tags.reduce(
-        (acc, tag) => acc + (input.includes(tag) ? 1 : 0),
-        0,
-      );
-      return [s.id, score] as [SkeletonId, number];
-    });
-
-  scores.sort((a, b) => b[1] - a[1]);
+  // Rank textual relevance together with manifest-declared intent compatibility.
+  const scores = buildSkeletonSelectionScores(input);
   const best = scores[0];
 
   // Only use non-mobile skeleton if it clearly wins (score >= 2)
@@ -846,6 +836,33 @@ function detectIntentSignalMatches(input: string): Array<{ signal: string; match
     .filter(group => group.matchedKeywords.length > 0);
 }
 
+function buildSkeletonSelectionScores(
+  input: string,
+  intentSignalMatches = detectIntentSignalMatches(input),
+): Array<[SkeletonId, number]> {
+  const scores = (Object.values(SKELETON_REGISTRY) as SkeletonMeta[])
+    .filter(skeleton => skeleton.available)
+    .map(skeleton => {
+      const tagScore = skeleton.tags.reduce(
+        (acc, tag) => acc + (input.includes(tag) ? 1 : 0),
+        0,
+      );
+      const compatibilityScore = intentSignalMatches.reduce((total, match) => {
+        const profile = getIntentCompatibilityProfile(match.signal);
+        if (!profile) return total;
+        const archetypeScore = Math.max(
+          ...profile.archetypes.map(archetype => scoreSkeletonCompatibility(skeleton.id, archetype)),
+        );
+        // One point of compatibility per matched intent keyword: enough to break
+        // conflicting semantic evidence without swamping the existing tag rank.
+        return total + (archetypeScore / 100) * match.matchedKeywords.length;
+      }, 0);
+      return [skeleton.id, tagScore + compatibilityScore] as [SkeletonId, number];
+    });
+
+  return scores.sort((a, b) => b[1] - a[1]);
+}
+
 /**
  * Advisory-only diagnostics for skeleton selection.
  *
@@ -866,19 +883,8 @@ export function selectSkeletonWithDiagnostics(
     .toLowerCase()
     .replace(/[^a-zа-яё0-9\s]/gi, ' ');
 
-  const scores: [SkeletonId, number][] = (
-    Object.values(SKELETON_REGISTRY) as SkeletonMeta[]
-  )
-    .filter(s => s.available)
-    .map(s => {
-      const score = s.tags.reduce(
-        (acc, tag) => acc + (input.includes(tag) ? 1 : 0),
-        0,
-      );
-      return [s.id, score] as [SkeletonId, number];
-    });
-
-  scores.sort((a, b) => b[1] - a[1]);
+  const intentSignalMatches = detectIntentSignalMatches(input);
+  const scores = buildSkeletonSelectionScores(input, intentSignalMatches);
 
   const best = scores[0];
   const runnerUp = scores[1] ?? null;
@@ -893,8 +899,7 @@ export function selectSkeletonWithDiagnostics(
       ? best[0]
       : 'mobile-app';
 
-  // Detect intent signals from keyword groups.
-  const intentSignalMatches = detectIntentSignalMatches(input);
+  // Intent signals also contributed evidence to the manifest-aware ranking above.
   const intentSignals = intentSignalMatches.map(group => group.signal);
 
   // Compute confidence.
