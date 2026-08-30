@@ -3,6 +3,7 @@ import { validateProtectedShellBoundary } from '../LiveGenerationContractValidat
 
 // Ownership semantics regression: editable may change, read-only may be consumed,
 // and infrastructure owners remain protected from product-level ownership takeover.
+// Live canary fixtures are contract-aware separately; production generation is unchanged here.
 describe('LiveGenerationContract manifest ownership', () => {
   it('allows a mobile product page to consume manifest-declared editable route config', () => {
     const createPage = [
