@@ -790,7 +790,7 @@ export interface SkeletonSelectionDiagnostics {
 }
 
 /** Intent keyword groups used purely for advisory signal detection. */
-const INTENT_SIGNAL_GROUPS: ReadonlyArray<{ signal: string; keywords: string[] }> = [
+const INTENT_SIGNAL_GROUPS: ReadonlyArray<{ signal: string; keywords: string[]; specificity?: number }> = [
   {
     signal: 'landing-intent',
     keywords: ['landing', 'website', 'marketing', 'promotional', 'homepage', 'waitlist', 'saas landing', 'product page', 'launch page', 'portfolio'],
@@ -819,9 +819,18 @@ const INTENT_SIGNAL_GROUPS: ReadonlyArray<{ signal: string; keywords: string[] }
   },
   {
     signal: 'game-intent',
+    // Explicit game vocabulary is a domain-defining signal, unlike generic
+    // analytics/dashboard vocabulary that commonly appears inside games too.
+    // Specificity affects only intent arbitration; skeleton fit still comes
+    // exclusively from the manifest selectionContract.
+    specificity: 2,
     keywords: ['game', 'rpg', 'progression', 'levels', 'leaderboard', 'score', 'puzzle', 'arcade', 'quest', 'player', 'achievements', 'gamification'],
   },
 ];
+
+function getIntentSignalSpecificity(signal: string): number {
+  return INTENT_SIGNAL_GROUPS.find(group => group.signal === signal)?.specificity ?? 0;
+}
 
 function detectIntentSignalMatches(input: string): Array<{ signal: string; matchedKeywords: string[] }> {
   return INTENT_SIGNAL_GROUPS
@@ -963,8 +972,8 @@ export interface SkeletonSelectionOverrideResult {
  * Override fires only when:
  *   - At least one intent signal is present (not an ambiguous prompt)
  *   - At least one mismatch warning is present (not an already-correct selection)
- *   - The original selected skeleton is in the rule's bad-selections set
- *   - The preferred override target is available in the registry
+ *   - Manifest compatibility marks the original selection incompatible
+ *   - A manifest-compatible preferred target is available in the registry
  *
  * Ambiguous prompts (no intent signals) always keep the original selection.
  * Already-correct selections (no mismatch warnings) are never overridden.
@@ -1019,14 +1028,16 @@ export function selectSkeletonWithSafeOverrides(
   // Ties stay eligible: e.g. a game brief can deliberately override a dashboard
   // when game and dashboard evidence are equally strong. Weak fallbacks remain
   // rescuable by any recognized manifest-backed intent.
+  const arbitrationStrength = (match: { signal: string; matchedKeywords: string[] }) =>
+    match.matchedKeywords.length + getIntentSignalSpecificity(match.signal);
   const strongestSignalEvidence = intentSignalMatches.reduce(
-    (max, match) => Math.max(max, match.matchedKeywords.length),
+    (max, match) => Math.max(max, arbitrationStrength(match)),
     0,
   );
   const arbitrationSignals = weakFallback
     ? intentSignals
     : intentSignalMatches
-        .filter(match => match.matchedKeywords.length === strongestSignalEvidence)
+        .filter(match => arbitrationStrength(match) === strongestSignalEvidence)
         .map(match => match.signal);
 
   for (const signal of arbitrationSignals) {
