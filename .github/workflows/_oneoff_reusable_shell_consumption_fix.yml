@@ -21,167 +21,27 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-
+          import base64
+          dec = lambda value: base64.b64decode(value).decode()
           validator = Path('frontend/src/services/LiveGenerationContractValidator.ts')
           source = validator.read_text()
-          old = """      if (
-        (resolvedTarget && shellOwnedPaths.has(resolvedTarget) && !importsContextConsumer)
-        || protectedShellComponents.has(componentName)
-      ) {
-        const layerPath = resolvedTarget ?? `src/components/${componentName}.tsx`;
-        diagnostics.push(buildProtectedShellDiagnostic(
-          summary,
-          input,
-          filePath,
-          importPath,
-          describeShellLayerFromPath(layerPath),
-          `imports protected shell module ${resolvedTarget ?? componentName}`,
-        ));
-      }
-"""
-          new = """      // skeletonOwned / agentReadOnly describes edit ownership, not import visibility.
-      // Product pages may consume reusable shell-provided components (EmptyState,
-      // LoadingScreen, cards, hooks, etc.) without taking ownership of the shell.
-      // Only explicit shell-owner component families remain forbidden here.
-      if (protectedShellComponents.has(componentName)) {
-        const layerPath = resolvedTarget ?? `src/components/${componentName}.tsx`;
-        diagnostics.push(buildProtectedShellDiagnostic(
-          summary,
-          input,
-          filePath,
-          importPath,
-          describeShellLayerFromPath(layerPath),
-          `imports protected shell module ${resolvedTarget ?? componentName}`,
-        ));
-      }
-"""
-          if old not in source:
-            raise SystemExit('blanket shellOwned import block not found')
-          source = source.replace(old, new)
-          validator.write_text(source)
-
+          old = dec('ICAgICAgaWYgKAogICAgICAgIChyZXNvbHZlZFRhcmdldCAmJiBzaGVsbE93bmVkUGF0aHMuaGFzKHJlc29sdmVkVGFyZ2V0KSAmJiAhaW1wb3J0c0NvbnRleHRDb25zdW1lcikKICAgICAgICB8fCBwcm90ZWN0ZWRTaGVsbENvbXBvbmVudHMuaGFzKGNvbXBvbmVudE5hbWUpCiAgICAgICkgewogICAgICAgIGNvbnN0IGxheWVyUGF0aCA9IHJlc29sdmVkVGFyZ2V0ID8/IGBzcmMvY29tcG9uZW50cy8ke2NvbXBvbmVudE5hbWV9LnRzeGA7CiAgICAgICAgZGlhZ25vc3RpY3MucHVzaChidWlsZFByb3RlY3RlZFNoZWxsRGlhZ25vc3RpYygKICAgICAgICAgIHN1bW1hcnksCiAgICAgICAgICBpbnB1dCwKICAgICAgICAgIGZpbGVQYXRoLAogICAgICAgICAgaW1wb3J0UGF0aCwKICAgICAgICAgIGRlc2NyaWJlU2hlbGxMYXllckZyb21QYXRoKGxheWVyUGF0aCksCiAgICAgICAgICBgaW1wb3J0cyBwcm90ZWN0ZWQgc2hlbGwgbW9kdWxlICR7cmVzb2x2ZWRUYXJnZXQgPz8gY29tcG9uZW50TmFtZX1gLAogICAgICAgICkpOwogICAgICB9Cg==')
+          new = dec('ICAgICAgLy8gc2tlbGV0b25Pd25lZCAvIGFnZW50UmVhZE9ubHkgZGVzY3JpYmVzIGVkaXQgb3duZXJzaGlwLCBub3QgaW1wb3J0IHZpc2liaWxpdHkuCiAgICAgIC8vIFByb2R1Y3QgcGFnZXMgbWF5IGNvbnN1bWUgcmV1c2FibGUgc2hlbGwtcHJvdmlkZWQgY29tcG9uZW50cyAoRW1wdHlTdGF0ZSwKICAgICAgLy8gTG9hZGluZ1NjcmVlbiwgY2FyZHMsIGhvb2tzLCBldGMuKSB3aXRob3V0IHRha2luZyBvd25lcnNoaXAgb2YgdGhlIHNoZWxsLgogICAgICAvLyBPbmx5IGV4cGxpY2l0IHNoZWxsLW93bmVyIGNvbXBvbmVudCBmYW1pbGllcyByZW1haW4gZm9yYmlkZGVuIGhlcmUuCiAgICAgIGlmIChwcm90ZWN0ZWRTaGVsbENvbXBvbmVudHMuaGFzKGNvbXBvbmVudE5hbWUpKSB7CiAgICAgICAgY29uc3QgbGF5ZXJQYXRoID0gcmVzb2x2ZWRUYXJnZXQgPz8gYHNyYy9jb21wb25lbnRzLyR7Y29tcG9uZW50TmFtZX0udHN4YDsKICAgICAgICBkaWFnbm9zdGljcy5wdXNoKGJ1aWxkUHJvdGVjdGVkU2hlbGxEaWFnbm9zdGljKAogICAgICAgICAgc3VtbWFyeSwKICAgICAgICAgIGlucHV0LAogICAgICAgICAgZmlsZVBhdGgsCiAgICAgICAgICBpbXBvcnRQYXRoLAogICAgICAgICAgZGVzY3JpYmVTaGVsbExheWVyRnJvbVBhdGgobGF5ZXJQYXRoKSwKICAgICAgICAgIGBpbXBvcnRzIHByb3RlY3RlZCBzaGVsbCBtb2R1bGUgJHtyZXNvbHZlZFRhcmdldCA/PyBjb21wb25lbnROYW1lfWAsCiAgICAgICAgKSk7CiAgICAgIH0K')
+          if old not in source: raise SystemExit('blanket shellOwned import block not found')
+          validator.write_text(source.replace(old, new))
           test = Path('frontend/src/services/__tests__/LiveGenerationContractManifestOwnership.test.ts')
           source = test.read_text()
-          marker = """  it('still blocks page-level router ownership APIs', () => {
-"""
-          insert = """  it('allows product pages to consume reusable read-only skeleton components', () => {
-    const detailPage = [
-      \"import EmptyState from '@/components/EmptyState';\",
-      'export default function Detail() {',
-      \"  return <EmptyState title=\\\"Nothing yet\\\" />;\",
-      '}',
-    ].join('\\n');
-
-    const result = validateProtectedShellBoundary({
-      finalFiles: {
-        'src/main.tsx': 'export {};',
-        'src/App.tsx': 'export default function App() { return null; }',
-        'src/components/EmptyState.tsx': 'export default function EmptyState() { return null; }',
-        'src/pages/Detail.tsx': detailPage,
-      },
-      generatedDeltaFiles: {},
-      skeletonId: 'mobile-app',
-    });
-
-    expect(result.diagnostics.filter(d => d.root_cause_type === 'protected_shell_import')).toEqual([]);
-  });
-
-  it('still blocks importing an actual navigation-shell owner into a product page', () => {
-    const detailPage = [
-      \"import BottomTabs from '@/components/BottomTabs';\",
-      'export default function Detail() {',
-      '  return <BottomTabs />;',
-      '}',
-    ].join('\\n');
-
-    const result = validateProtectedShellBoundary({
-      finalFiles: {
-        'src/main.tsx': 'export {};',
-        'src/App.tsx': 'export default function App() { return null; }',
-        'src/components/BottomTabs.tsx': 'export default function BottomTabs() { return null; }',
-        'src/pages/Detail.tsx': detailPage,
-      },
-      generatedDeltaFiles: { 'src/pages/Detail.tsx': detailPage },
-      skeletonId: 'mobile-app',
-    });
-
-    expect(result.diagnostics.some(d =>
-      d.root_cause_type === 'protected_shell_import' && d.import_path === '@/components/BottomTabs',
-    )).toBe(true);
-  });
-
-"""
-          if marker not in source:
-            raise SystemExit('test insertion marker not found')
-          if "allows product pages to consume reusable read-only skeleton components" not in source:
-            source = source.replace(marker, insert + marker)
-          test.write_text(source)
-
+          marker = dec('ICBpdCgnc3RpbGwgYmxvY2tzIHBhZ2UtbGV2ZWwgcm91dGVyIG93bmVyc2hpcCBBUElzJywgKCkgPT4gewo=')
+          insert = dec('ICBpdCgnYWxsb3dzIHByb2R1Y3QgcGFnZXMgdG8gY29uc3VtZSByZXVzYWJsZSByZWFkLW9ubHkgc2tlbGV0b24gY29tcG9uZW50cycsICgpID0+IHsKICAgIGNvbnN0IGRldGFpbFBhZ2UgPSBbCiAgICAgICJpbXBvcnQgRW1wdHlTdGF0ZSBmcm9tICdAL2NvbXBvbmVudHMvRW1wdHlTdGF0ZSc7IiwKICAgICAgJ2V4cG9ydCBkZWZhdWx0IGZ1bmN0aW9uIERldGFpbCgpIHsnLAogICAgICAnICByZXR1cm4gPEVtcHR5U3RhdGUgLz47JywKICAgICAgJ30nLAogICAgXS5qb2luKCdcbicpOwoKICAgIGNvbnN0IHJlc3VsdCA9IHZhbGlkYXRlUHJvdGVjdGVkU2hlbGxCb3VuZGFyeSh7CiAgICAgIGZpbmFsRmlsZXM6IHsKICAgICAgICAnc3JjL21haW4udHN4JzogJ2V4cG9ydCB7fTsnLAogICAgICAgICdzcmMvQXBwLnRzeCc6ICdleHBvcnQgZGVmYXVsdCBmdW5jdGlvbiBBcHAoKSB7IHJldHVybiBudWxsOyB9JywKICAgICAgICAnc3JjL2NvbXBvbmVudHMvRW1wdHlTdGF0ZS50c3gnOiAnZXhwb3J0IGRlZmF1bHQgZnVuY3Rpb24gRW1wdHlTdGF0ZSgpIHsgcmV0dXJuIG51bGw7IH0nLAogICAgICAgICdzcmMvcGFnZXMvRGV0YWlsLnRzeCc6IGRldGFpbFBhZ2UsCiAgICAgIH0sCiAgICAgIGdlbmVyYXRlZERlbHRhRmlsZXM6IHt9LAogICAgICBza2VsZXRvbklkOiAnbW9iaWxlLWFwcCcsCiAgICB9KTsKCiAgICBleHBlY3QocmVzdWx0LmRpYWdub3N0aWNzLmZpbHRlcihkID0+IGQucm9vdF9jYXVzZV90eXBlID09PSAncHJvdGVjdGVkX3NoZWxsX2ltcG9ydCcpKS50b0VxdWFsKFtdKTsKICB9KTsKCiAgaXQoJ3N0aWxsIGJsb2NrcyBpbXBvcnRpbmcgYW4gYWN0dWFsIG5hdmlnYXRpb24tc2hlbGwgb3duZXIgaW50byBhIHByb2R1Y3QgcGFnZScsICgpID0+IHsKICAgIGNvbnN0IGRldGFpbFBhZ2UgPSBbCiAgICAgICJpbXBvcnQgQm90dG9tVGFicyBmcm9tICdAL2NvbXBvbmVudHMvQm90dG9tVGFicyc7IiwKICAgICAgJ2V4cG9ydCBkZWZhdWx0IGZ1bmN0aW9uIERldGFpbCgpIHsnLAogICAgICAnICByZXR1cm4gPEJvdHRvbVRhYnMgLz47JywKICAgICAgJ30nLAogICAgXS5qb2luKCdcbicpOwoKICAgIGNvbnN0IHJlc3VsdCA9IHZhbGlkYXRlUHJvdGVjdGVkU2hlbGxCb3VuZGFyeSh7CiAgICAgIGZpbmFsRmlsZXM6IHsKICAgICAgICAnc3JjL21haW4udHN4JzogJ2V4cG9ydCB7fTsnLAogICAgICAgICdzcmMvQXBwLnRzeCc6ICdleHBvcnQgZGVmYXVsdCBmdW5jdGlvbiBBcHAoKSB7IHJldHVybiBudWxsOyB9JywKICAgICAgICAnc3JjL2NvbXBvbmVudHMvQm90dG9tVGFicy50c3gnOiAnZXhwb3J0IGRlZmF1bHQgZnVuY3Rpb24gQm90dG9tVGFicygpIHsgcmV0dXJuIG51bGw7IH0nLAogICAgICAgICdzcmMvcGFnZXMvRGV0YWlsLnRzeCc6IGRldGFpbFBhZ2UsCiAgICAgIH0sCiAgICAgIGdlbmVyYXRlZERlbHRhRmlsZXM6IHsgJ3NyYy9wYWdlcy9EZXRhaWwudHN4JzogZGV0YWlsUGFnZSB9LAogICAgICBza2VsZXRvbklkOiAnbW9iaWxlLWFwcCcsCiAgICB9KTsKCiAgICBleHBlY3QocmVzdWx0LmRpYWdub3N0aWNzLnNvbWUoZCA9PgogICAgICBkLnJvb3RfY2F1c2VfdHlwZSA9PT0gJ3Byb3RlY3RlZF9zaGVsbF9pbXBvcnQnICYmIGQuaW1wb3J0X3BhdGggPT09ICdAL2NvbXBvbmVudHMvQm90dG9tVGFicycsCiAgICApKS50b0JlKHRydWUpOwogIH0pOwoK')
+          if marker not in source: raise SystemExit('test marker not found')
+          if 'allows product pages to consume reusable read-only skeleton components' not in source:
+            test.write_text(source.replace(marker, insert + marker))
           e2e = Path('e2e/chat-generation-flow.spec.cjs')
           source = e2e.read_text()
-          old = """      // Poll backend build status until ready. Replaces frontend ready_set signal.
-      let _lastStatusSeen = null;
-      await expect(async () => {
-        if (!canaryBuildId) throw new Error('buildId not found in controller_compiling log');
-        const statusRes = await page.request.get(
-          `${BASE_URL}/api/preview/${canaryBuildId}/status`,
-          { headers: { 'X-Preview-Session': canaryPreviewSession ?? '' } },
-        );
-        if (statusRes.status() === 404) throw new Error('build status not registered yet');
-        const body = await statusRes.json();
-        const s = body?.status;
-        if (s !== _lastStatusSeen) {
-          console.log(`CANARY_STEP: build_status_${s}`);
-          _lastStatusSeen = s;
-        }
-        if (s === 'failed') {
-          throw new Error(
-            `[Live Preview Canary] preview build failed: ${body?.error ?? body?.message ?? JSON.stringify(body)}`,
-          );
-        }
-        expect(s).toBe('ready');
-      }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [2_000, 3_000, 5_000] });
-      console.log('CANARY_STEP: build_status_ready');
-"""
-          new = """      // Poll backend build status until ready. Terminal failures must not be
-      // swallowed by expect().toPass(), which retries thrown errors until timeout.
-      let _lastStatusSeen = null;
-      const buildStatusDeadline = Date.now() + LIVE_FLOW_TIMEOUT;
-      let buildReady = false;
-      while (Date.now() < buildStatusDeadline) {
-        if (!canaryBuildId) throw new Error('buildId not found in controller_compiling log');
-        const statusRes = await page.request.get(
-          `${BASE_URL}/api/preview/${canaryBuildId}/status`,
-          { headers: { 'X-Preview-Session': canaryPreviewSession ?? '' } },
-        );
-        if (statusRes.status() === 404) {
-          await page.waitForTimeout(2_000);
-          continue;
-        }
-        const body = await statusRes.json();
-        const s = body?.status;
-        if (s !== _lastStatusSeen) {
-          console.log(`CANARY_STEP: build_status_${s}`);
-          _lastStatusSeen = s;
-        }
-        if (s === 'failed') {
-          throw new Error(
-            `[Live Preview Canary] preview build failed: ${body?.error ?? body?.message ?? JSON.stringify(body)}`,
-          );
-        }
-        if (s === 'ready') {
-          buildReady = true;
-          break;
-        }
-        await page.waitForTimeout(2_000);
-      }
-      expect(buildReady, `preview build did not become ready; last status=${_lastStatusSeen}`).toBe(true);
-      console.log('CANARY_STEP: build_status_ready');
-"""
-          if old not in source:
-            raise SystemExit('status polling block not found')
+          old = dec('ICAgICAgLy8gUG9sbCBiYWNrZW5kIGJ1aWxkIHN0YXR1cyB1bnRpbCByZWFkeS4gUmVwbGFjZXMgZnJvbnRlbmQgcmVhZHlfc2V0IHNpZ25hbC4KICAgICAgbGV0IF9sYXN0U3RhdHVzU2VlbiA9IG51bGw7CiAgICAgIGF3YWl0IGV4cGVjdChhc3luYyAoKSA9PiB7CiAgICAgICAgaWYgKCFjYW5hcnlCdWlsZElkKSB0aHJvdyBuZXcgRXJyb3IoJ2J1aWxkSWQgbm90IGZvdW5kIGluIGNvbnRyb2xsZXJfY29tcGlsaW5nIGxvZycpOwogICAgICAgIGNvbnN0IHN0YXR1c1JlcyA9IGF3YWl0IHBhZ2UucmVxdWVzdC5nZXQoCiAgICAgICAgICBgJHtCQVNFX1VSTH0vYXBpL3ByZXZpZXcvJHtjYW5hcnlCdWlsZElkfS9zdGF0dXNgLAogICAgICAgICAgeyBoZWFkZXJzOiB7ICdYLVByZXZpZXctU2Vzc2lvbic6IGNhbmFyeVByZXZpZXdTZXNzaW9uID8/ICcnIH0gfSwKICAgICAgICApOwogICAgICAgIGlmIChzdGF0dXNSZXMuc3RhdHVzKCkgPT09IDQwNCkgdGhyb3cgbmV3IEVycm9yKCdidWlsZCBzdGF0dXMgbm90IHJlZ2lzdGVyZWQgeWV0Jyk7CiAgICAgICAgY29uc3QgYm9keSA9IGF3YWl0IHN0YXR1c1Jlcy5qc29uKCk7CiAgICAgICAgY29uc3QgcyA9IGJvZHk/LnN0YXR1czsKICAgICAgICBpZiAocyAhPT0gX2xhc3RTdGF0dXNTZWVuKSB7CiAgICAgICAgICBjb25zb2xlLmxvZyhgQ0FOQVJZX1NURVA6IGJ1aWxkX3N0YXR1c18ke3N9YCk7CiAgICAgICAgICBfbGFzdFN0YXR1c1NlZW4gPSBzOwogICAgICAgIH0KICAgICAgICBpZiAocyA9PT0gJ2ZhaWxlZCcpIHsKICAgICAgICAgIHRocm93IG5ldyBFcnJvcigKICAgICAgICAgICAgYFtMaXZlIFByZXZpZXcgQ2FuYXJ5XSBwcmV2aWV3IGJ1aWxkIGZhaWxlZDogJHtib2R5Py5lcnJvciA/PyBib2R5Py5tZXNzYWdlID8/IEpTT04uc3RyaW5naWZ5KGJvZHkpfWAsCiAgICAgICAgICApOwogICAgICAgIH0KICAgICAgICBleHBlY3QocykudG9CZSgncmVhZHknKTsKICAgICAgfSkudG9QYXNzKHsgdGltZW91dDogTElWRV9GTE9XX1RJTUVPVVQsIGludGVydmFsczogWzJfMDAwLCAzXzAwMCwgNV8wMDBdIH0pOwogICAgICBjb25zb2xlLmxvZygnQ0FOQVJZX1NURVA6IGJ1aWxkX3N0YXR1c19yZWFkeScpOwo=')
+          new = dec('ICAgICAgLy8gUG9sbCBiYWNrZW5kIGJ1aWxkIHN0YXR1cyB1bnRpbCByZWFkeS4gVGVybWluYWwgZmFpbHVyZXMgbXVzdCBub3QgYmUKICAgICAgLy8gc3dhbGxvd2VkIGJ5IGV4cGVjdCgpLnRvUGFzcygpLCB3aGljaCByZXRyaWVzIHRocm93biBlcnJvcnMgdW50aWwgdGltZW91dC4KICAgICAgbGV0IF9sYXN0U3RhdHVzU2VlbiA9IG51bGw7CiAgICAgIGNvbnN0IGJ1aWxkU3RhdHVzRGVhZGxpbmUgPSBEYXRlLm5vdygpICsgTElWRV9GTE9XX1RJTUVPVVQ7CiAgICAgIGxldCBidWlsZFJlYWR5ID0gZmFsc2U7CiAgICAgIHdoaWxlIChEYXRlLm5vdygpIDwgYnVpbGRTdGF0dXNEZWFkbGluZSkgewogICAgICAgIGlmICghY2FuYXJ5QnVpbGRJZCkgdGhyb3cgbmV3IEVycm9yKCdidWlsZElkIG5vdCBmb3VuZCBpbiBjb250cm9sbGVyX2NvbXBpbGluZyBsb2cnKTsKICAgICAgICBjb25zdCBzdGF0dXNSZXMgPSBhd2FpdCBwYWdlLnJlcXVlc3QuZ2V0KAogICAgICAgICAgYCR7QkFTRV9VUkx9L2FwaS9wcmV2aWV3LyR7Y2FuYXJ5QnVpbGRJZH0vc3RhdHVzYCwKICAgICAgICAgIHsgaGVhZGVyczogeyAnWC1QcmV2aWV3LVNlc3Npb24nOiBjYW5hcnlQcmV2aWV3U2Vzc2lvbiA/PyAnJyB9IH0sCiAgICAgICAgKTsKICAgICAgICBpZiAoc3RhdHVzUmVzLnN0YXR1cygpID09PSA0MDQpIHsKICAgICAgICAgIGF3YWl0IHBhZ2Uud2FpdEZvclRpbWVvdXQoMl8wMDApOwogICAgICAgICAgY29udGludWU7CiAgICAgICAgfQogICAgICAgIGNvbnN0IGJvZHkgPSBhd2FpdCBzdGF0dXNSZXMuanNvbigpOwogICAgICAgIGNvbnN0IHMgPSBib2R5Py5zdGF0dXM7CiAgICAgICAgaWYgKHMgIT09IF9sYXN0U3RhdHVzU2VlbikgewogICAgICAgICAgY29uc29sZS5sb2coYENBTkFSWV9TVEVQOiBidWlsZF9zdGF0dXNfJHtzfWApOwogICAgICAgICAgX2xhc3RTdGF0dXNTZWVuID0gczsKICAgICAgICB9CiAgICAgICAgaWYgKHMgPT09ICdmYWlsZWQnKSB7CiAgICAgICAgICB0aHJvdyBuZXcgRXJyb3IoCiAgICAgICAgICAgIGBbTGl2ZSBQcmV2aWV3IENhbmFyeV0gcHJldmlldyBidWlsZCBmYWlsZWQ6ICR7Ym9keT8uZXJyb3IgPz8gYm9keT8ubWVzc2FnZSA/PyBKU09OLnN0cmluZ2lmeShib2R5KX1gLAogICAgICAgICAgKTsKICAgICAgICB9CiAgICAgICAgaWYgKHMgPT09ICdyZWFkeScpIHsKICAgICAgICAgIGJ1aWxkUmVhZHkgPSB0cnVlOwogICAgICAgICAgYnJlYWs7CiAgICAgICAgfQogICAgICAgIGF3YWl0IHBhZ2Uud2FpdEZvclRpbWVvdXQoMl8wMDApOwogICAgICB9CiAgICAgIGV4cGVjdChidWlsZFJlYWR5LCBgcHJldmlldyBidWlsZCBkaWQgbm90IGJlY29tZSByZWFkeTsgbGFzdCBzdGF0dXM9JHtfbGFzdFN0YXR1c1NlZW59YCkudG9CZSh0cnVlKTsKICAgICAgY29uc29sZS5sb2coJ0NBTkFSWV9TVEVQOiBidWlsZF9zdGF0dXNfcmVhZHknKTsK')
+          if old not in source: raise SystemExit('status polling block not found')
           e2e.write_text(source.replace(old, new))
-
       - name: Remove one-off workflow
         run: rm .github/workflows/_oneoff_reusable_shell_consumption_fix.yml
       - name: Commit patch
