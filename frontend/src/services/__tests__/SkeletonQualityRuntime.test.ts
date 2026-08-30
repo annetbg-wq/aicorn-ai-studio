@@ -2,10 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { buildVisualUsageDiagnostics } from '../ProtoPipeline';
 import { getSkeletonQualityContract, listSkeletonQualityContractIds } from '../SkeletonQualityContract';
 
+const expectedSkeletonIds = [
+  'mobile-app', 'saas-dashboard', 'landing-page', 'social-community',
+  'productivity-tool', 'ecommerce', 'b2b-operations-workspace',
+  'marketplace-platform', 'creator-editor-workspace', 'dating-matching-app',
+  'gaming-casino-app', 'game-interactive-app', 'booking-service-app',
+  'content-learning-app',
+] as const;
+
 describe('Skeleton quality contract runtime — 14/14', () => {
-  it('covers all 14 skeletons with a positive meaningful-screen threshold', () => {
+  it('covers every skeleton id with a positive meaningful-screen threshold', () => {
     const ids = listSkeletonQualityContractIds();
-    expect(ids).toHaveLength(14);
+    expect([...ids].sort()).toEqual([...expectedSkeletonIds].sort());
     for (const id of ids) {
       const contract = getSkeletonQualityContract(id);
       expect(contract.minMeaningfulScreens).toBeGreaterThan(0);
