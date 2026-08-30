@@ -1580,7 +1580,7 @@ const GENERIC_PLACEHOLDER_PATTERNS: Array<{ label: string; rx: RegExp }> = [
   { label: 'Feature 2', rx: /\bFeature 2\b/i },
   { label: 'Feature 3', rx: /\bFeature 3\b/i },
   { label: 'AppName', rx: /\bAppName\b/i },
-  { label: 'PRODUCT', rx: /\bPRODUCT\b/i },
+  { label: 'PRODUCT', rx: /\bPRODUCT\b/ },
   { label: 'Coming soon', rx: /\bComing soon\b/i },
   { label: 'Untitled', rx: /\bUntitled\b/i },
   { label: 'TODO', rx: /\bTODO\b/i },
