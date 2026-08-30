@@ -35,18 +35,31 @@ jobs:
           s = p.read_text()
           s = s.replace("import { SKELETON_REGISTRY } from '../SkeletonRegistry';", "import { getSkeletonProductSlotFiles } from '../SkeletonRegistry';")
           s = s.replace("   6. The navigation.ts is listed in the skeleton's deltaFiles so the coder sees", "   6. The navigation.ts is a required product slot so the coder sees")
-          s = s.replace("  it('navigation.ts is listed in deltaFiles so coder sees both nav shapes', () => {\n    const manifest = saasDashboardManifest as { deltaFiles: string[] };\n    expect(manifest.deltaFiles).toContain('src/config/navigation.ts');\n  });\n\n  it('skeleton registry deltaFiles for saas-dashboard includes navigation.ts', () => {\n    expect(SKELETON_REGISTRY['saas-dashboard'].deltaFiles).toContain('src/config/navigation.ts');\n  });", "  it('navigation.ts is a required product slot so coder sees both nav shapes', () => {\n    const manifest = saasDashboardManifest as { ownership: { requiredProductSlots: string[] } };\n    expect(manifest.ownership.requiredProductSlots).toContain('src/config/navigation.ts');\n  });\n\n  it('runtime product-slot adapter for saas-dashboard includes navigation.ts', () => {\n    expect(getSkeletonProductSlotFiles('saas-dashboard')).toContain('src/config/navigation.ts');\n  });")
+          old = "  it('navigation.ts is listed in deltaFiles so coder sees both nav shapes', () => {\n    const manifest = saasDashboardManifest as { deltaFiles: string[] };\n    expect(manifest.deltaFiles).toContain('src/config/navigation.ts');\n  });\n\n  it('skeleton registry deltaFiles for saas-dashboard includes navigation.ts', () => {\n    expect(SKELETON_REGISTRY['saas-dashboard'].deltaFiles).toContain('src/config/navigation.ts');\n  });"
+          new = "  it('navigation.ts is a required product slot so coder sees both nav shapes', () => {\n    const manifest = saasDashboardManifest as { ownership: { requiredProductSlots: string[] } };\n    expect(manifest.ownership.requiredProductSlots).toContain('src/config/navigation.ts');\n  });\n\n  it('runtime product-slot adapter for saas-dashboard includes navigation.ts', () => {\n    expect(getSkeletonProductSlotFiles('saas-dashboard')).toContain('src/config/navigation.ts');\n  });"
+          if old not in s: raise SystemExit('saas legacy contract block not found')
+          s = s.replace(old, new)
+          if "SKELETON_REGISTRY['saas-dashboard'].deltaFiles" in s or 'manifest.deltaFiles' in s:
+              raise SystemExit('saas legacy delta reference remains')
           p.write_text(s)
 
           p = Path('frontend/src/services/__tests__/SkeletonRegistry.manifests.test.ts')
           s = p.read_text()
           s = s.replace("  SKELETON_REGISTRY,\n", "  getSkeletonProductSlotFiles,\n")
           s = s.replace("  editableFiles: string[];\n  deltaFiles: string[];", "  ownership: {\n    requiredProductSlots: string[];\n    optionalProductSlots: string[];\n    agentEditable: string[];\n  };")
-          s = s.replace("  it('keeps registry deltaFiles in sync with manifests and all physical product pages', () => {", "  it('keeps required product slots in sync with all physical product pages', () => {")
-          s = s.replace("      expect(sortPaths(manifest.deltaFiles), `${id} manifest deltaFiles mismatch`).toEqual(expectedDeltaFiles);\n      expect(sortPaths(manifest.editableFiles), `${id} manifest editableFiles mismatch`).toEqual(expectedDeltaFiles);\n      expect(sortPaths(SKELETON_REGISTRY[id].deltaFiles), `${id} registry deltaFiles mismatch`).toEqual(expectedDeltaFiles);", "      expect(sortPaths(manifest.ownership.requiredProductSlots), `${id} requiredProductSlots mismatch`).toEqual(expectedDeltaFiles);\n      expect(sortPaths(manifest.ownership.agentEditable), `${id} agentEditable mismatch`).toEqual(expectedDeltaFiles);\n      expect(sortPaths(getSkeletonProductSlotFiles(id)), `${id} runtime product slots mismatch`).toEqual(expectedDeltaFiles);")
-          s = s.replace("      for (const deltaFile of manifest.deltaFiles) {\n        expect(promptBlock, `${id} prompt missing delta file ${deltaFile}`).toContain(deltaFile);", "      for (const deltaFile of manifest.ownership.requiredProductSlots) {\n        expect(promptBlock, `${id} prompt missing required product slot ${deltaFile}`).toContain(deltaFile);")
-          if '.deltaFiles' in s or 'editableFiles' in s or 'SKELETON_REGISTRY' in s:
-              raise SystemExit('SkeletonRegistry.manifests legacy reference remains')
+          s = s.replace("  it('keeps registry deltaFiles in sync with manifests and all physical product pages', () => {", "  it('keeps required product slots in sync with manifests and all physical product pages', () => {")
+          old = "      expect(sortPaths(manifest.deltaFiles), `${id} manifest deltaFiles mismatch`).toEqual(expectedDeltaFiles);\n      expect(sortPaths(manifest.editableFiles), `${id} manifest editableFiles mismatch`).toEqual(expectedDeltaFiles);\n      expect(sortPaths(SKELETON_REGISTRY[id].deltaFiles), `${id} registry deltaFiles mismatch`).toEqual(expectedDeltaFiles);"
+          new = "      expect(sortPaths(manifest.ownership.requiredProductSlots), `${id} requiredProductSlots mismatch`).toEqual(expectedDeltaFiles);\n      expect(sortPaths(manifest.ownership.agentEditable), `${id} agentEditable mismatch`).toEqual(expectedDeltaFiles);\n      expect(sortPaths(getSkeletonProductSlotFiles(id)), `${id} runtime product slots mismatch`).toEqual(expectedDeltaFiles);"
+          if old not in s: raise SystemExit('manifest legacy sync assertions not found')
+          s = s.replace(old, new)
+          old = "      for (const deltaFile of manifest.deltaFiles) {\n        expect(promptBlock, `${id} prompt missing delta file ${deltaFile}`).toContain(deltaFile);"
+          new = "      for (const deltaFile of manifest.ownership.requiredProductSlots) {\n        expect(promptBlock, `${id} prompt missing required product slot ${deltaFile}`).toContain(deltaFile);"
+          if old not in s: raise SystemExit('manifest legacy prompt loop not found')
+          s = s.replace(old, new)
+          forbidden = ['manifest.deltaFiles', 'manifest.editableFiles', 'SKELETON_REGISTRY[id].deltaFiles']
+          leftovers = [needle for needle in forbidden if needle in s]
+          if leftovers:
+              raise SystemExit(f'SkeletonRegistry.manifests legacy access remains: {leftovers}')
           p.write_text(s)
           PY
           rm .github/workflows/_oneoff_fix_registry_consumers.yml
