@@ -83,6 +83,32 @@
     "src/components/EmptyState.tsx",
     "src/components/PaywallSheet.tsx"
   ],
+  "editableFiles": [
+    "src/config/app.ts",
+    "src/config/routes.ts",
+    "src/config/navigation.ts",
+    "src/data/types.ts",
+    "src/data/seed.ts",
+    "src/pages/Onboarding.tsx",
+    "src/pages/Home.tsx",
+    "src/pages/Detail.tsx",
+    "src/pages/Create.tsx",
+    "src/pages/Progress.tsx",
+    "src/pages/Profile.tsx"
+  ],
+  "deltaFiles": [
+    "src/config/app.ts",
+    "src/config/routes.ts",
+    "src/config/navigation.ts",
+    "src/data/types.ts",
+    "src/data/seed.ts",
+    "src/pages/Onboarding.tsx",
+    "src/pages/Home.tsx",
+    "src/pages/Detail.tsx",
+    "src/pages/Create.tsx",
+    "src/pages/Progress.tsx",
+    "src/pages/Profile.tsx"
+  ],
   "requiredExports": {},
   "qualityContract": {
     "minMeaningfulScreens": 4,
