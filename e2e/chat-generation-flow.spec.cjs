@@ -801,15 +801,21 @@ test.describe('Chat → generation → blueprint → preview', () => {
         sessionStorage.getItem('AIC_PREVIEW_SESSION_ID'),
       ).catch(() => null);
 
-      // Poll backend build status until ready. Replaces frontend ready_set signal.
+      // Poll backend build status until ready. Terminal failures must not be
+      // swallowed by expect().toPass(), which retries thrown errors until timeout.
       let _lastStatusSeen = null;
-      await expect(async () => {
+      const buildStatusDeadline = Date.now() + LIVE_FLOW_TIMEOUT;
+      let buildReady = false;
+      while (Date.now() < buildStatusDeadline) {
         if (!canaryBuildId) throw new Error('buildId not found in controller_compiling log');
         const statusRes = await page.request.get(
           `${BASE_URL}/api/preview/${canaryBuildId}/status`,
           { headers: { 'X-Preview-Session': canaryPreviewSession ?? '' } },
         );
-        if (statusRes.status() === 404) throw new Error('build status not registered yet');
+        if (statusRes.status() === 404) {
+          await page.waitForTimeout(2_000);
+          continue;
+        }
         const body = await statusRes.json();
         const s = body?.status;
         if (s !== _lastStatusSeen) {
@@ -821,8 +827,13 @@ test.describe('Chat → generation → blueprint → preview', () => {
             `[Live Preview Canary] preview build failed: ${body?.error ?? body?.message ?? JSON.stringify(body)}`,
           );
         }
-        expect(s).toBe('ready');
-      }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [2_000, 3_000, 5_000] });
+        if (s === 'ready') {
+          buildReady = true;
+          break;
+        }
+        await page.waitForTimeout(2_000);
+      }
+      expect(buildReady, `preview build did not become ready; last status=${_lastStatusSeen}`).toBe(true);
       console.log('CANARY_STEP: build_status_ready');
 
       // Compile is now confirmed ready by backend; iframe should be rendered.
