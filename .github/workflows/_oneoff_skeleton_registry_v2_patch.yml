@@ -1,0 +1,77 @@
+name: One-off Skeleton Registry v2 patch
+
+on:
+  push:
+    branches:
+      - refactor/skeleton-runtime-canonical-contract
+
+permissions:
+  contents: write
+
+jobs:
+  patch-registry:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/skeleton-runtime-canonical-contract
+          fetch-depth: 0
+
+      - name: Patch legacy manifest view
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'frontend/src/services/SkeletonRegistry.ts';
+          let source = fs.readFileSync(path, 'utf8');
+
+          const publicContract = `export interface SkeletonOwnershipContract {
+            ownedBySkeleton: string[];
+            productSlots: string[];
+          }`;
+
+          const replacement = `export interface SkeletonOwnershipContract {
+            ownedBySkeleton: string[];
+            productSlots: string[];
+          }
+
+          /** Transitional internal view while Registry consumers move to the canonical v2 compiler. */
+          interface SkeletonManifestOwnershipContract {
+            ownedBySkeleton?: string[];
+            productSlots?: string[];
+            skeletonOwned?: string[];
+            requiredProductSlots?: string[];
+            optionalProductSlots?: string[];
+            agentEditable?: string[];
+            agentReadOnly?: string[];
+            carcassFiles?: string[];
+          }`;
+
+          if (!source.includes(publicContract)) {
+            throw new Error('Expected SkeletonOwnershipContract block was not found');
+          }
+          source = source.replace(publicContract, replacement);
+
+          const oldOwnership = '  ownership?: SkeletonOwnershipContract;';
+          const newOwnership = '  ownership?: SkeletonManifestOwnershipContract;';
+          if (!source.includes(oldOwnership)) {
+            throw new Error('Expected SkeletonManifest ownership field was not found');
+          }
+          source = source.replace(oldOwnership, newOwnership);
+
+          fs.writeFileSync(path, source);
+          NODE
+
+          rm -f frontend/src/types/skeleton-manifest-json.d.ts
+          rm -f .github/workflows/_oneoff_skeleton_registry_v2_patch.yml
+
+      - name: Commit migration patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: make SkeletonRegistry compatible with manifest v2"
+          git push origin HEAD:refactor/skeleton-runtime-canonical-contract
