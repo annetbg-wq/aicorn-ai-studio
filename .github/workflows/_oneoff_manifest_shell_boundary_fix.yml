@@ -1,0 +1,156 @@
+name: One-off manifest shell boundary fix
+
+on:
+  push:
+    branches: [test/live-preview-canary-matrix]
+    paths: [.github/workflows/_oneoff_manifest_shell_boundary_fix.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/live-preview-canary-matrix
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Patch validator and canary fast-fail
+        shell: python
+        run: |
+          from pathlib import Path
+
+          validator = Path('frontend/src/services/LiveGenerationContractValidator.ts')
+          s = validator.read_text()
+          old = """      if (resolvedTarget && SHELL_CONTRACT_PATHS.has(resolvedTarget)) {
+        diagnostics.push(buildProtectedShellDiagnostic(
+          summary,
+          input,
+          filePath,
+          importPath,
+          describeShellLayerFromPath(resolvedTarget),
+          `imports ${resolvedTarget}`,
+        ));
+        continue;
+      }
+"""
+          new = """      const resolvedTargetIsProductSlot = Boolean(
+        resolvedTarget && productSlotPaths.has(resolvedTarget),
+      );
+      if (
+        resolvedTarget &&
+        SHELL_CONTRACT_PATHS.has(resolvedTarget) &&
+        !resolvedTargetIsProductSlot
+      ) {
+        diagnostics.push(buildProtectedShellDiagnostic(
+          summary,
+          input,
+          filePath,
+          importPath,
+          describeShellLayerFromPath(resolvedTarget),
+          `imports ${resolvedTarget}`,
+        ));
+        continue;
+      }
+"""
+          if old not in s:
+            raise SystemExit('protected shell contract block not found')
+          validator.write_text(s.replace(old, new))
+
+          test = Path('frontend/src/services/__tests__/LiveGenerationContractManifestOwnership.test.ts')
+          test.write_text("""import { describe, expect, it } from 'vitest';
+import { validateProtectedShellBoundary } from '../LiveGenerationContractValidator';
+
+describe('LiveGenerationContract manifest ownership', () => {
+  it('allows a mobile product page to consume manifest-declared editable route config', () => {
+    const createPage = [
+      \"import { useNavigate } from 'react-router-dom';\",
+      \"import { ROUTES } from '@/config/routes';\",
+      'export default function Create() {',
+      '  const navigate = useNavigate();',
+      \"  return <button onClick={() => navigate(ROUTES.home)}>Save</button>;\",
+      '}',
+    ].join('\\n');
+
+    const result = validateProtectedShellBoundary({
+      finalFiles: {
+        'src/main.tsx': 'export {};',
+        'src/App.tsx': 'export default function App() { return null; }',
+        'src/route-manifest.json': '{}',
+        'src/config/routes.ts': \"export const ROUTES = { home: '/' } as const;\",
+        'src/pages/Create.tsx': createPage,
+      },
+      generatedDeltaFiles: {
+        'src/pages/Create.tsx': createPage,
+      },
+      skeletonId: 'mobile-app',
+    });
+
+    expect(result.diagnostics.filter(d => d.root_cause_type === 'protected_shell_import')).toEqual([]);
+  });
+
+  it('still blocks page-level router ownership APIs', () => {
+    const createPage = [
+      \"import { Routes, Route } from 'react-router-dom';\",
+      'export default function Create() {',
+      \"  return <Routes><Route path=\\\"/\\\" element={null} /></Routes>;\",
+      '}',
+    ].join('\\n');
+
+    const result = validateProtectedShellBoundary({
+      finalFiles: {
+        'src/main.tsx': 'export {};',
+        'src/App.tsx': 'export default function App() { return null; }',
+        'src/pages/Create.tsx': createPage,
+      },
+      generatedDeltaFiles: {
+        'src/pages/Create.tsx': createPage,
+      },
+      skeletonId: 'mobile-app',
+    });
+
+    expect(result.diagnostics.some(d =>
+      d.root_cause_type === 'protected_shell_import' && d.import_path === 'react-router-dom',
+    )).toBe(true);
+  });
+});
+""")
+
+          e2e = Path('e2e/chat-generation-flow.spec.cjs')
+          s = e2e.read_text()
+          old = """        const s = body?.status;
+        if (s !== _lastStatusSeen) {
+          console.log(`CANARY_STEP: build_status_${s}`);
+          _lastStatusSeen = s;
+        }
+        expect(s).toBe('ready');
+"""
+          new = """        const s = body?.status;
+        if (s !== _lastStatusSeen) {
+          console.log(`CANARY_STEP: build_status_${s}`);
+          _lastStatusSeen = s;
+        }
+        if (s === 'failed') {
+          throw new Error(
+            `[Live Preview Canary] preview build failed: ${body?.error ?? body?.message ?? JSON.stringify(body)}`,
+          );
+        }
+        expect(s).toBe('ready');
+"""
+          if old not in s:
+            raise SystemExit('canary build status block not found')
+          e2e.write_text(s.replace(old, new))
+
+      - name: Remove one-off workflow
+        run: rm .github/workflows/_oneoff_manifest_shell_boundary_fix.yml
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/services/LiveGenerationContractValidator.ts frontend/src/services/__tests__/LiveGenerationContractManifestOwnership.test.ts e2e/chat-generation-flow.spec.cjs .github/workflows/_oneoff_manifest_shell_boundary_fix.yml
+          git commit -m "fix: honor manifest product slots at shell boundary"
+          git push origin HEAD:test/live-preview-canary-matrix
