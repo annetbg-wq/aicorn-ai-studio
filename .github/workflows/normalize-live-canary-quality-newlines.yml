@@ -1,0 +1,48 @@
+name: Normalize Live Canary Quality Newlines
+
+on:
+  push:
+    branches:
+      - fix/live-preview-bootstrap-iframe
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/live-preview-bootstrap-iframe
+      - name: Normalize quality fixture escapes
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('e2e/chat-generation-flow.spec.cjs')
+          s = p.read_text()
+          start = s.index('const LIVE_CANARY_QUALITY_APP_TSX')
+          end = s.index('const LIVE_CANARY_PLAN_RESPONSE', start)
+          segment = s[start:end]
+          before = segment.count('\\\\n')
+          if before == 0:
+              raise SystemExit('no double-escaped newline tokens found in quality fixture')
+          segment = segment.replace('\\\\n', '\\n')
+          if '\\\\n' in segment:
+              raise SystemExit('double-escaped newline tokens remain')
+          s = s[:start] + segment + s[end:]
+          p.write_text(s)
+          print(f'normalized {before} double-escaped newline token(s)')
+      - name: Validate fixture shape
+        run: |
+          node --check e2e/chat-generation-flow.spec.cjs
+          grep -F "].join('\\n');" e2e/chat-generation-flow.spec.cjs >/dev/null
+      - name: Commit and self-remove
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/normalize-live-canary-quality-newlines.yml
+          git add e2e/chat-generation-flow.spec.cjs
+          git commit -m "test(preview): normalize quality repair fixture newlines"
+          git push origin HEAD:fix/live-preview-bootstrap-iframe
