@@ -1,4 +1,4 @@
-name: One-off live canary matrix patch
+name: One-off live canary prompt patch
 
 on:
   push:
@@ -17,36 +17,21 @@ jobs:
           ref: test/live-preview-canary-matrix
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Patch canary prompt and CI matrix
+      - name: Make live canary prompt configurable
         shell: python
         run: |
           from pathlib import Path
-
-          e2e = Path('e2e/chat-generation-flow.spec.cjs')
-          s = e2e.read_text()
+          p = Path('e2e/chat-generation-flow.spec.cjs')
+          s = p.read_text()
           old = "const LIVE_CANARY_PROMPT = 'landing page for a simple counter product';"
           new = "const LIVE_CANARY_PROMPT = process.env.LIVE_CANARY_PROMPT ?? 'landing page for a simple counter product';"
           if old not in s:
             raise SystemExit('live canary prompt constant not found')
-          e2e.write_text(s.replace(old, new))
-
-          ci = Path('.github/workflows/ci.yml')
-          s = ci.read_text()
-          s = s.replace(
-            "  preview-live-canary:\n    name: Live Preview Canary\n    runs-on: ubuntu-latest\n    needs: build\n",
-            "  preview-live-canary:\n    name: Live Preview Canary\n    runs-on: ubuntu-latest\n    needs: build\n    timeout-minutes: 35\n",
-          )
-          old = """      - name: Run live preview canary\n        run: npm run test:e2e:preview-live\n        env:\n          PLAYWRIGHT_PRODUCTION_ARTIFACT: '1'\n          VITE_OPENROUTER_API_KEY: e2e-live-preview-key\n"""
-          new = """      - name: Run representative live preview canary matrix\n        shell: bash\n        env:\n          PLAYWRIGHT_PRODUCTION_ARTIFACT: '1'\n          VITE_OPENROUTER_API_KEY: e2e-live-preview-key\n        run: |\n          set -euo pipefail\n          run_case() {\n            local case_id=\"$1\"\n            local prompt=\"$2\"\n            echo \"::group::Live Preview Canary — ${case_id}\"\n            LIVE_CANARY_PROMPT=\"${prompt}\" npm run test:e2e:preview-live\n            echo \"::endgroup::\"\n          }\n\n          run_case \"landing-page\" \"Build a launch-ready SaaS marketing landing page with hero, pricing, testimonials, FAQ and a primary Start free CTA.\"\n          run_case \"mobile-app\" \"Build a mobile consumer habit tracking app with onboarding, bottom tab navigation, home feed, detail screen, create action, progress and profile.\"\n          run_case \"saas-dashboard\" \"Build a B2B SaaS admin analytics dashboard with sidebar navigation, KPI metrics, reports, data table and settings.\"\n          run_case \"ecommerce\" \"Build an ecommerce storefront with product catalog, search, product detail, wishlist, cart, checkout and account screens.\"\n"""
-          if old not in s:
-            raise SystemExit('live canary CI step not found')
-          ci.write_text(s.replace(old, new))
-      - name: Remove one-off workflow
-        run: rm .github/workflows/_oneoff_live_canary_matrix_patch.yml
-      - name: Commit patch
+          p.write_text(s.replace(old, new))
+      - name: Commit E2E patch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add e2e/chat-generation-flow.spec.cjs .github/workflows/ci.yml .github/workflows/_oneoff_live_canary_matrix_patch.yml
-          git commit -m "test: run representative live preview canary matrix"
+          git add e2e/chat-generation-flow.spec.cjs
+          git commit -m "test: make live canary prompt configurable"
           git push origin HEAD:test/live-preview-canary-matrix
