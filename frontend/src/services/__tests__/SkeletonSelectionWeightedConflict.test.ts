@@ -15,11 +15,12 @@ describe('Skeleton selection weighted intent conflicts', () => {
     expect(result.overrideApplied).toBe(false);
   });
 
-  it('still allows an equally strong game intent to challenge a dashboard selection', () => {
+  it('lets explicit domain-specific game intent challenge more generic dashboard vocabulary', () => {
     const result = selectSkeletonWithSafeOverrides('game analytics dashboard', ['metrics', 'levels']);
     expect(result.intentSignals).toContain('dashboard-intent');
     expect(result.intentSignals).toContain('game-intent');
     expect(result.originalSelectedSkeletonId).toBe('saas-dashboard');
+    expect(result.mismatchWarnings.length).toBeGreaterThan(0);
     expect(result.finalSelectedSkeletonId).toBe('game-interactive-app');
     expect(result.overrideApplied).toBe(true);
   });
