@@ -9,6 +9,12 @@ import { listSkeletonContractIds } from '../SkeletonContractCompiler';
 import { getSkeletonRuntimePolicy } from '../SkeletonRuntimePolicy';
 
 describe('Skeleton deterministic matrix smoke — 14/14', () => {
+  it('keeps Registry free of legacy file policy fields', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../SkeletonRegistry.ts', import.meta.url), 'utf8'));
+    expect(source).not.toContain('lockedPrefixes:');
+    expect(source).not.toContain('deltaFiles: string[]');
+  });
+
   it.each(listSkeletonContractIds())('%s keeps installed/editable/prompt semantics aligned with canonical policy', id => {
     const policy = getSkeletonRuntimePolicy(id);
     const installed = getSkeletonInstalledFiles(id);

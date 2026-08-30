@@ -3,28 +3,177 @@
   "id": "marketplace-platform",
   "label": "Marketplace Platform",
   "workingGroups": [
-    { "label": "core", "paths": ["src/App.tsx", "src/main.tsx", "src/index.css", "src/route-manifest.json"] },
-    { "label": "config", "paths": ["src/config/app.ts", "src/config/navigation.ts", "src/config/routes.ts", "src/config/theme.ts"] },
-    { "label": "context", "paths": ["src/context/AppContext.tsx"] },
-    { "label": "hooks", "paths": ["src/hooks/useLocalStorage.ts", "src/hooks/useTheme.ts"] },
-    { "label": "data", "paths": ["src/data/seed.ts", "src/data/types.ts"] },
-    { "label": "components", "paths": ["src/components/BottomTabs.tsx", "src/components/EmptyState.tsx", "src/components/ErrorBoundary.tsx", "src/components/ListingCard.tsx", "src/components/LoadingScreen.tsx", "src/components/PageHeader.tsx"] },
-    { "label": "ui", "paths": ["src/components/ui/Badge.tsx", "src/components/ui/Button.tsx", "src/components/ui/Card.tsx", "src/components/ui/Input.tsx", "src/components/ui/Progress.tsx", "src/components/ui/Tabs.tsx", "src/components/ui/scroll-area.tsx"] },
-    { "label": "runtime", "paths": ["src/lib/cn.ts"] },
-    { "label": "pages", "paths": ["src/pages/Browse.tsx", "src/pages/Home.tsx", "src/pages/Listing.tsx", "src/pages/Messages.tsx", "src/pages/Profile.tsx", "src/pages/SellerDashboard.tsx"] }
+    {
+      "label": "core",
+      "paths": [
+        "src/App.tsx",
+        "src/main.tsx",
+        "src/index.css",
+        "src/route-manifest.json"
+      ]
+    },
+    {
+      "label": "config",
+      "paths": [
+        "src/config/app.ts",
+        "src/config/navigation.ts",
+        "src/config/routes.ts",
+        "src/config/theme.ts"
+      ]
+    },
+    {
+      "label": "context",
+      "paths": [
+        "src/context/AppContext.tsx"
+      ]
+    },
+    {
+      "label": "hooks",
+      "paths": [
+        "src/hooks/useLocalStorage.ts",
+        "src/hooks/useTheme.ts"
+      ]
+    },
+    {
+      "label": "data",
+      "paths": [
+        "src/data/seed.ts",
+        "src/data/types.ts"
+      ]
+    },
+    {
+      "label": "components",
+      "paths": [
+        "src/components/BottomTabs.tsx",
+        "src/components/EmptyState.tsx",
+        "src/components/ErrorBoundary.tsx",
+        "src/components/ListingCard.tsx",
+        "src/components/LoadingScreen.tsx",
+        "src/components/PageHeader.tsx"
+      ]
+    },
+    {
+      "label": "ui",
+      "paths": [
+        "src/components/ui/Badge.tsx",
+        "src/components/ui/Button.tsx",
+        "src/components/ui/Card.tsx",
+        "src/components/ui/Input.tsx",
+        "src/components/ui/Progress.tsx",
+        "src/components/ui/Tabs.tsx",
+        "src/components/ui/scroll-area.tsx"
+      ]
+    },
+    {
+      "label": "runtime",
+      "paths": [
+        "src/lib/cn.ts"
+      ]
+    },
+    {
+      "label": "pages",
+      "paths": [
+        "src/pages/Browse.tsx",
+        "src/pages/Home.tsx",
+        "src/pages/Listing.tsx",
+        "src/pages/Messages.tsx",
+        "src/pages/Profile.tsx",
+        "src/pages/SellerDashboard.tsx"
+      ]
+    }
   ],
   "ownership": {
-    "skeletonOwned": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
-    "requiredProductSlots": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Browse.tsx", "src/pages/Home.tsx", "src/pages/Listing.tsx", "src/pages/Messages.tsx", "src/pages/Profile.tsx", "src/pages/SellerDashboard.tsx"],
+    "skeletonOwned": [
+      "src/main.tsx",
+      "src/index.css",
+      "src/lib/**",
+      "src/hooks/**",
+      "src/context/**",
+      "src/components/**",
+      "src/config/routes.ts",
+      "src/config/theme.ts"
+    ],
+    "requiredProductSlots": [
+      "src/config/app.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Browse.tsx",
+      "src/pages/Home.tsx",
+      "src/pages/Listing.tsx",
+      "src/pages/Messages.tsx",
+      "src/pages/Profile.tsx",
+      "src/pages/SellerDashboard.tsx"
+    ],
     "optionalProductSlots": [],
-    "agentEditable": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Browse.tsx", "src/pages/Home.tsx", "src/pages/Listing.tsx", "src/pages/Messages.tsx", "src/pages/Profile.tsx", "src/pages/SellerDashboard.tsx"],
-    "agentReadOnly": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "agentEditable": [
+      "src/config/app.ts",
+      "src/config/navigation.ts",
+      "src/data/types.ts",
+      "src/data/seed.ts",
+      "src/pages/Browse.tsx",
+      "src/pages/Home.tsx",
+      "src/pages/Listing.tsx",
+      "src/pages/Messages.tsx",
+      "src/pages/Profile.tsx",
+      "src/pages/SellerDashboard.tsx"
+    ],
+    "agentReadOnly": [
+      "src/main.tsx",
+      "src/index.css",
+      "src/lib/**",
+      "src/hooks/**",
+      "src/context/**",
+      "src/components/**",
+      "src/config/routes.ts",
+      "src/config/theme.ts"
+    ],
     "carcassFiles": []
   },
-  "protectedFiles": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
-  "editableFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Browse.tsx", "src/pages/Home.tsx", "src/pages/Listing.tsx", "src/pages/Messages.tsx", "src/pages/Profile.tsx", "src/pages/SellerDashboard.tsx"],
-  "deltaFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Browse.tsx", "src/pages/Home.tsx", "src/pages/Listing.tsx", "src/pages/Messages.tsx", "src/pages/Profile.tsx", "src/pages/SellerDashboard.tsx"],
+  "protectedFiles": [
+    "src/main.tsx",
+    "src/index.css",
+    "src/lib/**",
+    "src/hooks/**",
+    "src/context/**",
+    "src/components/**",
+    "src/config/routes.ts",
+    "src/config/theme.ts"
+  ],
   "requiredExports": {},
-  "qualityContract": {"minMeaningfulScreens": 4, "requiredCapabilities": ["browse", "listing-detail", "messages", "seller-surface"], "requiredFlows": ["browse-to-listing", "listing-to-message"]},
-  "selectionContract": {"productTypes": ["marketplace", "commerce"], "surfaces": ["browse", "listing-detail", "messages", "seller-dashboard"], "capabilities": ["listings", "messaging", "seller-tools"], "incompatibleArchetypes": ["marketing", "dashboard", "interactive-game"]}
+  "qualityContract": {
+    "minMeaningfulScreens": 4,
+    "requiredCapabilities": [
+      "browse",
+      "listing-detail",
+      "messages",
+      "seller-surface"
+    ],
+    "requiredFlows": [
+      "browse-to-listing",
+      "listing-to-message"
+    ]
+  },
+  "selectionContract": {
+    "productTypes": [
+      "marketplace",
+      "commerce"
+    ],
+    "surfaces": [
+      "browse",
+      "listing-detail",
+      "messages",
+      "seller-dashboard"
+    ],
+    "capabilities": [
+      "listings",
+      "messaging",
+      "seller-tools"
+    ],
+    "incompatibleArchetypes": [
+      "marketing",
+      "dashboard",
+      "interactive-game"
+    ]
+  }
 }
