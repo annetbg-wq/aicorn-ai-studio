@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "gaming-casino-app",
   "label": "Gaming Casino App",
   "workingGroups": [
@@ -13,40 +13,18 @@
     { "label": "runtime", "paths": ["src/lib/cn.ts"] },
     { "label": "pages", "paths": ["src/pages/Account.tsx", "src/pages/GameDetail.tsx", "src/pages/Games.tsx", "src/pages/Leaderboard.tsx", "src/pages/Lobby.tsx", "src/pages/Promotions.tsx", "src/pages/ResponsibleGaming.tsx"] }
   ],
-  "protectedFiles": [
-    "src/main.tsx",
-    "src/index.css",
-    "src/lib/**",
-    "src/hooks/**",
-    "src/context/**",
-    "src/components/**",
-    "src/config/routes.ts",
-    "src/config/theme.ts"
-  ],
-  "editableFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/Account.tsx",
-    "src/pages/GameDetail.tsx",
-    "src/pages/Games.tsx",
-    "src/pages/Leaderboard.tsx",
-    "src/pages/Lobby.tsx",
-    "src/pages/Promotions.tsx",
-    "src/pages/ResponsibleGaming.tsx"
-  ],
-  "deltaFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/Account.tsx",
-    "src/pages/GameDetail.tsx",
-    "src/pages/Games.tsx",
-    "src/pages/Leaderboard.tsx",
-    "src/pages/Lobby.tsx",
-    "src/pages/Promotions.tsx",
-    "src/pages/ResponsibleGaming.tsx"
-  ]
+  "ownership": {
+    "skeletonOwned": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "requiredProductSlots": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Account.tsx", "src/pages/GameDetail.tsx", "src/pages/Games.tsx", "src/pages/Leaderboard.tsx", "src/pages/Lobby.tsx", "src/pages/Promotions.tsx", "src/pages/ResponsibleGaming.tsx"],
+    "optionalProductSlots": [],
+    "agentEditable": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Account.tsx", "src/pages/GameDetail.tsx", "src/pages/Games.tsx", "src/pages/Leaderboard.tsx", "src/pages/Lobby.tsx", "src/pages/Promotions.tsx", "src/pages/ResponsibleGaming.tsx"],
+    "agentReadOnly": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "carcassFiles": []
+  },
+  "protectedFiles": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+  "editableFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Account.tsx", "src/pages/GameDetail.tsx", "src/pages/Games.tsx", "src/pages/Leaderboard.tsx", "src/pages/Lobby.tsx", "src/pages/Promotions.tsx", "src/pages/ResponsibleGaming.tsx"],
+  "deltaFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Account.tsx", "src/pages/GameDetail.tsx", "src/pages/Games.tsx", "src/pages/Leaderboard.tsx", "src/pages/Lobby.tsx", "src/pages/Promotions.tsx", "src/pages/ResponsibleGaming.tsx"],
+  "requiredExports": {},
+  "qualityContract": {"minMeaningfulScreens": 4, "requiredCapabilities": ["lobby", "game-browser", "game-detail", "account"], "requiredFlows": ["lobby-to-game", "game-to-detail"]},
+  "selectionContract": {"productTypes": ["gaming"], "surfaces": ["lobby", "games", "game-detail", "promotions", "account"], "capabilities": ["game-browser", "promotions", "account"], "incompatibleArchetypes": ["dashboard", "marketing", "creator-tool"]}
 }

@@ -23,22 +23,6 @@ export interface SkeletonManifestGroup {
   paths: string[];
 }
 
-export interface SkeletonManifestV1 {
-  version?: 1;
-  id: SkeletonId;
-  label?: string;
-  workingGroups: SkeletonManifestGroup[];
-  protectedFiles: string[];
-  editableFiles: string[];
-  deltaFiles: string[];
-  ownership?: {
-    ownedBySkeleton?: string[];
-    productSlots?: string[];
-  };
-  requiredExports?: Record<string, Array<{ name: string; type?: string }>>;
-  carcassFiles?: string[];
-}
-
 export interface CompiledSkeletonContract {
   version: 2;
   id: SkeletonId;
@@ -53,21 +37,21 @@ export interface CompiledSkeletonContract {
   requiredExports: Record<string, Array<{ name: string; type?: string }>>;
 }
 
-const manifests: Record<SkeletonId, SkeletonManifestV1> = {
-  'mobile-app': mobileAppManifest as SkeletonManifestV1,
-  'saas-dashboard': saasDashboardManifest as SkeletonManifestV1,
-  'landing-page': landingPageManifest as SkeletonManifestV1,
-  'social-community': socialCommunityManifest as SkeletonManifestV1,
-  'productivity-tool': productivityToolManifest as SkeletonManifestV1,
-  ecommerce: ecommerceManifest as SkeletonManifestV1,
-  'b2b-operations-workspace': b2bOperationsWorkspaceManifest as SkeletonManifestV1,
-  'marketplace-platform': marketplacePlatformManifest as SkeletonManifestV1,
-  'creator-editor-workspace': creatorEditorWorkspaceManifest as SkeletonManifestV1,
-  'dating-matching-app': datingMatchingAppManifest as SkeletonManifestV1,
-  'gaming-casino-app': gamingCasinoAppManifest as SkeletonManifestV1,
-  'game-interactive-app': gameInteractiveAppManifest as SkeletonManifestV1,
-  'booking-service-app': bookingServiceAppManifest as SkeletonManifestV1,
-  'content-learning-app': contentLearningAppManifest as SkeletonManifestV1,
+const manifests: Record<SkeletonId, SkeletonManifestV2> = {
+  'mobile-app': mobileAppManifest as SkeletonManifestV2,
+  'saas-dashboard': saasDashboardManifest as SkeletonManifestV2,
+  'landing-page': landingPageManifest as SkeletonManifestV2,
+  'social-community': socialCommunityManifest as SkeletonManifestV2,
+  'productivity-tool': productivityToolManifest as SkeletonManifestV2,
+  ecommerce: ecommerceManifest as SkeletonManifestV2,
+  'b2b-operations-workspace': b2bOperationsWorkspaceManifest as SkeletonManifestV2,
+  'marketplace-platform': marketplacePlatformManifest as SkeletonManifestV2,
+  'creator-editor-workspace': creatorEditorWorkspaceManifest as SkeletonManifestV2,
+  'dating-matching-app': datingMatchingAppManifest as SkeletonManifestV2,
+  'gaming-casino-app': gamingCasinoAppManifest as SkeletonManifestV2,
+  'game-interactive-app': gameInteractiveAppManifest as SkeletonManifestV2,
+  'booking-service-app': bookingServiceAppManifest as SkeletonManifestV2,
+  'content-learning-app': contentLearningAppManifest as SkeletonManifestV2,
 };
 
 function unique(paths: string[]): string[] {
@@ -82,59 +66,21 @@ function normalizePaths(paths: string[]): string[] {
   return unique(paths.map(normalizePath));
 }
 
-function pathMatchesPattern(path: string, pattern: string): boolean {
-  const normalizedPath = normalizePath(path);
-  const normalizedPattern = normalizePath(pattern);
-  if (normalizedPattern.endsWith('/**')) {
-    return normalizedPath.startsWith(normalizedPattern.slice(0, -2));
-  }
-  if (normalizedPattern.endsWith('/*')) {
-    return normalizedPath.startsWith(normalizedPattern.slice(0, -1));
-  }
-  return normalizedPath === normalizedPattern;
-}
-
-export function getRawSkeletonManifest(id: SkeletonId): SkeletonManifestV1 {
+export function getRawSkeletonManifest(id: SkeletonId): SkeletonManifestV2 {
   return manifests[id];
 }
 
-function assertCompiledContractIsV2(contract: CompiledSkeletonContract): void {
-  const manifestView: SkeletonManifestV2 = {
-    version: 2,
-    id: contract.id,
-    workingGroups: contract.workingGroups,
-    ownership: {
-      skeletonOwned: contract.skeletonOwned,
-      requiredProductSlots: contract.requiredProductSlots,
-      optionalProductSlots: contract.optionalProductSlots,
-      agentEditable: contract.agentEditable,
-      agentReadOnly: contract.agentReadOnly,
-      carcassFiles: contract.carcassFiles,
-    },
-    protectedFiles: contract.protectedFiles,
-    requiredExports: contract.requiredExports,
-    qualityContract: {},
-    selectionContract: {},
-  };
-  const errors = validateSkeletonManifestV2(manifestView);
+function assertManifestIsV2(manifest: SkeletonManifestV2): void {
+  const errors = validateSkeletonManifestV2(manifest);
   if (errors.length > 0) {
-    throw new Error(`Invalid compiled skeleton contract for ${contract.id}:\n${errors.join('\n')}`);
+    throw new Error(`Invalid skeleton manifest v2 for ${manifest.id}:\n${errors.join('\n')}`);
   }
 }
 
 /**
- * Compiles the current manifest representation into the only runtime contract
- * downstream stages should consume. During the v1 -> v2 manifest migration the
- * compiler makes the required/optional distinction explicit without changing
- * the behaviour of any existing skeleton:
- *
- *   deltaFiles                 -> requiredProductSlots
- *   editableFiles - deltaFiles -> optionalProductSlots
- *   protectedFiles             -> agentReadOnly / skeletonOwned
- *
- * Every compiled result is validated against the strict v2 ownership invariant.
- * Once every manifest is stored as schema v2, this compatibility input shape
- * can be deleted without changing consumers.
+ * Canonical compiler. All 14 on-disk manifests are schema v2; there is no
+ * legacy fallback path. Downstream consumers receive one normalized runtime
+ * file contract and never inspect transitional compatibility fields.
  */
 export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContract {
   const manifest = manifests[id];
@@ -143,45 +89,21 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
     throw new Error(`Skeleton manifest id mismatch: expected ${id}, got ${manifest.id}`);
   }
 
-  const editable = normalizePaths(manifest.editableFiles ?? []);
-  const required = normalizePaths(manifest.deltaFiles ?? []);
-  const protectedFiles = normalizePaths(manifest.protectedFiles ?? []);
-  const requiredSet = new Set(required);
-  const optional = editable.filter(path => !requiredSet.has(path));
+  assertManifestIsV2(manifest);
 
-  for (const requiredPath of required) {
-    if (!editable.includes(requiredPath)) {
-      throw new Error(`${id}: required delta file is not editable: ${requiredPath}`);
-    }
-    const protectedBy = protectedFiles.find(pattern => pathMatchesPattern(requiredPath, pattern));
-    if (protectedBy) {
-      throw new Error(`${id}: required product slot ${requiredPath} is protected by ${protectedBy}`);
-    }
-  }
-
-  for (const optionalPath of optional) {
-    const protectedBy = protectedFiles.find(pattern => pathMatchesPattern(optionalPath, pattern));
-    if (protectedBy) {
-      throw new Error(`${id}: optional product slot ${optionalPath} is protected by ${protectedBy}`);
-    }
-  }
-
-  const contract: CompiledSkeletonContract = {
+  return {
     version: 2,
-    id,
+    id: manifest.id,
     workingGroups: manifest.workingGroups,
-    requiredProductSlots: required,
-    optionalProductSlots: optional,
-    agentEditable: editable,
-    agentReadOnly: protectedFiles,
-    protectedFiles,
-    skeletonOwned: normalizePaths(manifest.ownership?.ownedBySkeleton ?? protectedFiles),
-    carcassFiles: normalizePaths(manifest.carcassFiles ?? []),
+    requiredProductSlots: normalizePaths(manifest.ownership.requiredProductSlots),
+    optionalProductSlots: normalizePaths(manifest.ownership.optionalProductSlots),
+    agentEditable: normalizePaths(manifest.ownership.agentEditable),
+    agentReadOnly: normalizePaths(manifest.ownership.agentReadOnly),
+    protectedFiles: normalizePaths(manifest.protectedFiles),
+    skeletonOwned: normalizePaths(manifest.ownership.skeletonOwned),
+    carcassFiles: normalizePaths(manifest.ownership.carcassFiles),
     requiredExports: manifest.requiredExports ?? {},
   };
-
-  assertCompiledContractIsV2(contract);
-  return contract;
 }
 
 export function listSkeletonContractIds(): SkeletonId[] {

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "booking-service-app",
   "label": "Booking Service App",
   "workingGroups": [
@@ -13,38 +13,18 @@
     { "label": "runtime", "paths": ["src/lib/cn.ts"] },
     { "label": "pages", "paths": ["src/pages/BookingFlow.tsx", "src/pages/Home.tsx", "src/pages/MyBookings.tsx", "src/pages/Profile.tsx", "src/pages/Search.tsx", "src/pages/ServiceDetail.tsx"] }
   ],
-  "protectedFiles": [
-    "src/main.tsx",
-    "src/index.css",
-    "src/lib/**",
-    "src/hooks/**",
-    "src/context/**",
-    "src/components/**",
-    "src/config/routes.ts",
-    "src/config/theme.ts"
-  ],
-  "editableFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/BookingFlow.tsx",
-    "src/pages/Home.tsx",
-    "src/pages/MyBookings.tsx",
-    "src/pages/Profile.tsx",
-    "src/pages/Search.tsx",
-    "src/pages/ServiceDetail.tsx"
-  ],
-  "deltaFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/BookingFlow.tsx",
-    "src/pages/Home.tsx",
-    "src/pages/MyBookings.tsx",
-    "src/pages/Profile.tsx",
-    "src/pages/Search.tsx",
-    "src/pages/ServiceDetail.tsx"
-  ]
+  "ownership": {
+    "skeletonOwned": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "requiredProductSlots": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/BookingFlow.tsx", "src/pages/Home.tsx", "src/pages/MyBookings.tsx", "src/pages/Profile.tsx", "src/pages/Search.tsx", "src/pages/ServiceDetail.tsx"],
+    "optionalProductSlots": [],
+    "agentEditable": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/BookingFlow.tsx", "src/pages/Home.tsx", "src/pages/MyBookings.tsx", "src/pages/Profile.tsx", "src/pages/Search.tsx", "src/pages/ServiceDetail.tsx"],
+    "agentReadOnly": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "carcassFiles": []
+  },
+  "protectedFiles": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+  "editableFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/BookingFlow.tsx", "src/pages/Home.tsx", "src/pages/MyBookings.tsx", "src/pages/Profile.tsx", "src/pages/Search.tsx", "src/pages/ServiceDetail.tsx"],
+  "deltaFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/BookingFlow.tsx", "src/pages/Home.tsx", "src/pages/MyBookings.tsx", "src/pages/Profile.tsx", "src/pages/Search.tsx", "src/pages/ServiceDetail.tsx"],
+  "requiredExports": {},
+  "qualityContract": {"minMeaningfulScreens": 4, "requiredCapabilities": ["search", "service-detail", "booking-flow", "bookings"], "requiredFlows": ["search-to-service", "service-to-booking"]},
+  "selectionContract": {"productTypes": ["booking"], "surfaces": ["search", "service-detail", "booking-flow", "bookings"], "capabilities": ["availability", "booking", "management"], "incompatibleArchetypes": ["dashboard", "marketing", "gaming"]}
 }

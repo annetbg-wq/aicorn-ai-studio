@@ -45,6 +45,10 @@ describe('Skeleton Contract Compiler — 14/14 matrix gate', () => {
     expect([...listSkeletonContractIds()].sort()).toEqual([...expectedSkeletonIds].sort());
   });
 
+  it.each(expectedSkeletonIds)('%s is a native schema-v2 manifest', id => {
+    expect(getRawSkeletonManifest(id).version).toBe(2);
+  });
+
   it.each(expectedSkeletonIds)('%s compiles into a non-ambiguous runtime contract', id => {
     const contract = compileSkeletonContract(id);
     const manifest = getRawSkeletonManifest(id);
@@ -77,11 +81,14 @@ describe('Skeleton Contract Compiler — 14/14 matrix gate', () => {
     expect(compileSkeletonContract('saas-dashboard').optionalProductSlots).toContain('src/config/routes.ts');
     expect(compileSkeletonContract('social-community').optionalProductSlots).toContain('src/config/routes.ts');
     expect(compileSkeletonContract('productivity-tool').optionalProductSlots).toContain('src/config/routes.ts');
+    expect(compileSkeletonContract('ecommerce').optionalProductSlots).toContain('src/config/routes.ts');
   });
 
   it('treats mobile routes as required and never protected', () => {
     const contract = compileSkeletonContract('mobile-app');
     expect(contract.requiredProductSlots).toContain('src/config/routes.ts');
+    expect(contract.optionalProductSlots).not.toContain('src/config/routes.ts');
     expect(contract.agentEditable).toContain('src/config/routes.ts');
+    expect(contract.agentReadOnly).not.toContain('src/config/routes.ts');
   });
 });

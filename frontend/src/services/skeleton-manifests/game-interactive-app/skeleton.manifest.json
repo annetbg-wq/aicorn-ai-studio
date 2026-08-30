@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "game-interactive-app",
   "label": "Interactive Game App",
   "workingGroups": [
@@ -13,38 +13,18 @@
     { "label": "runtime", "paths": ["src/lib/cn.ts"] },
     { "label": "pages", "paths": ["src/pages/Achievements.tsx", "src/pages/GameScreen.tsx", "src/pages/Home.tsx", "src/pages/Leaderboard.tsx", "src/pages/LevelSelect.tsx", "src/pages/Profile.tsx"] }
   ],
-  "protectedFiles": [
-    "src/main.tsx",
-    "src/index.css",
-    "src/lib/**",
-    "src/hooks/**",
-    "src/context/**",
-    "src/components/**",
-    "src/config/routes.ts",
-    "src/config/theme.ts"
-  ],
-  "editableFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/Achievements.tsx",
-    "src/pages/GameScreen.tsx",
-    "src/pages/Home.tsx",
-    "src/pages/Leaderboard.tsx",
-    "src/pages/LevelSelect.tsx",
-    "src/pages/Profile.tsx"
-  ],
-  "deltaFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/Achievements.tsx",
-    "src/pages/GameScreen.tsx",
-    "src/pages/Home.tsx",
-    "src/pages/Leaderboard.tsx",
-    "src/pages/LevelSelect.tsx",
-    "src/pages/Profile.tsx"
-  ]
+  "ownership": {
+    "skeletonOwned": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "requiredProductSlots": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Achievements.tsx", "src/pages/GameScreen.tsx", "src/pages/Home.tsx", "src/pages/Leaderboard.tsx", "src/pages/LevelSelect.tsx", "src/pages/Profile.tsx"],
+    "optionalProductSlots": [],
+    "agentEditable": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Achievements.tsx", "src/pages/GameScreen.tsx", "src/pages/Home.tsx", "src/pages/Leaderboard.tsx", "src/pages/LevelSelect.tsx", "src/pages/Profile.tsx"],
+    "agentReadOnly": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "carcassFiles": []
+  },
+  "protectedFiles": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+  "editableFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Achievements.tsx", "src/pages/GameScreen.tsx", "src/pages/Home.tsx", "src/pages/Leaderboard.tsx", "src/pages/LevelSelect.tsx", "src/pages/Profile.tsx"],
+  "deltaFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Achievements.tsx", "src/pages/GameScreen.tsx", "src/pages/Home.tsx", "src/pages/Leaderboard.tsx", "src/pages/LevelSelect.tsx", "src/pages/Profile.tsx"],
+  "requiredExports": {},
+  "qualityContract": {"minMeaningfulScreens": 4, "requiredCapabilities": ["home", "level-select", "playable-surface", "leaderboard"], "requiredFlows": ["home-to-level", "level-to-gameplay"]},
+  "selectionContract": {"productTypes": ["interactive-game"], "surfaces": ["home", "level-select", "gameplay", "leaderboard"], "capabilities": ["playable-surface", "progression", "score"], "incompatibleArchetypes": ["dashboard", "marketing", "commerce"]}
 }

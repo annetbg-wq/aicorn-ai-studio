@@ -42,9 +42,9 @@ export interface SkeletonSelectionContractV2 {
 /**
  * Canonical on-disk skeleton manifest format.
  *
- * There are intentionally no `editableFiles`, `deltaFiles`, or registry-level
- * lock lists in this contract. Required/optional/read-only ownership is explicit
- * and must have exactly one source of truth.
+ * `editableFiles` / `deltaFiles` may temporarily remain as untyped JSON mirrors
+ * while old Registry consumers are being removed, but canonical runtime code is
+ * defined exclusively by ownership + qualityContract + selectionContract here.
  */
 export interface SkeletonManifestV2 {
   version: 2;
@@ -73,6 +73,7 @@ export function validateSkeletonManifestV2(manifest: SkeletonManifestV2): string
   const optionalSet = new Set(optional);
 
   if (manifest.version !== 2) errors.push(`${manifest.id}: version must be 2`);
+  if (manifest.workingGroups.length === 0) errors.push(`${manifest.id}: workingGroups must not be empty`);
   if (required.length === 0) errors.push(`${manifest.id}: requiredProductSlots must not be empty`);
 
   for (const path of required) {
@@ -92,6 +93,30 @@ export function validateSkeletonManifestV2(manifest: SkeletonManifestV2): string
   }
   for (const path of ownership.agentReadOnly) {
     if (editableSet.has(path)) errors.push(`${manifest.id}: path is both editable and read-only: ${path}`);
+  }
+
+  const quality = manifest.qualityContract;
+  if (!Number.isInteger(quality.minMeaningfulScreens) || (quality.minMeaningfulScreens ?? 0) < 1) {
+    errors.push(`${manifest.id}: qualityContract.minMeaningfulScreens must be a positive integer`);
+  }
+  if ((quality.requiredCapabilities ?? []).length === 0) {
+    errors.push(`${manifest.id}: qualityContract.requiredCapabilities must not be empty`);
+  }
+  if ((quality.requiredFlows ?? []).length === 0) {
+    errors.push(`${manifest.id}: qualityContract.requiredFlows must not be empty`);
+  }
+
+  const selection = manifest.selectionContract;
+  const productTypes = unique(selection.productTypes ?? []);
+  const incompatible = unique(selection.incompatibleArchetypes ?? []);
+  if (productTypes.length === 0) errors.push(`${manifest.id}: selectionContract.productTypes must not be empty`);
+  if ((selection.surfaces ?? []).length === 0) errors.push(`${manifest.id}: selectionContract.surfaces must not be empty`);
+  if ((selection.capabilities ?? []).length === 0) errors.push(`${manifest.id}: selectionContract.capabilities must not be empty`);
+  if (incompatible.length === 0) errors.push(`${manifest.id}: selectionContract.incompatibleArchetypes must not be empty`);
+  for (const archetype of productTypes) {
+    if (incompatible.includes(archetype)) {
+      errors.push(`${manifest.id}: archetype is both supported and incompatible: ${archetype}`);
+    }
   }
 
   return errors;

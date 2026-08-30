@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "creator-editor-workspace",
   "label": "Creator Editor Workspace",
   "workingGroups": [
@@ -13,38 +13,18 @@
     { "label": "runtime", "paths": ["src/lib/cn.ts"] },
     { "label": "pages", "paths": ["src/pages/Analytics.tsx", "src/pages/Editor.tsx", "src/pages/Home.tsx", "src/pages/Media.tsx", "src/pages/Publications.tsx", "src/pages/Settings.tsx"] }
   ],
-  "protectedFiles": [
-    "src/main.tsx",
-    "src/index.css",
-    "src/lib/**",
-    "src/hooks/**",
-    "src/context/**",
-    "src/components/**",
-    "src/config/routes.ts",
-    "src/config/theme.ts"
-  ],
-  "editableFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/Analytics.tsx",
-    "src/pages/Editor.tsx",
-    "src/pages/Home.tsx",
-    "src/pages/Media.tsx",
-    "src/pages/Publications.tsx",
-    "src/pages/Settings.tsx"
-  ],
-  "deltaFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/Analytics.tsx",
-    "src/pages/Editor.tsx",
-    "src/pages/Home.tsx",
-    "src/pages/Media.tsx",
-    "src/pages/Publications.tsx",
-    "src/pages/Settings.tsx"
-  ]
+  "ownership": {
+    "skeletonOwned": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "requiredProductSlots": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Analytics.tsx", "src/pages/Editor.tsx", "src/pages/Home.tsx", "src/pages/Media.tsx", "src/pages/Publications.tsx", "src/pages/Settings.tsx"],
+    "optionalProductSlots": [],
+    "agentEditable": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Analytics.tsx", "src/pages/Editor.tsx", "src/pages/Home.tsx", "src/pages/Media.tsx", "src/pages/Publications.tsx", "src/pages/Settings.tsx"],
+    "agentReadOnly": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+    "carcassFiles": []
+  },
+  "protectedFiles": ["src/main.tsx", "src/index.css", "src/lib/**", "src/hooks/**", "src/context/**", "src/components/**", "src/config/routes.ts", "src/config/theme.ts"],
+  "editableFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Analytics.tsx", "src/pages/Editor.tsx", "src/pages/Home.tsx", "src/pages/Media.tsx", "src/pages/Publications.tsx", "src/pages/Settings.tsx"],
+  "deltaFiles": ["src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts", "src/pages/Analytics.tsx", "src/pages/Editor.tsx", "src/pages/Home.tsx", "src/pages/Media.tsx", "src/pages/Publications.tsx", "src/pages/Settings.tsx"],
+  "requiredExports": {},
+  "qualityContract": {"minMeaningfulScreens": 4, "requiredCapabilities": ["project-home", "editor", "media", "publishing"], "requiredFlows": ["home-to-editor", "editor-to-publication"]},
+  "selectionContract": {"productTypes": ["creator-tool"], "surfaces": ["editor", "canvas", "media", "publications"], "capabilities": ["editing", "assets", "publishing"], "incompatibleArchetypes": ["marketing", "dating", "commerce"]}
 }
