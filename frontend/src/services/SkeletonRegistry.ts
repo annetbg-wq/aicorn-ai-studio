@@ -1014,7 +1014,22 @@ export function selectSkeletonWithSafeOverrides(
     .map(skeleton => skeleton.id);
   const weakFallback = originalSelectedSkeletonId === 'mobile-app' && bestScore < 2;
 
-  for (const signal of intentSignals) {
+  // A confident tag-based selection must not be overturned by a weaker incidental
+  // intent signal. Only the strongest detected signal tier may challenge it.
+  // Ties stay eligible: e.g. a game brief can deliberately override a dashboard
+  // when game and dashboard evidence are equally strong. Weak fallbacks remain
+  // rescuable by any recognized manifest-backed intent.
+  const strongestSignalEvidence = intentSignalMatches.reduce(
+    (max, match) => Math.max(max, match.matchedKeywords.length),
+    0,
+  );
+  const arbitrationSignals = weakFallback
+    ? intentSignals
+    : intentSignalMatches
+        .filter(match => match.matchedKeywords.length === strongestSignalEvidence)
+        .map(match => match.signal);
+
+  for (const signal of arbitrationSignals) {
     const evaluation = evaluateSkeletonIntentCompatibility({
       selectedSkeletonId: originalSelectedSkeletonId,
       signal,
