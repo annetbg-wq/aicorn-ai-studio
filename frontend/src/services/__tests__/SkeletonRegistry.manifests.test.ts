@@ -14,15 +14,18 @@ import marketplacePlatformManifest from '../skeleton-manifests/marketplace-platf
 import {
   buildSkeletonPromptBlock,
   getSkeletonInstalledFiles,
-  SKELETON_REGISTRY,
+  getSkeletonProductSlotFiles,
   type SkeletonId,
 } from '../SkeletonRegistry';
 
 type Manifest = {
   id: SkeletonId;
   workingGroups: Array<{ label: string; paths: string[] }>;
-  editableFiles: string[];
-  deltaFiles: string[];
+  ownership: {
+    requiredProductSlots: string[];
+    optionalProductSlots: string[];
+    agentEditable: string[];
+  };
 };
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -112,16 +115,16 @@ describe('SkeletonRegistry manifests for new skeleton families', () => {
     }
   });
 
-  it('keeps registry deltaFiles in sync with manifests and all physical product pages', () => {
+  it('keeps required product slots in sync with manifests and all physical product pages', () => {
     for (const { id, manifest } of newSkeletons) {
       const expectedDeltaFiles = sortPaths([
         ...requiredDeltaBase,
         ...getPhysicalPagePaths(id),
       ]);
 
-      expect(sortPaths(manifest.deltaFiles), `${id} manifest deltaFiles mismatch`).toEqual(expectedDeltaFiles);
-      expect(sortPaths(manifest.editableFiles), `${id} manifest editableFiles mismatch`).toEqual(expectedDeltaFiles);
-      expect(sortPaths(SKELETON_REGISTRY[id].deltaFiles), `${id} registry deltaFiles mismatch`).toEqual(expectedDeltaFiles);
+      expect(sortPaths(manifest.ownership.requiredProductSlots), `${id} requiredProductSlots mismatch`).toEqual(expectedDeltaFiles);
+      expect(sortPaths(manifest.ownership.agentEditable), `${id} agentEditable mismatch`).toEqual(expectedDeltaFiles);
+      expect(sortPaths(getSkeletonProductSlotFiles(id)), `${id} runtime product slots mismatch`).toEqual(expectedDeltaFiles);
     }
   });
 
@@ -141,8 +144,8 @@ describe('SkeletonRegistry manifests for new skeleton families', () => {
         expect(promptBlock, `${id} prompt missing group ${group.label}`).toContain(`- ${group.label}:`);
         expect(promptBlock, `${id} prompt missing path ${group.paths[0]}`).toContain(group.paths[0]);
       }
-      for (const deltaFile of manifest.deltaFiles) {
-        expect(promptBlock, `${id} prompt missing delta file ${deltaFile}`).toContain(deltaFile);
+      for (const deltaFile of manifest.ownership.requiredProductSlots) {
+        expect(promptBlock, `${id} prompt missing required product slot ${deltaFile}`).toContain(deltaFile);
       }
     }
   });
