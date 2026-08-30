@@ -5,7 +5,7 @@ const { test, expect } = require('@playwright/test');
 
 const BASE_URL     = process.env.STUDIO_URL ?? 'http://localhost:5183';
 const FLOW_TIMEOUT = 60_000;
-const LIVE_CANARY_PROMPT = 'landing page for a simple counter product';
+const LIVE_CANARY_PROMPT = process.env.LIVE_CANARY_PROMPT ?? 'landing page for a simple counter product';
 const WATCHDOG_WINDOW_MS = readWatchdogWindowMs();
 const WATCHDOG_STABLE_TIMEOUT_MS = Math.max(
   WATCHDOG_WINDOW_MS * 3,
