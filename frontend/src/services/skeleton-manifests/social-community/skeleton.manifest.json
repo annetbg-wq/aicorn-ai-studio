@@ -1,5 +1,7 @@
 {
+  "version": 2,
   "id": "social-community",
+  "label": "Social Community",
   "workingGroups": [
     { "label": "core", "paths": ["src/App.tsx", "src/main.tsx", "src/index.css", "src/route-manifest.json"] },
     { "label": "config", "paths": ["src/config/app.ts", "src/config/routes.ts", "src/config/navigation.ts", "src/config/theme.ts"] },
@@ -10,47 +12,61 @@
     { "label": "hooks", "paths": ["src/hooks/useLocalStorage.ts", "src/hooks/useTheme.ts", "src/hooks/useFeed.ts"] },
     { "label": "runtime", "paths": ["src/context/AppContext.tsx", "src/lib/cn.ts"] }
   ],
+  "ownership": {
+    "skeletonOwned": [
+      "src/main.tsx", "src/index.css", "src/lib/**", "src/context/AppContext.tsx",
+      "src/hooks/useLocalStorage.ts", "src/hooks/useTheme.ts", "src/hooks/useFeed.ts",
+      "src/components/ui/**", "src/components/BottomTabs.tsx", "src/components/ErrorBoundary.tsx",
+      "src/components/LoadingScreen.tsx", "src/components/EmptyState.tsx", "src/components/PostCard.tsx",
+      "src/components/CommentItem.tsx", "src/components/NotificationItem.tsx", "src/components/UserAvatar.tsx"
+    ],
+    "requiredProductSlots": [
+      "src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts",
+      "src/pages/Feed.tsx", "src/pages/Explore.tsx", "src/pages/Create.tsx", "src/pages/PostDetail.tsx",
+      "src/pages/Notifications.tsx", "src/pages/Profile.tsx"
+    ],
+    "optionalProductSlots": ["src/config/routes.ts"],
+    "agentEditable": [
+      "src/config/app.ts", "src/config/routes.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts",
+      "src/pages/Feed.tsx", "src/pages/Explore.tsx", "src/pages/Create.tsx", "src/pages/PostDetail.tsx",
+      "src/pages/Notifications.tsx", "src/pages/Profile.tsx"
+    ],
+    "agentReadOnly": [
+      "src/main.tsx", "src/index.css", "src/lib/**", "src/context/AppContext.tsx",
+      "src/hooks/useLocalStorage.ts", "src/hooks/useTheme.ts", "src/hooks/useFeed.ts",
+      "src/components/ui/**", "src/components/BottomTabs.tsx", "src/components/ErrorBoundary.tsx",
+      "src/components/LoadingScreen.tsx", "src/components/EmptyState.tsx", "src/components/PostCard.tsx",
+      "src/components/CommentItem.tsx", "src/components/NotificationItem.tsx", "src/components/UserAvatar.tsx"
+    ],
+    "carcassFiles": []
+  },
   "protectedFiles": [
-    "src/main.tsx",
-    "src/index.css",
-    "src/lib/**",
-    "src/context/AppContext.tsx",
-    "src/hooks/useLocalStorage.ts",
-    "src/hooks/useTheme.ts",
-    "src/hooks/useFeed.ts",
-    "src/components/ui/**",
-    "src/components/BottomTabs.tsx",
-    "src/components/ErrorBoundary.tsx",
-    "src/components/LoadingScreen.tsx",
-    "src/components/EmptyState.tsx",
-    "src/components/PostCard.tsx",
-    "src/components/CommentItem.tsx",
-    "src/components/NotificationItem.tsx",
-    "src/components/UserAvatar.tsx"
+    "src/main.tsx", "src/index.css", "src/lib/**", "src/context/AppContext.tsx",
+    "src/hooks/useLocalStorage.ts", "src/hooks/useTheme.ts", "src/hooks/useFeed.ts",
+    "src/components/ui/**", "src/components/BottomTabs.tsx", "src/components/ErrorBoundary.tsx",
+    "src/components/LoadingScreen.tsx", "src/components/EmptyState.tsx", "src/components/PostCard.tsx",
+    "src/components/CommentItem.tsx", "src/components/NotificationItem.tsx", "src/components/UserAvatar.tsx"
   ],
   "editableFiles": [
-    "src/config/app.ts",
-    "src/config/routes.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/Feed.tsx",
-    "src/pages/Explore.tsx",
-    "src/pages/Create.tsx",
-    "src/pages/PostDetail.tsx",
-    "src/pages/Notifications.tsx",
-    "src/pages/Profile.tsx"
+    "src/config/app.ts", "src/config/routes.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts",
+    "src/pages/Feed.tsx", "src/pages/Explore.tsx", "src/pages/Create.tsx", "src/pages/PostDetail.tsx",
+    "src/pages/Notifications.tsx", "src/pages/Profile.tsx"
   ],
   "deltaFiles": [
-    "src/config/app.ts",
-    "src/config/navigation.ts",
-    "src/data/types.ts",
-    "src/data/seed.ts",
-    "src/pages/Feed.tsx",
-    "src/pages/Explore.tsx",
-    "src/pages/Create.tsx",
-    "src/pages/PostDetail.tsx",
-    "src/pages/Notifications.tsx",
-    "src/pages/Profile.tsx"
-  ]
+    "src/config/app.ts", "src/config/navigation.ts", "src/data/types.ts", "src/data/seed.ts",
+    "src/pages/Feed.tsx", "src/pages/Explore.tsx", "src/pages/Create.tsx", "src/pages/PostDetail.tsx",
+    "src/pages/Notifications.tsx", "src/pages/Profile.tsx"
+  ],
+  "requiredExports": {},
+  "qualityContract": {
+    "minMeaningfulScreens": 4,
+    "requiredCapabilities": ["feed", "create", "profile", "notifications"],
+    "requiredFlows": ["feed-to-detail", "create-post"]
+  },
+  "selectionContract": {
+    "productTypes": ["social"],
+    "surfaces": ["feed", "post-detail", "create", "notifications", "profile"],
+    "capabilities": ["feed", "publishing", "engagement"],
+    "incompatibleArchetypes": ["marketing", "dashboard", "interactive-game"]
+  }
 }
