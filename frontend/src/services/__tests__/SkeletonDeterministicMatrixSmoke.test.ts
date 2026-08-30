@@ -15,6 +15,12 @@ describe('Skeleton deterministic matrix smoke — 14/14', () => {
     expect(source).not.toContain('deltaFiles: string[]');
   });
 
+  it('keeps output truth thresholds on canonical required product slots', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../../shared/outputTruth.ts', import.meta.url), 'utf8'));
+    expect(source).toContain('fileContract.requiredProductSlots');
+    expect(source).not.toContain('SKELETON_REGISTRY[skeletonId].deltaFiles');
+  });
+
   it.each(listSkeletonContractIds())('%s has no legacy manifest file-policy mirrors', id => {
     const manifest = getRawSkeletonManifest(id) as unknown as Record<string, unknown>;
     expect(manifest).not.toHaveProperty('editableFiles');
