@@ -1,0 +1,99 @@
+name: One-off quality contract runtime migration
+on:
+  push:
+    branches: [refactor/skeleton-quality-contract-runtime]
+    paths: ['.github/workflows/_oneoff_quality_contract_runtime.yml']
+permissions:
+  contents: write
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/skeleton-quality-contract-runtime
+      - name: Wire manifest quality contract into ProtoPipeline
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('frontend/src/services/ProtoPipeline.ts')
+          s = p.read_text()
+          marker = "} from './SkeletonRegistry';\n"
+          quality_import = "import { getSkeletonQualityContract } from './SkeletonQualityContract';\n"
+          if quality_import not in s:
+              if marker not in s:
+                  raise SystemExit('SkeletonRegistry import marker not found')
+              s = s.replace(marker, marker + quality_import, 1)
+
+          old = "  if (input.skeletonId === 'saas-dashboard' && meaningfulScreenFiles.length < 3) {\n    visualUsageNotes.push('SaaS dashboard selected but fewer than 3 meaningful screens were observed.');\n  }"
+          new = "  const qualityContract = getSkeletonQualityContract(input.skeletonId);\n  if (meaningfulScreenFiles.length < qualityContract.minMeaningfulScreens) {\n    visualUsageNotes.push(\n      `${input.skeletonId} quality contract requires at least ${qualityContract.minMeaningfulScreens} meaningful screens; observed ${meaningfulScreenFiles.length}.`,\n    );\n  }"
+          if old not in s:
+              raise SystemExit('SaaS-specific meaningful-screen rule not found')
+          s = s.replace(old, new, 1)
+          if "input.skeletonId === 'saas-dashboard' && meaningfulScreenFiles.length < 3" in s:
+              raise SystemExit('SaaS quality hardcode remains')
+          p.write_text(s)
+          PY
+
+          cat > frontend/src/services/__tests__/SkeletonQualityRuntime.test.ts <<'EOF'
+          import { describe, expect, it } from 'vitest';
+          import { buildVisualUsageDiagnostics } from '../ProtoPipeline';
+          import { getSkeletonQualityContract, listSkeletonQualityContractIds } from '../SkeletonQualityContract';
+
+          describe('Skeleton quality contract runtime — 14/14', () => {
+            it('covers all 14 skeletons with a positive meaningful-screen threshold', () => {
+              const ids = listSkeletonQualityContractIds();
+              expect(ids).toHaveLength(14);
+              for (const id of ids) {
+                const contract = getSkeletonQualityContract(id);
+                expect(contract.minMeaningfulScreens).toBeGreaterThan(0);
+                expect(contract.requiredCapabilities.length).toBeGreaterThan(0);
+                expect(contract.requiredFlows.length).toBeGreaterThan(0);
+              }
+            });
+
+            it('preserves representative manifest thresholds', () => {
+              expect(getSkeletonQualityContract('landing-page').minMeaningfulScreens).toBe(1);
+              expect(getSkeletonQualityContract('saas-dashboard').minMeaningfulScreens).toBe(3);
+              expect(getSkeletonQualityContract('mobile-app').minMeaningfulScreens).toBe(4);
+              expect(getSkeletonQualityContract('ecommerce').minMeaningfulScreens).toBe(5);
+            });
+
+            it.each([
+              ['landing-page', 1],
+              ['saas-dashboard', 3],
+              ['mobile-app', 4],
+              ['ecommerce', 5],
+            ] as const)('%s diagnostics enforce its manifest threshold', (skeletonId, minScreens) => {
+              const result = buildVisualUsageDiagnostics({
+                files: {},
+                skeletonId,
+                selectedPremiumComponentIds: [],
+                materializedMediaFiles: [],
+              });
+              expect(result.meaningfulScreenCount).toBe(0);
+              expect(result.visualUsageNotes).toContain(
+                `${skeletonId} quality contract requires at least ${minScreens} meaningful screens; observed 0.`,
+              );
+            });
+
+            it('contains no SaaS-only meaningful-screen quality branch', async () => {
+              const source = await import('node:fs/promises').then(fs =>
+                fs.readFile(new URL('../ProtoPipeline.ts', import.meta.url), 'utf8'),
+              );
+              expect(source).toContain('qualityContract.minMeaningfulScreens');
+              expect(source).not.toContain("input.skeletonId === 'saas-dashboard' && meaningfulScreenFiles.length < 3");
+            });
+          });
+          EOF
+          sed -i 's/^          //' frontend/src/services/__tests__/SkeletonQualityRuntime.test.ts
+          rm .github/workflows/_oneoff_quality_contract_runtime.yml
+      - name: Commit quality migration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src/services/ProtoPipeline.ts frontend/src/services/__tests__/SkeletonQualityRuntime.test.ts .github/workflows/_oneoff_quality_contract_runtime.yml
+          git commit -m 'refactor: enforce manifest quality contract for all skeletons'
+          git push origin HEAD:refactor/skeleton-quality-contract-runtime
