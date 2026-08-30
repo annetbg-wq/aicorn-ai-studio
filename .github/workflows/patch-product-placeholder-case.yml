@@ -1,0 +1,89 @@
+name: Patch PRODUCT Placeholder Case
+
+on:
+  push:
+    branches:
+      - fix/live-preview-bootstrap-iframe
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/live-preview-bootstrap-iframe
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Patch detector and regression test
+        shell: python
+        run: |
+          from pathlib import Path
+
+          proto = Path('frontend/src/services/ProtoPipeline.ts')
+          s = proto.read_text()
+          old = "  { label: 'PRODUCT', rx: /\\bPRODUCT\\b/i },"
+          new = "  { label: 'PRODUCT', rx: /\\bPRODUCT\\b/ },"
+          if old not in s:
+              raise SystemExit('PRODUCT placeholder rule anchor not found')
+          s = s.replace(old, new, 1)
+          proto.write_text(s)
+
+          test = Path('frontend/src/services/__tests__/PrototypeQualityGate.test.ts')
+          t = test.read_text()
+          import_anchor = "  computeRepairScopedFiles,\n  type PrototypeQualityGateInput,"
+          if 'buildVisualUsageDiagnostics,' not in t:
+              if import_anchor not in t:
+                  raise SystemExit('test import anchor not found')
+              t = t.replace(import_anchor, "  computeRepairScopedFiles,\n  buildVisualUsageDiagnostics,\n  type PrototypeQualityGateInput,", 1)
+
+          test_anchor = "describe('evaluatePrototypeQualityGate', () => {\n"
+          regression = r'''describe('generic PRODUCT placeholder detection', () => {
+  it('flags the uppercase skeleton token but allows normal product copy', () => {
+    const normalCopy = buildVisualUsageDiagnostics({
+      files: {
+        'App.tsx': 'export default function App() { return <main><section aria-label="Product preview">Show product proof</section></main>; }',
+      },
+      skeletonId: 'landing-page',
+      selectedPremiumComponentIds: [],
+      materializedMediaFiles: [],
+    });
+    expect(normalCopy.genericPlaceholderFindings).not.toContain('App.tsx: PRODUCT');
+
+    const skeletonToken = buildVisualUsageDiagnostics({
+      files: {
+        'App.tsx': 'export default function App() { return <main>PRODUCT</main>; }',
+      },
+      skeletonId: 'landing-page',
+      selectedPremiumComponentIds: [],
+      materializedMediaFiles: [],
+    });
+    expect(skeletonToken.genericPlaceholderFindings).toContain('App.tsx: PRODUCT');
+  });
+});
+
+'''
+          if "describe('generic PRODUCT placeholder detection'" not in t:
+              if test_anchor not in t:
+                  raise SystemExit('test insertion anchor not found')
+              t = t.replace(test_anchor, regression + test_anchor, 1)
+          test.write_text(t)
+      - name: Validate targeted regression
+        run: |
+          npm ci --prefix frontend
+          npm run typecheck --prefix frontend
+          npx vitest run frontend/src/services/__tests__/PrototypeQualityGate.test.ts --config frontend/vite.config.ts
+      - name: Commit and self-remove
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-product-placeholder-case.yml
+          git add frontend/src/services/ProtoPipeline.ts frontend/src/services/__tests__/PrototypeQualityGate.test.ts
+          git commit -m "fix(preview): distinguish PRODUCT token from product copy"
+          git push origin HEAD:fix/live-preview-bootstrap-iframe
