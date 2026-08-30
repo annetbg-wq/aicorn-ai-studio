@@ -293,52 +293,64 @@ let coreCache: CoreManifest | null = null;
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
+// Network-backed prototype-bank reads are optional enrichment. Vitest must never
+// wait on Supabase before using the deterministic built-in contracts.
+const USE_BUILTIN_PROTOTYPE_BANK = import.meta.env.MODE === 'test';
+
 export const PrototypeBankService = {
   async getArchetypes(): Promise<ArchetypeManifest[]> {
     if (archetypesCache) return archetypesCache;
+    if (USE_BUILTIN_PROTOTYPE_BANK) return BUILTIN_ARCHETYPES;
     try {
       const { data, error } = await supabase.from('prototype_archetypes').select('manifest');
       if (error || !data?.length) throw new Error('fallback');
       archetypesCache = data.map(r => r.manifest as ArchetypeManifest);
       return archetypesCache;
     } catch {
-      return BUILTIN_ARCHETYPES;
+      archetypesCache = BUILTIN_ARCHETYPES;
+      return archetypesCache;
     }
   },
 
   async getDomains(): Promise<DomainManifest[]> {
     if (domainsCache) return domainsCache;
+    if (USE_BUILTIN_PROTOTYPE_BANK) return BUILTIN_DOMAINS;
     try {
       const { data, error } = await supabase.from('prototype_domains').select('manifest');
       if (error || !data?.length) throw new Error('fallback');
       domainsCache = data.map(r => r.manifest as DomainManifest);
       return domainsCache;
     } catch {
-      return BUILTIN_DOMAINS;
+      domainsCache = BUILTIN_DOMAINS;
+      return domainsCache;
     }
   },
 
   async getModules(): Promise<ModuleManifest[]> {
     if (modulesCache) return modulesCache;
+    if (USE_BUILTIN_PROTOTYPE_BANK) return BUILTIN_MODULES;
     try {
       const { data, error } = await supabase.from('prototype_modules').select('manifest');
       if (error || !data?.length) throw new Error('fallback');
       modulesCache = data.map(r => r.manifest as ModuleManifest);
       return modulesCache;
     } catch {
-      return BUILTIN_MODULES;
+      modulesCache = BUILTIN_MODULES;
+      return modulesCache;
     }
   },
 
   async getCoreManifest(): Promise<CoreManifest> {
     if (coreCache) return coreCache;
+    if (USE_BUILTIN_PROTOTYPE_BANK) return BUILTIN_CORE;
     try {
       const { data, error } = await supabase.from('prototype_core').select('manifest').eq('id', 'core').single();
       if (error || !data) throw new Error('fallback');
       coreCache = data.manifest as CoreManifest;
       return coreCache;
     } catch {
-      return BUILTIN_CORE;
+      coreCache = BUILTIN_CORE;
+      return coreCache;
     }
   },
 
