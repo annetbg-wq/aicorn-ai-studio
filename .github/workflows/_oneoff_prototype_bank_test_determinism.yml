@@ -1,0 +1,55 @@
+name: One-off prototype bank test determinism fix
+on:
+  push:
+    paths:
+      - '.github/workflows/_oneoff_prototype_bank_test_determinism.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/skeleton-quality-contract-runtime
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Make prototype bank deterministic in tests and cache fallbacks
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/services/PrototypeBankService.ts')
+          s = p.read_text()
+          marker = "// ─── Service ──────────────────────────────────────────────────────────────────\n\n"
+          helper = """// Network-backed prototype-bank reads are optional enrichment. Vitest must never\n// wait on Supabase before using the deterministic built-in contracts.\nconst USE_BUILTIN_PROTOTYPE_BANK = import.meta.env.MODE === 'test';\n\n"""
+          if helper not in s:
+              s = s.replace(marker, marker + helper, 1)
+
+          replacements = {
+          """  async getArchetypes(): Promise<ArchetypeManifest[]> {\n    if (archetypesCache) return archetypesCache;\n    try {""": """  async getArchetypes(): Promise<ArchetypeManifest[]> {\n    if (archetypesCache) return archetypesCache;\n    if (USE_BUILTIN_PROTOTYPE_BANK) return BUILTIN_ARCHETYPES;\n    try {""",
+          """    } catch {\n      return BUILTIN_ARCHETYPES;\n    }\n  },\n\n  async getDomains()""": """    } catch {\n      archetypesCache = BUILTIN_ARCHETYPES;\n      return archetypesCache;\n    }\n  },\n\n  async getDomains()""",
+          """  async getDomains(): Promise<DomainManifest[]> {\n    if (domainsCache) return domainsCache;\n    try {""": """  async getDomains(): Promise<DomainManifest[]> {\n    if (domainsCache) return domainsCache;\n    if (USE_BUILTIN_PROTOTYPE_BANK) return BUILTIN_DOMAINS;\n    try {""",
+          """    } catch {\n      return BUILTIN_DOMAINS;\n    }\n  },\n\n  async getModules()""": """    } catch {\n      domainsCache = BUILTIN_DOMAINS;\n      return domainsCache;\n    }\n  },\n\n  async getModules()""",
+          """  async getModules(): Promise<ModuleManifest[]> {\n    if (modulesCache) return modulesCache;\n    try {""": """  async getModules(): Promise<ModuleManifest[]> {\n    if (modulesCache) return modulesCache;\n    if (USE_BUILTIN_PROTOTYPE_BANK) return BUILTIN_MODULES;\n    try {""",
+          """    } catch {\n      return BUILTIN_MODULES;\n    }\n  },\n\n  async getCoreManifest()""": """    } catch {\n      modulesCache = BUILTIN_MODULES;\n      return modulesCache;\n    }\n  },\n\n  async getCoreManifest()""",
+          """  async getCoreManifest(): Promise<CoreManifest> {\n    if (coreCache) return coreCache;\n    try {""": """  async getCoreManifest(): Promise<CoreManifest> {\n    if (coreCache) return coreCache;\n    if (USE_BUILTIN_PROTOTYPE_BANK) return BUILTIN_CORE;\n    try {""",
+          """    } catch {\n      return BUILTIN_CORE;\n    }\n  },\n\n  async getArchetype(id: string)""": """    } catch {\n      coreCache = BUILTIN_CORE;\n      return coreCache;\n    }\n  },\n\n  async getArchetype(id: string)""",
+          }
+          for old, new in replacements.items():
+              if old not in s:
+                  raise SystemExit(f'expected block not found: {old[:60]!r}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          test = Path('frontend/src/services/__tests__/PrototypeBankService.test.ts')
+          if test.exists():
+              t = test.read_text()
+              # Existing suite will exercise the service; no destructive rewrite.
+          PY
+          rm .github/workflows/_oneoff_prototype_bank_test_determinism.yml
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src/services/PrototypeBankService.ts .github/workflows/_oneoff_prototype_bank_test_determinism.yml
+          git commit -m 'fix: keep prototype bank deterministic in tests'
+          git push origin HEAD:refactor/skeleton-quality-contract-runtime
