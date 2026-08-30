@@ -1,0 +1,48 @@
+name: One-off finalize Registry consumers
+on:
+  push:
+    branches: [refactor/skeleton-registry-canonical-runtime]
+    paths: ['.github/workflows/_oneoff_finalize_registry_consumers.yml']
+permissions:
+  contents: write
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/skeleton-registry-canonical-runtime
+      - name: Finalize metadata and required-slot consumers
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('frontend/src/shared/outputTruth.ts')
+          s = p.read_text()
+          s = s.replace("import {\n  getSkeletonInstalledFiles,\n  getSkeletonProductSlotFiles,", "import {\n  SKELETON_REGISTRY,\n  getSkeletonInstalledFiles,")
+          if "import { getSkeletonRuntimePolicy } from '../services/SkeletonRuntimePolicy';" not in s:
+              marker = "} from '../services/SkeletonRegistry';\n"
+              s = s.replace(marker, marker + "import { getSkeletonRuntimePolicy } from '../services/SkeletonRuntimePolicy';\n", 1)
+          s = s.replace("const skeletonProductSlots = skeletonId\n    ? getSkeletonProductSlotFiles(skeletonId).map(normalizeProjectPath)\n    : [];", "const skeletonProductSlots = skeletonId\n    ? getSkeletonRuntimePolicy(skeletonId).fileContract.requiredProductSlots.map(normalizeProjectPath)\n    : [];")
+          if 'getSkeletonProductSlotFiles' in s:
+              raise SystemExit('outputTruth still uses broad product-slot adapter')
+          if 'SKELETON_REGISTRY[skeletonId].deltaFiles' in s:
+              raise SystemExit('outputTruth legacy file policy remains')
+          p.write_text(s)
+
+          p = Path('frontend/src/services/__tests__/SkeletonRegistry.manifests.test.ts')
+          s = p.read_text()
+          s = s.replace("  getSkeletonProductSlotFiles,\n  type SkeletonId,", "  getSkeletonProductSlotFiles,\n  SKELETON_REGISTRY,\n  type SkeletonId,")
+          if 'SKELETON_REGISTRY[id].deltaFiles' in s:
+              raise SystemExit('manifest test legacy file policy remains')
+          p.write_text(s)
+          PY
+          rm .github/workflows/_oneoff_finalize_registry_consumers.yml
+      - name: Commit final consumer migration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src/shared/outputTruth.ts frontend/src/services/__tests__/SkeletonRegistry.manifests.test.ts .github/workflows/_oneoff_finalize_registry_consumers.yml
+          git commit -m 'fix: preserve Registry metadata consumers only'
+          git push origin HEAD:refactor/skeleton-registry-canonical-runtime
