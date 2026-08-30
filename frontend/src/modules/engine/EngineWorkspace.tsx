@@ -205,6 +205,29 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
 }) {
   const isDark = theme !== 'light';
 
+  // PreviewController is the authoritative owner of the build target. Subscribe
+  // directly so the iframe exists as soon as a build enters `compiling`.
+  // `previewUrl` from useStudio remains a compatible upstream projection, while
+  // readiness is still gated exclusively by the real `preview-mounted` handshake.
+  const [controllerPreviewTarget, setControllerPreviewTarget] = React.useState(() => {
+    const state = previewController.getState();
+    const buildId = state.expectingBuildId ?? state.activeRevisionId ?? '';
+    return buildId
+      ? `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/preview/${buildId}`
+      : '';
+  });
+  React.useEffect(() => previewController.subscribe((state) => {
+    const buildId = state.expectingBuildId ?? state.activeRevisionId ?? '';
+    if (!buildId) {
+      if (state.status === 'idle') setControllerPreviewTarget('');
+      return;
+    }
+    const target = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000'}/preview/${buildId}`;
+    setControllerPreviewTarget(prev => (prev === target ? prev : target));
+  }), []);
+
+  const effectivePreviewUrl = previewUrl || controllerPreviewTarget;
+
   const currentProjectMeta =
     projects.find((p: { id: string; name?: string; activeBranchId?: string }) => p.id === currentProjectId);
   const latestContextTitle = composerContextItems.length > 0
@@ -415,7 +438,7 @@ export const EngineWorkspace = React.memo<EngineWorkspaceProps>(function EngineW
             previewLifecycle={previewLifecycle}
             previewBlockedReason={previewBlockedReason}
             projectId={currentProjectId ?? ''}
-            previewUrl={previewUrl}
+            previewUrl={effectivePreviewUrl}
             appLanguage={appLanguage}
             onVisualElementSelected={handleVisualElementSelected}
           />
