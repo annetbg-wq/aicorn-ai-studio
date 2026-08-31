@@ -197,7 +197,7 @@ async function waitForPreviewHook(page) {
   }).toPass({ timeout: 10_000, intervals: [200, 500, 1_000] });
 }
 
-async function mountRealMobilePreview(page, files, marker) {
+async function mountRealMobilePreview(page, files, startMarker) {
   await page.evaluate((productFiles) => {
     window.__MOBILE_PREVIEW_RESULT = 'pending';
     window.__E2E_PREVIEW_TEST.mountPreview(productFiles, 'mobile-app')
@@ -242,8 +242,11 @@ async function mountRealMobilePreview(page, files, marker) {
     element.src = next.toString();
   });
 
+  // The unchanged mobile skeleton owns initial routing and intentionally starts on
+  // onboarding for a fresh profile. Verify the scenario-specific product content on
+  // that real first route instead of forcing Home and taking route ownership in the test.
   const frame = page.frameLocator('[data-testid="preview-iframe"]');
-  await expect(frame.locator('body')).toContainText(marker, { timeout: FLOW_TIMEOUT });
+  await expect(frame.locator('body')).toContainText(startMarker, { timeout: FLOW_TIMEOUT });
 
   await expect.poll(
     () => page.evaluate(() => window.__MOBILE_PREVIEW_RESULT),
@@ -270,7 +273,7 @@ test.describe('mobile product delta → real preview matrix', () => {
       await openStudio(page);
       await page.evaluate(() => localStorage.setItem('AIC_E2E_BLUEPRINT_SHORTCUT', '1'));
       await waitForPreviewHook(page);
-      await mountRealMobilePreview(page, files, scenario.marker);
+      await mountRealMobilePreview(page, files, `Welcome to ${scenario.appName}`);
     });
   }
 });
