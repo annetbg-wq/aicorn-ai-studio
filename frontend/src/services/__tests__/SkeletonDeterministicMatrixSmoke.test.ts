@@ -17,6 +17,21 @@ describe('Skeleton deterministic matrix smoke — 14/14', () => {
     expect(source).not.toContain('SKELETON_MANIFESTS');
   });
 
+  it('keeps raw manifest reads outside runtime adapters', async () => {
+    const fs = await import('node:fs/promises');
+    const runtimeSources = [
+      '../SkeletonRegistry.ts',
+      '../SkeletonQualityContract.ts',
+      '../SkeletonSelectionCompatibility.ts',
+      '../SkeletonRuntimePolicy.ts',
+    ];
+
+    for (const relativePath of runtimeSources) {
+      const source = await fs.readFile(new URL(relativePath, import.meta.url), 'utf8');
+      expect(source, `${relativePath} must consume the compiled contract`).not.toContain('getRawSkeletonManifest');
+    }
+  });
+
   it('keeps output truth thresholds on canonical compiled required slots', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../../shared/outputTruth.ts', import.meta.url), 'utf8'));
     expect(source).toContain('.requiredSlots.map(normalizeProjectPath)');
