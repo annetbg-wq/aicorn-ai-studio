@@ -408,7 +408,7 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
   const genericFallbackHits = matchRuleHits(files, uniqueChangedPaths, GENERIC_FALLBACK_RULES, 'generic-fallback');
   const blockers: OutputTruthBlocker[] = [];
   const skeletonProductSlots = skeletonId
-    ? getSkeletonRuntimePolicy(skeletonId).fileContract.requiredProductSlots.map(normalizeProjectPath)
+    ? getSkeletonRuntimePolicy(skeletonId).requiredSlots.map(normalizeProjectPath)
     : [];
   const skeletonDeltaClasses = skeletonId
     ? getStructureClassesForPaths(skeletonProductSlots, previewEntryFile)
