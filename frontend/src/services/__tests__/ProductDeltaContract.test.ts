@@ -67,6 +67,7 @@ describe('ProductDeltaContract', () => {
     expect(scope.required).not.toContain('config/routes.ts');
     expect(scope.allowed).toContain('config/routes.ts');
   });
+
   it('makes writable navigation product slots authoritative over legacy read-only wording', () => {
     const contract = buildSkeletonContractForCoder('mobile-app');
 
@@ -75,5 +76,4 @@ describe('ProductDeltaContract', () => {
     expect(contract).not.toContain('BOTTOM_TABS is read-only');
     expect(contract).toContain('Import BottomTabs from @/components/BottomTabs');
   });
-
 });
