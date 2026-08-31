@@ -23,24 +23,37 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Apply deterministic product-delta boundary
         run: python scripts/stage4_product_delta_patch.py
-      - name: Finish legacy apply telemetry migration
+      - name: Finish Stage 4 invariants
         shell: bash
         run: |
           python <<'PY'
           from pathlib import Path
-          p = Path('frontend/src/services/ProtoPipeline.ts')
-          text = p.read_text()
+
+          pipeline = Path('frontend/src/services/ProtoPipeline.ts')
+          text = pipeline.read_text()
           old = "warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined"
           new = "warnings: productDeltaFilter.rejected.length > 0 ? [`${productDeltaFilter.rejected.length} out-of-scope file(s) ignored`] : undefined"
           count = text.count(old)
           if count != 2:
               raise SystemExit(f'expected 2 legacy droppedProtected telemetry references, found {count}')
-          p.write_text(text.replace(old, new))
+          pipeline.write_text(text.replace(old, new))
+
+          matrix = Path('frontend/src/services/__tests__/SkeletonDeterministicMatrixSmoke.test.ts')
+          matrix_text = matrix.read_text()
+          old_assert = "    expect(productSlots).toEqual(policy.editable);"
+          new_assert = "    expect(productSlots).toEqual([...new Set([...policy.requiredSlots, ...policy.optionalSlots])].sort((a, b) => a.localeCompare(b)));"
+          if matrix_text.count(old_assert) != 1:
+              raise SystemExit('expected exactly one legacy productSlots === editable invariant')
+          matrix.write_text(matrix_text.replace(old_assert, new_assert, 1))
           PY
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
       - name: Typecheck and targeted Stage 4 tests
         shell: bash
+        env:
+          VITE_OPENROUTER_API_KEY: placeholder
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-anon-key
         run: |
           cd frontend
           npx tsc --noEmit
