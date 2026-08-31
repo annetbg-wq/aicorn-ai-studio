@@ -1,30 +1,13 @@
 import type { SkeletonId } from './SkeletonRegistry';
 import { compileSkeletonContract, type CompiledSkeletonContract } from './SkeletonContractCompiler';
-import { getSkeletonQualityContract, type SkeletonQualityContract } from './SkeletonQualityContract';
-import {
-  getSkeletonSelectionCompatibility,
-  type SkeletonSelectionCompatibilityContract,
-} from './SkeletonSelectionCompatibility';
 
-export interface SkeletonRuntimePolicy {
-  id: SkeletonId;
-  fileContract: CompiledSkeletonContract;
-  qualityContract: SkeletonQualityContract;
-  selectionCompatibility: SkeletonSelectionCompatibilityContract;
-}
+export type SkeletonRuntimePolicy = CompiledSkeletonContract;
 
 /**
  * Canonical runtime entry point for every stage that needs skeleton behaviour.
- *
- * Architect, coder, Pass 2, quality, selection diagnostics and future matrix
- * smoke tests should consume this object instead of reconstructing semantics
- * independently from registry fields or manifest fallbacks.
+ * The returned object is the compiler output itself: no secondary file/quality/
+ * selection assemblers and no additional raw-manifest reads.
  */
 export function getSkeletonRuntimePolicy(id: SkeletonId): SkeletonRuntimePolicy {
-  return {
-    id,
-    fileContract: compileSkeletonContract(id),
-    qualityContract: getSkeletonQualityContract(id),
-    selectionCompatibility: getSkeletonSelectionCompatibility(id),
-  };
+  return compileSkeletonContract(id);
 }
