@@ -22,23 +22,22 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
+
           p = Path('frontend/src/hooks/useStudio.ts')
           s = p.read_text(encoding='utf-8')
+
           old_sig = 'mountPreview: async (previewFiles: FileMap) => {'
           new_sig = 'mountPreview: async (previewFiles: FileMap, skeletonId?: string) => {'
           if s.count(old_sig) != 1:
               raise SystemExit(f'expected one mountPreview signature, got {s.count(old_sig)}')
           s = s.replace(old_sig, new_sig, 1)
-          old_body = """          body: JSON.stringify({
-            sessionId,
-            files: Object.fromEntries("""
-          new_body = """          body: JSON.stringify({
-            sessionId,
-            skeletonId,
-            files: Object.fromEntries("""
-          if s.count(old_body) != 1:
-              raise SystemExit(f'expected one preview compile body, got {s.count(old_body)}')
-          s = s.replace(old_body, new_body, 1)
+
+          pattern = r'(body: JSON\.stringify\(\{\n\s*sessionId,\n)(\s*files: Object\.fromEntries)'
+          s, count = re.subn(pattern, r'\1            skeletonId,\n\2', s, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one preview compile body, got {count}')
+
           p.write_text(s, encoding='utf-8')
           PY
       - name: Commit patch and remove one-off workflow
