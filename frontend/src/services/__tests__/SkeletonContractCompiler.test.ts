@@ -49,46 +49,65 @@ describe('Skeleton Contract Compiler — 14/14 matrix gate', () => {
     expect(getRawSkeletonManifest(id).version).toBe(2);
   });
 
-  it.each(expectedSkeletonIds)('%s compiles into a non-ambiguous runtime contract', id => {
+  it.each(expectedSkeletonIds)('%s compiles into one semantic runtime contract', id => {
     const contract = compileSkeletonContract(id);
     const manifest = getRawSkeletonManifest(id);
 
     expect(contract.version).toBe(2);
     expect(contract.id).toBe(id);
-    expect(contract.requiredProductSlots.length).toBeGreaterThan(0);
-    expect(contract.agentEditable).toEqual(expect.arrayContaining(contract.requiredProductSlots));
+    expect(contract.requiredSlots.length).toBeGreaterThan(0);
+    expect(contract.editable).toEqual(expect.arrayContaining(contract.requiredSlots));
+    expect(contract.infrastructure.installed.length).toBeGreaterThan(0);
+    expect(contract.quality.minMeaningfulScreens).toBeGreaterThan(0);
+    expect(contract.quality.requiredCapabilities.length).toBeGreaterThan(0);
+    expect(contract.quality.requiredFlows.length).toBeGreaterThan(0);
+    expect(contract.selection.productTypes.length).toBeGreaterThan(0);
 
-    for (const requiredPath of contract.requiredProductSlots) {
-      expect(contract.optionalProductSlots).not.toContain(requiredPath);
+    for (const requiredPath of contract.requiredSlots) {
+      expect(contract.optionalSlots).not.toContain(requiredPath);
       expect(pathExists(id, requiredPath), `${id} missing required product slot ${requiredPath}`).toBe(true);
     }
 
-    for (const optionalPath of contract.optionalProductSlots) {
+    for (const optionalPath of contract.optionalSlots) {
       expect(pathExists(id, optionalPath), `${id} missing optional product slot ${optionalPath}`).toBe(true);
     }
 
-    for (const protectedPath of contract.protectedFiles) {
+    for (const protectedPath of contract.infrastructure.protected) {
       expect(pathExists(id, protectedPath), `${id} protected path does not exist: ${protectedPath}`).toBe(true);
     }
 
-    expect(new Set(contract.agentEditable).size).toBe(contract.agentEditable.length);
-    expect(new Set(contract.requiredProductSlots).size).toBe(contract.requiredProductSlots.length);
-    expect(new Set(contract.optionalProductSlots).size).toBe(contract.optionalProductSlots.length);
+    expect(new Set(contract.editable).size).toBe(contract.editable.length);
+    expect(new Set(contract.requiredSlots).size).toBe(contract.requiredSlots.length);
+    expect(new Set(contract.optionalSlots).size).toBe(contract.optionalSlots.length);
     expect(manifest.id).toBe(id);
   });
 
-  it('makes editable-but-not-required routes explicit optional product slots', () => {
-    expect(compileSkeletonContract('saas-dashboard').optionalProductSlots).toContain('src/config/routes.ts');
-    expect(compileSkeletonContract('social-community').optionalProductSlots).toContain('src/config/routes.ts');
-    expect(compileSkeletonContract('productivity-tool').optionalProductSlots).toContain('src/config/routes.ts');
-    expect(compileSkeletonContract('ecommerce').optionalProductSlots).toContain('src/config/routes.ts');
+  it('keeps deprecated aliases identical while consumers migrate one-by-one', () => {
+    for (const id of expectedSkeletonIds) {
+      const contract = compileSkeletonContract(id);
+      expect(contract.requiredProductSlots).toBe(contract.requiredSlots);
+      expect(contract.optionalProductSlots).toBe(contract.optionalSlots);
+      expect(contract.agentEditable).toBe(contract.editable);
+      expect(contract.agentReadOnly).toBe(contract.reusable);
+      expect(contract.protectedFiles).toBe(contract.infrastructure.protected);
+      expect(contract.skeletonOwned).toBe(contract.infrastructure.owned);
+      expect(contract.carcassFiles).toBe(contract.infrastructure.carcass);
+      expect(contract.requiredExports).toBe(contract.infrastructure.requiredExports);
+    }
   });
 
-  it('treats mobile routes as required and never protected', () => {
+  it('makes editable-but-not-required routes explicit optional product slots', () => {
+    expect(compileSkeletonContract('saas-dashboard').optionalSlots).toContain('src/config/routes.ts');
+    expect(compileSkeletonContract('social-community').optionalSlots).toContain('src/config/routes.ts');
+    expect(compileSkeletonContract('productivity-tool').optionalSlots).toContain('src/config/routes.ts');
+    expect(compileSkeletonContract('ecommerce').optionalSlots).toContain('src/config/routes.ts');
+  });
+
+  it('treats mobile routes as required, editable and never reusable', () => {
     const contract = compileSkeletonContract('mobile-app');
-    expect(contract.requiredProductSlots).toContain('src/config/routes.ts');
-    expect(contract.optionalProductSlots).not.toContain('src/config/routes.ts');
-    expect(contract.agentEditable).toContain('src/config/routes.ts');
-    expect(contract.agentReadOnly).not.toContain('src/config/routes.ts');
+    expect(contract.requiredSlots).toContain('src/config/routes.ts');
+    expect(contract.optionalSlots).not.toContain('src/config/routes.ts');
+    expect(contract.editable).toContain('src/config/routes.ts');
+    expect(contract.reusable).not.toContain('src/config/routes.ts');
   });
 });
