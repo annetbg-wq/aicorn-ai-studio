@@ -21,6 +21,17 @@ const MOBILE_PREVIEW_FILES = {
     '  </main>;',
     '}',
   ].join('\n'),
+  'src/data/seed.ts': [
+    "export const HABITS = [{ id: 'hydrate', title: 'Drink water', streak: 7 }];",
+    'export const habits = HABITS;',
+    'export const seed = HABITS;',
+    'export const SEED = HABITS;',
+    "export const PAYWALL_FEATURES = ['Unlimited habits', 'Progress insights'];",
+    'export const paywallFeatures = PAYWALL_FEATURES;',
+    "export const SUBSCRIPTION_PLANS = [{ id: 'pro', name: 'Pro', price: 4.99 }];",
+    'export const subscriptionPlans = SUBSCRIPTION_PLANS;',
+    'export default HABITS;',
+  ].join('\n'),
   'src/components/EmptyState.tsx': [
     'export default function EmptyState() {',
     '  return <aside data-testid="reusable-empty-state">Reusable skeleton state</aside>;',
