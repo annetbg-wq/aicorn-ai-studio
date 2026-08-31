@@ -92,11 +92,6 @@ interface SkeletonManifestGroup {
   paths: string[];
 }
 
-export interface SkeletonOwnershipContract {
-  ownedBySkeleton: string[];
-  productSlots: string[];
-}
-
 interface SkeletonManifestOwnershipContract {
   skeletonOwned: string[];
   requiredProductSlots: string[];
@@ -1126,38 +1121,9 @@ export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
   return uniqueSorted(manifest.ownership.agentEditable);
 }
 
-function deriveOwnedSkeletonShellFiles(manifest: SkeletonManifest | undefined): string[] {
-  if (!manifest) return [];
-  const explicit = manifest.ownership.skeletonOwned;
-  if (explicit.length > 0) {
-    return uniqueSorted(explicit);
-  }
-
-  return uniqueSorted(
-    manifest.protectedFiles.filter(path => (
-      path === 'src/App.tsx'
-      || path === 'src/main.tsx'
-      || path === 'src/index.css'
-      || path === 'src/route-manifest.json'
-      || /^src\/components\/(?:AppShell|BottomTabs|DashboardShell|Nav|NavigationShell|Sidebar|TopBar|Topbar)\.tsx$/i.test(path)
-    )),
-  );
-}
-
-export function getSkeletonOwnershipContract(skeletonId: SkeletonId): SkeletonOwnershipContract {
-  const manifest = SKELETON_MANIFESTS[skeletonId];
-  return {
-    ownedBySkeleton: deriveOwnedSkeletonShellFiles(manifest),
-    productSlots: uniqueSorted(manifest?.ownership.agentEditable ?? []),
-  };
-}
-
-export function getSkeletonOwnedShellFiles(skeletonId: SkeletonId): string[] {
-  return getSkeletonOwnershipContract(skeletonId).ownedBySkeleton;
-}
-
 export function getSkeletonProductSlotFiles(skeletonId: SkeletonId): string[] {
-  return getSkeletonOwnershipContract(skeletonId).productSlots;
+  const manifest = SKELETON_MANIFESTS[skeletonId];
+  return uniqueSorted(manifest?.ownership.agentEditable ?? []);
 }
 
 export function getRequiredSkeletonDataFiles(skeletonId: SkeletonId): string[] {
