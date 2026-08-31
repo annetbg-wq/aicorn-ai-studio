@@ -172,7 +172,10 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
   const owned = normalizePaths(manifest.ownership.skeletonOwned);
   const carcass = normalizePaths(manifest.ownership.carcassFiles);
   const requiredExports = manifest.requiredExports ?? {};
-  const installed = normalizePaths(workingGroups.flatMap(group => group.paths)).sort();
+  // Preserve the Registry's historic observable ordering for installed files.
+  // Other semantic arrays intentionally retain manifest order.
+  const installed = normalizePaths(workingGroups.flatMap(group => group.paths))
+    .sort((a, b) => a.localeCompare(b));
 
   const quality: CompiledSkeletonQualityContract = {
     minMeaningfulScreens: manifest.qualityContract.minMeaningfulScreens as number,
