@@ -41,6 +41,7 @@ const MOBILE_PREVIEW_FILES = {
     "export const THEME = { light: 'light', dark: 'dark' } as const;",
     'export const THEMES = THEME;',
     "export const THEME_CONFIG = { defaultTheme: DEFAULT_THEME, storageKey: 'aic-theme' } as const;",
+    "export const resolveTheme = (value) => value === 'dark' ? 'dark' : 'light';",
     'export default THEME_CONFIG;',
   ].join('\n'),
   'src/data/types.ts': [
