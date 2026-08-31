@@ -120,6 +120,36 @@ test.describe('mobile validator boundary → real preview', () => {
       expect(src).toMatch(/\/preview\/[0-9a-f-]+/i);
     }).toPass({ timeout: FLOW_TIMEOUT, intervals: [500, 1_000, 2_000] });
 
+    const initialSrc = await iframe.getAttribute('src');
+    expect(initialSrc).toBeTruthy();
+
+    // SandpackPreview derives its URL from PreviewController.expectingBuildId, so the
+    // iframe may perform one harmless early 404 navigation while Vite is compiling.
+    // Production RevisionManager reloads the iframe after triggerCompile resolves.
+    // Mirror that exact ordering here: wait for backend readiness, then reload once.
+    await expect.poll(async () => {
+      return page.evaluate(async (src) => {
+        const preview = new URL(src);
+        const buildId = preview.pathname.split('/preview/')[1]?.split('/')[0] ?? '';
+        const previewSession = preview.searchParams.get('previewSession') ?? '';
+        if (!buildId) return 'missing-build-id';
+
+        const statusUrl = new URL(`/api/preview/${buildId}/status`, preview.origin);
+        if (previewSession) statusUrl.searchParams.set('previewSession', previewSession);
+        const response = await fetch(statusUrl.toString());
+        if (response.status === 404) return 'missing';
+        if (!response.ok) return `http-${response.status}`;
+        const body = await response.json();
+        return body?.status ?? 'unknown';
+      }, initialSrc);
+    }, { timeout: FLOW_TIMEOUT, intervals: [250, 500, 1_000] }).toBe('ready');
+
+    await iframe.evaluate((element) => {
+      const next = new URL(element.src);
+      next.searchParams.set('mountAttempt', String(Date.now()));
+      element.src = next.toString();
+    });
+
     const frame = page.frameLocator('[data-testid="preview-iframe"]');
     await expect(frame.locator('body')).toContainText('Mobile habit app', { timeout: FLOW_TIMEOUT });
 
