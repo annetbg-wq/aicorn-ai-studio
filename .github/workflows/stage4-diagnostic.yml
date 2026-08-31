@@ -23,6 +23,20 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Apply deterministic product-delta boundary
         run: python scripts/stage4_product_delta_patch.py
+      - name: Finish legacy apply telemetry migration
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/services/ProtoPipeline.ts')
+          text = p.read_text()
+          old = "warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined"
+          new = "warnings: productDeltaFilter.rejected.length > 0 ? [`${productDeltaFilter.rejected.length} out-of-scope file(s) ignored`] : undefined"
+          count = text.count(old)
+          if count != 2:
+              raise SystemExit(f'expected 2 legacy droppedProtected telemetry references, found {count}')
+          p.write_text(text.replace(old, new))
+          PY
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
       - name: Typecheck and targeted Stage 4 tests
