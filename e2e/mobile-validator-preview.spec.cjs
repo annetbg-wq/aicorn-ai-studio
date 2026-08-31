@@ -63,9 +63,10 @@ const MOBILE_PREVIEW_FILES = {
   ].join('\n'),
   'src/pages/Onboarding.tsx': simplePage('Onboarding'),
   'src/pages/Home.tsx': [
-    "import EmptyState from '../components/EmptyState';",
+    "import { CircleOff } from 'lucide-react';",
+    "import { EmptyState } from '../components/EmptyState';",
     'export default function Home() {',
-    '  return <section><h1>Mobile habit app — Home</h1><button type="button">Complete today</button><EmptyState title="No habits yet" description="Start one" /></section>;',
+    '  return <section><h1>Mobile habit app — Home</h1><button type="button">Complete today</button><EmptyState icon={CircleOff} title="No habits yet" description="Start one" /></section>;',
     '}',
   ].join('\n'),
   'src/pages/Detail.tsx': simplePage('Detail'),
