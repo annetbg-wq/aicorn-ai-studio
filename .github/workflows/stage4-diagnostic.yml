@@ -15,8 +15,8 @@ jobs:
         run: |
           set -euxo pipefail
           echo '=== ProtoPipeline symbol occurrences ==='
-          rg -n -C 6 "getEditableSkeletonFiles|getSkeletonProductSlotFiles|buildSkeletonPromptBlock|buildSkeletonContractForCoder|deltaFiles|isProtectedSkeletonFile|parseFileBlocks|filter.*file|rejectedFiles|allowedFiles" frontend/src/services/ProtoPipeline.ts || true
+          grep -n -C 6 -E "getEditableSkeletonFiles|getSkeletonProductSlotFiles|buildSkeletonPromptBlock|buildSkeletonContractForCoder|deltaFiles|isProtectedSkeletonFile|parseFileBlocks|filter.*file|rejectedFiles|allowedFiles" frontend/src/services/ProtoPipeline.ts || true
           echo '=== Planner / validator occurrences ==='
-          rg -n -C 5 "deltaFiles|requiredProductSlots|optionalProductSlots|agentEditable|product slot|editable" frontend/src/services/SkeletonIntegrationPlanner.ts frontend/src/services/ArchitectOutputValidator.ts frontend/src/services/ArchitectReplacementAdapter.ts frontend/src/services/LiveGenerationContractValidator.ts frontend/src/services/SkeletonRegistry.ts || true
+          grep -n -C 5 -E "deltaFiles|requiredProductSlots|optionalProductSlots|agentEditable|product slot|editable" frontend/src/services/SkeletonIntegrationPlanner.ts frontend/src/services/ArchitectOutputValidator.ts frontend/src/services/ArchitectReplacementAdapter.ts frontend/src/services/LiveGenerationContractValidator.ts frontend/src/services/SkeletonRegistry.ts || true
           echo '=== Existing generation tests ==='
           find frontend/src/services/__tests__ -maxdepth 1 -type f | sort | grep -Ei 'Proto|Pipeline|Skeleton|Generation|Coder|Architect|Preview' || true
