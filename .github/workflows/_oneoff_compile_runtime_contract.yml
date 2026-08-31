@@ -1,0 +1,30 @@
+name: One-off compiled skeleton runtime contract
+
+on:
+  push:
+    branches:
+      - refactor/skeleton-compiled-runtime-contract
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: "!contains(github.event.head_commit.message, 'apply compiled skeleton runtime contract')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/skeleton-compiled-runtime-contract
+          fetch-depth: 0
+      - name: Apply migration
+        run: python scripts/_oneoff_compile_runtime_contract.py
+      - name: Commit clean result
+        run: |
+          rm scripts/_oneoff_compile_runtime_contract.py
+          rm .github/workflows/_oneoff_compile_runtime_contract.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/services/SkeletonRegistry.ts frontend/src/shared/outputTruth.ts scripts/_oneoff_compile_runtime_contract.py .github/workflows/_oneoff_compile_runtime_contract.yml
+          git commit -m "refactor: apply compiled skeleton runtime contract"
+          git push
