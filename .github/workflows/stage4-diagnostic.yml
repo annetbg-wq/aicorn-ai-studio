@@ -1,0 +1,22 @@
+name: Stage4 Diagnostic
+
+on:
+  push:
+    branches:
+      - refactor/product-delta-generation
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect product delta call sites
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo '=== ProtoPipeline symbol occurrences ==='
+          rg -n -C 6 "getEditableSkeletonFiles|getSkeletonProductSlotFiles|buildSkeletonPromptBlock|buildSkeletonContractForCoder|deltaFiles|isProtectedSkeletonFile|parseFileBlocks|filter.*file|rejectedFiles|allowedFiles" frontend/src/services/ProtoPipeline.ts || true
+          echo '=== Planner / validator occurrences ==='
+          rg -n -C 5 "deltaFiles|requiredProductSlots|optionalProductSlots|agentEditable|product slot|editable" frontend/src/services/SkeletonIntegrationPlanner.ts frontend/src/services/ArchitectOutputValidator.ts frontend/src/services/ArchitectReplacementAdapter.ts frontend/src/services/LiveGenerationContractValidator.ts frontend/src/services/SkeletonRegistry.ts || true
+          echo '=== Existing generation tests ==='
+          find frontend/src/services/__tests__ -maxdepth 1 -type f | sort | grep -Ei 'Proto|Pipeline|Skeleton|Generation|Coder|Architect|Preview' || true
