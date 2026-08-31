@@ -9,6 +9,7 @@ import {
 } from '../SkeletonContractCompiler';
 import type { SkeletonId } from '../SkeletonRegistry';
 
+// Runtime consumers use only the semantic compiled contract; raw manifests stay schema/test-only.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const expectedSkeletonIds: SkeletonId[] = [
   'mobile-app',
