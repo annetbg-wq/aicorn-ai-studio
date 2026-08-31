@@ -86,7 +86,7 @@ test.describe('mobile validator boundary → real preview', () => {
     await waitForPreviewHook(page);
 
     await page.evaluate(async (files) => {
-      await window.__E2E_PREVIEW_TEST.mountPreview(files);
+      await window.__E2E_PREVIEW_TEST.mountPreview(files, 'mobile-app');
     }, MOBILE_PREVIEW_FILES);
 
     const iframe = page.locator('[data-testid="preview-iframe"]');
