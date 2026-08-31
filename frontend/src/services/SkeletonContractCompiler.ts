@@ -23,17 +23,77 @@ export interface SkeletonManifestGroup {
   paths: string[];
 }
 
+export interface CompiledSkeletonQualityContract {
+  minMeaningfulScreens: number;
+  requiredCapabilities: string[];
+  requiredFlows: string[];
+}
+
+export interface CompiledSkeletonSelectionContract {
+  productTypes: string[];
+  surfaces: string[];
+  layouts: string[];
+  capabilities: string[];
+  incompatibleArchetypes: string[];
+}
+
+export interface CompiledSkeletonInfrastructureContract {
+  /** Every skeleton path/pattern installed before product delta is applied. */
+  installed: string[];
+  /** Manifest-declared skeleton ownership. Ownership does not imply import invisibility. */
+  owned: string[];
+  /** Paths the product generator may not overwrite. */
+  protected: string[];
+  /** Scaffold paths whose exports are mechanically preserved. */
+  carcass: string[];
+  /** Export integrity requirements keyed by project path. */
+  requiredExports: Record<string, Array<{ name: string; type?: string }>>;
+  /** Human-readable installation groups retained for coder prompt diagnostics. */
+  workingGroups: SkeletonManifestGroup[];
+}
+
+/**
+ * The single normalized runtime view of a skeleton manifest.
+ *
+ * Semantics:
+ * - requiredSlots: product files required for a successful prototype;
+ * - editable: files generation may emit/replace;
+ * - reusable: read-only skeleton files/components/hooks product code may consume;
+ * - infrastructure: installed/owned/protected scaffold and export integrity data;
+ * - quality: manifest-declared prototype quality expectations.
+ *
+ * `reusable` and `infrastructure.protected` may overlap: read-only means
+ * "do not rewrite", not "do not import". Import/ownership boundaries are
+ * enforced by the explicit validator rules introduced in the validator refactor.
+ */
 export interface CompiledSkeletonContract {
   version: 2;
   id: SkeletonId;
+  requiredSlots: string[];
+  optionalSlots: string[];
+  editable: string[];
+  reusable: string[];
+  infrastructure: CompiledSkeletonInfrastructureContract;
+  quality: CompiledSkeletonQualityContract;
+  selection: CompiledSkeletonSelectionContract;
+
+  /** @deprecated Use infrastructure.workingGroups. */
   workingGroups: SkeletonManifestGroup[];
+  /** @deprecated Use requiredSlots. */
   requiredProductSlots: string[];
+  /** @deprecated Use optionalSlots. */
   optionalProductSlots: string[];
+  /** @deprecated Use editable. */
   agentEditable: string[];
+  /** @deprecated Use reusable. */
   agentReadOnly: string[];
+  /** @deprecated Use infrastructure.protected. */
   protectedFiles: string[];
+  /** @deprecated Use infrastructure.owned. */
   skeletonOwned: string[];
+  /** @deprecated Use infrastructure.carcass. */
   carcassFiles: string[];
+  /** @deprecated Use infrastructure.requiredExports. */
   requiredExports: Record<string, Array<{ name: string; type?: string }>>;
 }
 
@@ -54,6 +114,8 @@ const manifests: Record<SkeletonId, SkeletonManifestV2> = {
   'content-learning-app': contentLearningAppManifest as SkeletonManifestV2,
 };
 
+const compiledContracts = new Map<SkeletonId, CompiledSkeletonContract>();
+
 function unique(paths: string[]): string[] {
   return [...new Set(paths)];
 }
@@ -66,6 +128,14 @@ function normalizePaths(paths: string[]): string[] {
   return unique(paths.map(normalizePath));
 }
 
+function normalizeWorkingGroups(groups: SkeletonManifestV2['workingGroups']): SkeletonManifestGroup[] {
+  return groups.map(group => ({
+    label: group.label,
+    paths: normalizePaths(group.paths),
+  }));
+}
+
+/** Schema/tests only. Runtime code must consume compileSkeletonContract(). */
 export function getRawSkeletonManifest(id: SkeletonId): SkeletonManifestV2 {
   return manifests[id];
 }
@@ -78,11 +148,13 @@ function assertManifestIsV2(manifest: SkeletonManifestV2): void {
 }
 
 /**
- * Canonical compiler. All 14 on-disk manifests are schema v2; there is no
- * legacy fallback path. Downstream consumers receive one normalized runtime
- * file contract and never inspect transitional compatibility fields.
+ * Canonical compiler. All 14 on-disk manifests are schema v2. Runtime consumers
+ * receive one cached, normalized contract and never inspect raw manifest fields.
  */
 export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContract {
+  const cached = compiledContracts.get(id);
+  if (cached) return cached;
+
   const manifest = manifests[id];
   if (!manifest) throw new Error(`Unknown skeleton manifest: ${id}`);
   if (manifest.id !== id) {
@@ -91,19 +163,66 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
 
   assertManifestIsV2(manifest);
 
-  return {
+  const workingGroups = normalizeWorkingGroups(manifest.workingGroups);
+  const requiredSlots = normalizePaths(manifest.ownership.requiredProductSlots);
+  const optionalSlots = normalizePaths(manifest.ownership.optionalProductSlots);
+  const editable = normalizePaths(manifest.ownership.agentEditable);
+  const reusable = normalizePaths(manifest.ownership.agentReadOnly);
+  const protectedFiles = normalizePaths(manifest.protectedFiles);
+  const owned = normalizePaths(manifest.ownership.skeletonOwned);
+  const carcass = normalizePaths(manifest.ownership.carcassFiles);
+  const requiredExports = manifest.requiredExports ?? {};
+  const installed = normalizePaths(workingGroups.flatMap(group => group.paths));
+
+  const quality: CompiledSkeletonQualityContract = {
+    minMeaningfulScreens: manifest.qualityContract.minMeaningfulScreens as number,
+    requiredCapabilities: [...(manifest.qualityContract.requiredCapabilities ?? [])],
+    requiredFlows: [...(manifest.qualityContract.requiredFlows ?? [])],
+  };
+
+  const selection: CompiledSkeletonSelectionContract = {
+    productTypes: [...(manifest.selectionContract.productTypes ?? [])],
+    surfaces: [...(manifest.selectionContract.surfaces ?? [])],
+    layouts: [...(manifest.selectionContract.layouts ?? [])],
+    capabilities: [...(manifest.selectionContract.capabilities ?? [])],
+    incompatibleArchetypes: [...(manifest.selectionContract.incompatibleArchetypes ?? [])],
+  };
+
+  const infrastructure: CompiledSkeletonInfrastructureContract = {
+    installed,
+    owned,
+    protected: protectedFiles,
+    carcass,
+    requiredExports,
+    workingGroups,
+  };
+
+  const compiled: CompiledSkeletonContract = {
     version: 2,
     id: manifest.id,
-    workingGroups: manifest.workingGroups,
-    requiredProductSlots: normalizePaths(manifest.ownership.requiredProductSlots),
-    optionalProductSlots: normalizePaths(manifest.ownership.optionalProductSlots),
-    agentEditable: normalizePaths(manifest.ownership.agentEditable),
-    agentReadOnly: normalizePaths(manifest.ownership.agentReadOnly),
-    protectedFiles: normalizePaths(manifest.protectedFiles),
-    skeletonOwned: normalizePaths(manifest.ownership.skeletonOwned),
-    carcassFiles: normalizePaths(manifest.ownership.carcassFiles),
-    requiredExports: manifest.requiredExports ?? {},
+    requiredSlots,
+    optionalSlots,
+    editable,
+    reusable,
+    infrastructure,
+    quality,
+    selection,
+
+    // Transitional aliases keep unchanged consumers stable while they migrate
+    // one-by-one to the semantic runtime contract above.
+    workingGroups,
+    requiredProductSlots: requiredSlots,
+    optionalProductSlots: optionalSlots,
+    agentEditable: editable,
+    agentReadOnly: reusable,
+    protectedFiles,
+    skeletonOwned: owned,
+    carcassFiles: carcass,
+    requiredExports,
   };
+
+  compiledContracts.set(id, compiled);
+  return compiled;
 }
 
 export function listSkeletonContractIds(): SkeletonId[] {
