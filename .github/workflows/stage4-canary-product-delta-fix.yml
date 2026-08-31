@@ -1,4 +1,4 @@
-name: Stage4 Canary Product Delta Fix
+name: Stage4 Required Slot Closure Fix
 on:
   push:
     branches: [refactor/product-delta-generation]
@@ -15,6 +15,44 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Preserve coder context during required-slot retry
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          p = Path('frontend/src/services/ProtoPipeline.ts')
+          text = p.read_text()
+          old = r'''    const retrySystem = `${formatReminder}Same task as before. Emit ONLY the files listed below, in the FILE/END marker format. Do not repeat already-produced files.
+
+MISSING FILES:
+${missing.map(p => `  - ${p}`).join('\n')}`;'''
+          new = r'''    const retryTargetFiles = targetFiles.filter(file => missing.includes(file.path));
+    const retryFileList = retryTargetFiles
+      .map(file => `  - ${file.path}${file.purpose ? `  // ${file.purpose}` : ''}`)
+      .join('\n');
+    const retrySystem = [
+      skeletonHeaderBlock,
+      input.coderContractBrief ? `\n${input.coderContractBrief}` : '',
+      contractBlock ? `\n${contractBlock}` : '',
+      planningBlocks ? `\n${planningBlocks}` : '',
+      `\n${skeletonPromptBlock}`,
+      establishedFilesBlock ? `\n${establishedFilesBlock}` : '',
+      `\nREQUIRED PRODUCT-SLOT RECOVERY\n` +
+        `${formatReminder}` +
+        `Your previous response omitted required product-slot file(s). ` +
+        `This recovery succeeds ONLY if every path below is emitted exactly once.\n` +
+        `Emit ONLY these missing files; do not repeat any file already accepted.\n\n` +
+        `MISSING REQUIRED PRODUCT SLOTS:\n${retryFileList}`,
+      `\n${outputFormatBlock}`,
+      `\n${importRulesBlock}`,
+      `\n${rulesBlock}`,
+    ].join('\n');'''
+          if text.count(old) != 1:
+              raise SystemExit('coder retry anchor mismatch')
+          text = text.replace(old, new, 1)
+          p.write_text(text)
+          PY
       - name: Align live canary fixture with landing product slots
         shell: bash
         run: |
@@ -105,16 +143,8 @@ jobs:
               1,
           )
 
-          text = text.replace(
-              "    targetFile: 'pages/Hero.tsx',",
-              "    targetFile: 'App.tsx',",
-              1,
-          )
-          text = text.replace(
-              "    targetFile: 'pages/ProductPreviewOrWorkflowExplanation.tsx',",
-              "    targetFile: 'App.tsx',",
-              1,
-          )
+          text = text.replace("    targetFile: 'pages/Hero.tsx',", "    targetFile: 'App.tsx',", 1)
+          text = text.replace("    targetFile: 'pages/ProductPreviewOrWorkflowExplanation.tsx',", "    targetFile: 'App.tsx',", 1)
 
           old = """const LIVE_CANARY_PASS2_IMPLEMENTER_RESPONSE = [
   `<<<FILE: src/App.tsx>>>\\n${LIVE_CANARY_PASS2_APP_TSX}\\n<<<END>>>`,
@@ -205,19 +235,21 @@ jobs:
 
           p.write_text(text)
           PY
-      - name: Verify canary fixture syntax and product-slot markers
+      - name: Verify patched sources
         shell: bash
         run: |
           node --check e2e/chat-generation-flow.spec.cjs
           grep -q 'src/data/content.ts' e2e/chat-generation-flow.spec.cjs
           grep -q 'LIVE_CANARY_PRODUCT_DELTA_APP_TSX' e2e/chat-generation-flow.spec.cjs
-      - name: Commit clean canary fixture fix
+          grep -q 'REQUIRED PRODUCT-SLOT RECOVERY' frontend/src/services/ProtoPipeline.ts
+          grep -q 'MISSING REQUIRED PRODUCT SLOTS' frontend/src/services/ProtoPipeline.ts
+      - name: Commit required-slot closure fix
         shell: bash
         run: |
           rm -f .github/workflows/stage4-canary-product-delta-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add e2e/chat-generation-flow.spec.cjs
+          git add frontend/src/services/ProtoPipeline.ts e2e/chat-generation-flow.spec.cjs
           git add -u .github/workflows/stage4-canary-product-delta-fix.yml
-          git commit -m "test: align live canary with product delta slots"
+          git commit -m "fix: close required product slots before compile"
           git push origin HEAD:refactor/product-delta-generation
