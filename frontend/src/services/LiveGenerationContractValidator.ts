@@ -1,6 +1,5 @@
 import {
   getSkeletonInstalledFiles,
-  getSkeletonOwnedShellFiles,
   getSkeletonProductSlotFiles,
   getRequiredSkeletonDataFiles,
   isProtectedSkeletonFile,
@@ -861,22 +860,22 @@ export function validateProtectedShellBoundary(
   const summary = buildCandidateGraphSummary(input);
   const diagnostics: LiveGenerationContractDiagnostic[] = [];
   const protectedShellComponents = getProtectedShellComponents(input.skeletonId);
-  const shellOwnedPaths = new Set(
-    (input.skeletonId ? getSkeletonOwnedShellFiles(input.skeletonId) : [])
-      .map(path => normalizeCandidatePath(path)),
-  );
   const productSlotPaths = new Set(
     (input.skeletonId ? getSkeletonProductSlotFiles(input.skeletonId) : [])
       .map(path => normalizeCandidatePath(path)),
   );
-  const filesToInspect = Object.keys(generatedDeltaFiles).length > 0 ? generatedDeltaFiles : finalFiles;
+  const hasGeneratedDelta = Object.keys(generatedDeltaFiles).length > 0;
+  const filesToInspect = hasGeneratedDelta ? generatedDeltaFiles : finalFiles;
 
   for (const [filePath, content] of Object.entries(filesToInspect)) {
     if (!isSourceModule(filePath)) continue;
     if (!isShellBoundaryConsumerFile(filePath)) continue;
-    if (shellOwnedPaths.has(filePath)) continue;
+    // Ownership boundary validation is about product-owned code. When no explicit
+    // generated delta is available, inspect manifest product slots only — never
+    // infer shell ownership from the broader skeletonOwned/readOnly file set.
+    if (!hasGeneratedDelta && input.skeletonId && !productSlotPaths.has(filePath)) continue;
     if (productSlotPaths.has(filePath) && !/^src\/pages\//i.test(filePath)) {
-      // Product-slot config/data files are allowed to own route/navigation contracts.
+      // Product-slot config/data files may define their manifest-declared contracts.
       continue;
     }
 
@@ -885,10 +884,6 @@ export function validateProtectedShellBoundary(
       const importedBindings = importedBindingNames(parsedImport);
       const resolvedTarget = resolveLocalImportTarget(filePath, importPath, finalFiles);
       const componentName = importPath.split('/').pop()?.replace(/\.(?:tsx?|jsx?)$/i, '') ?? '';
-      const importsContextConsumer = Boolean(
-        resolvedTarget && (/\/context\//i.test(resolvedTarget) || /\/providers?\//i.test(resolvedTarget)),
-      );
-
       if (importPath === 'react-router-dom') {
         const owningBindings = importedBindings.filter(binding => DISALLOWED_REACT_ROUTER_IMPORTS.has(binding));
         if (owningBindings.length > 0) {
