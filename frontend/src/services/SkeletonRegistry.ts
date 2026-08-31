@@ -1396,8 +1396,8 @@ export function buildSkeletonPromptBlock(
       installedFiles.includes(path) && !isProtectedSkeletonFile(skeletonId, path),
     ),
   );
-  const manifestDeltaFiles = manifest?.ownership.requiredProductSlots ?? [];
-  const manifestEditableFiles = manifest?.ownership.agentEditable ?? [];
+  const manifestDeltaFiles = contract.requiredSlots;
+  const manifestEditableFiles = contract.editable;
   const mustOutputFiles = uniqueSorted([
     ...manifestDeltaFiles,
     ...editableSkeletonFiles,
@@ -1437,11 +1437,11 @@ Import paths:
 - Config: app.ts, routes.ts, navigation.ts already exist. MODIFY them when needed; do not create duplicates.
 
 PROTECTED FILES — DO NOT OUTPUT THESE FILES:
-${formatPathList(manifest?.protectedFiles ?? installedFiles.filter(path => isProtectedSkeletonFile(skeletonId, path)))}
+${formatPathList(contract.infrastructure.protected)}
 
 EDITABLE SKELETON FILES — MODIFY IN PLACE WHEN NEEDED:
 ${formatPathList(manifestEditableFiles)}
-${manifest?.requiredExports ? `\n${buildRequiredExportsPromptBlock(manifest.requiredExports)}\n` : ''}${injectBlock ? `\n${injectBlock}\n` : ''}
+${Object.keys(contract.infrastructure.requiredExports).length > 0 ? `\n${buildRequiredExportsPromptBlock(contract.infrastructure.requiredExports)}\n` : ''}${injectBlock ? `\n${injectBlock}\n` : ''}
 YOUR TASK: Write ONLY the delta files. New pages, new components, new hooks, and
 product-specific config/data changes that the skeleton does not provide.
 
