@@ -5,6 +5,7 @@ import {
   getProductDeltaScope,
   isProductDeltaPath,
 } from '../ProductDeltaContract';
+import { buildSkeletonContractForCoder } from '../SkeletonContractForCoder';
 
 describe('ProductDeltaContract', () => {
   it('uses only required + optional manifest slots as generation permission', () => {
@@ -66,4 +67,13 @@ describe('ProductDeltaContract', () => {
     expect(scope.required).not.toContain('config/routes.ts');
     expect(scope.allowed).toContain('config/routes.ts');
   });
+  it('makes writable navigation product slots authoritative over legacy read-only wording', () => {
+    const contract = buildSkeletonContractForCoder('mobile-app');
+
+    expect(contract).toContain('Product-slot exports — define these in src/config/navigation.ts');
+    expect(contract).toContain('src/config/navigation.ts is writable product configuration');
+    expect(contract).not.toContain('BOTTOM_TABS is read-only');
+    expect(contract).toContain('Import BottomTabs from @/components/BottomTabs');
+  });
+
 });

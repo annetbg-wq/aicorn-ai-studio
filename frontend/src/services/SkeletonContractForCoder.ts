@@ -340,6 +340,9 @@ export function buildSkeletonContractForCoder(skeletonId: SkeletonId): string {
   const requiredProductSlots = compiled.requiredSlots;
   const optionalProductSlots = compiled.optionalSlots;
   const nav = NAV_CONTRACTS[skeletonId];
+  const productSlotPaths = new Set([...requiredProductSlots, ...optionalProductSlots]);
+  const navConfigProductSlotPath = `${nav.configPath.replace(/^@\//, 'src/')}.ts`;
+  const navConfigIsProductSlot = productSlotPaths.has(navConfigProductSlotPath);
   const lines: string[] = [];
 
   lines.push('SKELETON FOUNDATION CONTRACT');
@@ -359,7 +362,11 @@ export function buildSkeletonContractForCoder(skeletonId: SkeletonId): string {
   lines.push(`  Config path: ${nav.configPath}`);
 
   if (nav.exports.length > 0) {
-    lines.push('  Exports (read-only):');
+    lines.push(
+      navConfigIsProductSlot
+        ? `  Product-slot exports — define these in ${navConfigProductSlotPath}:`
+        : '  Exports (read-only):',
+    );
     for (const exp of nav.exports) {
       lines.push(`    - ${exp.name}: ${exp.type} — ${exp.description}`);
     }
@@ -373,9 +380,18 @@ export function buildSkeletonContractForCoder(skeletonId: SkeletonId): string {
     );
   }
 
-  if (nav.rules.length > 0) {
+  const effectiveNavRules = navConfigIsProductSlot
+    ? nav.rules.filter(rule => !/read-only|do NOT re-(?:declare|export|import)/i.test(rule))
+    : nav.rules;
+  if (navConfigIsProductSlot) {
+    lines.push(
+      `  Product-slot rule: ${navConfigProductSlotPath} is writable product configuration; ` +
+        'emit the listed exports there. The navigation rendering component itself remains skeleton-owned.',
+    );
+  }
+  if (effectiveNavRules.length > 0) {
     lines.push('  Rules:');
-    for (const rule of nav.rules) {
+    for (const rule of effectiveNavRules) {
       lines.push(`    • ${rule}`);
     }
   }
