@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bindFeatureChecklistTargetsToProductDeltaPlan,
   filterProductDeltaFiles,
   filterProductDeltaSpecs,
   getProductDeltaScope,
@@ -76,4 +77,44 @@ describe('ProductDeltaContract', () => {
     expect(contract).not.toContain('BOTTOM_TABS is read-only');
     expect(contract).toContain('Import BottomTabs from @/components/BottomTabs');
   });
+
+  it('rebinds stale reusable-document targets to the current compiled delta plan', () => {
+    const result = bindFeatureChecklistTargetsToProductDeltaPlan(
+      'landing-page',
+      [
+        { targetFiles: ['pages/Hero.tsx', 'pages/PrimaryCta.tsx'] },
+        { targetFiles: ['src/App.tsx', 'pages/Legacy.tsx'] },
+      ],
+      [
+        { path: 'src/App.tsx' },
+        { path: 'config/app.ts' },
+        { path: 'data/content.ts' },
+      ],
+    );
+
+    expect(result.map(item => item.targetFiles)).toEqual([
+      ['App.tsx'],
+      ['App.tsx'],
+    ]);
+  });
+
+  it('preserves planned screen targets and never promotes an unplanned file', () => {
+    const result = bindFeatureChecklistTargetsToProductDeltaPlan(
+      'mobile-app',
+      [
+        { targetFiles: ['src/pages/Home.tsx', 'src/components/InventedCard.tsx'] },
+        { targetFiles: ['src/App.tsx'] },
+      ],
+      [
+        { path: 'src/pages/Home.tsx' },
+        { path: 'src/data/seed.ts' },
+      ],
+    );
+
+    expect(result[0].targetFiles).toEqual(['pages/Home.tsx']);
+    expect(result[1].targetFiles).toEqual(['pages/Home.tsx']);
+    expect(result.flatMap(item => item.targetFiles)).not.toContain('components/InventedCard.tsx');
+    expect(result.flatMap(item => item.targetFiles)).not.toContain('App.tsx');
+  });
+
 });

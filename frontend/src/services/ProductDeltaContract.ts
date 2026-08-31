@@ -17,6 +17,10 @@ export interface ProductDeltaSpec {
   purpose: string;
 }
 
+export interface ProductDeltaChecklistTargetItem {
+  targetFiles: string[];
+}
+
 /** Normalize a repository/src-relative path to the path shape used by preview-workspace/src. */
 export function normalizeProductDeltaPath(path: string): string {
   return path
@@ -99,3 +103,60 @@ export function filterProductDeltaSpecs(
     rejected: unique(rejected).sort((a, b) => a.localeCompare(b)),
   };
 }
+
+/**
+ * Bind checklist verification targets to the CURRENT compiled product-delta plan.
+ *
+ * Product-document packages are topic-reusable and can outlive one concrete file
+ * layout. Their semantic acceptance requirements remain useful, but stale target
+ * paths must not drive CompletenessGate or Pass 2 after the current architect plan
+ * has been filtered through the compiled skeleton contract.
+ *
+ * This is verification binding only: it never grants write permission. The write
+ * allow-list remains requiredSlots + optionalSlots from getProductDeltaScope().
+ */
+export function bindFeatureChecklistTargetsToProductDeltaPlan<
+  T extends ProductDeltaChecklistTargetItem,
+>(
+  skeletonId: SkeletonId,
+  items: readonly T[],
+  plannedSpecs: readonly Pick<ProductDeltaSpec, 'path'>[],
+): T[] {
+  const allowed = new Set(getProductDeltaScope(skeletonId).allowed);
+  const plannedPaths = unique(
+    plannedSpecs
+      .map(spec => normalizeProductDeltaPath(spec.path))
+      .filter(path => allowed.has(path)),
+  );
+  const planned = new Set(plannedPaths);
+
+  if (plannedPaths.length === 0) {
+    return items.map(item => ({
+      ...item,
+      targetFiles: unique(
+        item.targetFiles
+          .map(normalizeProductDeltaPath)
+          .filter(path => allowed.has(path)),
+      ),
+    }));
+  }
+
+  const fallbackTarget =
+    plannedPaths.find(path => path === 'App.tsx')
+    ?? plannedPaths.find(path => /^pages\/.*\.(?:tsx|jsx)$/i.test(path))
+    ?? plannedPaths.find(path => /\.(?:tsx|jsx)$/i.test(path))
+    ?? plannedPaths[0];
+
+  return items.map(item => {
+    const currentTargets = unique(
+      item.targetFiles
+        .map(normalizeProductDeltaPath)
+        .filter(path => planned.has(path)),
+    );
+    return {
+      ...item,
+      targetFiles: currentTargets.length > 0 ? currentTargets : [fallbackTarget],
+    };
+  });
+}
+

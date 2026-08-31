@@ -144,7 +144,7 @@ import {
   recordCoderOutputBudgetDiagnostics,
 } from './CoderOutputBudgetDiagnostics';
 import { buildSkeletonContractForCoder } from './SkeletonContractForCoder';
-import { filterProductDeltaFiles, filterProductDeltaSpecs, getProductDeltaScope, normalizeProductDeltaPath } from './ProductDeltaContract';
+import { bindFeatureChecklistTargetsToProductDeltaPlan, filterProductDeltaFiles, filterProductDeltaSpecs, getProductDeltaScope, normalizeProductDeltaPath } from './ProductDeltaContract';
 import {
   measureCoderPromptBlockSizes,
   recordCoderPromptBlockSizes,
@@ -4125,7 +4125,22 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     // Outcome 'done' + factoryGatePassed=true requires coverageRatioMust >= 0.8.
     // Outcome 'partial' + factoryGatePassed=false: pipeline continues, not a gate pass.
     // Pass 2 unavailable (fix slot unset): structured telemetry, no crash.
-    const pass2FeatureChecklist = productDocumentSet.productDocs.featureChecklist ?? [];
+    const rawPass2FeatureChecklist = productDocumentSet.productDocs.featureChecklist ?? [];
+    const pass2FeatureChecklist = bindFeatureChecklistTargetsToProductDeltaPlan(
+      config.skeletonId,
+      rawPass2FeatureChecklist,
+      plan.deltaFiles,
+    );
+    const reboundChecklistTargets = pass2FeatureChecklist.filter((item, index) => {
+      const before = rawPass2FeatureChecklist[index]?.targetFiles ?? [];
+      return before.join('|') !== item.targetFiles.join('|');
+    }).length;
+    if (reboundChecklistTargets > 0) {
+      log(
+        `[completeness] rebound ${reboundChecklistTargets}/${pass2FeatureChecklist.length} checklist target(s) to current compiled product delta`,
+        'warn',
+      );
+    }
     const pass2SkeletonFiles = getSkeletonInstalledFiles(config.skeletonId);
     let completenessGate = evaluateCompletenessGate({
       featureChecklist: pass2FeatureChecklist,
