@@ -12,20 +12,6 @@
  * is sent — zero skeleton tokens hit the LLM context.
  */
 
-import b2bOperationsWorkspaceManifest from './skeleton-manifests/b2b-operations-workspace/skeleton.manifest.json';
-import bookingServiceAppManifest from './skeleton-manifests/booking-service-app/skeleton.manifest.json';
-import contentLearningAppManifest from './skeleton-manifests/content-learning-app/skeleton.manifest.json';
-import creatorEditorWorkspaceManifest from './skeleton-manifests/creator-editor-workspace/skeleton.manifest.json';
-import datingMatchingAppManifest from './skeleton-manifests/dating-matching-app/skeleton.manifest.json';
-import ecommerceManifest from './skeleton-manifests/ecommerce/skeleton.manifest.json';
-import gameInteractiveAppManifest from './skeleton-manifests/game-interactive-app/skeleton.manifest.json';
-import gamingCasinoAppManifest from './skeleton-manifests/gaming-casino-app/skeleton.manifest.json';
-import landingPageManifest from './skeleton-manifests/landing-page/skeleton.manifest.json';
-import marketplacePlatformManifest from './skeleton-manifests/marketplace-platform/skeleton.manifest.json';
-import mobileAppManifest from './skeleton-manifests/mobile-app/skeleton.manifest.json';
-import productivityToolManifest from './skeleton-manifests/productivity-tool/skeleton.manifest.json';
-import saasDashboardManifest from './skeleton-manifests/saas-dashboard/skeleton.manifest.json';
-import socialCommunityManifest from './skeleton-manifests/social-community/skeleton.manifest.json';
 import { filterAdvertisedUiPrimitiveNames } from './LiveGenerationUiPrimitives';
 import {
   getSkeletonCarcassFile,
@@ -33,6 +19,7 @@ import {
   hasCarcassContent,
 } from './SkeletonCarcassContent';
 import { evaluateSkeletonIntentCompatibility } from './SkeletonSelectionCompatibility';
+import { compileSkeletonContract, type SkeletonManifestGroup } from './SkeletonContractCompiler';
 
 export type SkeletonId =
   | 'mobile-app'
@@ -87,19 +74,6 @@ export interface SkeletonPromptContext {
   technicalBlueprint?: Record<string, unknown> | null;
 }
 
-interface SkeletonManifestGroup {
-  label: string;
-  paths: string[];
-}
-
-interface SkeletonManifestOwnershipContract {
-  skeletonOwned: string[];
-  requiredProductSlots: string[];
-  optionalProductSlots: string[];
-  agentEditable: string[];
-  agentReadOnly: string[];
-  carcassFiles: string[];
-}
 
 export interface ExportContractEntry {
   name: string;
@@ -112,35 +86,6 @@ export interface ExportIntegrityViolation {
   type?: string;
 }
 
-interface SkeletonManifest {
-  id: SkeletonId;
-  workingGroups: SkeletonManifestGroup[];
-  protectedFiles: string[];
-  ownership: SkeletonManifestOwnershipContract;
-  requiredExports?: Record<string, ExportContractEntry[]>;
-  /**
-   * Paths of "carcass files" (scaffold+marker files) whose exported symbols the
-   * apply step must restore if the coder drops them.  Rich-skeleton mode only.
-   * Path format: with src/ prefix (matches skeleton disk layout).
-   */
-}
-
-const SKELETON_MANIFESTS: Record<SkeletonId, SkeletonManifest> = {
-  'mobile-app':                mobileAppManifest as SkeletonManifest,
-  'saas-dashboard':            saasDashboardManifest as SkeletonManifest,
-  'landing-page':              landingPageManifest as SkeletonManifest,
-  'social-community':          socialCommunityManifest as SkeletonManifest,
-  'productivity-tool':         productivityToolManifest as SkeletonManifest,
-  ecommerce:                   ecommerceManifest as SkeletonManifest,
-  'b2b-operations-workspace':  b2bOperationsWorkspaceManifest as SkeletonManifest,
-  'marketplace-platform':      marketplacePlatformManifest as SkeletonManifest,
-  'creator-editor-workspace':  creatorEditorWorkspaceManifest as SkeletonManifest,
-  'dating-matching-app':       datingMatchingAppManifest as SkeletonManifest,
-  'gaming-casino-app':         gamingCasinoAppManifest as SkeletonManifest,
-  'game-interactive-app':      gameInteractiveAppManifest as SkeletonManifest,
-  'booking-service-app':       bookingServiceAppManifest as SkeletonManifest,
-  'content-learning-app':      contentLearningAppManifest as SkeletonManifest,
-};
 
 export const SKELETON_REGISTRY: Record<SkeletonId, SkeletonMeta> = {
   'mobile-app': {
@@ -1110,29 +1055,24 @@ function collectBlueprintFiles(context?: SkeletonPromptContext): string[] {
 }
 
 export function getSkeletonInstalledFiles(skeletonId: SkeletonId): string[] {
-  const manifest = SKELETON_MANIFESTS[skeletonId];
-  if (!manifest) return [];
-  return uniqueSorted(manifest.workingGroups.flatMap(group => group.paths));
+  return [...compileSkeletonContract(skeletonId).infrastructure.installed];
 }
 
 export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
-  const manifest = SKELETON_MANIFESTS[skeletonId];
-  if (!manifest) return [];
-  return uniqueSorted(manifest.ownership.agentEditable);
+  return [...compileSkeletonContract(skeletonId).editable];
 }
 
 export function getSkeletonProductSlotFiles(skeletonId: SkeletonId): string[] {
-  const manifest = SKELETON_MANIFESTS[skeletonId];
-  return uniqueSorted(manifest?.ownership.agentEditable ?? []);
+  return [...compileSkeletonContract(skeletonId).editable];
 }
 
 export function getRequiredSkeletonDataFiles(skeletonId: SkeletonId): string[] {
-  const manifest = SKELETON_MANIFESTS[skeletonId];
+  const contract = compileSkeletonContract(skeletonId);
   const candidates = [
-    ...(manifest?.workingGroups.flatMap(group => group.paths) ?? []),
-    ...(manifest?.ownership.requiredProductSlots ?? []),
-    ...(manifest?.ownership.optionalProductSlots ?? []),
-    ...(manifest?.ownership.agentEditable ?? []),
+    ...contract.infrastructure.installed,
+    ...contract.requiredSlots,
+    ...contract.optionalSlots,
+    ...contract.editable,
   ];
 
   return uniqueSorted(candidates.filter(file => (
@@ -1165,10 +1105,9 @@ export function checkExportIntegrity(
   skeletonId: SkeletonId,
   files: Record<string, string>,
 ): ExportIntegrityViolation[] {
-  const manifest = SKELETON_MANIFESTS[skeletonId];
-  if (!manifest?.requiredExports) return [];
+  const requiredExports = compileSkeletonContract(skeletonId).infrastructure.requiredExports;
   const violations: ExportIntegrityViolation[] = [];
-  for (const [file, entries] of Object.entries(manifest.requiredExports)) {
+  for (const [file, entries] of Object.entries(requiredExports)) {
     const content = files[file];
     if (content === undefined) continue; // file not in delta set — skip
     for (const entry of entries) {
@@ -1371,9 +1310,8 @@ export function pathMatchesSkeletonPattern(path: string, pattern: string): boole
 }
 
 export function isProtectedSkeletonFile(skeletonId: SkeletonId, path: string): boolean {
-  const manifest = SKELETON_MANIFESTS[skeletonId];
-  if (!manifest) return false;
-  return manifest.protectedFiles.some(pattern => pathMatchesSkeletonPattern(path, pattern));
+  return compileSkeletonContract(skeletonId).infrastructure.protected
+    .some(pattern => pathMatchesSkeletonPattern(path, pattern));
 }
 
 /**
@@ -1449,7 +1387,7 @@ export function buildSkeletonPromptBlock(
   const s = SKELETON_REGISTRY[skeletonId];
   if (!s || !s.available) return '';
 
-  const manifest = SKELETON_MANIFESTS[skeletonId];
+  const contract = compileSkeletonContract(skeletonId);
   const installedFiles = getSkeletonInstalledFiles(skeletonId);
   const blueprintFiles = collectBlueprintFiles(context);
   const blueprintDeltaFiles = blueprintFiles.filter(path => !installedFiles.includes(path));
@@ -1458,8 +1396,8 @@ export function buildSkeletonPromptBlock(
       installedFiles.includes(path) && !isProtectedSkeletonFile(skeletonId, path),
     ),
   );
-  const manifestDeltaFiles = manifest?.ownership.requiredProductSlots ?? [];
-  const manifestEditableFiles = manifest?.ownership.agentEditable ?? [];
+  const manifestDeltaFiles = contract.requiredSlots;
+  const manifestEditableFiles = contract.editable;
   const mustOutputFiles = uniqueSorted([
     ...manifestDeltaFiles,
     ...editableSkeletonFiles,
@@ -1482,7 +1420,7 @@ These files physically exist on disk and will be compiled as-is — DO NOT regen
 Write ONLY the delta files listed under "Files you MUST create or modify" below.
 
 File groups already on disk (source: skeleton.manifest.json + src/route-manifest.json):
-${manifest ? formatWorkingGroups(manifest.workingGroups) : formatPathList(installedFiles)}
+${formatWorkingGroups(contract.infrastructure.workingGroups)}
 
 Navigation pattern: ${s.navigation}
 
@@ -1499,11 +1437,11 @@ Import paths:
 - Config: app.ts, routes.ts, navigation.ts already exist. MODIFY them when needed; do not create duplicates.
 
 PROTECTED FILES — DO NOT OUTPUT THESE FILES:
-${formatPathList(manifest?.protectedFiles ?? installedFiles.filter(path => isProtectedSkeletonFile(skeletonId, path)))}
+${formatPathList(contract.infrastructure.protected)}
 
 EDITABLE SKELETON FILES — MODIFY IN PLACE WHEN NEEDED:
 ${formatPathList(manifestEditableFiles)}
-${manifest?.requiredExports ? `\n${buildRequiredExportsPromptBlock(manifest.requiredExports)}\n` : ''}${injectBlock ? `\n${injectBlock}\n` : ''}
+${Object.keys(contract.infrastructure.requiredExports).length > 0 ? `\n${buildRequiredExportsPromptBlock(contract.infrastructure.requiredExports)}\n` : ''}${injectBlock ? `\n${injectBlock}\n` : ''}
 YOUR TASK: Write ONLY the delta files. New pages, new components, new hooks, and
 product-specific config/data changes that the skeleton does not provide.
 
