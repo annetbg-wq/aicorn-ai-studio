@@ -6,7 +6,7 @@ const FLOW_TIMEOUT = 60_000;
 
 const simplePage = (name) => `export default function ${name}(){return <section><h2>Mobile habit app — ${name}</h2></section>}`;
 
-// Product-owned files only. Bootstrap, root App/layout, BottomTabs and reusable
+// Product-owned contract files only. Bootstrap, root App/layout, BottomTabs and reusable
 // components are intentionally omitted so the installed mobile skeleton owns them.
 const MOBILE_PREVIEW_FILES = {
   'src/config/app.ts': [
