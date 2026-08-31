@@ -1,0 +1,54 @@
+name: One-off Preview Hook Iframe Error
+
+on:
+  push:
+    branches:
+      - refactor/validator-infrastructure-boundary
+    paths:
+      - .github/workflows/_oneoff_preview_hook_iframe_error.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/validator-infrastructure-boundary
+          fetch-depth: 0
+      - name: Add iframe error diagnostics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/hooks/useStudio.ts')
+          s = p.read_text(encoding='utf-8')
+          needle = """          const handleMessage = (event: MessageEvent) => {
+            if (event.data?.type !== 'preview-mounted') return;
+            if (event.data?.buildId !== buildId) return;
+"""
+          replacement = """          const handleMessage = (event: MessageEvent) => {
+            if (event.data?.type === 'iframe-error' && event.data?.buildId === buildId) {
+              window.clearTimeout(timeoutId);
+              window.removeEventListener('message', handleMessage);
+              reject(new Error(`Preview iframe runtime error for ${buildId}: ${String(event.data?.message ?? 'unknown error')}`));
+              return;
+            }
+            if (event.data?.type !== 'preview-mounted') return;
+            if (event.data?.buildId !== buildId) return;
+"""
+          count = s.count(needle)
+          if count < 1:
+              raise SystemExit(f'preview handleMessage block not found; count={count}')
+          s = s.replace(needle, replacement, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Commit patch and remove one-off workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/_oneoff_preview_hook_iframe_error.yml
+          git add frontend/src/hooks/useStudio.ts
+          git commit -m "test: surface iframe runtime errors in preview hook"
+          git push origin HEAD:refactor/validator-infrastructure-boundary
