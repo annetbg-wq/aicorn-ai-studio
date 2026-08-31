@@ -12,43 +12,6 @@ env:
   BENCHMARK_MODEL_ID: openai/gpt-4o-mini
 
 jobs:
-  stage4-newline-fix:
-    name: Stage4 canary newline self patch
-    if: github.event_name == 'pull_request' && github.head_ref == 'refactor/product-delta-generation'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: refactor/product-delta-generation
-          fetch-depth: 0
-      - name: Correct canary newline encoding
-        run: python .github/scripts/stage4_newline_fix.py
-      - name: Verify corrected fixture
-        run: |
-          node --check e2e/chat-generation-flow.spec.cjs
-          python - <<'PY'
-          from pathlib import Path
-          text = Path('e2e/chat-generation-flow.spec.cjs').read_text()
-          for marker in ('const LIVE_CANARY_CONTENT_TS = [', 'const LIVE_CANARY_PRODUCT_DELTA_APP_TSX = ['):
-              start = text.index(marker)
-              end = text.index("].join('\\n');", start)
-              segment = text[start:end]
-              if "\\\\n" in segment:
-                  raise SystemExit(f'double-escaped newline remains in {marker}')
-          PY
-      - name: Commit correction and restore workflow
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout origin/main -- .github/workflows/ci.yml
-          rm -f .github/scripts/stage4_newline_fix.py
-          git add e2e/chat-generation-flow.spec.cjs .github/workflows/ci.yml
-          git add -u .github/scripts/stage4_newline_fix.py
-          git commit -m "test: fix product-delta canary newline encoding"
-          git push origin HEAD:refactor/product-delta-generation
-
   mcp:
     name: MCP TypeScript + Unit Tests
     runs-on: ubuntu-latest

@@ -93,7 +93,7 @@ const LIVE_CANARY_CONTENT_TS = [
   '  ],',
   '} as const;',
   '',
-].join('\\n');
+].join('\n');
 
 const LIVE_CANARY_PRODUCT_DELTA_APP_TSX = [
   "import { useState } from 'react';",
@@ -142,7 +142,7 @@ const LIVE_CANARY_PRODUCT_DELTA_APP_TSX = [
   '  );',
   '}',
   '',
-].join('\\n');
+].join('\n');
 
 const LIVE_CANARY_PASS2_HERO_TSX = [
   'type HeroProps = {',
