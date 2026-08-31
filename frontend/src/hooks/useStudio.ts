@@ -5431,7 +5431,7 @@ export const useStudio = () => {
         revision: revisionManager.getRevisionSummary(),
         controller: previewController.getState(),
       }),
-      mountPreview: async (previewFiles: FileMap) => {
+      mountPreview: async (previewFiles: FileMap, skeletonId?: string) => {
         setFiles(previewFiles);
         setPreviewBlockedReason(null);
         setPreviewReady(false);
@@ -5447,6 +5447,7 @@ export const useStudio = () => {
           headers: { 'Content-Type': 'application/json', 'X-Preview-Session': sessionId },
           body: JSON.stringify({
             sessionId,
+            skeletonId,
             files: Object.fromEntries(
               Object.entries(previewFiles).map(([path, content]) => [normalizePath(path), content]),
             ),
