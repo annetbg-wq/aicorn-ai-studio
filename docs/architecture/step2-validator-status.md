@@ -1,0 +1,1 @@
+Step 2 scope: remove skeletonOwned/readOnly shell inference from live-generation boundary validation; protect only explicit bootstrap/router/provider/root-navigation/root-layout ownership. Production generation remains unchanged in this step.
