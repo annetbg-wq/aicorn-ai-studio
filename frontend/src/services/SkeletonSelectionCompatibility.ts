@@ -1,5 +1,5 @@
 import type { SkeletonId } from './SkeletonRegistry';
-import { getRawSkeletonManifest, listSkeletonContractIds } from './SkeletonContractCompiler';
+import { compileSkeletonContract, listSkeletonContractIds } from './SkeletonContractCompiler';
 
 export type ProductArchetype =
   | 'mobile-consumer'
@@ -48,7 +48,7 @@ export interface SkeletonIntentCompatibilityEvaluation {
 
 /**
  * Intent vocabulary is textual interpretation. Skeleton fit itself is never
- * encoded here: it is read from each manifest selectionContract.
+ * encoded here: it comes from the canonical compiled skeleton contract.
  * Archetype order is preference order when an intent spans multiple product types.
  */
 const INTENT_COMPATIBILITY_PROFILES: ReadonlyArray<IntentCompatibilityProfile> = [
@@ -59,34 +59,25 @@ const INTENT_COMPATIBILITY_PROFILES: ReadonlyArray<IntentCompatibilityProfile> =
   { signal: 'game-intent', label: 'Game/RPG', archetypes: ['interactive-game', 'gaming'] },
 ];
 
-function parseArchetypes(id: SkeletonId, values: string[] | undefined, field: string): ProductArchetype[] {
-  const result = values ?? [];
-  for (const value of result) {
+function parseArchetypes(id: SkeletonId, values: string[], field: string): ProductArchetype[] {
+  for (const value of values) {
     if (!PRODUCT_ARCHETYPES.has(value as ProductArchetype)) {
       throw new Error(`${id}: selectionContract.${field} contains unknown archetype: ${value}`);
     }
   }
-  return [...result] as ProductArchetype[];
+  return [...values] as ProductArchetype[];
 }
 
+/** Compatibility accessor backed only by the compiled runtime contract. */
 export function getSkeletonSelectionCompatibility(id: SkeletonId): SkeletonSelectionCompatibilityContract {
-  const raw = getRawSkeletonManifest(id).selectionContract;
-  const archetypes = parseArchetypes(id, raw.productTypes, 'productTypes');
-  const incompatibleArchetypes = parseArchetypes(id, raw.incompatibleArchetypes, 'incompatibleArchetypes');
-  const surfaces = raw.surfaces ?? [];
-  const capabilities = raw.capabilities ?? [];
-
-  if (archetypes.length === 0) throw new Error(`${id}: selectionContract.productTypes must not be empty`);
-  if (surfaces.length === 0) throw new Error(`${id}: selectionContract.surfaces must not be empty`);
-  if (capabilities.length === 0) throw new Error(`${id}: selectionContract.capabilities must not be empty`);
-  if (incompatibleArchetypes.length === 0) {
-    throw new Error(`${id}: selectionContract.incompatibleArchetypes must not be empty`);
-  }
+  const selection = compileSkeletonContract(id).selection;
+  const archetypes = parseArchetypes(id, selection.productTypes, 'productTypes');
+  const incompatibleArchetypes = parseArchetypes(id, selection.incompatibleArchetypes, 'incompatibleArchetypes');
 
   return {
     archetypes,
-    surfaces: [...surfaces],
-    capabilities: [...capabilities],
+    surfaces: [...selection.surfaces],
+    capabilities: [...selection.capabilities],
     incompatibleArchetypes,
   };
 }
@@ -113,8 +104,9 @@ export function getIntentCompatibilityProfile(signal: string): IntentCompatibili
 }
 
 /**
- * Picks a compatible skeleton from manifests only. For multi-archetype intents,
- * earlier archetypes win; manifest registry order is the deterministic tie-break.
+ * Picks a compatible skeleton from compiled manifest semantics only. For
+ * multi-archetype intents, earlier archetypes win; registry order is the
+ * deterministic tie-break.
  */
 export function resolvePreferredSkeletonForIntent(
   signal: string,
@@ -131,7 +123,7 @@ export function resolvePreferredSkeletonForIntent(
 }
 
 /**
- * Evaluates a selected skeleton against an intent using manifest declarations.
+ * Evaluates a selected skeleton against an intent using compiled manifest declarations.
  * A weak universal fallback (typically mobile-app with tag score <2) is also a
  * mismatch when another skeleton explicitly declares compatibility.
  */
