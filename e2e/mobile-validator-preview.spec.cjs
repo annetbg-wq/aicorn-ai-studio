@@ -97,12 +97,18 @@ test.describe('mobile validator boundary → real preview', () => {
   test.setTimeout(120_000);
 
   test('product slots compile with skeleton-owned bootstrap, root layout and navigation', async ({ page }) => {
+    page.on('console', (message) => console.log(`[browser:${message.type()}] ${message.text()}`));
+    page.on('pageerror', (error) => console.log(`[browser:pageerror] ${error.message}`));
+
     await openStudio(page);
     await page.evaluate(() => localStorage.setItem('AIC_E2E_BLUEPRINT_SHORTCUT', '1'));
     await waitForPreviewHook(page);
 
-    await page.evaluate(async (files) => {
-      await window.__E2E_PREVIEW_TEST.mountPreview(files, 'mobile-app');
+    await page.evaluate((files) => {
+      window.__MOBILE_PREVIEW_RESULT = 'pending';
+      window.__E2E_PREVIEW_TEST.mountPreview(files, 'mobile-app')
+        .then(() => { window.__MOBILE_PREVIEW_RESULT = 'mounted'; })
+        .catch((error) => { window.__MOBILE_PREVIEW_RESULT = `error:${String(error?.message ?? error)}`; });
     }, MOBILE_PREVIEW_FILES);
 
     const iframe = page.locator('[data-testid="preview-iframe"]');
@@ -112,9 +118,14 @@ test.describe('mobile validator boundary → real preview', () => {
       expect(src).toBeTruthy();
       expect(src).not.toBe('about:blank');
       expect(src).toMatch(/\/preview\/[0-9a-f-]+/i);
-    }).toPass({ timeout: FLOW_TIMEOUT, intervals: [1_000, 2_000, 3_000] });
+    }).toPass({ timeout: FLOW_TIMEOUT, intervals: [500, 1_000, 2_000] });
 
     const frame = page.frameLocator('[data-testid="preview-iframe"]');
     await expect(frame.locator('body')).toContainText('Mobile habit app', { timeout: FLOW_TIMEOUT });
+
+    await expect.poll(
+      () => page.evaluate(() => window.__MOBILE_PREVIEW_RESULT),
+      { timeout: 10_000, intervals: [250, 500, 1_000] },
+    ).toBe('mounted');
   });
 });
