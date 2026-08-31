@@ -940,7 +940,14 @@ export function validateProtectedShellBoundary(
         continue;
       }
 
-      if (resolvedTarget && SHELL_CONTRACT_PATHS.has(resolvedTarget)) {
+      const resolvedTargetIsProductSlot = Boolean(
+        resolvedTarget && productSlotPaths.has(resolvedTarget),
+      );
+      if (
+        resolvedTarget &&
+        SHELL_CONTRACT_PATHS.has(resolvedTarget) &&
+        !resolvedTargetIsProductSlot
+      ) {
         diagnostics.push(buildProtectedShellDiagnostic(
           summary,
           input,
@@ -952,10 +959,11 @@ export function validateProtectedShellBoundary(
         continue;
       }
 
-      if (
-        (resolvedTarget && shellOwnedPaths.has(resolvedTarget) && !importsContextConsumer)
-        || protectedShellComponents.has(componentName)
-      ) {
+      // skeletonOwned / agentReadOnly describes edit ownership, not import visibility.
+      // Product pages may consume reusable shell-provided components (EmptyState,
+      // LoadingScreen, cards, hooks, etc.) without taking ownership of the shell.
+      // Only explicit shell-owner component families remain forbidden here.
+      if (protectedShellComponents.has(componentName)) {
         const layerPath = resolvedTarget ?? `src/components/${componentName}.tsx`;
         diagnostics.push(buildProtectedShellDiagnostic(
           summary,
