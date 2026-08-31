@@ -16,6 +16,7 @@
  */
 
 import { type SkeletonId, SKELETON_REGISTRY } from './SkeletonRegistry';
+import { compileSkeletonContract } from './SkeletonContractCompiler';
 
 // ── Navigation export descriptor ─────────────────────────────────────────────
 
@@ -335,13 +336,22 @@ export function buildSkeletonContractForCoder(skeletonId: SkeletonId): string {
   const skeleton = SKELETON_REGISTRY[skeletonId];
   if (!skeleton || !skeleton.available) return '';
 
+  const compiled = compileSkeletonContract(skeletonId);
+  const requiredProductSlots = compiled.requiredSlots;
+  const optionalProductSlots = compiled.optionalSlots;
   const nav = NAV_CONTRACTS[skeletonId];
   const lines: string[] = [];
 
   lines.push('SKELETON FOUNDATION CONTRACT');
   lines.push(`Skeleton: ${skeleton.label} (${skeleton.id})`);
   lines.push('Status: ALREADY INSTALLED in preview-workspace/src/ before this prompt.');
-  lines.push('Task: generate ONLY the app-specific delta files. Do NOT recreate skeleton foundation.');
+  lines.push('Task: fill ONLY the concrete product slots below. Do NOT recreate or extend the skeleton foundation with new source modules.');
+  lines.push('');
+  lines.push('REQUIRED PRODUCT SLOTS — MUST BE EMITTED:');
+  lines.push(...requiredProductSlots.map(path => `  - ${path}`));
+  lines.push('OPTIONAL PRODUCT SLOTS — MAY BE EMITTED ONLY WHEN THE PRODUCT NEEDS THEM:');
+  lines.push(...(optionalProductSlots.length > 0 ? optionalProductSlots.map(path => `  - ${path}`) : ['  - none']));
+  lines.push('HARD WRITE RULE: every FILE block must target one of the product slots above. No other source path is writable.');
   lines.push('');
 
   // Navigation contract block
@@ -379,9 +389,9 @@ export function buildSkeletonContractForCoder(skeletonId: SkeletonId): string {
   );
   lines.push('     the PROVIDED COMPONENTS / PROVIDED HOOKS list above.');
   lines.push(
-    '  2. If a component is NOT listed, self-implement it locally under src/components/.',
+    '  2. If a component/helper is NOT listed, implement it inside the current product-slot file.',
   );
-  lines.push('     Never import a component that is not in the contract or provided list.');
+  lines.push('     Never create an extra source module outside the declared product slots.');
   lines.push('  3. Do NOT recreate any component from the PROVIDED COMPONENTS list.');
   lines.push(
     '  4. Do NOT recreate the app shell, router, providers, or skeleton foundation files.',

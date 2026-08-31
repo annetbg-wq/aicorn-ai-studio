@@ -1063,7 +1063,8 @@ export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
 }
 
 export function getSkeletonProductSlotFiles(skeletonId: SkeletonId): string[] {
-  return [...compileSkeletonContract(skeletonId).editable];
+  const contract = compileSkeletonContract(skeletonId);
+  return uniqueSorted([...contract.requiredSlots, ...contract.optionalSlots]);
 }
 
 export function getRequiredSkeletonDataFiles(skeletonId: SkeletonId): string[] {
@@ -1390,18 +1391,14 @@ export function buildSkeletonPromptBlock(
   const contract = compileSkeletonContract(skeletonId);
   const installedFiles = getSkeletonInstalledFiles(skeletonId);
   const blueprintFiles = collectBlueprintFiles(context);
-  const blueprintDeltaFiles = blueprintFiles.filter(path => !installedFiles.includes(path));
-  const editableSkeletonFiles = uniqueSorted(
-    blueprintFiles.filter(path =>
-      installedFiles.includes(path) && !isProtectedSkeletonFile(skeletonId, path),
-    ),
-  );
+  const productSlotFiles = uniqueSorted([...contract.requiredSlots, ...contract.optionalSlots]);
+  const productSlotSet = new Set(productSlotFiles);
+  const blueprintProductSlots = blueprintFiles.filter(path => productSlotSet.has(path));
   const manifestDeltaFiles = contract.requiredSlots;
-  const manifestEditableFiles = contract.editable;
+  const manifestEditableFiles = productSlotFiles;
   const mustOutputFiles = uniqueSorted([
     ...manifestDeltaFiles,
-    ...editableSkeletonFiles,
-    ...blueprintDeltaFiles,
+    ...blueprintProductSlots,
   ]);
 
   // ── Inject (механизм A): for rich-skeletons show scaffold file contents ──────
@@ -1439,13 +1436,13 @@ Import paths:
 PROTECTED FILES — DO NOT OUTPUT THESE FILES:
 ${formatPathList(contract.infrastructure.protected)}
 
-EDITABLE SKELETON FILES — MODIFY IN PLACE WHEN NEEDED:
+PRODUCT SLOTS — THE ONLY FILES GENERATION MAY MODIFY:
 ${formatPathList(manifestEditableFiles)}
 ${Object.keys(contract.infrastructure.requiredExports).length > 0 ? `\n${buildRequiredExportsPromptBlock(contract.infrastructure.requiredExports)}\n` : ''}${injectBlock ? `\n${injectBlock}\n` : ''}
-YOUR TASK: Write ONLY the delta files. New pages, new components, new hooks, and
-product-specific config/data changes that the skeleton does not provide.
+YOUR TASK: Fill ONLY manifest-declared product slots. Reuse skeleton components/hooks; do not create
+new source modules outside the product-slot list, even when a desired helper/component is not provided.
 
-Files you MUST create or modify (delta only; blueprint files after excluding protected skeleton files):
+Files you MUST create or modify (required product slots plus in-scope planned optional slots):
 ${formatPathList(mustOutputFiles)}
 
 KEY RULES:
@@ -1453,6 +1450,7 @@ KEY RULES:
 - Replace all /* PRODUCT: ... */ markers with product-specific content
 - Replace all // SEED: ... markers with real domain data (5-10 items)
 - Import from existing skeleton files. Do not duplicate their code.
+- Never output a source file outside PRODUCT SLOTS; inline product-local helpers inside an allowed slot.
 - Use design tokens: bg-background, bg-card, text-foreground, text-muted-foreground,
   border-border, text-primary, --pm-brand (never hardcode hex colors)
 - Every list page uses <EmptyState> from @/components/EmptyState

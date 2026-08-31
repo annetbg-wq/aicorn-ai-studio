@@ -54,7 +54,7 @@ describe('Skeleton deterministic matrix smoke — 14/14', () => {
 
     expect(installed).toEqual(policy.infrastructure.installed);
     expect(editable).toEqual(policy.editable);
-    expect(productSlots).toEqual(policy.editable);
+    expect(productSlots).toEqual([...new Set([...policy.requiredSlots, ...policy.optionalSlots])].sort((a, b) => a.localeCompare(b)));
 
     for (const path of policy.requiredSlots) {
       expect(editable, `${id}: required slot missing from editable adapter: ${path}`).toContain(path);

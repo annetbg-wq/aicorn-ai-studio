@@ -144,6 +144,7 @@ import {
   recordCoderOutputBudgetDiagnostics,
 } from './CoderOutputBudgetDiagnostics';
 import { buildSkeletonContractForCoder } from './SkeletonContractForCoder';
+import { filterProductDeltaFiles, filterProductDeltaSpecs, getProductDeltaScope, normalizeProductDeltaPath } from './ProductDeltaContract';
 import {
   measureCoderPromptBlockSizes,
   recordCoderPromptBlockSizes,
@@ -3852,21 +3853,23 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       deltaFiles[appPath ?? 'App.tsx'] = ensureVisualPackImport(appSource);
     }
 
-    let filteredFiles: Record<string, string> = {};
-    let droppedProtected = 0;
-    for (const [path, content] of Object.entries(deltaFiles)) {
-      if (isProtectedSkeletonFile(config.skeletonId, path)) {
-        droppedProtected += 1;
-        log(`[apply] dropped protected: ${path}`, 'warn');
-        continue;
-      }
-      filteredFiles[path] = content;
+    const productDeltaFilter = filterProductDeltaFiles(config.skeletonId, deltaFiles);
+    let filteredFiles: Record<string, string> = productDeltaFilter.files;
+    if (productDeltaFilter.rejected.length > 0) {
+      log(
+        `[apply] rejected ${productDeltaFilter.rejected.length} out-of-scope file(s); product slots are the only writable source paths: ` +
+          productDeltaFilter.rejected.join(', '),
+        'warn',
+      );
     }
-    if (droppedProtected > 0) {
-      log(`[apply] ${droppedProtected} protected file(s) ignored`, 'warn');
+    for (const path of Object.keys(filteredFiles)) {
+      if (isProtectedSkeletonFile(config.skeletonId, path)) {
+        delete filteredFiles[path];
+        log(`[apply] rejected invariant violation: product slot is also skeleton-protected: ${path}`, 'error');
+      }
     }
     if (Object.keys(filteredFiles).length === 0) {
-      return fail('apply', 'All produced files are skeleton-protected — nothing to write');
+      return fail('apply', 'No manifest-declared product-slot files were produced — nothing to write');
     }
 
     // ── Scaffold merge (механизм Б) — BEFORE export integrity check ──────────
@@ -3903,7 +3906,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         }
       }
       for (const rel of missingAssets) {
-        filteredFiles[`src/${rel}`] = PLACEHOLDER_ASSET_SVG;
+        log(`[apply] rejected generated asset outside product slots: src/${rel}`, 'warn');
       }
       if (missingAssets.size > 0) {
         log(
@@ -4015,7 +4018,12 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
             onChunk:        (delta) => { healBody += delta; },
             onUsage:        (usage) => { coderUsage = mergeLlmUsage(coderUsage, usage); },
           });
-          const created = parseFileMarkers(healBody);
+          const createdRaw = parseFileMarkers(healBody);
+          const createdScope = filterProductDeltaFiles(config.skeletonId, createdRaw);
+          const created = createdScope.files;
+          if (createdScope.rejected.length > 0) {
+            log(`[apply] rejected ${createdScope.rejected.length} synthesized module(s) outside product slots: ${createdScope.rejected.join(', ')}`, 'warn');
+          }
           let added = 0;
           for (const [createdPath, createdContent] of Object.entries(created)) {
             const norm = createdPath.replace(/^\.?\//, '');
@@ -4463,7 +4471,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         },
         pass2_telemetry: pass2Telemetry,
       },
-      warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
+      warnings: productDeltaFilter.rejected.length > 0 ? [`${productDeltaFilter.rejected.length} out-of-scope file(s) ignored`] : undefined,
     };
 
     if (completenessGate.coverage.coverageRatioMust < FACTORY_RELEASE_MIN_COVERAGE) {
@@ -4786,7 +4794,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         total_bytes: totalFileBytes(filteredFiles),
         files: Object.keys(filteredFiles),
       },
-      warnings: droppedProtected > 0 ? [`${droppedProtected} protected file(s) ignored`] : undefined,
+      warnings: productDeltaFilter.rejected.length > 0 ? [`${productDeltaFilter.rejected.length} out-of-scope file(s) ignored`] : undefined,
     };
     emit('apply', 'done', `${Object.keys(filteredFiles).length} файлов`, stepResults.apply);
 
@@ -5073,7 +5081,8 @@ async function runArchitect(input: {
     ? Orchestrator.normalizeModelId(architectRoute.modelId, architectRoute.endpoint)
     : 'unknown';
   const installedFiles = getSkeletonInstalledFiles(input.skeletonId);
-  const editableFiles = getEditableSkeletonFiles(input.skeletonId);
+  const productDeltaScope = getProductDeltaScope(input.skeletonId);
+  const editableFiles = productDeltaScope.allowed.map(path => `src/${path}`);
   const editableFileSet = new Set(editableFiles);
   const protectedExistingFiles = installedFiles
     .filter(path => !editableFileSet.has(path))
@@ -5138,7 +5147,7 @@ ALREADY PROVIDED (import/reuse, do not recreate): ${providedList || '(none liste
 PROTECTED / PROVIDED FILES (do not include these in fileTree):
 ${protectedExistingLines || '- (none)'}
 
-EDITABLE SKELETON FILES (include these in fileTree when the product needs real modifications):
+PRODUCT SLOT WRITE SCOPE (the ONLY paths fileTree may contain):
 ${editableExistingLines || '- (none)'}
 
 SKELETON SNAPSHOT (already on disk; use this to avoid duplicates):
@@ -5146,9 +5155,9 @@ ${installedList}
 ${input.designCtx ? archetypeContextForArchitect(input.designCtx) : ''}
 ${input.attachmentPromptBlock ? `\n${input.attachmentPromptBlock}\n` : ''}
 ${architectureQualityRules}
-YOUR TASK: Return fileTree with ONLY the delta files this specific app needs.
-The skeleton is already installed. You MAY include editable skeleton files in fileTree when they need meaningful product-specific rewrites.
-Typical delta for a mobile app: multiple routed pages, product navigation config, a real data layer, one domain hook, and at least one reusable product component.
+YOUR TASK: Return fileTree using ONLY the concrete PRODUCT SLOT WRITE SCOPE above.
+The skeleton is already installed. Every required product slot must be filled; optional slots may be included when needed.
+Do not invent new pages, hooks, components, services, assets, styles, or helper modules outside those slots. Reuse skeleton-provided modules and keep product-local helper logic inside an allowed slot.
 ${shapeRequirement}
 Each fileTree value must be one sentence saying what the file does and which data / state it uses.
 
@@ -5166,8 +5175,8 @@ Return ONLY valid JSON matching this schema:
   "skeleton": "${skeleton.id}",
   "summary":  "<one-sentence elevator pitch>",
   "fileTree": {
-    "src/pages/Home.tsx": "Minimal pipeline scaffold — expected delta file: main screen, what it shows and which state/data it uses",
-    "src/hooks/useSomething.ts": "Minimal pipeline scaffold — expected delta file: hook, what it owns and which data it persists"
+    "src/pages/Home.tsx": "Required product slot: main screen, what it shows and which state/data it uses",
+    "src/data/seed.ts": "Required product slot: realistic domain seed data used by the product screens"
   },
   "pages": [
     { "path": "/dashboard", "name": "Dashboard", "file": "pages/Dashboard.tsx", "purpose": "Product moment: what the user experiences on this screen" }
@@ -5189,10 +5198,10 @@ RULES
 - Do not prescribe final component boundaries.
 - Do not conflict with the builder-owned self-plan.
 - Do not conflict with the market-aware builder brief.
-- fileTree keys may be returned as "src/..." paths, but they must describe ONLY the minimal expected delta files the coder should create.
+- fileTree keys may be returned as "src/..." paths, but EVERY key must be one of the PRODUCT SLOT WRITE SCOPE paths above.
 - NEVER include App.tsx, main.tsx, AppContext, theme.ts, UI primitives, or any file listed under PROTECTED / PROVIDED FILES.
-- Prefer product-specific pages/hooks/components/config/data files over infrastructure files.
-- For editable skeleton pages/config/data files, include them in fileTree when they must be meaningfully rewritten for the product.
+- NEVER invent a new source file outside the declared product slots, even for helpers/hooks/components/services.
+- Include every required product slot; use optional product slots only when needed.
 - Use contextContract to declare that builder/coder owns final architecture, implementation, and self-test. Describe shared state contracts (e.g. "use useApp() from AppContext, NOT useLocalStorage directly") whenever multiple files share state.
 - Use dataModel for product-level information only — canonical domain entity shape. Not final schema design.
 - Use notes for strategic constraints only — not implementation instructions.
@@ -5307,39 +5316,33 @@ RULES
     contextContract: typeof obj.contextContract === 'string' ? obj.contextContract : undefined,
     dataModel: typeof obj.dataModel === 'string' ? obj.dataModel : undefined,
   });
-  const deltaFiles = Object.entries(planner.fileTree)
-    .map(([path, purpose]) => ({ path, purpose }))
-    .filter(file => {
-      const srcPath = `src/${file.path}`;
-      return editableFileSet.has(srcPath) || !installedFiles.includes(srcPath);
-    });
-
-  if (deltaFiles.length === 0) {
-    const schemaError = 'plan contains no usable delta fileTree entries after path normalization and skeleton filtering';
+  const plannedSpecs = Object.entries(planner.fileTree)
+    .map(([path, purpose]) => ({ path, purpose }));
+  const plannedPathSet = new Set(plannedSpecs.map(file => normalizeProductDeltaPath(file.path)));
+  const requiredFallbackSpecs = productDeltaScope.required
+    .filter(path => !plannedPathSet.has(path))
+    .map(path => ({ path, purpose: 'Required product slot from the compiled skeleton contract' }));
+  const scopedPlan = filterProductDeltaSpecs(
+    input.skeletonId,
+    [...plannedSpecs, ...requiredFallbackSpecs],
+  );
+  if (scopedPlan.rejected.length > 0) {
     input.onLog(
-      `[architect] schema diagnostics provider=${architectProvider} model=${architectModel} raw_length=${raw.length} raw_snippet=${extracted.rawSnippet}`,
-      'error',
-    );
-    input.onLog(`[architect] candidate_json_snippet=${safeModelTextSnippet(extracted.jsonText)}`, 'warn');
-    input.onLog(`[architect] schema_error=${schemaError}`, 'warn');
-    throw new Error(`Architect JSON parsed but schema validation failed: ${schemaError}. Raw snippet: ${extracted.rawSnippet}`);
-  }
-  const duplicateSkeletonFiles = Object.keys(planner.fileTree)
-    .filter(path => {
-      const srcPath = `src/${path}`;
-      return installedFiles.includes(srcPath) && !editableFileSet.has(srcPath);
-    });
-  if (duplicateSkeletonFiles.length > 0) {
-    input.onLog(
-      `[architect] dropped ${duplicateSkeletonFiles.length} skeleton file(s) from fileTree: ${duplicateSkeletonFiles.join(', ')}`,
+      `[architect] rejected ${scopedPlan.rejected.length} out-of-scope planned file(s): ${scopedPlan.rejected.join(', ')}`,
       'warn',
     );
   }
-  if (deltaFiles.length < Object.keys(planner.fileTree).length) {
-    input.onLog(
-      `[architect] kept ${deltaFiles.length} delta file(s) after excluding already-installed skeleton files`,
-      'info',
-    );
+  const scopedFileTree = Object.fromEntries(scopedPlan.specs.map(file => [file.path, file.purpose]));
+  const allowedPageFiles = new Set(productDeltaScope.allowed);
+  const scopedPages = (planner.pages ?? []).filter(page =>
+    allowedPageFiles.has(normalizeProductDeltaPath(page.file)),
+  );
+  const deltaFiles = scopedPlan.specs;
+
+  if (deltaFiles.length === 0) {
+    const schemaError = 'plan contains no product-slot delta files after compiled-contract filtering';
+    input.onLog(`[architect] schema_error=${schemaError}`, 'warn');
+    throw new Error(`Architect JSON parsed but schema validation failed: ${schemaError}. Raw snippet: ${extracted.rawSnippet}`);
   }
 
   return {
@@ -5347,9 +5350,9 @@ RULES
     skeleton: typeof obj.skeleton === 'string' ? obj.skeleton as SkeletonId : input.skeletonId,
     summary:  typeof obj.summary === 'string' ? obj.summary : '',
     rawResponse: raw,
-    fileTree: planner.fileTree,
+    fileTree: scopedFileTree,
     deltaFiles,
-    pages: planner.pages,
+    pages: scopedPages,
     notes: planner.notes,
     contextContract: planner.contextContract,
     dataModel: planner.dataModel,
@@ -6290,7 +6293,15 @@ async function runCoder(input: {
       dataModel: input.plan.dataModel ?? '',
     },
   });
-  const targetFiles = input.targetFiles ?? input.plan.deltaFiles;
+  const requestedTargetFiles = input.targetFiles ?? input.plan.deltaFiles;
+  const scopedTargets = filterProductDeltaSpecs(input.skeletonId, requestedTargetFiles);
+  if (scopedTargets.rejected.length > 0) {
+    input.onLog(`[coder] rejected ${scopedTargets.rejected.length} out-of-scope target file(s): ${scopedTargets.rejected.join(', ')}`, 'warn');
+  }
+  const targetFiles = scopedTargets.specs;
+  if (targetFiles.length === 0) {
+    throw new Error('Coder has no product-slot targets after compiled-contract filtering');
+  }
   const coderMaxTokens = resolveCoderMaxTokensForTargetFileCount(targetFiles.length);
   const fileList = targetFiles
     .map(d => `  - ${d.path}${d.purpose ? `  // ${d.purpose}` : ''}`)
@@ -6381,11 +6392,12 @@ async function runCoder(input: {
     `- Paths relative to preview-workspace/src/. No leading "src/" or "/".\n` +
     `- Each file must be a complete, compilable .tsx/.ts file. No diffs, no patches.\n` +
     `- Do not import UI primitives that are not listed in the UI primitive import catalog or not physically present in src/components/ui.\n` +
-    `- If a component is needed but not available in the UI catalog, implement it as a local component under components/ instead of importing a nonexistent shadcn primitive.\n` +
+    `- If a component/helper is needed but not available in the skeleton, implement it inside the current product-slot file; NEVER create an extra source module outside the declared product slots.\n` +
     `- Only import from skeleton-provided modules listed above, exact UI primitive paths listed above, "lucide-react", "react", and files you yourself emit.\n` +
     `- For component-local state (counters, form fields, toggles, lists, etc.) use React's own useState / useReducer / useEffect — DO NOT invent custom hooks like "useApp", "useCounter" etc. that are not in the PROVIDED HOOKS list above. If you need persistence, use the named import: import { useLocalStorage } from "@/hooks/useLocalStorage".\n` +
     `- You are extending the installed skeleton by delta. NEVER rebuild the app shell, router, providers, or placeholder app from scratch when the selected skeleton already provides them.\n` +
     `- Do not modify any skeleton-locked path.\n` +
+    `- HARD WRITE SCOPE: emit only manifest-declared required/optional product slots. No extra components, hooks, services, assets, styles, or helper files.\n` +
     `- No commentary outside the markers. No markdown. No code fences.\n` +
     `- Quality over verbosity: real content, no lorem ipsum, no TODOs.\n` +
     `- DESIGN TOKENS: ALWAYS use Tailwind design token classes — bg-background, bg-card, bg-muted, bg-primary, text-foreground, text-muted-foreground, text-primary, text-primary-foreground, border-border. NEVER use raw color utilities (bg-white, bg-black, bg-gray-100, text-gray-900, border-gray-200). Use var(--primary) / var(--foreground) in style props when tokens are needed inline.\n` +
@@ -6600,16 +6612,17 @@ async function runRepair(input: {
   mediaHints?:  MediaHint[];
 }): Promise<Record<string, string>> {
   const skeleton = SKELETON_REGISTRY[input.skeletonId];
-  // Heuristic: pull file paths the error log references; fall back to all files.
+  const scopedCurrentFiles = filterProductDeltaFiles(input.skeletonId, input.currentFiles).files;
+  // Heuristic: pull file paths the error log references; fall back to all product-slot files.
   const referenced = Array.from(input.errorLog.matchAll(/(?:src\/)?([\w./@-]+\.(?:tsx?|css|json))/g))
     .map(m => normaliseDeltaPath(m[1]))
-    .filter(p => p in input.currentFiles);
+    .filter(p => p in scopedCurrentFiles);
   const targetPaths = referenced.length > 0
     ? Array.from(new Set(referenced))
-    : Object.keys(input.currentFiles);
+    : Object.keys(scopedCurrentFiles);
 
   const targets = targetPaths
-    .map(p => `<<<FILE: ${p}>>>\n${input.currentFiles[p]}\n<<<END>>>`)
+    .map(p => `<<<FILE: ${p}>>>\n${scopedCurrentFiles[p]}\n<<<END>>>`)
     .join('\n\n');
 
   const system = `You are fixing build errors. Re-emit the files below with the bugs fixed.
@@ -6636,7 +6649,14 @@ ${input.errorLog.slice(0, 4000)}`;
   if (Object.keys(parsed).length === 0) {
     throw new Error('Repair produced no FILE/END blocks');
   }
-  return parsed;
+  const scopedRepair = filterProductDeltaFiles(input.skeletonId, parsed);
+  if (scopedRepair.rejected.length > 0) {
+    input.onLog(`[repair] rejected ${scopedRepair.rejected.length} out-of-scope file(s): ${scopedRepair.rejected.join(', ')}`, 'warn');
+  }
+  if (Object.keys(scopedRepair.files).length === 0) {
+    throw new Error('Repair produced no manifest-declared product-slot files');
+  }
+  return scopedRepair.files;
 }
 
 // ── Quality repair pass ───────────────────────────────────────────────────────
@@ -7023,8 +7043,11 @@ export async function runQualityRepair(input: {
   const normToOriginal = new Map<string, string>(
     Object.keys(input.currentFiles).map(k => [normaliseDeltaPath(k), k]),
   );
+  const productSlotPaths = new Set(getProductDeltaScope(input.skeletonId).allowed);
   const allowedMissingIdentityPaths = new Set(
-    (input.visualUsageDiagnostics?.repairableMissingIdentityPaths ?? []).map(path => normalizeOutputPath(path)),
+    (input.visualUsageDiagnostics?.repairableMissingIdentityPaths ?? [])
+      .map(path => normalizeProductDeltaPath(path))
+      .filter(path => productSlotPaths.has(path)),
   );
   const canonicalPatchTargets = [
     ...Object.keys(input.currentFiles).map(key => normaliseDeltaPath(key)),
@@ -7102,10 +7125,14 @@ async function compile(
   // 2. Call backend compile endpoint
   const compileStartedAt = Date.now();
   const sessionId = getPreviewSessionToken();
+  const compileDelta = filterProductDeltaFiles(skeletonId, files);
+  if (compileDelta.rejected.length > 0) {
+    console.warn(`[ProtoPipeline] compile rejected out-of-scope product delta files: ${compileDelta.rejected.join(', ')}`);
+  }
   const resp = await fetch(`/api/preview/${encodeURIComponent(buildId)}/compile`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'X-Preview-Session': sessionId },
-    body:    JSON.stringify({ files, skeletonId, sessionId }),
+    body:    JSON.stringify({ files: compileDelta.files, skeletonId, sessionId }),
     signal,
   });
   const text = await resp.text();
