@@ -4,6 +4,8 @@ const { test, expect } = require('@playwright/test');
 const BASE_URL = process.env.STUDIO_URL ?? 'http://localhost:5183';
 const FLOW_TIMEOUT = 60_000;
 
+const page = (name) => `export default function ${name}(){return <section><h2>${name}</h2></section>}`;
+
 const MOBILE_PREVIEW_FILES = {
   'src/main.tsx': [
     "import React from 'react';",
@@ -20,6 +22,30 @@ const MOBILE_PREVIEW_FILES = {
     '    <BottomTabs />',
     '  </main>;',
     '}',
+  ].join('\n'),
+  'src/config/app.ts': [
+    "export const APP_CONFIG = { name: 'Habit Mobile', tagline: 'Daily progress' } as const;",
+    'export default APP_CONFIG;',
+  ].join('\n'),
+  'src/config/routes.ts': [
+    "export const ROUTES = { onboarding: '/onboarding', home: '/', detail: '/detail', create: '/create', progress: '/progress', profile: '/profile' } as const;",
+    'export default ROUTES;',
+  ].join('\n'),
+  'src/config/navigation.ts': [
+    "export const NAVIGATION = [{ id: 'home', label: 'Home', path: '/' }, { id: 'progress', label: 'Progress', path: '/progress' }, { id: 'profile', label: 'Profile', path: '/profile' }] as const;",
+    'export const NAV_ITEMS = NAVIGATION;',
+    'export default NAVIGATION;',
+  ].join('\n'),
+  'src/config/theme.ts': [
+    "export const DEFAULT_THEME = 'light';",
+    "export const THEME = { light: 'light', dark: 'dark' } as const;",
+    'export const THEMES = THEME;',
+    "export const THEME_CONFIG = { defaultTheme: DEFAULT_THEME, storageKey: 'aic-theme' } as const;",
+    'export default THEME_CONFIG;',
+  ].join('\n'),
+  'src/data/types.ts': [
+    'export type Habit = { id: string; title: string; streak: number };',
+    'export type PricingTier = { id: string; label: string; price: string };',
   ].join('\n'),
   'src/data/seed.ts': [
     "export const HABITS = [{ id: 'hydrate', title: 'Drink water', streak: 7 }];",
@@ -43,12 +69,17 @@ const MOBILE_PREVIEW_FILES = {
     '  return <nav data-testid="root-navigation" aria-label="Primary"><button>Home</button><button>Progress</button><button>Profile</button></nav>;',
     '}',
   ].join('\n'),
+  'src/pages/Onboarding.tsx': page('Onboarding'),
   'src/pages/Home.tsx': [
     "import EmptyState from '../components/EmptyState';",
     'export default function Home() {',
     '  return <section><h1>Mobile habit app</h1><button type="button">Complete today</button><EmptyState /></section>;',
     '}',
   ].join('\n'),
+  'src/pages/Detail.tsx': page('Detail'),
+  'src/pages/Create.tsx': page('Create'),
+  'src/pages/Progress.tsx': page('Progress'),
+  'src/pages/Profile.tsx': page('Profile'),
 };
 
 async function bypassAuth(page) {
