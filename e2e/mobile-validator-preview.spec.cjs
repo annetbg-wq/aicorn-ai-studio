@@ -4,25 +4,11 @@ const { test, expect } = require('@playwright/test');
 const BASE_URL = process.env.STUDIO_URL ?? 'http://localhost:5183';
 const FLOW_TIMEOUT = 60_000;
 
-const page = (name) => `export default function ${name}(){return <section><h2>${name}</h2></section>}`;
+const simplePage = (name) => `export default function ${name}(){return <section><h2>Mobile habit app — ${name}</h2></section>}`;
 
+// Product-owned files only. Bootstrap, root App/layout, BottomTabs and reusable
+// components are intentionally omitted so the installed mobile skeleton owns them.
 const MOBILE_PREVIEW_FILES = {
-  'src/main.tsx': [
-    "import React from 'react';",
-    "import { createRoot } from 'react-dom/client';",
-    "import App from './App';",
-    "createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);",
-  ].join('\n'),
-  'src/App.tsx': [
-    "import Home from './pages/Home';",
-    "import BottomTabs from './components/BottomTabs';",
-    'export default function App() {',
-    '  return <main data-testid="mobile-app-shell" style={{maxWidth:430,margin:"0 auto",padding:20,fontFamily:"system-ui"}}>',
-    '    <Home />',
-    '    <BottomTabs />',
-    '  </main>;',
-    '}',
-  ].join('\n'),
   'src/config/app.ts': [
     "export const APP_CONFIG = { name: 'Habit Mobile', tagline: 'Daily progress' } as const;",
     'export default APP_CONFIG;',
@@ -60,27 +46,17 @@ const MOBILE_PREVIEW_FILES = {
     'export const subscriptionPlans = SUBSCRIPTION_PLANS;',
     'export default HABITS;',
   ].join('\n'),
-  'src/components/EmptyState.tsx': [
-    'export default function EmptyState() {',
-    '  return <aside data-testid="reusable-empty-state">Reusable skeleton state</aside>;',
-    '}',
-  ].join('\n'),
-  'src/components/BottomTabs.tsx': [
-    'export default function BottomTabs() {',
-    '  return <nav data-testid="root-navigation" aria-label="Primary"><button>Home</button><button>Progress</button><button>Profile</button></nav>;',
-    '}',
-  ].join('\n'),
-  'src/pages/Onboarding.tsx': page('Onboarding'),
+  'src/pages/Onboarding.tsx': simplePage('Onboarding'),
   'src/pages/Home.tsx': [
     "import EmptyState from '../components/EmptyState';",
     'export default function Home() {',
-    '  return <section><h1>Mobile habit app</h1><button type="button">Complete today</button><EmptyState /></section>;',
+    '  return <section><h1>Mobile habit app — Home</h1><button type="button">Complete today</button><EmptyState title="No habits yet" description="Start one" /></section>;',
     '}',
   ].join('\n'),
-  'src/pages/Detail.tsx': page('Detail'),
-  'src/pages/Create.tsx': page('Create'),
-  'src/pages/Progress.tsx': page('Progress'),
-  'src/pages/Profile.tsx': page('Profile'),
+  'src/pages/Detail.tsx': simplePage('Detail'),
+  'src/pages/Create.tsx': simplePage('Create'),
+  'src/pages/Progress.tsx': simplePage('Progress'),
+  'src/pages/Profile.tsx': simplePage('Profile'),
 };
 
 async function bypassAuth(page) {
@@ -104,7 +80,7 @@ async function waitForPreviewHook(page) {
 test.describe('mobile validator boundary → real preview', () => {
   test.setTimeout(120_000);
 
-  test('reusable read-only UI compiles inside skeleton-owned root navigation', async ({ page }) => {
+  test('product slots compile with skeleton-owned bootstrap, root layout and navigation', async ({ page }) => {
     await openStudio(page);
     await page.evaluate(() => localStorage.setItem('AIC_E2E_BLUEPRINT_SHORTCUT', '1'));
     await waitForPreviewHook(page);
@@ -123,9 +99,6 @@ test.describe('mobile validator boundary → real preview', () => {
     }).toPass({ timeout: FLOW_TIMEOUT, intervals: [1_000, 2_000, 3_000] });
 
     const frame = page.frameLocator('[data-testid="preview-iframe"]');
-    await expect(frame.locator('[data-testid="mobile-app-shell"]')).toBeVisible({ timeout: FLOW_TIMEOUT });
-    await expect(frame.locator('[data-testid="root-navigation"]')).toBeVisible({ timeout: FLOW_TIMEOUT });
-    await expect(frame.locator('[data-testid="reusable-empty-state"]')).toContainText('Reusable skeleton state');
-    await expect(frame.locator('body')).toContainText('Mobile habit app');
+    await expect(frame.locator('body')).toContainText('Mobile habit app', { timeout: FLOW_TIMEOUT });
   });
 });
