@@ -6507,10 +6507,27 @@ async function runCoder(input: {
         'Do NOT wrap the whole reply in markdown code fences and do NOT add any commentary ' +
         'before the first marker or after the last one.\n\n'
       : '';
-    const retrySystem = `${formatReminder}Same task as before. Emit ONLY the files listed below, in the FILE/END marker format. Do not repeat already-produced files.
-
-MISSING FILES:
-${missing.map(p => `  - ${p}`).join('\n')}`;
+    const retryTargetFiles = targetFiles.filter(file => missing.includes(file.path));
+    const retryFileList = retryTargetFiles
+      .map(file => `  - ${file.path}${file.purpose ? `  // ${file.purpose}` : ''}`)
+      .join('\n');
+    const retrySystem = [
+      skeletonHeaderBlock,
+      input.coderContractBrief ? `\n${input.coderContractBrief}` : '',
+      contractBlock ? `\n${contractBlock}` : '',
+      planningBlocks ? `\n${planningBlocks}` : '',
+      `\n${skeletonPromptBlock}`,
+      establishedFilesBlock ? `\n${establishedFilesBlock}` : '',
+      `\nREQUIRED PRODUCT-SLOT RECOVERY\n` +
+        `${formatReminder}` +
+        `Your previous response omitted required product-slot file(s). ` +
+        `This recovery succeeds ONLY if every path below is emitted exactly once.\n` +
+        `Emit ONLY these missing files; do not repeat any file already accepted.\n\n` +
+        `MISSING REQUIRED PRODUCT SLOTS:\n${retryFileList}`,
+      `\n${outputFormatBlock}`,
+      `\n${importRulesBlock}`,
+      `\n${rulesBlock}`,
+    ].join('\n');
     let retryBody = '';
     try {
       await streamCall({

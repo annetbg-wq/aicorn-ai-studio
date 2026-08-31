@@ -12,36 +12,6 @@ env:
   BENCHMARK_MODEL_ID: openai/gpt-4o-mini
 
 jobs:
-  stage4-required-slot-patch:
-    name: Stage4 required-slot self patch
-    if: github.event_name == 'pull_request' && github.head_ref == 'refactor/product-delta-generation'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: refactor/product-delta-generation
-          fetch-depth: 0
-      - name: Apply required-slot closure patch
-        run: python .github/scripts/stage4_required_slot_patch.py
-      - name: Verify patch markers
-        run: |
-          node --check e2e/chat-generation-flow.spec.cjs
-          grep -q 'REQUIRED PRODUCT-SLOT RECOVERY' frontend/src/services/ProtoPipeline.ts
-          grep -q 'src/data/content.ts' e2e/chat-generation-flow.spec.cjs
-      - name: Commit patch and restore workflow surface
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout origin/main -- .github/workflows/ci.yml
-          rm -f .github/workflows/stage4-canary-product-delta-fix.yml
-          rm -f .github/scripts/stage4_required_slot_patch.py
-          git add frontend/src/services/ProtoPipeline.ts e2e/chat-generation-flow.spec.cjs .github/workflows/ci.yml
-          git add -u .github/workflows/stage4-canary-product-delta-fix.yml .github/scripts/stage4_required_slot_patch.py
-          git commit -m "fix: close required product slots before compile"
-          git push origin HEAD:refactor/product-delta-generation
-
   mcp:
     name: MCP TypeScript + Unit Tests
     runs-on: ubuntu-latest

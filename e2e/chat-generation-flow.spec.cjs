@@ -70,11 +70,79 @@ const LIVE_CANARY_APP_CONFIG_TS = [
   "  subtitle: 'A deterministic counter used to verify compiled preview promotion.',",
   "  primaryCtaLabel: 'Increment',",
   "  primaryCtaHref: '#counter',",
-  "  secondaryCtaLabel: 'View status',",
-  "  secondaryCtaHref: '#status',",
+  "  secondaryCtaLabel: 'Show product proof',",
+  "  secondaryCtaHref: '#product-proof',",
   '} as const;',
   '',
 ].join('\n');
+
+const LIVE_CANARY_CONTENT_TS = [
+  'export const CONTENT = {',
+  "  eyebrow: 'Live preview canary',",
+  "  title: 'Counter ready',",
+  "  description: 'A deterministic product delta that proves generation, compilation, interaction, and preview promotion.',",
+  '  previewPanels: {',
+  "    overview: 'Candidate materialized and compiled.',",
+  "    interaction: 'Interactive state survives the generated revision.',",
+  "    release: 'Final live check can release preview ownership.',",
+  '  },',
+  '  status: [',
+  "    'Candidate materialized',",
+  "    'Compiled preview mounted',",
+  "    'Final live check passed',",
+  '  ],',
+  '} as const;',
+  '',
+].join('\\n');
+
+const LIVE_CANARY_PRODUCT_DELTA_APP_TSX = [
+  "import { useState } from 'react';",
+  "import { APP_CONFIG } from './config/app';",
+  "import { CONTENT } from './data/content';",
+  '',
+  'type PreviewTab = keyof typeof CONTENT.previewPanels;',
+  '',
+  'export default function App() {',
+  '  const [count, setCount] = useState(0);',
+  '  const [proofVisible, setProofVisible] = useState(false);',
+  "  const [activePreviewTab, setActivePreviewTab] = useState<PreviewTab>('overview');",
+  '  return (',
+  '    <main className="min-h-screen bg-background text-foreground grid place-items-center p-6">',
+  '      <section data-testid="live-canary-surface" className="w-full max-w-2xl grid gap-5">',
+  '        <header className="grid gap-3 rounded-2xl border border-border bg-card p-5">',
+  '          <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{CONTENT.eyebrow}</p>',
+  '          <h1 className="text-4xl font-bold">{CONTENT.title}</h1>',
+  '          <p className="text-muted-foreground">{CONTENT.description}</p>',
+  '          <div className="flex flex-wrap gap-3">',
+  '            <button type="button" onClick={() => setCount(value => value + 1)} className="rounded-lg bg-primary px-4 py-3 font-semibold text-primary-foreground">{APP_CONFIG.primaryCtaLabel}</button>',
+  '            <button type="button" onClick={() => setProofVisible(true)} className="rounded-lg border border-border bg-secondary px-4 py-3 font-semibold text-secondary-foreground">{APP_CONFIG.secondaryCtaLabel}</button>',
+  '          </div>',
+  '        </header>',
+  '        <section id="counter" className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">',
+  '          <span className="text-muted-foreground">Current count</span>',
+  '          <strong data-testid="count-value" className="text-4xl">{count}</strong>',
+  '        </section>',
+  '        {proofVisible ? (',
+  '          <section id="product-proof" aria-label="Product preview" className="grid gap-3 rounded-2xl border border-border bg-muted p-4">',
+  '            <div role="tablist" aria-label="Preview states" className="flex flex-wrap gap-2">',
+  '              {(Object.keys(CONTENT.previewPanels) as PreviewTab[]).map(tabId => (',
+  '                <button key={tabId} type="button" role="tab" aria-selected={activePreviewTab === tabId} onClick={() => setActivePreviewTab(tabId)} className={activePreviewTab === tabId ? "rounded-lg bg-primary px-3 py-2 text-primary-foreground" : "rounded-lg bg-card px-3 py-2 text-foreground"}>{tabId}</button>',
+  '              ))}',
+  '            </div>',
+  '            <p data-testid="product-preview-panel" className="text-foreground">{CONTENT.previewPanels[activePreviewTab]}</p>',
+  '          </section>',
+  '        ) : (',
+  '          <p className="text-muted-foreground">Product proof is ready. Use the secondary action to reveal it.</p>',
+  '        )}',
+  '        <ul id="status" className="grid gap-1 pl-5 text-muted-foreground list-disc">',
+  '          {CONTENT.status.map(item => <li key={item}>{item}</li>)}',
+  '        </ul>',
+  '      </section>',
+  '    </main>',
+  '  );',
+  '}',
+  '',
+].join('\\n');
 
 const LIVE_CANARY_PASS2_HERO_TSX = [
   'type HeroProps = {',
@@ -162,7 +230,7 @@ const LIVE_CANARY_PASS2_CRITIC_RESPONSE = JSON.stringify([
     briefPoint: 'Use the primary CTA to move to product proof is implemented end-to-end',
     status: 'missing',
     evidence: 'The initial canary surface has no product-proof navigation flow.',
-    targetFile: 'pages/Hero.tsx',
+    targetFile: 'App.tsx',
     requiredAction: 'Add a visible CTA that updates local section state and scrolls to product proof.',
     priority: 'must',
     source: 'completeness',
@@ -172,7 +240,7 @@ const LIVE_CANARY_PASS2_CRITIC_RESPONSE = JSON.stringify([
     briefPoint: 'Switch the product preview content is implemented end-to-end',
     status: 'missing',
     evidence: 'The initial canary surface has no stateful product-preview tabs.',
-    targetFile: 'pages/ProductPreviewOrWorkflowExplanation.tsx',
+    targetFile: 'App.tsx',
     requiredAction: 'Add deterministic preview tabs that swap visible panel content with React state.',
     priority: 'must',
     source: 'completeness',
@@ -180,9 +248,7 @@ const LIVE_CANARY_PASS2_CRITIC_RESPONSE = JSON.stringify([
 ]);
 
 const LIVE_CANARY_PASS2_IMPLEMENTER_RESPONSE = [
-  `<<<FILE: src/App.tsx>>>\n${LIVE_CANARY_PASS2_APP_TSX}\n<<<END>>>`,
-  `<<<FILE: src/pages/Hero.tsx>>>\n${LIVE_CANARY_PASS2_HERO_TSX}\n<<<END>>>`,
-  `<<<FILE: src/pages/ProductPreviewOrWorkflowExplanation.tsx>>>\n${LIVE_CANARY_PASS2_PREVIEW_TSX}\n<<<END>>>`,
+  `<<<FILE: src/App.tsx>>>\n${LIVE_CANARY_PRODUCT_DELTA_APP_TSX}\n<<<END>>>`,
 ].join('\n');
 
 
@@ -265,9 +331,7 @@ const LIVE_CANARY_QUALITY_PREVIEW_TSX = [
 ].join('\n');
 
 const LIVE_CANARY_QUALITY_REPAIR_RESPONSE = [
-  `<<<FILE: App.tsx>>>\n${LIVE_CANARY_QUALITY_APP_TSX}\n<<<END>>>`,
-  `<<<FILE: pages/Hero.tsx>>>\n${LIVE_CANARY_QUALITY_HERO_TSX}\n<<<END>>>`,
-  `<<<FILE: pages/ProductPreviewOrWorkflowExplanation.tsx>>>\n${LIVE_CANARY_QUALITY_PREVIEW_TSX}\n<<<END>>>`,
+  `<<<FILE: App.tsx>>>\n${LIVE_CANARY_PRODUCT_DELTA_APP_TSX}\n<<<END>>>`,
 ].join('\n');
 
 const LIVE_CANARY_PLAN_RESPONSE = JSON.stringify({
@@ -377,8 +441,9 @@ const LIVE_CANARY_TECH_RESPONSE = JSON.stringify({
       guardStrategy: 'No guards',
     },
     fileStructure: [
-      { file: 'App.tsx', purpose: 'Render the counter canary surface' },
+      { file: 'App.tsx', purpose: 'Render the counter canary surface inside the landing product slot' },
       { file: 'config/app.ts', purpose: 'Provide product identity for the landing skeleton' },
+      { file: 'data/content.ts', purpose: 'Provide product copy, proof panels, and status content' },
     ],
     componentContracts: [
       {
@@ -402,11 +467,15 @@ const LIVE_CANARY_CODER_RESPONSE = JSON.stringify({
     files: [
       {
         path: 'src/App.tsx',
-        content: LIVE_CANARY_APP_TSX,
+        content: LIVE_CANARY_PRODUCT_DELTA_APP_TSX,
       },
       {
         path: 'src/config/app.ts',
         content: LIVE_CANARY_APP_CONFIG_TS,
+      },
+      {
+        path: 'src/data/content.ts',
+        content: LIVE_CANARY_CONTENT_TS,
       },
     ],
   },
@@ -427,14 +496,16 @@ const LIVE_CANARY_PROTO_ARCHITECT_PLAN = JSON.stringify({
   skeleton: 'landing-page',
   summary: 'A minimal counter that proves the preview pipeline works end-to-end.',
   fileTree: {
-    'src/App.tsx': 'Root app: renders the live canary counter surface with a visible section and increment button',
-    'src/config/app.ts': 'Product identity: stable name and CTA metadata required by the landing skeleton',
+    'src/App.tsx': 'Product slot: interactive counter, CTA-to-proof flow, and preview-state tabs',
+    'src/config/app.ts': 'Product slot: stable name and CTA metadata required by the landing skeleton',
+    'src/data/content.ts': 'Product slot: product copy, preview proof panels, and release status content',
   },
 });
 
 const LIVE_CANARY_PROTO_CODER_PLAN = [
-  `<<<FILE: src/App.tsx>>>\n${LIVE_CANARY_APP_TSX}\n<<<END>>>`,
+  `<<<FILE: src/App.tsx>>>\n${LIVE_CANARY_PRODUCT_DELTA_APP_TSX}\n<<<END>>>`,
   `<<<FILE: src/config/app.ts>>>\n${LIVE_CANARY_APP_CONFIG_TS}\n<<<END>>>`,
+  `<<<FILE: src/data/content.ts>>>\n${LIVE_CANARY_CONTENT_TS}\n<<<END>>>`,
 ].join('\n');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
