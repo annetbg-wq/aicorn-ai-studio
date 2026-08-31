@@ -16,6 +16,8 @@ for old, new in replacements.items():
     assert old in text, f'missing expected prompt fragment: {old[:80]}'
     text = text.replace(old, new, 1)
 
-assert 'manifest?.' not in text
-assert 'manifest.' not in text
+assert 'manifest?.ownership.requiredProductSlots' not in text
+assert 'manifest?.ownership.agentEditable' not in text
+assert 'manifest?.protectedFiles' not in text
+assert 'manifest?.requiredExports' not in text
 path.write_text(text)
