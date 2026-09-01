@@ -4795,6 +4795,12 @@ export const useStudio = () => {
         noTelemetryReason: result.runTelemetry ? undefined : 'no telemetry for this run',
       }));
 
+      // Captured synchronously from addSnapshot() below so the final-preview gate
+      // (see finalPreviewGateRef.current.filesCommitted below) can be re-checked
+      // immediately instead of waiting on the startTransition-deferred re-render
+      // that normally picks up the new currentSnapshotId state.
+      let committedSnapshotId: string | null = null;
+
       // Non-critical UI updates — startTransition lets React apply them as one batch
       // without intermediate renders that could leave the iframe in an inconsistent state.
       startTransition(() => {
@@ -4808,7 +4814,7 @@ export const useStudio = () => {
           // Do NOT call setFiles() here — that would clear projectGraph immediately.
           setFilesRaw(finalFiles);
           setProjectGraph(result.graph);
-          addSnapshot(finalFiles, userPrompt);
+          committedSnapshotId = addSnapshot(finalFiles, userPrompt).id;
           const first = result.operations.find(o => o.op !== 'delete');
           if (!optimisticFiles && first && 'name' in first) setActiveFile(first.name as string);
 
@@ -4973,6 +4979,29 @@ export const useStudio = () => {
           reportMessageId: runReportMessageId,
         };
         finalPreviewGateRef.current.filesCommitted = true;
+        // The final build's `ready` notification (ProtoPipeline.ts compile() ->
+        // previewController.notifyReady) fires synchronously while this function is
+        // still awaiting the pipeline promise — i.e. strictly before this line runs.
+        // The previewController subscriber in the effect above therefore always
+        // observes filesCommitted:false on that event and parks previewLifecycle in
+        // 'materializing'. It only self-heals once the addSnapshot() call above
+        // triggers a re-render with the new currentSnapshotId, which is a
+        // startTransition update with no guaranteed timing — under the heavier
+        // post-generation work this pipeline now does, that re-render can be
+        // starved indefinitely, leaving the preview iframe never promoted even
+        // though the backend build is ready. Re-check the gate right now, using
+        // the snapshot id we already have synchronously, instead of waiting on it.
+        if (committedSnapshotId) {
+          const latestPreviewState = previewController.getState();
+          if (
+            latestPreviewState.status === 'ready' &&
+            latestPreviewState.buildStage !== 'skeleton' &&
+            lastPreviewReadyRevisionRef.current !== latestPreviewState.activeRevisionId
+          ) {
+            lastPreviewReadyRevisionRef.current = latestPreviewState.activeRevisionId ?? null;
+            promoteFinalPreviewReady(committedSnapshotId);
+          }
+        }
         setPendingProjectSaveMeta({
           projectId,
           projectTitle,
