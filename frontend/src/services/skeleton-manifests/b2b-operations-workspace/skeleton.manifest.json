@@ -109,16 +109,6 @@
       "src/pages/Workflow.tsx"
     ],
     "optionalProductSlots": [],
-    "agentReadOnly": [
-      "src/main.tsx",
-      "src/index.css",
-      "src/lib/**",
-      "src/hooks/**",
-      "src/context/**",
-      "src/components/**",
-      "src/config/routes.ts",
-      "src/config/theme.ts"
-    ],
     "carcassFiles": []
   },
   "protectedFiles": [
