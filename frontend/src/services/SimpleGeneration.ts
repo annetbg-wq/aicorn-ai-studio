@@ -477,6 +477,10 @@ Return ONLY JSON, no markdown, matching this exact shape:
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function inferArchetype(config: PipelineRunConfig): string {
+  // An explicitly selected first-class surface is authoritative. A legacy
+  // prebuilt plan may still describe its generic layout as "mobile"; that
+  // layout hint must not silently downgrade a super-app back to mobile-app.
+  if (config.generationMode === 'superapp') return 'superapp';
   const plan = config.prebuiltPlan;
   if (plan?.layout?.type) return plan.layout.type;
   return config.generationMode ?? '';
