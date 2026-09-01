@@ -76,11 +76,11 @@ jobs:
               'LiveGenerationContractValidator imports',
           )
           unique_sorted = "function uniqueSorted(values: Iterable<string>): string[] {\n  return Array.from(new Set(Array.from(values))).sort((left, right) => left.localeCompare(right));\n}\n"
-          data_helper = unique_sorted + "\nfunction getRequiredSkeletonDataFilesFromContract(skeletonId: SkeletonId): string[] {\n  const contract = compileSkeletonContract(skeletonId);\n  const candidates = [\n    ...contract.infrastructure.installed,\n    ...contract.requiredSlots,\n    ...contract.optionalSlots,\n    ...contract.editable,\n  ];\n  return uniqueSorted(candidates.filter(file => (\n    file === 'src/data/seed.ts' || file === 'src/data/types.ts'\n  )));\n}\n"
+          data_helper = unique_sorted + "\nfunction resolveRequiredDataContractFiles(skeletonId: SkeletonId): string[] {\n  const contract = compileSkeletonContract(skeletonId);\n  const candidates = [\n    ...contract.infrastructure.installed,\n    ...contract.requiredSlots,\n    ...contract.optionalSlots,\n    ...contract.editable,\n  ];\n  return uniqueSorted(candidates.filter(file => (\n    file === 'src/data/seed.ts' || file === 'src/data/types.ts'\n  )));\n}\n"
           validator = replace_exact(validator, unique_sorted, data_helper, 'LiveGenerationContractValidator data helper insertion')
           validator = replace_call(validator, 'getSkeletonInstalledFiles', lambda arg: f'compileSkeletonContract({arg}).infrastructure.installed', 'LiveGenerationContractValidator installed access')
           validator = replace_call(validator, 'getSkeletonProductSlotFiles', lambda arg: f'getProductDeltaScope({arg}).allowed', 'LiveGenerationContractValidator product-slot access')
-          validator = replace_call(validator, 'getRequiredSkeletonDataFiles', lambda arg: f'getRequiredSkeletonDataFilesFromContract({arg})', 'LiveGenerationContractValidator data access', 1)
+          validator = replace_call(validator, 'getRequiredSkeletonDataFiles', lambda arg: f'resolveRequiredDataContractFiles({arg})', 'LiveGenerationContractValidator data access', 1)
           save(validator_path, validator)
 
           preflight_path = 'frontend/src/modules/quality/LiveReadinessPreflight.ts'
@@ -104,7 +104,29 @@ jobs:
           registry, removed = registry_pattern.subn('', registry)
           if removed != 1:
               raise SystemExit(f'SkeletonRegistry ownership accessor block: expected 1 block, removed {removed}')
+          registry = replace_exact(
+              registry,
+              '  const installedFiles = getSkeletonInstalledFiles(skeletonId);\n',
+              '  const installedFiles = compileSkeletonContract(skeletonId).infrastructure.installed;\n',
+              'SkeletonRegistry internal installed access',
+          )
           save(registry_path, registry)
+
+          nav_test_path = 'frontend/src/services/__tests__/SaasDashboardNavigationContract.test.ts'
+          nav_test = load(nav_test_path)
+          nav_test = replace_exact(
+              nav_test,
+              "import { getSkeletonProductSlotFiles } from '../SkeletonRegistry';\n",
+              "import { compileSkeletonContract } from '../SkeletonContractCompiler';\n",
+              'SaaS navigation test import',
+          )
+          nav_test = replace_exact(
+              nav_test,
+              "  it('runtime product-slot adapter for saas-dashboard includes navigation.ts', () => {\n    expect(getSkeletonProductSlotFiles('saas-dashboard')).toContain('src/config/navigation.ts');\n  });",
+              "  it('compiled product-slot contract for saas-dashboard includes navigation.ts', () => {\n    expect(compileSkeletonContract('saas-dashboard').requiredSlots).toContain('src/config/navigation.ts');\n  });",
+              'SaaS navigation runtime contract assertion',
+          )
+          save(nav_test_path, nav_test)
 
           quality_wrapper = Path('frontend/src/services/SkeletonQualityContract.ts')
           if not quality_wrapper.exists():
@@ -116,7 +138,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -n -E 'getSkeletonInstalledFiles|getEditableSkeletonFiles|getSkeletonProductSlotFiles|getRequiredSkeletonDataFiles|getSkeletonQualityContract' -- frontend/src; then
+          if git grep -n -E '\b(getSkeletonInstalledFiles|getEditableSkeletonFiles|getSkeletonProductSlotFiles|getRequiredSkeletonDataFiles|getSkeletonQualityContract)\b' -- frontend/src; then
             echo 'Legacy skeleton accessor reference remains.' >&2
             exit 1
           fi
@@ -133,6 +155,7 @@ jobs:
                   frontend/src/services/LiveGenerationContractValidator.ts \
                   frontend/src/modules/quality/LiveReadinessPreflight.ts \
                   frontend/src/services/SkeletonRegistry.ts \
-                  frontend/src/services/SkeletonQualityContract.ts
+                  frontend/src/services/SkeletonQualityContract.ts \
+                  frontend/src/services/__tests__/SaasDashboardNavigationContract.test.ts
           git commit -m 'refactor(skeletons): collapse ownership accessors into compiler contract'
           git push origin HEAD:tmp/step7-contract-refactor
