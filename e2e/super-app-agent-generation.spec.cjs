@@ -259,7 +259,7 @@ async function runSuperAppCanary(page) {
   await textarea.press('Enter');
   const sendBtn = textarea.locator('xpath=following-sibling::button[not(@disabled) and not(@title="Stop generation")]').first();
   if (await sendBtn.count()) await sendBtn.click({ force: true });
-  await page.locator('[data-testid="surface-choice-btn-app"]').click({ timeout: 5_000 }).catch(() => {});
+  await page.locator('[data-testid="surface-choice-btn-superapp"]').click({ timeout: 5_000 }).catch(() => {});
   await page.locator('[data-testid="generation-plan-card"] [data-testid="confirm-plan-btn"]').last().click({ timeout: 3_000 }).catch(() => {});
 
   await expect(async () => {
