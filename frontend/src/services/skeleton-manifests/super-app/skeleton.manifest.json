@@ -86,19 +86,6 @@
       "src/pages/Profile.tsx"
     ],
     "optionalProductSlots": [],
-    "agentEditable": [
-      "src/config/app.ts",
-      "src/config/routes.ts",
-      "src/config/navigation.ts",
-      "src/data/types.ts",
-      "src/data/seed.ts",
-      "src/pages/Onboarding.tsx",
-      "src/pages/Home.tsx",
-      "src/pages/Finance.tsx",
-      "src/pages/Wellness.tsx",
-      "src/pages/Learning.tsx",
-      "src/pages/Profile.tsx"
-    ],
     "agentReadOnly": [
       "src/main.tsx",
       "src/index.css",
