@@ -73,6 +73,14 @@ export function clearTimelineContext(): void {
   _timelineCtx = {};
 }
 
+function serializeTimelinePayload(payload: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return '{"_serializationError":true}';
+  }
+}
+
 /** Structured preview-pipeline logger. Single grep target for the full timeline. */
 export function previewLog(
   event: string,
@@ -80,8 +88,9 @@ export function previewLog(
 ): void {
   // Merge ambient context under event-specific payload (payload wins on conflict).
   const merged = { ..._timelineCtx, ...payload, _t: Date.now() };
-  // Single-line, sortable, easy to grep with `[preview-timeline]`.
-  console.log(`[preview-timeline] ${event}`, merged);
+  // Preserve the object payload for existing human/runtime consumers and append a
+  // machine-readable mirror so browser-console collectors can parse fields such as buildId.
+  console.log(`[preview-timeline] ${event}`, merged, serializeTimelinePayload(merged));
 }
 
 export class PreviewController {
