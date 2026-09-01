@@ -16,6 +16,7 @@
  */
 
 import { type SkeletonId, SKELETON_REGISTRY } from './SkeletonRegistry';
+import { compileSkeletonContract } from './SkeletonContractCompiler';
 
 // ── Navigation export descriptor ─────────────────────────────────────────────
 
@@ -335,13 +336,25 @@ export function buildSkeletonContractForCoder(skeletonId: SkeletonId): string {
   const skeleton = SKELETON_REGISTRY[skeletonId];
   if (!skeleton || !skeleton.available) return '';
 
+  const compiled = compileSkeletonContract(skeletonId);
+  const requiredProductSlots = compiled.requiredSlots;
+  const optionalProductSlots = compiled.optionalSlots;
   const nav = NAV_CONTRACTS[skeletonId];
+  const productSlotPaths = new Set([...requiredProductSlots, ...optionalProductSlots]);
+  const navConfigProductSlotPath = `${nav.configPath.replace(/^@\//, 'src/')}.ts`;
+  const navConfigIsProductSlot = productSlotPaths.has(navConfigProductSlotPath);
   const lines: string[] = [];
 
   lines.push('SKELETON FOUNDATION CONTRACT');
   lines.push(`Skeleton: ${skeleton.label} (${skeleton.id})`);
   lines.push('Status: ALREADY INSTALLED in preview-workspace/src/ before this prompt.');
-  lines.push('Task: generate ONLY the app-specific delta files. Do NOT recreate skeleton foundation.');
+  lines.push('Task: fill ONLY the concrete product slots below. Do NOT recreate or extend the skeleton foundation with new source modules.');
+  lines.push('');
+  lines.push('REQUIRED PRODUCT SLOTS — MUST BE EMITTED:');
+  lines.push(...requiredProductSlots.map(path => `  - ${path}`));
+  lines.push('OPTIONAL PRODUCT SLOTS — MAY BE EMITTED ONLY WHEN THE PRODUCT NEEDS THEM:');
+  lines.push(...(optionalProductSlots.length > 0 ? optionalProductSlots.map(path => `  - ${path}`) : ['  - none']));
+  lines.push('HARD WRITE RULE: every FILE block must target one of the product slots above. No other source path is writable.');
   lines.push('');
 
   // Navigation contract block
@@ -349,7 +362,11 @@ export function buildSkeletonContractForCoder(skeletonId: SkeletonId): string {
   lines.push(`  Config path: ${nav.configPath}`);
 
   if (nav.exports.length > 0) {
-    lines.push('  Exports (read-only):');
+    lines.push(
+      navConfigIsProductSlot
+        ? `  Product-slot exports — define these in ${navConfigProductSlotPath}:`
+        : '  Exports (read-only):',
+    );
     for (const exp of nav.exports) {
       lines.push(`    - ${exp.name}: ${exp.type} — ${exp.description}`);
     }
@@ -363,9 +380,18 @@ export function buildSkeletonContractForCoder(skeletonId: SkeletonId): string {
     );
   }
 
-  if (nav.rules.length > 0) {
+  const effectiveNavRules = navConfigIsProductSlot
+    ? nav.rules.filter(rule => !/read-only|do NOT re-(?:declare|export|import)/i.test(rule))
+    : nav.rules;
+  if (navConfigIsProductSlot) {
+    lines.push(
+      `  Product-slot rule: ${navConfigProductSlotPath} is writable product configuration; ` +
+        'emit the listed exports there. The navigation rendering component itself remains skeleton-owned.',
+    );
+  }
+  if (effectiveNavRules.length > 0) {
     lines.push('  Rules:');
-    for (const rule of nav.rules) {
+    for (const rule of effectiveNavRules) {
       lines.push(`    • ${rule}`);
     }
   }
@@ -379,9 +405,9 @@ export function buildSkeletonContractForCoder(skeletonId: SkeletonId): string {
   );
   lines.push('     the PROVIDED COMPONENTS / PROVIDED HOOKS list above.');
   lines.push(
-    '  2. If a component is NOT listed, self-implement it locally under src/components/.',
+    '  2. If a component/helper is NOT listed, implement it inside the current product-slot file.',
   );
-  lines.push('     Never import a component that is not in the contract or provided list.');
+  lines.push('     Never create an extra source module outside the declared product slots.');
   lines.push('  3. Do NOT recreate any component from the PROVIDED COMPONENTS list.');
   lines.push(
     '  4. Do NOT recreate the app shell, router, providers, or skeleton foundation files.',
