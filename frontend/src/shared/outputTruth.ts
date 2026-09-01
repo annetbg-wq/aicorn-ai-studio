@@ -164,10 +164,10 @@ export interface ArchitectPlanTruthResult {
 const PLACEHOLDER_RULES: Array<{ pattern: RegExp; label: string }> = [
   { pattern: />\s*(?:test|todo|placeholder|coming soon|lorem ipsum|hello world)\s*</i, label: 'placeholder ui copy' },
   { pattern: /\b(?:TODO|Coming soon|Lorem ipsum|Hello world)\b/i, label: 'placeholder token' },
-  { pattern: /(?:^|[\s{[(;:'"`])Placeholder(?!:)(?:$|[\s,.;:!?)}\]'"])/i, label: 'placeholder token' },
+  { pattern: /(?:^|[\s{[(;:'"`])Placeholder(?!:)(?:$|[\s,.;:!?)}\]'\"])/i, label: 'placeholder token' },
   { pattern: /\bplaceholder\s*=\s*["'](?:placeholder|type here|enter text|enter value|search|search here|add item|new item)["']/i, label: 'generic input placeholder' },
-  { pattern: /\bname\s*:\s*['"]Test['"]/i, label: 'test app name' },
-  { pattern: /\bAPP_CONFIG\b[\s\S]{0,80}\bname\s*:\s*['"]Test['"]/i, label: 'test app config name' },
+  { pattern: /\bname\s*:\s*['\"]Test['\"]/i, label: 'test app name' },
+  { pattern: /\bAPP_CONFIG\b[\s\S]{0,80}\bname\s*:\s*['\"]Test['\"]/i, label: 'test app config name' },
 ];
 
 const GENERIC_FALLBACK_RULES: Array<{ pattern: RegExp; label: string }> = [
@@ -185,10 +185,11 @@ const STRUCTURE_SIGNAL_PATTERN = /<(?:main|section|article|nav|header|footer|asi
 const CONTENT_TEXT_PATTERN = />\s*[^<]{8,}\s*</g;
 const STATIC_DEMO_PATTERN = /\b(?:chart|dashboard|metric|kpi|analytics|overview|summary|card|stats?)\b/i;
 const EMPTY_STUB_PATTERN = /\breturn\s*(?:null|undefined|<>\s*<\/>|<div\s*\/>|<main\s*\/>|\(\s*<>\s*<\/>\s*\)|\(\s*<div\s*\/>\s*\)|\(\s*<main\s*\/>\s*\))/i;
-const BARREL_ONLY_PATTERN = /^\s*(?:export\s+\*\s+from\s+['"][^'"]+['"];?\s*|export\s+\{[^}]+\}\s+from\s+['"][^'"]+['"];?\s*)+$/;
+const BARREL_ONLY_PATTERN = /^\s*(?:export\s+\*\s+from\s+['\"][^'\"]+['\"];?\s*|export\s+\{[^}]+\}\s+from\s+['\"][^'\"]+['\"];?\s*)+$/;
 const DEMO_TEST_PATH_PATTERN = /\/(?:__tests__|tests?|demo|demos|fixtures|examples?|playground|storybook)\//i;
 const DEMO_TEST_FILE_PATTERN = /(?:Demo|Test|Example|Fixture|Placeholder)\.(?:tsx?|jsx?|json)$/i;
 const DESIGN_PACK_METADATA_PATH_PATTERN = /^src\/design-pack\/(?:selected-pack\.manifest\.json|domain\/[^/]+\/manifest\.json)$/i;
+const ARCHITECT_INTERNAL_DOC_PATH_PATTERN = /^src\/docs\/architect\//i;
 
 const STRUCTURE_BUCKET_DEFS: Array<{
   id: OutputStructureClassId;
@@ -310,8 +311,8 @@ function matchRuleHits(
 ): OutputTruthHit[] {
   const hits: OutputTruthHit[] = [];
   for (const path of paths) {
-    // UI primitive components (shadcn/ui templates) are not product content — skip placeholder checks
-    if (/components[\\/]ui[\\/]/.test(path)) continue;
+    // UI primitives and internal architecture documents are not user-facing product copy.
+    if (/components[\\/]ui[\\/]/.test(path) || ARCHITECT_INTERNAL_DOC_PATH_PATTERN.test(path)) continue;
     const content = files[path] ?? '';
     for (const rule of rules) {
       if (rule.pattern.test(content)) {
