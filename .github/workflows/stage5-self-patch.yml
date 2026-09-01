@@ -1,0 +1,36 @@
+name: Stage 5 Self Patch
+
+on:
+  push:
+    branches:
+      - refactor/app-first-quality-gate
+    paths:
+      - .github/stage5_app_first_patch.py
+      - .github/workflows/stage5-self-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/app-first-quality-gate
+          fetch-depth: 0
+      - name: Apply Stage 5 integration
+        run: python .github/stage5_app_first_patch.py
+      - name: Self-clean patch machinery
+        run: rm .github/stage5_app_first_patch.py .github/workflows/stage5-self-patch.yml
+      - name: Commit integrated Stage 5 changes
+        run: |
+          git config user.name "annetbg-wq"
+          git config user.email "annetdenr@gmail.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "feat: wire app-first mobile quality gate"
+          git push origin HEAD:refactor/app-first-quality-gate
