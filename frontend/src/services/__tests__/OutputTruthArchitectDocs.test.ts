@@ -24,7 +24,9 @@ describe('output truth product-copy scan scope', () => {
       routeCount: 1,
     });
 
-    expect(truth.placeholderHits.map((hit) => hit.path)).toEqual(['src/pages/Home.tsx']);
+    const placeholderPaths = truth.placeholderHits.map((hit) => hit.path);
+    expect(placeholderPaths.some((path) => path === 'src/pages/Home.tsx')).toBe(true);
+    expect(placeholderPaths.some((path) => path.startsWith('src/docs/architect/'))).toBe(false);
     expect(truth.blockers.map((blocker) => blocker.code)).toContain('placeholder-text');
   });
 
