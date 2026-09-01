@@ -3,14 +3,14 @@ import { buildVisualUsageDiagnostics } from '../ProtoPipeline';
 import { getSkeletonQualityContract, listSkeletonQualityContractIds } from '../SkeletonQualityContract';
 
 const expectedSkeletonIds = [
-  'mobile-app', 'saas-dashboard', 'landing-page', 'social-community',
+  'mobile-app', 'super-app', 'saas-dashboard', 'landing-page', 'social-community',
   'productivity-tool', 'ecommerce', 'b2b-operations-workspace',
   'marketplace-platform', 'creator-editor-workspace', 'dating-matching-app',
   'gaming-casino-app', 'game-interactive-app', 'booking-service-app',
   'content-learning-app',
 ] as const;
 
-describe('Skeleton quality contract runtime — 14/14', () => {
+describe('Skeleton quality contract runtime — 15/15', () => {
   it('covers every skeleton id with a positive meaningful-screen threshold', () => {
     const ids = listSkeletonQualityContractIds();
     expect([...ids].sort()).toEqual([...expectedSkeletonIds].sort());
@@ -26,6 +26,7 @@ describe('Skeleton quality contract runtime — 14/14', () => {
     expect(getSkeletonQualityContract('landing-page').minMeaningfulScreens).toBe(1);
     expect(getSkeletonQualityContract('saas-dashboard').minMeaningfulScreens).toBe(3);
     expect(getSkeletonQualityContract('mobile-app').minMeaningfulScreens).toBe(4);
+    expect(getSkeletonQualityContract('super-app').minMeaningfulScreens).toBe(5);
     expect(getSkeletonQualityContract('ecommerce').minMeaningfulScreens).toBe(5);
   });
 
@@ -33,6 +34,7 @@ describe('Skeleton quality contract runtime — 14/14', () => {
     ['landing-page', 1],
     ['saas-dashboard', 3],
     ['mobile-app', 4],
+    ['super-app', 5],
     ['ecommerce', 5],
   ] as const)('%s diagnostics enforce its manifest threshold', (skeletonId, minScreens) => {
     const result = buildVisualUsageDiagnostics({
