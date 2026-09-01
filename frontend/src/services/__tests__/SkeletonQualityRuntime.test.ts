@@ -26,7 +26,7 @@ describe('Skeleton quality contract runtime — 15/15', () => {
     expect(getSkeletonQualityContract('landing-page').minMeaningfulScreens).toBe(1);
     expect(getSkeletonQualityContract('saas-dashboard').minMeaningfulScreens).toBe(3);
     expect(getSkeletonQualityContract('mobile-app').minMeaningfulScreens).toBe(4);
-    expect(getSkeletonQualityContract('super-app').minMeaningfulScreens).toBe(5);
+    expect(getSkeletonQualityContract('super-app').minMeaningfulScreens).toBe(6);
     expect(getSkeletonQualityContract('ecommerce').minMeaningfulScreens).toBe(5);
   });
 
@@ -34,7 +34,7 @@ describe('Skeleton quality contract runtime — 15/15', () => {
     ['landing-page', 1],
     ['saas-dashboard', 3],
     ['mobile-app', 4],
-    ['super-app', 5],
+    ['super-app', 6],
     ['ecommerce', 5],
   ] as const)('%s diagnostics enforce its manifest threshold', (skeletonId, minScreens) => {
     const result = buildVisualUsageDiagnostics({
