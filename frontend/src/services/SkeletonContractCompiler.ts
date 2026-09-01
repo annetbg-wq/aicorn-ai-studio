@@ -59,7 +59,8 @@ export interface CompiledSkeletonInfrastructureContract {
  *
  * Semantics:
  * - requiredSlots: product files required for a successful prototype;
- * - editable: files generation may emit/replace;
+ * - optionalSlots: product files generation may write when the plan requires them;
+ * - editable: derived union of requiredSlots + optionalSlots, never an independent policy source;
  * - reusable: read-only skeleton files/components/hooks product code may consume;
  * - infrastructure: installed/owned/protected scaffold and export integrity data;
  * - quality: manifest-declared prototype quality expectations.
@@ -150,7 +151,7 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
   const workingGroups = normalizeWorkingGroups(manifest.workingGroups);
   const requiredSlots = normalizePaths(manifest.ownership.requiredProductSlots);
   const optionalSlots = normalizePaths(manifest.ownership.optionalProductSlots);
-  const editable = normalizePaths(manifest.ownership.agentEditable);
+  const editable = normalizePaths([...requiredSlots, ...optionalSlots]);
   const reusable = normalizePaths(manifest.ownership.agentReadOnly);
   const protectedFiles = normalizePaths(manifest.protectedFiles);
   const owned = normalizePaths(manifest.ownership.skeletonOwned);
