@@ -31,4 +31,12 @@ export interface DomainActivity {
   unit: string;
 }
 
+export interface PricingTier {
+  id: SubscriptionPlan;
+  name: string;
+  pricePerMonth: number;
+  highlight?: boolean;
+  features: readonly string[];
+}
+
 export type { ThemeChoice };
