@@ -47,8 +47,13 @@ describe('Skeleton Contract Compiler — 15/15 matrix gate', () => {
     expect([...listSkeletonContractIds()].sort()).toEqual([...expectedSkeletonIds].sort());
   });
 
-  it.each(expectedSkeletonIds)('%s is a native schema-v2 manifest', id => {
-    expect(getRawSkeletonManifest(id).version).toBe(2);
+  it.each(expectedSkeletonIds)('%s is a native schema-v2 manifest without legacy editable mirrors', id => {
+    const manifest = getRawSkeletonManifest(id) as unknown as Record<string, unknown>;
+    expect(manifest.version).toBe(2);
+    const ownership = manifest.ownership as Record<string, unknown>;
+    expect(ownership).not.toHaveProperty('agentEditable');
+    expect(manifest).not.toHaveProperty('editableFiles');
+    expect(manifest).not.toHaveProperty('deltaFiles');
   });
 
   it.each(expectedSkeletonIds)('%s compiles into one semantic runtime contract', id => {
@@ -58,7 +63,7 @@ describe('Skeleton Contract Compiler — 15/15 matrix gate', () => {
     expect(contract.version).toBe(2);
     expect(contract.id).toBe(id);
     expect(contract.requiredSlots.length).toBeGreaterThan(0);
-    expect(contract.editable).toEqual(expect.arrayContaining(contract.requiredSlots));
+    expect(contract.editable).toEqual([...new Set([...contract.requiredSlots, ...contract.optionalSlots])]);
     expect(contract.infrastructure.installed.length).toBeGreaterThan(0);
     expect(contract.quality.minMeaningfulScreens).toBeGreaterThan(0);
     expect(contract.quality.requiredCapabilities.length).toBeGreaterThan(0);
