@@ -1,0 +1,32 @@
+name: Stage 6 Super App Self Patch
+
+on:
+  push:
+    branches: [feat/super-app-first-class-skeleton]
+    paths:
+      - '.github/stage6_super_app_patch.py'
+      - '.github/workflows/stage6-super-app-self-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/super-app-first-class-skeleton
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply Stage 6 core patch
+        run: python .github/stage6_super_app_patch.py
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add first-class super-app skeleton"
+          git push origin HEAD:feat/super-app-first-class-skeleton
