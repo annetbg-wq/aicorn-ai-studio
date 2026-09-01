@@ -1,0 +1,28 @@
+name: Stage4 mobile agent responder fix
+
+on:
+  push:
+    branches: [refactor/product-delta-generation]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/product-delta-generation
+      - name: Apply responder fix
+        run: python .github/stage4_fix_mobile_agent_responder.py
+      - name: Verify syntax
+        run: node --check e2e/mobile-agent-generation.spec.cjs
+      - name: Commit clean patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add e2e/mobile-agent-generation.spec.cjs
+          git rm .github/stage4_fix_mobile_agent_responder.py .github/workflows/stage4-mobile-agent-responder-fix.yml
+          git commit -m "test: route mobile agent architect response correctly"
+          git push origin HEAD:refactor/product-delta-generation
