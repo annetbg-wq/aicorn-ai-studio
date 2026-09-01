@@ -53,7 +53,7 @@ function appFirst(overrides: Partial<AppFirstQualityGateResult> = {}): AppFirstQ
     repairInstructions: [],
     advisoryReasons: [],
     telemetry: {
-      profile: 'mobile-app',
+      profile: 'app-first',
       checked: true,
       meaningful_screen_count: 5,
       minimum_meaningful_screens: 4,

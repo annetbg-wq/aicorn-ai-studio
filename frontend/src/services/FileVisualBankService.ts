@@ -555,6 +555,7 @@ const SURFACE_SOURCE_FILES: Record<SkeletonId, string[]> = {
 };
 
 const PACK_DOMAIN_ALIASES: Record<SkeletonId, string[]> = {
+  'super-app':                ['consumer', 'wellness', 'health', 'fintech', 'learning', 'lifestyle'],
   'mobile-app':               ['consumer', 'wellness', 'health', 'habit', 'lifestyle'],
   'saas-dashboard':           ['saas', 'b2b', 'admin', 'analytics', 'fintech', 'medicine', 'ai-tools'],
   'landing-page':             ['marketing', 'saas', 'ecommerce', 'creator', 'fintech', 'wellness'],
@@ -2452,6 +2453,7 @@ function inferDomainsForColorFamily(familyId: string): string[] {
 
 function defaultLayoutPatternsForSkeleton(skeleton: SkeletonId): string[] {
   switch (skeleton) {
+    case 'super-app': return ['bottom-tabs', 'domain-hub', 'multi-domain-home', 'card-feed', 'onboarding-flow', 'profile-stack'];
     case 'mobile-app': return ['bottom-tabs', 'card-feed', 'list-detail', 'onboarding-flow', 'bottom-sheet', 'profile-stack'];
     case 'saas-dashboard': return ['sidebar-shell', 'kpi-grid', 'data-table', 'settings-tabs', 'operator-dashboard'];
     case 'landing-page': return ['top-nav', 'hero-section', 'bento-grid', 'pricing-grid', 'faq-stack', 'landing-scroll'];
@@ -2471,6 +2473,7 @@ function defaultLayoutPatternsForSkeleton(skeleton: SkeletonId): string[] {
 
 function defaultComponentFamiliesForSkeleton(skeleton: SkeletonId): string[] {
   switch (skeleton) {
+    case 'super-app': return ['mobile-nav', 'domain-card', 'feed-item', 'onboarding-step', 'profile-card', 'card', 'list-item'];
     case 'mobile-app': return ['mobile-nav', 'feed-item', 'onboarding-step', 'profile-card', 'bottom-sheet', 'card', 'list-item'];
     case 'saas-dashboard': return ['sidebar-nav', 'dashboard-header', 'stat-card', 'metric-card', 'data-table', 'tabs'];
     case 'landing-page': return ['nav', 'hero', 'bento', 'pricing-card', 'faq', 'cta'];
@@ -2490,6 +2493,7 @@ function defaultComponentFamiliesForSkeleton(skeleton: SkeletonId): string[] {
 
 function defaultSubdomainsForSkeleton(skeleton: SkeletonId): string[] {
   switch (skeleton) {
+    case 'super-app': return ['consumer-mobile', 'multi-domain', 'budgeting', 'wellness', 'learning'];
     case 'mobile-app': return ['consumer-mobile', 'habit-tracking', 'wellness', 'women-health', 'nutrition'];
     case 'saas-dashboard': return ['analytics', 'operations'];
     case 'landing-page': return ['launch', 'conversion'];
@@ -2509,6 +2513,7 @@ function defaultSubdomainsForSkeleton(skeleton: SkeletonId): string[] {
 
 function defaultTrustProfileForSkeleton(skeleton: SkeletonId): string {
   switch (skeleton) {
+    case 'super-app': return 'consumer-trust';
     case 'mobile-app': return 'consumer-trust';
     case 'saas-dashboard': return 'enterprise-trust';
     case 'landing-page': return 'market-trust';
