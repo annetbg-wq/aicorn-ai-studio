@@ -6,7 +6,7 @@ import {
   scoreSkeletonCompatibility,
 } from '../SkeletonSelectionCompatibility';
 
-describe('Skeleton selection compatibility — 14/14', () => {
+describe('Skeleton selection compatibility — 15/15', () => {
   it('covers every canonical skeleton', () => {
     expect([...listSkeletonSelectionCompatibilityIds()].sort())
       .toEqual([...listSkeletonContractIds()].sort());
@@ -25,6 +25,7 @@ describe('Skeleton selection compatibility — 14/14', () => {
     expect(scoreSkeletonCompatibility('b2b-operations-workspace', 'dating')).toBe(-100);
     expect(scoreSkeletonCompatibility('game-interactive-app', 'marketing')).toBe(-100);
     expect(scoreSkeletonCompatibility('landing-page', 'interactive-game')).toBe(-100);
+    expect(scoreSkeletonCompatibility('super-app', 'single-purpose-tool')).toBe(-100);
   });
 
   it('scores intended archetypes as strong matches', () => {
@@ -32,5 +33,7 @@ describe('Skeleton selection compatibility — 14/14', () => {
     expect(scoreSkeletonCompatibility('saas-dashboard', 'dashboard')).toBe(100);
     expect(scoreSkeletonCompatibility('marketplace-platform', 'marketplace')).toBe(100);
     expect(scoreSkeletonCompatibility('booking-service-app', 'booking')).toBe(100);
+    expect(scoreSkeletonCompatibility('super-app', 'super-app')).toBe(100);
+    expect(scoreSkeletonCompatibility('super-app', 'multi-domain-consumer')).toBe(100);
   });
 });
