@@ -19,10 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: skeletons/super-app/skeleton-super-app/package-lock.json
       - name: Install skeleton dependencies
-        run: npm ci
+        run: npm install --no-package-lock
       - name: Validate skeleton contract
         run: npm run validate
       - name: Typecheck standalone skeleton
