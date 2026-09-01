@@ -93,7 +93,7 @@ describe('app-first profile in evaluatePrototypeQualityGate', () => {
     expect(result.blockingReasons.some(reason => /Mobile actions are insufficient/i.test(reason))).toBe(true);
     expect(result.repairInstructions.some(instruction => /FunctionalFlowPlan/i.test(instruction))).toBe(true);
     expect(result.telemetry.checks_run).toContain('app_first_mobile');
-    expect(result.telemetry.quality_profile).toBe('mobile-app');
+    expect(result.telemetry.quality_profile).toBe('app-first');
     expect(result.telemetry.app_first_quality_gate?.checked).toBe(true);
   });
 
