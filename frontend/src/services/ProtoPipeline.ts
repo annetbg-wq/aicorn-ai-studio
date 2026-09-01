@@ -32,13 +32,10 @@ import {
   SKELETON_REGISTRY,
   buildSkeletonPromptBlock,
   checkExportIntegrity,
-  getEditableSkeletonFiles,
-  getSkeletonInstalledFiles,
-  getSkeletonProductSlotFiles,
   isProtectedSkeletonFile,
   mergeSkeletonExports,
 } from './SkeletonRegistry';
-import { getSkeletonQualityContract } from './SkeletonQualityContract';
+import { compileSkeletonContract } from './SkeletonContractCompiler';
 import { previewController } from './PreviewController';
 import { isLocalDevHost } from './internalAccess';
 import { getLocalDevAgentProvider } from './devAgentMode';
@@ -1309,7 +1306,7 @@ export function materializeCanonicalSupportModulesForImports(
 ): { files: Record<string, string>; materialized: string[] } {
   const present = new Set(Object.keys(files).map(path => normaliseDeltaPath(path)));
   const installed = new Set(
-    getSkeletonInstalledFiles(skeletonId).map(path => normaliseDeltaPath(path)),
+    compileSkeletonContract(skeletonId).infrastructure.installed.map(path => normaliseDeltaPath(path)),
   );
   const needed = new Set<string>();
 
@@ -1713,7 +1710,7 @@ export function substituteDeterministicProductIdentityPlaceholders(input: {
     };
   }
 
-  const editableProductOwnedPaths = getEditableSkeletonFiles(input.skeletonId).map(path => normalizeOutputPath(path));
+  const editableProductOwnedPaths = compileSkeletonContract(input.skeletonId).editable.map(path => normalizeOutputPath(path));
   const editableProductOwnedFiles = new Set(editableProductOwnedPaths);
   const nextFiles: Record<string, string> = { ...input.files };
   const rewrites: ProductIdentityPlaceholderRewrite[] = [];
@@ -1811,7 +1808,7 @@ function buildIdentitySlotDiagnostics(input: {
   identitySlotFindings: string[];
   repairableMissingIdentityPaths: string[];
 } {
-  const editablePaths = getEditableSkeletonFiles(input.skeletonId).map(path => normalizeOutputPath(path));
+  const editablePaths = compileSkeletonContract(input.skeletonId).editable.map(path => normalizeOutputPath(path));
   const editableFiles = new Set(editablePaths);
   const normalizedFiles = new Map<string, string>(
     Object.entries(input.files).map(([path, content]) => [
@@ -2419,7 +2416,7 @@ async function runPass2Implementer(input: {
   touchedFiles: string[];
   rejectedFiles: string[];
 }> {
-  const editableProductSlotFiles = getSkeletonProductSlotFiles(input.skeletonId)
+  const editableProductSlotFiles = getProductDeltaScope(input.skeletonId).allowed
     .map(path => normalizeOutputPath(path));
   const mustGapCount = input.gaps.filter(gap => gap.priority === 'must').length;
   const touchesEditableProductSlot = input.gaps.some(gap => (
@@ -2737,7 +2734,7 @@ export function buildVisualUsageDiagnostics(input: {
   if (mediaUsageChecked && !mediaUsageObserved) {
     visualUsageNotes.push('Generated media assets were materialized, but generated source did not reference them.');
   }
-  const qualityContract = getSkeletonQualityContract(input.skeletonId);
+  const qualityContract = compileSkeletonContract(input.skeletonId).quality;
   if (meaningfulScreenFiles.length < qualityContract.minMeaningfulScreens) {
     visualUsageNotes.push(
       `${input.skeletonId} quality contract requires at least ${qualityContract.minMeaningfulScreens} meaningful screens; observed ${meaningfulScreenFiles.length}.`,
@@ -4174,7 +4171,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         'warn',
       );
     }
-    const pass2SkeletonFiles = getSkeletonInstalledFiles(config.skeletonId);
+    const pass2SkeletonFiles = compileSkeletonContract(config.skeletonId).infrastructure.installed;
     let completenessGate = evaluateCompletenessGate({
       featureChecklist: pass2FeatureChecklist,
       prebuiltPlan: config.prebuiltPlan,
@@ -4969,7 +4966,7 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
       planSummary: plan.summary,
       skeletonId: config.skeletonId,
       skeletonLabel: SKELETON_REGISTRY[config.skeletonId].label,
-      skeletonFiles: getSkeletonInstalledFiles(config.skeletonId),
+      skeletonFiles: compileSkeletonContract(config.skeletonId).infrastructure.installed,
       deltaFiles: Object.keys(currentFiles),
       archetypeId: designCtx.archetype?.id ?? undefined,
       archetypeName: designCtx.archetype?.name ?? undefined,
@@ -5156,7 +5153,7 @@ async function runArchitect(input: {
   const architectModel = architectRoute
     ? Orchestrator.normalizeModelId(architectRoute.modelId, architectRoute.endpoint)
     : 'unknown';
-  const installedFiles = getSkeletonInstalledFiles(input.skeletonId);
+  const installedFiles = compileSkeletonContract(input.skeletonId).infrastructure.installed;
   const productDeltaScope = getProductDeltaScope(input.skeletonId);
   const editableFiles = productDeltaScope.allowed.map(path => `src/${path}`);
   const editableFileSet = new Set(editableFiles);
@@ -6787,7 +6784,7 @@ export function buildRepairPrompt(input: {
       `product metrics: ${input.productSpecificityDiagnostics.productMetricSignals.slice(0, 4).join(', ')}\n`
     : '';
   const editableProductSlotFiles = input.skeletonId
-    ? getSkeletonProductSlotFiles(input.skeletonId).map(path => normalizeOutputPath(path))
+    ? getProductDeltaScope(input.skeletonId).allowed.map(path => normalizeOutputPath(path))
     : [];
   const editableSlotBlock = editableProductSlotFiles.length > 0
     ? `\nEDITABLE PRODUCT-SLOT FILES (safe to rewrite when removing carcass defaults):\n` +
@@ -6856,7 +6853,7 @@ function resolveQualityRepairStrategy(input: {
   reason: string;
 } {
   const productSlotSet = new Set(
-    getSkeletonProductSlotFiles(input.skeletonId).map(path => normalizeOutputPath(path)),
+    getProductDeltaScope(input.skeletonId).allowed.map(path => normalizeOutputPath(path)),
   );
   const touchesProductSlot = input.resolvedPaths.some(path => productSlotSet.has(normalizeOutputPath(path)));
   const repairText = input.blockingReasons.join('\n');
@@ -8158,7 +8155,7 @@ export function augmentArchitectPlan(input: AugmentArchitectPlanInput): AugmentA
   // shell ships — the exact "theme lost" failure. Applies to every skeleton; the
   // product-identity gate is the backstop that catches any survivor.
   const identityEditable = new Set(
-    getEditableSkeletonFiles(input.skeletonId).map(p => p.replace(/^src\//, '')),
+    compileSkeletonContract(input.skeletonId).editable.map(p => p.replace(/^src\//, '')),
   );
   const IDENTITY_SLOTS: ReadonlyArray<readonly [string, string]> = [
     ['config/app.ts', 'Product identity for THIS product: real app name and tagline — never "AppName" or generic copy.'],

@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import saasDashboardManifest from '../skeleton-manifests/saas-dashboard/skeleton.manifest.json';
-import { getSkeletonProductSlotFiles } from '../SkeletonRegistry';
+import { compileSkeletonContract } from '../SkeletonContractCompiler';
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -119,8 +119,8 @@ describe('saas-dashboard skeleton — materialization preserves BOTTOM_TABS', ()
     expect(manifest.ownership.requiredProductSlots).toContain('src/config/navigation.ts');
   });
 
-  it('runtime product-slot adapter for saas-dashboard includes navigation.ts', () => {
-    expect(getSkeletonProductSlotFiles('saas-dashboard')).toContain('src/config/navigation.ts');
+  it('compiled product-slot contract for saas-dashboard includes navigation.ts', () => {
+    expect(compileSkeletonContract('saas-dashboard').requiredSlots).toContain('src/config/navigation.ts');
   });
 
   it('BOTTOM_TABS export is present in the physical file the install step copies', () => {

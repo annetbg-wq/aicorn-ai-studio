@@ -1,9 +1,6 @@
 import { materializePremiumComponents } from '../../services/ProtoPipeline';
-import {
-  SKELETON_REGISTRY,
-  getSkeletonInstalledFiles,
-  type SkeletonId,
-} from '../../services/SkeletonRegistry';
+import { SKELETON_REGISTRY, type SkeletonId } from '../../services/SkeletonRegistry';
+import { compileSkeletonContract } from '../../services/SkeletonContractCompiler';
 import {
   LIVE_GENERATION_ALLOWED_UI_PRIMITIVES,
   LIVE_GENERATION_UI_IMPORT_CATALOG,
@@ -148,7 +145,7 @@ function buildCanonicalWorkspaceFiles(): string[] {
   const frontendFiles = Object.keys(FRONTEND_UI_MODULES).map(frontendModulePathToWorkspace);
   const skeletonUiFiles = Object.keys(SKELETON_UI_MODULES).map(rawGlobPathToWorkspace);
   const skeletonFiles = (Object.keys(SKELETON_REGISTRY) as SkeletonId[])
-    .flatMap(skeletonId => getSkeletonInstalledFiles(skeletonId)
+    .flatMap(skeletonId => compileSkeletonContract(skeletonId).infrastructure.installed
       .filter(file => file.startsWith('src/components/ui/'))
       .map(file => `skeletons/${skeletonId}/skeleton-${skeletonId}/${file}`));
   return Array.from(new Set([...frontendFiles, ...skeletonUiFiles, ...skeletonFiles])).sort((left, right) => left.localeCompare(right));

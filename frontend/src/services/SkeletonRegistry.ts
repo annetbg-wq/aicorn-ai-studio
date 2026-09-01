@@ -1106,33 +1106,6 @@ function collectBlueprintFiles(context?: SkeletonPromptContext): string[] {
   return uniqueSorted([...out]);
 }
 
-export function getSkeletonInstalledFiles(skeletonId: SkeletonId): string[] {
-  return [...compileSkeletonContract(skeletonId).infrastructure.installed];
-}
-
-export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
-  return [...compileSkeletonContract(skeletonId).editable];
-}
-
-export function getSkeletonProductSlotFiles(skeletonId: SkeletonId): string[] {
-  const contract = compileSkeletonContract(skeletonId);
-  return uniqueSorted([...contract.requiredSlots, ...contract.optionalSlots]);
-}
-
-export function getRequiredSkeletonDataFiles(skeletonId: SkeletonId): string[] {
-  const contract = compileSkeletonContract(skeletonId);
-  const candidates = [
-    ...contract.infrastructure.installed,
-    ...contract.requiredSlots,
-    ...contract.optionalSlots,
-    ...contract.editable,
-  ];
-
-  return uniqueSorted(candidates.filter(file => (
-    file === 'src/data/seed.ts' || file === 'src/data/types.ts'
-  )));
-}
-
 /**
  * Returns true if the source text contains a named export for `name`.
  * Covers:
@@ -1441,7 +1414,7 @@ export function buildSkeletonPromptBlock(
   if (!s || !s.available) return '';
 
   const contract = compileSkeletonContract(skeletonId);
-  const installedFiles = getSkeletonInstalledFiles(skeletonId);
+  const installedFiles = compileSkeletonContract(skeletonId).infrastructure.installed;
   const blueprintFiles = collectBlueprintFiles(context);
   const productSlotFiles = uniqueSorted([...contract.requiredSlots, ...contract.optionalSlots]);
   const productSlotSet = new Set(productSlotFiles);
