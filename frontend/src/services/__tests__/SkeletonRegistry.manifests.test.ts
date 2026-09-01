@@ -11,10 +11,9 @@ import datingMatchingAppManifest from '../skeleton-manifests/dating-matching-app
 import gameInteractiveAppManifest from '../skeleton-manifests/game-interactive-app/skeleton.manifest.json';
 import gamingCasinoAppManifest from '../skeleton-manifests/gaming-casino-app/skeleton.manifest.json';
 import marketplacePlatformManifest from '../skeleton-manifests/marketplace-platform/skeleton.manifest.json';
+import { compileSkeletonContract } from '../SkeletonContractCompiler';
 import {
   buildSkeletonPromptBlock,
-  getSkeletonInstalledFiles,
-  getSkeletonProductSlotFiles,
   SKELETON_REGISTRY,
   type SkeletonId,
 } from '../SkeletonRegistry';
@@ -25,7 +24,6 @@ type Manifest = {
   ownership: {
     requiredProductSlots: string[];
     optionalProductSlots: string[];
-    agentEditable: string[];
   };
 };
 
@@ -85,7 +83,7 @@ function uiPrimitiveExists(id: SkeletonId, primitive: string): boolean {
   return candidates.some(moduleName => uiModuleExists(uiRoot, moduleName));
 }
 
-describe('SkeletonRegistry manifests for new skeleton families', () => {
+describe('Skeleton manifests for new skeleton families', () => {
   it('uses object workingGroups whose paths all exist physically', () => {
     for (const { id, manifest } of newSkeletons) {
       expect(Array.isArray(manifest.workingGroups), `${id} workingGroups should be an array`).toBe(true);
@@ -116,22 +114,24 @@ describe('SkeletonRegistry manifests for new skeleton families', () => {
     }
   });
 
-  it('keeps required product slots in sync with manifests and all physical product pages', () => {
+  it('keeps canonical required product slots aligned with all physical product pages', () => {
     for (const { id, manifest } of newSkeletons) {
       const expectedDeltaFiles = sortPaths([
         ...requiredDeltaBase,
         ...getPhysicalPagePaths(id),
       ]);
+      const contract = compileSkeletonContract(id);
 
       expect(sortPaths(manifest.ownership.requiredProductSlots), `${id} requiredProductSlots mismatch`).toEqual(expectedDeltaFiles);
-      expect(sortPaths(manifest.ownership.agentEditable), `${id} agentEditable mismatch`).toEqual(expectedDeltaFiles);
-      expect(sortPaths(getSkeletonProductSlotFiles(id)), `${id} runtime product slots mismatch`).toEqual(expectedDeltaFiles);
+      expect(manifest.ownership.optionalProductSlots, `${id} optionalProductSlots should be empty`).toEqual([]);
+      expect(sortPaths(contract.requiredSlots), `${id} compiled required slots mismatch`).toEqual(expectedDeltaFiles);
+      expect(contract.editable).toEqual([...new Set([...contract.requiredSlots, ...contract.optionalSlots])]);
     }
   });
 
-  it('returns installed files and prompt block catalogues for every new skeleton', () => {
+  it('compiles installed files and prompt block catalogues for every new skeleton', () => {
     for (const { id, manifest } of newSkeletons) {
-      const installedFiles = getSkeletonInstalledFiles(id);
+      const installedFiles = compileSkeletonContract(id).infrastructure.installed;
       const expectedInstalledFiles = sortPaths(
         manifest.workingGroups.flatMap(group => group.paths),
       );
