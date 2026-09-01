@@ -108,19 +108,6 @@
       "src/pages/ResponsibleGaming.tsx"
     ],
     "optionalProductSlots": [],
-    "agentEditable": [
-      "src/config/app.ts",
-      "src/config/navigation.ts",
-      "src/data/types.ts",
-      "src/data/seed.ts",
-      "src/pages/Account.tsx",
-      "src/pages/GameDetail.tsx",
-      "src/pages/Games.tsx",
-      "src/pages/Leaderboard.tsx",
-      "src/pages/Lobby.tsx",
-      "src/pages/Promotions.tsx",
-      "src/pages/ResponsibleGaming.tsx"
-    ],
     "agentReadOnly": [
       "src/main.tsx",
       "src/index.css",
