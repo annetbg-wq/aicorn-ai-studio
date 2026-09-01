@@ -84,17 +84,20 @@ describe('Skeleton Contract Compiler — 15/15 matrix gate', () => {
     expect(manifest.id).toBe(id);
   });
 
-  it('keeps deprecated aliases identical while consumers migrate one-by-one', () => {
-    for (const id of expectedSkeletonIds) {
-      const contract = compileSkeletonContract(id);
-      expect(contract.requiredProductSlots).toBe(contract.requiredSlots);
-      expect(contract.optionalProductSlots).toBe(contract.optionalSlots);
-      expect(contract.agentEditable).toBe(contract.editable);
-      expect(contract.agentReadOnly).toBe(contract.reusable);
-      expect(contract.protectedFiles).toBe(contract.infrastructure.protected);
-      expect(contract.skeletonOwned).toBe(contract.infrastructure.owned);
-      expect(contract.carcassFiles).toBe(contract.infrastructure.carcass);
-      expect(contract.requiredExports).toBe(contract.infrastructure.requiredExports);
+  it('exposes only canonical semantic fields at runtime', () => {
+    const contract = compileSkeletonContract('mobile-app') as unknown as Record<string, unknown>;
+    for (const removedAlias of [
+      'workingGroups',
+      'requiredProductSlots',
+      'optionalProductSlots',
+      'agentEditable',
+      'agentReadOnly',
+      'protectedFiles',
+      'skeletonOwned',
+      'carcassFiles',
+      'requiredExports',
+    ]) {
+      expect(contract).not.toHaveProperty(removedAlias);
     }
   });
 
