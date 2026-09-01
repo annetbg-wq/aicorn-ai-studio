@@ -3,156 +3,22 @@
   "id": "mobile-app",
   "label": "Mobile App",
   "workingGroups": [
-    {
-      "label": "core",
-      "paths": [
-        "src/App.tsx",
-        "src/main.tsx",
-        "src/index.css",
-        "src/route-manifest.json"
-      ]
-    },
-    {
-      "label": "config",
-      "paths": [
-        "src/config/app.ts",
-        "src/config/routes.ts",
-        "src/config/navigation.ts",
-        "src/config/theme.ts"
-      ]
-    },
-    {
-      "label": "layout",
-      "paths": [
-        "src/components/BottomTabs.tsx"
-      ]
-    },
-    {
-      "label": "states",
-      "paths": [
-        "src/components/ErrorBoundary.tsx",
-        "src/components/LoadingScreen.tsx",
-        "src/components/EmptyState.tsx",
-        "src/components/PaywallSheet.tsx"
-      ]
-    },
-    {
-      "label": "ui",
-      "paths": [
-        "src/components/ui/*"
-      ]
-    },
-    {
-      "label": "hooks",
-      "paths": [
-        "src/hooks/useLocalStorage.ts",
-        "src/hooks/useTheme.ts"
-      ]
-    },
-    {
-      "label": "runtime",
-      "paths": [
-        "src/context/AppContext.tsx",
-        "src/lib/cn.ts"
-      ]
-    }
+    {"label":"core","paths":["src/App.tsx","src/main.tsx","src/index.css","src/route-manifest.json"]},
+    {"label":"config","paths":["src/config/app.ts","src/config/routes.ts","src/config/navigation.ts","src/config/theme.ts"]},
+    {"label":"layout","paths":["src/components/BottomTabs.tsx"]},
+    {"label":"states","paths":["src/components/ErrorBoundary.tsx","src/components/LoadingScreen.tsx","src/components/EmptyState.tsx","src/components/PaywallSheet.tsx"]},
+    {"label":"ui","paths":["src/components/ui/*"]},
+    {"label":"hooks","paths":["src/hooks/useLocalStorage.ts","src/hooks/useTheme.ts"]},
+    {"label":"runtime","paths":["src/context/AppContext.tsx","src/lib/cn.ts"]}
   ],
   "ownership": {
-    "skeletonOwned": [
-      "src/main.tsx",
-      "src/index.css",
-      "src/lib/**",
-      "src/context/AppContext.tsx",
-      "src/hooks/useLocalStorage.ts",
-      "src/hooks/useTheme.ts",
-      "src/components/ui/**",
-      "src/components/BottomTabs.tsx",
-      "src/components/ErrorBoundary.tsx",
-      "src/components/LoadingScreen.tsx",
-      "src/components/EmptyState.tsx",
-      "src/components/PaywallSheet.tsx"
-    ],
-    "requiredProductSlots": [
-      "src/config/app.ts",
-      "src/config/routes.ts",
-      "src/config/navigation.ts",
-      "src/data/types.ts",
-      "src/data/seed.ts",
-      "src/pages/Onboarding.tsx",
-      "src/pages/Home.tsx",
-      "src/pages/Detail.tsx",
-      "src/pages/Create.tsx",
-      "src/pages/Progress.tsx",
-      "src/pages/Profile.tsx"
-    ],
+    "skeletonOwned": ["src/main.tsx","src/index.css","src/lib/**","src/context/AppContext.tsx","src/hooks/useLocalStorage.ts","src/hooks/useTheme.ts","src/components/ui/**","src/components/BottomTabs.tsx","src/components/ErrorBoundary.tsx","src/components/LoadingScreen.tsx","src/components/EmptyState.tsx","src/components/PaywallSheet.tsx"],
+    "requiredProductSlots": ["src/config/app.ts","src/config/routes.ts","src/config/navigation.ts","src/data/types.ts","src/data/seed.ts","src/pages/Onboarding.tsx","src/pages/Home.tsx","src/pages/Detail.tsx","src/pages/Create.tsx","src/pages/Progress.tsx","src/pages/Profile.tsx"],
     "optionalProductSlots": [],
-    "agentReadOnly": [
-      "src/main.tsx",
-      "src/index.css",
-      "src/lib/**",
-      "src/context/AppContext.tsx",
-      "src/hooks/useLocalStorage.ts",
-      "src/hooks/useTheme.ts",
-      "src/components/ui/**",
-      "src/components/BottomTabs.tsx",
-      "src/components/ErrorBoundary.tsx",
-      "src/components/LoadingScreen.tsx",
-      "src/components/EmptyState.tsx",
-      "src/components/PaywallSheet.tsx"
-    ],
     "carcassFiles": []
   },
-  "protectedFiles": [
-    "src/main.tsx",
-    "src/index.css",
-    "src/lib/**",
-    "src/context/AppContext.tsx",
-    "src/hooks/useLocalStorage.ts",
-    "src/hooks/useTheme.ts",
-    "src/components/ui/**",
-    "src/components/BottomTabs.tsx",
-    "src/components/ErrorBoundary.tsx",
-    "src/components/LoadingScreen.tsx",
-    "src/components/EmptyState.tsx",
-    "src/components/PaywallSheet.tsx"
-  ],
+  "protectedFiles": ["src/main.tsx","src/index.css","src/lib/**","src/context/AppContext.tsx","src/hooks/useLocalStorage.ts","src/hooks/useTheme.ts","src/components/ui/**","src/components/BottomTabs.tsx","src/components/ErrorBoundary.tsx","src/components/LoadingScreen.tsx","src/components/EmptyState.tsx","src/components/PaywallSheet.tsx"],
   "requiredExports": {},
-  "qualityContract": {
-    "minMeaningfulScreens": 4,
-    "requiredCapabilities": [
-      "navigation",
-      "onboarding",
-      "primary-action",
-      "profile"
-    ],
-    "requiredFlows": [
-      "onboarding-to-home",
-      "home-to-detail"
-    ],
-    "profile": "app-first"
-  },
-  "selectionContract": {
-    "productTypes": [
-      "mobile-consumer"
-    ],
-    "surfaces": [
-      "mobile",
-      "bottom-tabs",
-      "feed",
-      "detail",
-      "profile",
-      "onboarding"
-    ],
-    "capabilities": [
-      "navigation",
-      "onboarding",
-      "profile",
-      "primary-action"
-    ],
-    "incompatibleArchetypes": [
-      "dashboard",
-      "marketing",
-      "creator-tool"
-    ]
-  }
+  "qualityContract": {"minMeaningfulScreens":4,"requiredCapabilities":["navigation","onboarding","primary-action","profile"],"requiredFlows":["onboarding-to-home","home-to-detail"],"profile":"app-first"},
+  "selectionContract": {"productTypes":["mobile-consumer"],"surfaces":["mobile","bottom-tabs","feed","detail","profile","onboarding"],"capabilities":["navigation","onboarding","profile","primary-action"],"incompatibleArchetypes":["dashboard","marketing","creator-tool"]}
 }
