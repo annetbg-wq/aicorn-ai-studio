@@ -216,7 +216,8 @@ function responderFor(s) {
   const analysis = JSON.stringify({ productType: 'mobile-app', branchBriefSummary: s.goal, firstPassCapabilities: ['onboarding', 'home', 'create', 'progress', 'profile'], deferredCapabilities: [], implementationOrder: ['config', 'data', 'screens'], openQuestions: [] });
 
   return (systemText, userText, stream) => {
-    if (systemText.includes('SKELETON: Mobile App')) return markers;
+    // Route JSON-producing roles before the shared skeleton header: architect prompts
+    // also contain `SKELETON: Mobile App`, while coder prompts require FILE markers.
     if (systemText.includes('fixing prototype quality gate failures')) return markers;
     if (systemText.includes('Pass 2 critic')) return '[]';
     if (systemText.includes('Pass 2 implementer')) return markers;
@@ -225,6 +226,7 @@ function responderFor(s) {
     if (systemText.includes('Generate a step-by-step plan')) return plan;
     if (systemText.includes('Senior Tech Lead')) return tech;
     if (systemText.includes('top-tier product founder') || systemText.includes('web developer designing a landing page')) return legacyArchitect;
+    if (systemText.includes('SKELETON: Mobile App')) return markers;
     if (systemText.includes('React') || systemText.includes('developer') || userText.includes('CURRENT USER REQUEST')) return stream ? artifact : markers;
     return stream ? plan : analysis;
   };
