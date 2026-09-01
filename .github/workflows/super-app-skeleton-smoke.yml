@@ -1,0 +1,31 @@
+name: Super App Skeleton Smoke
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  super-app-skeleton-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: skeletons/super-app/skeleton-super-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: skeletons/super-app/skeleton-super-app/package-lock.json
+      - name: Install skeleton dependencies
+        run: npm ci
+      - name: Validate skeleton contract
+        run: npm run validate
+      - name: Typecheck standalone skeleton
+        run: npm run typecheck
+      - name: Build standalone skeleton
+        run: npm run build
