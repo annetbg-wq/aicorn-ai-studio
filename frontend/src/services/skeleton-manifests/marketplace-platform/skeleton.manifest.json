@@ -106,18 +106,6 @@
       "src/pages/SellerDashboard.tsx"
     ],
     "optionalProductSlots": [],
-    "agentEditable": [
-      "src/config/app.ts",
-      "src/config/navigation.ts",
-      "src/data/types.ts",
-      "src/data/seed.ts",
-      "src/pages/Browse.tsx",
-      "src/pages/Home.tsx",
-      "src/pages/Listing.tsx",
-      "src/pages/Messages.tsx",
-      "src/pages/Profile.tsx",
-      "src/pages/SellerDashboard.tsx"
-    ],
     "agentReadOnly": [
       "src/main.tsx",
       "src/index.css",
