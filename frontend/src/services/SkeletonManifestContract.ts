@@ -11,14 +11,12 @@ export interface SkeletonRequiredExportV2 {
 }
 
 export interface SkeletonOwnershipV2 {
-  /** Infrastructure physically owned by the skeleton and not product-generated. */
+  /** Infrastructure physically owned by the skeleton and reusable by product code without being product-generated. */
   skeletonOwned: string[];
   /** Files the product generator must write for every successful run. */
   requiredProductSlots: string[];
   /** Files the product generator may modify when the plan requires them. */
   optionalProductSlots: string[];
-  /** Infrastructure paths generation agents may read but must never emit. */
-  agentReadOnly: string[];
   /** Scaffold files whose required exports are mechanically restored/validated. */
   carcassFiles: string[];
 }
@@ -44,7 +42,8 @@ export interface SkeletonSelectionContractV2 {
 /**
  * Canonical on-disk skeleton manifest format. Runtime code consumes the compiled
  * semantic contract; generation write permission is derived exclusively from
- * requiredProductSlots + optionalProductSlots.
+ * requiredProductSlots + optionalProductSlots, while reusable infrastructure is
+ * derived from skeletonOwned.
  */
 export interface SkeletonManifestV2 {
   version: 2;
@@ -67,8 +66,6 @@ export function validateSkeletonManifestV2(manifest: SkeletonManifestV2): string
   const ownership = manifest.ownership;
   const required = unique(ownership.requiredProductSlots);
   const optional = unique(ownership.optionalProductSlots);
-  const editable = unique([...required, ...optional]);
-  const editableSet = new Set(editable);
   const requiredSet = new Set(required);
   const optionalSet = new Set(optional);
 
@@ -81,9 +78,6 @@ export function validateSkeletonManifestV2(manifest: SkeletonManifestV2): string
   }
   for (const path of optional) {
     if (requiredSet.has(path)) errors.push(`${manifest.id}: slot is both optional and required: ${path}`);
-  }
-  for (const path of ownership.agentReadOnly) {
-    if (editableSet.has(path)) errors.push(`${manifest.id}: path is both product-editable and read-only: ${path}`);
   }
 
   const quality = manifest.qualityContract;
