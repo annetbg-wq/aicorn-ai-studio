@@ -50,12 +50,6 @@ const SCENARIOS = [
 const q = (value) => JSON.stringify(value);
 
 function buildDelta(s) {
-  const simplePage = (name, title, body) => [
-    `export default function ${name}() {`,
-    `  return <section><h1>${title}</h1><p>${body}</p></section>;`,
-    '}',
-  ].join('\n');
-
   return {
     'config/app.ts': [
       `export const APP_CONFIG = { name: ${q(s.appName)}, tagline: ${q(s.tagline)}, freeActionLimit: 3, storagePrefix: ${q(s.storagePrefix)} } as const;`,
@@ -112,31 +106,56 @@ function buildDelta(s) {
       '}',
     ].join('\n'),
     'pages/Home.tsx': [
+      "import { Link } from 'react-router-dom';",
       "import { SEED_FEED } from '../data/seed';",
+      "import { ROUTES, detailRoute } from '../config/routes';",
       'export default function Home() {',
       '  const first = SEED_FEED[0];',
-      `  return <section><h1>${s.marker}</h1><article><strong>{first.title}</strong><p>{first.subtitle}</p></article></section>;`,
+      `  return <section><h1>${s.marker}</h1><article><strong>{first.title}</strong><p>{first.subtitle}</p><Link to={detailRoute(first.id)}>Open detail</Link></article><Link to={ROUTES.create}>${s.labels.create}</Link></section>;`,
       '}',
     ].join('\n'),
     'pages/Detail.tsx': [
+      "import { useState } from 'react';",
       "import { SEED_FEED } from '../data/seed';",
       'export default function Detail() {',
       '  const first = SEED_FEED[0];',
-      `  return <section><h1>${s.labels.detail}</h1><h2>{first.title}</h2><p>{first.subtitle}</p></section>;`,
+      '  const [done, setDone] = useState(false);',
+      `  return <section><h1>${s.labels.detail}</h1><h2>{first.title}</h2><p>{first.subtitle}</p><button type="button" onClick={() => setDone(value => !value)}>{done ? 'Completed' : 'Mark done'}</button></section>;`,
       '}',
     ].join('\n'),
-    'pages/Create.tsx': simplePage('Create', s.labels.create, `Create a new item in ${s.appName}`),
+    'pages/Create.tsx': [
+      "import { useState } from 'react';",
+      "import { SEED_FEED } from '../data/seed';",
+      "import type { FeedItem } from '../data/types';",
+      'export default function Create() {',
+      '  const [entries, setEntries] = useState<FeedItem[]>(() => SEED_FEED.map(item => ({ ...item })));',
+      `  const [draft, setDraft] = useState(${q(s.item.title)});`,
+      "  const [createdTitle, setCreatedTitle] = useState('');",
+      '  const handleCreateEntry = (event: React.FormEvent<HTMLFormElement>) => {',
+      '    event.preventDefault();',
+      "    const nextEntry: FeedItem = { id: `local-${entries.length + 1}`, title: draft.trim() || 'New item', subtitle: 'Created locally', kind: 'local', createdAt: new Date(0).toISOString(), meta: { local: true } };",
+      '    setEntries([...entries, nextEntry]);',
+      '    setCreatedTitle(nextEntry.title);',
+      '  };',
+      `  return <section><h1>${s.labels.create}</h1><form onSubmit={handleCreateEntry}><input aria-label="Item title" value={draft} onChange={event => setDraft(event.target.value)} /><button type="submit">Save</button></form><p>Items: {entries.length}</p>{createdTitle ? <p>Created: {createdTitle}</p> : null}</section>;`,
+      '}',
+    ].join('\n'),
     'pages/Progress.tsx': [
-      "import { SEED_PROGRESS } from '../data/seed';",
+      "import { useMemo } from 'react';",
+      "import { SEED_FEED, SEED_PROGRESS } from '../data/seed';",
       'export default function Progress() {',
       '  const latest = SEED_PROGRESS[0];',
-      `  return <section><h1>${s.labels.progress}</h1><p>Current value: {latest.value}</p><p>{latest.goalMet ? 'Goal met' : 'In progress'}</p></section>;`,
+      '  const visibleItems = useMemo(() => SEED_FEED.filter(item => item.title.length > 0).length, []);',
+      '  const progressSummary = useMemo(() => SEED_PROGRESS.reduce((total, entry) => total + entry.value, 0), []);',
+      `  return <section><h1>${s.labels.progress}</h1><p>Current value: {latest.value}</p><p>Tracked items: {visibleItems}</p><p>Summary: {progressSummary}</p><p>{latest.goalMet ? 'Goal met' : 'In progress'}</p></section>;`,
       '}',
     ].join('\n'),
     'pages/Profile.tsx': [
+      "import { useState } from 'react';",
       "import { APP_CONFIG } from '../config/app';",
       'export default function Profile() {',
-      `  return <section><h1>${s.labels.profile}</h1><p>{APP_CONFIG.name}</p><p>{APP_CONFIG.tagline}</p></section>;`,
+      '  const [remindersEnabled, setRemindersEnabled] = useState(true);',
+      `  return <section><h1>${s.labels.profile}</h1><p>{APP_CONFIG.name}</p><p>{APP_CONFIG.tagline}</p><button type="button" onClick={() => setRemindersEnabled(value => !value)}>Reminders: {remindersEnabled ? 'On' : 'Off'}</button></section>;`,
       '}',
     ].join('\n'),
   };
@@ -342,7 +361,29 @@ async function runScenario(page, scenario) {
 
   const iframe = page.locator('[data-testid="preview-iframe"]');
   await expect(iframe).toBeVisible({ timeout: FLOW_TIMEOUT });
-  await expect(page.frameLocator('[data-testid="preview-iframe"]').locator('body')).toContainText(`Welcome to ${scenario.appName}`, { timeout: FLOW_TIMEOUT });
+  const preview = page.frameLocator('[data-testid="preview-iframe"]');
+  await expect(preview.locator('body')).toContainText(`Welcome to ${scenario.appName}`, { timeout: FLOW_TIMEOUT });
+
+  // Stage 5 proof: the generated result must behave like an app, not merely render JSX.
+  // Complete onboarding, move through the real route graph, mutate local product state,
+  // and verify that another stateful screen remains connected through skeleton navigation.
+  await preview.getByRole('button', { name: 'Start' }).click();
+  await expect(preview.locator('body')).toContainText(scenario.marker, { timeout: FLOW_TIMEOUT });
+  await preview.getByRole('link', { name: scenario.labels.create }).click();
+  await expect(preview.getByRole('heading', { name: scenario.labels.create })).toBeVisible({ timeout: FLOW_TIMEOUT });
+  const itemInput = preview.getByRole('textbox', { name: 'Item title' });
+  await itemInput.fill('Stage 5 local item');
+  await preview.getByRole('button', { name: 'Save' }).click();
+  await expect(preview.locator('body')).toContainText('Created: Stage 5 local item', { timeout: FLOW_TIMEOUT });
+
+  await preview.getByText(scenario.tabs[2], { exact: true }).click();
+  await expect(preview.getByRole('heading', { name: scenario.labels.progress })).toBeVisible({ timeout: FLOW_TIMEOUT });
+  await preview.getByText(scenario.tabs[3], { exact: true }).click();
+  await expect(preview.getByRole('heading', { name: scenario.labels.profile })).toBeVisible({ timeout: FLOW_TIMEOUT });
+  const reminders = preview.getByRole('button', { name: 'Reminders: On' });
+  await reminders.click();
+  await expect(preview.getByRole('button', { name: 'Reminders: Off' })).toBeVisible({ timeout: FLOW_TIMEOUT });
+
   await expect(async () => {
     expect(timelineLines(logs).some(line => line.includes('generation_preview_ownership_released'))).toBe(true);
   }).toPass({ timeout: FLOW_TIMEOUT, intervals: [1_000, 2_000, 5_000] });

@@ -84,6 +84,11 @@ import {
   type FunctionalImplementationDiagnosticsTelemetry,
 } from './FunctionalFlowPlanner';
 import {
+  evaluateAppFirstQualityGate,
+  type AppFirstQualityGateResult,
+  type AppFirstQualityGateTelemetry,
+} from './AppFirstQualityGate';
+import {
   buildArchitectureImplementationDiagnostics,
   buildArchitectureQualityRulesBlock,
   buildSkeletonIntegrationPlan,
@@ -381,17 +386,23 @@ export interface VisualUsageDiagnosticsTelemetry {
  * All fields are optional — omit any you don't have yet.
  */
 export interface PrototypeQualityGateInput {
+  /** Surface profile. Mobile app enables app-first release semantics. */
+  skeletonId?: SkeletonId;
   /** Violations from validateDesignContract(). Null/undefined = check not run. */
   designContractViolations?: DesignViolation[] | null;
   /** Pre-computed visual usage diagnostics. Null/undefined = check not run. */
   visualUsageDiagnostics?: VisualUsageDiagnostics | null;
   /** Pre-computed product specificity diagnostics. Null/undefined = check not run. */
   productSpecificityDiagnostics?: ProductSpecificityDiagnostics | null;
+  /** App-first mobile diagnostics. Null/undefined = check not run. */
+  appFirstQualityDiagnostics?: AppFirstQualityGateResult | null;
 }
 
 /** The telemetry payload included with every quality gate result. */
 export interface PrototypeQualityGateTelemetry {
   checks_run: string[];
+  quality_profile: 'mobile-app' | 'landing-page' | 'general';
+  app_first_quality_gate?: AppFirstQualityGateTelemetry;
   design_contract_violations: number;
   premium_selected_not_used: boolean;
   media_materialized_not_used: boolean;
@@ -456,6 +467,7 @@ export interface StepOutputMetrics {
   skeleton_integration_plan?: SkeletonIntegrationPlanTelemetry;
   product_specificity_plan?: ProductSpecificityPlanTelemetry;
   functional_implementation_diagnostics?: FunctionalImplementationDiagnosticsTelemetry;
+  app_first_quality_gate?: AppFirstQualityGateTelemetry;
   architecture_implementation_diagnostics?: ArchitectureImplementationDiagnosticsTelemetry;
   product_specificity_diagnostics?: ProductSpecificityDiagnosticsTelemetry;
   screen_composition_diagnostics?: ScreenCompositionDiagnosticsResult;
@@ -2978,6 +2990,25 @@ export function evaluatePrototypeQualityGate(
   const advisoryReasons: string[] = [];
   const advisoryInstructions: string[] = [];
   const checksRun: string[] = [];
+  const qualityProfile: PrototypeQualityGateTelemetry['quality_profile'] =
+    input.skeletonId === 'mobile-app'
+      ? 'mobile-app'
+      : input.skeletonId === 'landing-page'
+        ? 'landing-page'
+        : 'general';
+  const appFirst = input.appFirstQualityDiagnostics ?? null;
+
+  if (qualityProfile === 'mobile-app' && appFirst !== null) {
+    checksRun.push('app_first_mobile');
+    blockingReasons.push(...appFirst.blockingReasons);
+    repairInstructions.push(...appFirst.repairInstructions);
+    advisoryReasons.push(...appFirst.advisoryReasons);
+    advisoryInstructions.push(
+      ...appFirst.advisoryReasons.map(() =>
+        'Keep the mobile product flow connected and stateful while preserving the skeleton-owned shell.',
+      ),
+    );
+  }
 
   // ── Check 1: design contract raw token violations ─────────────────────────
   const violations = input.designContractViolations ?? null;
@@ -3084,7 +3115,7 @@ export function evaluatePrototypeQualityGate(
 
   // ── Check 5: product specificity — empty/generic dashboard cards ──────────
   const psd = input.productSpecificityDiagnostics ?? null;
-  const genericDashboardCardFlag = psd !== null && (
+  const genericDashboardCardFlag = psd !== null && qualityProfile !== 'mobile-app' && (
     psd.emptyMetricFindings.length > 0 ||
     psd.suggestedNextAction === 'add_repair_later'
   );
@@ -3135,6 +3166,8 @@ export function evaluatePrototypeQualityGate(
     advisoryInstructions,
     telemetry: {
       checks_run: checksRun,
+      quality_profile: qualityProfile,
+      app_first_quality_gate: appFirst?.telemetry,
       design_contract_violations: designContractViolationCount,
       premium_selected_not_used: premiumSelectedNotUsed,
       media_materialized_not_used: mediaNotUsed,
@@ -4419,9 +4452,16 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     designSelectionDiagnostics.functionalFlowPlanCreated = true;
     designSelectionDiagnostics.functionalFlowCount = functionalFlowPlan.flows.length;
     designSelectionDiagnostics.functionalEntityCount = functionalFlowPlan.entities.length;
-    const functionalImplementationDiagnostics = buildFunctionalImplementationDiagnostics({
+    let currentFunctionalImplementationDiagnostics = buildFunctionalImplementationDiagnostics({
       files: filteredFiles,
       plan: functionalFlowPlan,
+    });
+    let currentAppFirstQualityDiagnostics = evaluateAppFirstQualityGate({
+      skeletonId: config.skeletonId,
+      files: filteredFiles,
+      architectPlan: plan,
+      functionalFlowPlan,
+      functionalDiagnostics: currentFunctionalImplementationDiagnostics,
     });
     const architectureImplementationDiagnostics = buildArchitectureImplementationDiagnostics({
       files: filteredFiles,
@@ -4467,7 +4507,8 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         functional_flow_plan: serializeFunctionalFlowPlan(functionalFlowPlan),
         skeleton_integration_plan: serializeSkeletonIntegrationPlan(skeletonIntegrationPlan),
         product_specificity_plan: serializeProductSpecificityPlan(productSpecificityPlan),
-        functional_implementation_diagnostics: serializeFunctionalImplementationDiagnostics(functionalImplementationDiagnostics),
+        functional_implementation_diagnostics: serializeFunctionalImplementationDiagnostics(currentFunctionalImplementationDiagnostics),
+        app_first_quality_gate: currentAppFirstQualityDiagnostics.telemetry,
         architecture_implementation_diagnostics: serializeArchitectureImplementationDiagnostics(architectureImplementationDiagnostics),
         product_specificity_diagnostics: serializeProductSpecificityDiagnostics(productSpecificityDiagnostics),
         screen_composition_diagnostics: compositionDiagnostics,
@@ -4503,9 +4544,11 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
     let currentVisualUsageDiagnostics = visualUsageDiagnostics;
     let currentProductSpecificityDiagnostics = productSpecificityDiagnostics;
     let qualityGate = evaluatePrototypeQualityGate({
+      skeletonId: config.skeletonId,
       designContractViolations: currentDesignViolations,
       visualUsageDiagnostics: currentVisualUsageDiagnostics,
       productSpecificityDiagnostics: currentProductSpecificityDiagnostics,
+      appFirstQualityDiagnostics: currentAppFirstQualityDiagnostics,
     });
 
     if (qualityGate.advisoryReasons.length > 0) {
@@ -4621,10 +4664,28 @@ Maximum 2 short questions. Ask about WHAT, not HOW. JSON only — no prose, no m
         files: filteredFiles,
         plan:  productSpecificityPlan,
       });
+      currentFunctionalImplementationDiagnostics = buildFunctionalImplementationDiagnostics({
+        files: filteredFiles,
+        plan: functionalFlowPlan,
+      });
+      currentAppFirstQualityDiagnostics = evaluateAppFirstQualityGate({
+        skeletonId: config.skeletonId,
+        files: filteredFiles,
+        architectPlan: plan,
+        functionalFlowPlan,
+        functionalDiagnostics: currentFunctionalImplementationDiagnostics,
+      });
+      if (stepResults.apply?.output) {
+        stepResults.apply.output.functional_implementation_diagnostics =
+          serializeFunctionalImplementationDiagnostics(currentFunctionalImplementationDiagnostics);
+        stepResults.apply.output.app_first_quality_gate = currentAppFirstQualityDiagnostics.telemetry;
+      }
       qualityGate = evaluatePrototypeQualityGate({
+        skeletonId: config.skeletonId,
         designContractViolations: currentDesignViolations,
         visualUsageDiagnostics:   currentVisualUsageDiagnostics,
         productSpecificityDiagnostics: currentProductSpecificityDiagnostics,
+        appFirstQualityDiagnostics: currentAppFirstQualityDiagnostics,
       });
 
       if (qualityGate.ok) {
