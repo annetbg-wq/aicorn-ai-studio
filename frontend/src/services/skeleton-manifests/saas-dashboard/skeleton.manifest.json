@@ -99,16 +99,6 @@
     "optionalProductSlots": [
       "src/config/routes.ts"
     ],
-    "agentEditable": [
-      "src/config/app.ts",
-      "src/config/routes.ts",
-      "src/config/navigation.ts",
-      "src/data/types.ts",
-      "src/data/seed.ts",
-      "src/pages/Dashboard.tsx",
-      "src/pages/DataView.tsx",
-      "src/pages/Settings.tsx"
-    ],
     "agentReadOnly": [
       "src/main.tsx",
       "src/index.css",
