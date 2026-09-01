@@ -47,7 +47,6 @@ jobs:
                   raise SystemExit(f'{label}: no calls found')
               return pattern.sub(lambda m: replacement(m.group(1).strip()), text)
 
-          # ProtoPipeline: consume the compiled contract directly.
           proto_path = 'frontend/src/services/ProtoPipeline.ts'
           proto = load(proto_path)
           for legacy_import in (
@@ -62,37 +61,12 @@ jobs:
               "import { compileSkeletonContract } from './SkeletonContractCompiler';\n",
               'ProtoPipeline quality import',
           )
-          proto = replace_call(
-              proto,
-              'getEditableSkeletonFiles',
-              lambda arg: f'compileSkeletonContract({arg}).editable',
-              'ProtoPipeline editable access',
-              expected=3,
-          )
-          proto = replace_call(
-              proto,
-              'getSkeletonInstalledFiles',
-              lambda arg: f'compileSkeletonContract({arg}).infrastructure.installed',
-              'ProtoPipeline installed access',
-              expected=4,
-          )
-          proto = replace_call(
-              proto,
-              'getSkeletonProductSlotFiles',
-              lambda arg: f'getProductDeltaScope({arg}).allowed',
-              'ProtoPipeline product-slot access',
-              expected=3,
-          )
-          proto = replace_call(
-              proto,
-              'getSkeletonQualityContract',
-              lambda arg: f'compileSkeletonContract({arg}).quality',
-              'ProtoPipeline quality access',
-              expected=1,
-          )
+          proto = replace_call(proto, 'getEditableSkeletonFiles', lambda arg: f'compileSkeletonContract({arg}).editable', 'ProtoPipeline editable access', 3)
+          proto = replace_call(proto, 'getSkeletonInstalledFiles', lambda arg: f'compileSkeletonContract({arg}).infrastructure.installed', 'ProtoPipeline installed access', 4)
+          proto = replace_call(proto, 'getSkeletonProductSlotFiles', lambda arg: f'getProductDeltaScope({arg}).allowed', 'ProtoPipeline product-slot access', 3)
+          proto = replace_call(proto, 'getSkeletonQualityContract', lambda arg: f'compileSkeletonContract({arg}).quality', 'ProtoPipeline quality access', 1)
           save(proto_path, proto)
 
-          # Live generation validator: compiled installation + canonical product-delta scope.
           validator_path = 'frontend/src/services/LiveGenerationContractValidator.ts'
           validator = load(validator_path)
           validator = replace_exact(
@@ -103,34 +77,12 @@ jobs:
           )
           unique_sorted = "function uniqueSorted(values: Iterable<string>): string[] {\n  return Array.from(new Set(Array.from(values))).sort((left, right) => left.localeCompare(right));\n}\n"
           data_helper = unique_sorted + "\nfunction getRequiredSkeletonDataFilesFromContract(skeletonId: SkeletonId): string[] {\n  const contract = compileSkeletonContract(skeletonId);\n  const candidates = [\n    ...contract.infrastructure.installed,\n    ...contract.requiredSlots,\n    ...contract.optionalSlots,\n    ...contract.editable,\n  ];\n  return uniqueSorted(candidates.filter(file => (\n    file === 'src/data/seed.ts' || file === 'src/data/types.ts'\n  )));\n}\n"
-          validator = replace_exact(
-              validator,
-              unique_sorted,
-              data_helper,
-              'LiveGenerationContractValidator data helper insertion',
-          )
-          validator = replace_call(
-              validator,
-              'getSkeletonInstalledFiles',
-              lambda arg: f'compileSkeletonContract({arg}).infrastructure.installed',
-              'LiveGenerationContractValidator installed access',
-          )
-          validator = replace_call(
-              validator,
-              'getSkeletonProductSlotFiles',
-              lambda arg: f'getProductDeltaScope({arg}).allowed',
-              'LiveGenerationContractValidator product-slot access',
-          )
-          validator = replace_call(
-              validator,
-              'getRequiredSkeletonDataFiles',
-              lambda arg: f'getRequiredSkeletonDataFilesFromContract({arg})',
-              'LiveGenerationContractValidator data access',
-              expected=1,
-          )
+          validator = replace_exact(validator, unique_sorted, data_helper, 'LiveGenerationContractValidator data helper insertion')
+          validator = replace_call(validator, 'getSkeletonInstalledFiles', lambda arg: f'compileSkeletonContract({arg}).infrastructure.installed', 'LiveGenerationContractValidator installed access')
+          validator = replace_call(validator, 'getSkeletonProductSlotFiles', lambda arg: f'getProductDeltaScope({arg}).allowed', 'LiveGenerationContractValidator product-slot access')
+          validator = replace_call(validator, 'getRequiredSkeletonDataFiles', lambda arg: f'getRequiredSkeletonDataFilesFromContract({arg})', 'LiveGenerationContractValidator data access', 1)
           save(validator_path, validator)
 
-          # Live readiness preflight: registry remains metadata-only; file ownership comes from compiler.
           preflight_path = 'frontend/src/modules/quality/LiveReadinessPreflight.ts'
           preflight = load(preflight_path)
           preflight = replace_exact(
@@ -139,54 +91,19 @@ jobs:
               "import { SKELETON_REGISTRY, type SkeletonId } from '../../services/SkeletonRegistry';\nimport { compileSkeletonContract } from '../../services/SkeletonContractCompiler';\n",
               'LiveReadinessPreflight imports',
           )
-          preflight = replace_call(
-              preflight,
-              'getSkeletonInstalledFiles',
-              lambda arg: f'compileSkeletonContract({arg}).infrastructure.installed',
-              'LiveReadinessPreflight installed access',
-              expected=1,
-          )
+          preflight = replace_call(preflight, 'getSkeletonInstalledFiles', lambda arg: f'compileSkeletonContract({arg}).infrastructure.installed', 'LiveReadinessPreflight installed access', 1)
           save(preflight_path, preflight)
 
-          # Registry: remove the four compiler-proxy ownership accessors.
           registry_path = 'frontend/src/services/SkeletonRegistry.ts'
           registry = load(registry_path)
-          legacy_registry_block = """export function getSkeletonInstalledFiles(skeletonId: SkeletonId): string[] {
-            return [...compileSkeletonContract(skeletonId).infrastructure.installed];
-          }
-
-          export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
-            return [...compileSkeletonContract(skeletonId).editable];
-          }
-
-          export function getSkeletonProductSlotFiles(skeletonId: SkeletonId): string[] {
-            const contract = compileSkeletonContract(skeletonId);
-            return uniqueSorted([...contract.requiredSlots, ...contract.optionalSlots]);
-          }
-
-          export function getRequiredSkeletonDataFiles(skeletonId: SkeletonId): string[] {
-            const contract = compileSkeletonContract(skeletonId);
-            const candidates = [
-              ...contract.infrastructure.installed,
-              ...contract.requiredSlots,
-              ...contract.optionalSlots,
-              ...contract.editable,
-            ];
-            return uniqueSorted(candidates.filter(file => (
-              file === 'src/data/seed.ts' || file === 'src/data/types.ts'
-            )));
-          }
-
-          """
-          # Dedent only the Python source indentation, preserving TypeScript exactly.
-          import textwrap
-          legacy_registry_block = textwrap.dedent(legacy_registry_block)
-          registry = replace_exact(
-              registry,
-              legacy_registry_block,
-              '',
-              'SkeletonRegistry ownership accessor block',
+          registry_pattern = re.compile(
+              r'export function getSkeletonInstalledFiles\(skeletonId: SkeletonId\): string\[\] \{.*?'
+              r'export function getRequiredSkeletonDataFiles\(skeletonId: SkeletonId\): string\[\] \{.*?\n\}\n\n(?=/\*\*\n \* Returns true)',
+              re.S,
           )
+          registry, removed = registry_pattern.subn('', registry)
+          if removed != 1:
+              raise SystemExit(f'SkeletonRegistry ownership accessor block: expected 1 block, removed {removed}')
           save(registry_path, registry)
 
           quality_wrapper = Path('frontend/src/services/SkeletonQualityContract.ts')
