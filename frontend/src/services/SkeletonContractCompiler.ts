@@ -61,13 +61,9 @@ export interface CompiledSkeletonInfrastructureContract {
  * - requiredSlots: product files required for a successful prototype;
  * - optionalSlots: product files generation may write when the plan requires them;
  * - editable: derived union of requiredSlots + optionalSlots, never an independent policy source;
- * - reusable: read-only skeleton files/components/hooks product code may consume;
+ * - reusable: derived from skeleton-owned infrastructure that product code may consume but not emit;
  * - infrastructure: installed/owned/protected scaffold and export integrity data;
  * - quality: manifest-declared prototype quality expectations.
- *
- * `reusable` and `infrastructure.protected` may overlap: read-only means
- * "do not rewrite", not "do not import". Import/ownership boundaries are
- * enforced by the explicit validator rules introduced in the validator refactor.
  */
 export interface CompiledSkeletonContract {
   version: 2;
@@ -152,7 +148,7 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
   const requiredSlots = normalizePaths(manifest.ownership.requiredProductSlots);
   const optionalSlots = normalizePaths(manifest.ownership.optionalProductSlots);
   const editable = normalizePaths([...requiredSlots, ...optionalSlots]);
-  const reusable = normalizePaths(manifest.ownership.agentReadOnly);
+  const reusable = normalizePaths(manifest.ownership.skeletonOwned);
   const protectedFiles = normalizePaths(manifest.protectedFiles);
   const owned = normalizePaths(manifest.ownership.skeletonOwned);
   const carcass = normalizePaths(manifest.ownership.carcassFiles);
