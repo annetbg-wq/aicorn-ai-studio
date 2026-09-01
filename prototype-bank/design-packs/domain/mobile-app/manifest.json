@@ -6,8 +6,23 @@
     "Use when the skeleton should clearly read as an app product instead of a rough screen mock",
     "Use when the result needs bottom-nav, feed, onboarding, and profile presets wired from real files"
   ],
-  "requiredComponents": ["mobile-nav", "feed-item", "onboarding-step", "profile-card", "button", "card", "input"],
-  "allowedSurfaces": ["mobile", "bottom-tabs", "feed", "detail", "profile", "onboarding"],
+  "requiredComponents": [
+    "mobile-nav",
+    "feed-item",
+    "onboarding-step",
+    "profile-card",
+    "button",
+    "card",
+    "input"
+  ],
+  "allowedSurfaces": [
+    "mobile",
+    "bottom-tabs",
+    "feed",
+    "detail",
+    "profile",
+    "onboarding"
+  ],
   "linkedStyleFiles": [
     "prototype-bank/design-packs/foundation/tokens.css",
     "prototype-bank/design-packs/foundation/typography.css",
@@ -35,26 +50,132 @@
     "prototype-bank/design-packs/assets/spacing/comfortable.json"
   ],
   "skeleton": "mobile-app",
-  "compatibleSkeletons": ["mobile-app", "dating-matching-app", "gaming-casino-app", "game-interactive-app", "booking-service-app", "content-learning-app"],
+  "compatibleSkeletons": [
+    "mobile-app",
+    "super-app",
+    "dating-matching-app",
+    "gaming-casino-app",
+    "game-interactive-app",
+    "booking-service-app",
+    "content-learning-app"
+  ],
   "skeletonPath": "skeletons/mobile-app/",
-  "domains": ["mobile-app", "consumer", "wellness", "health", "habit", "lifestyle"],
-  "subdomains": ["consumer-mobile", "habit-tracking", "wellness", "personal-productivity", "clinical", "habit-fitness", "women-health", "supplements-nutrition", "nutrition", "mental-health"],
-  "surfaces": ["mobile", "bottom-tabs", "feed", "detail", "profile", "onboarding"],
-  "trustProfiles": ["consumer-trust", "wellness-trust", "clinical-trust", "financial-trust"],
-  "toneProfiles": ["calm", "premium", "playful", "clinical", "corporate", "creator", "minimal", "soft"],
-  "densityProfiles": ["compact", "comfortable", "spacious"],
-  "radiusProfiles": ["soft", "pill", "sharp"],
-  "motionProfiles": ["gentle", "expressive", "reduced"],
-  "contrastProfiles": ["low", "medium", "high"],
-  "layoutPatterns": ["bottom-tabs", "card-feed", "list-detail", "onboarding-flow", "bottom-sheet", "profile-stack"],
-  "componentFamilies": ["mobile-nav", "feed-item", "onboarding-step", "profile-card", "bottom-sheet", "card", "list-item"],
-  "colorFamilies": ["neutral", "clinical-teal", "wellness-sage", "soft-womens-health", "nutrition-amber-green", "calm-lavender", "medical-navy-teal", "fintech-indigo", "cool-blue", "playful-coral"],
-  "requiredBlocks": ["mobile-nav", "feed-item", "onboarding-step", "profile-card"],
+  "domains": [
+    "mobile-app",
+    "consumer",
+    "wellness",
+    "health",
+    "habit",
+    "lifestyle"
+  ],
+  "subdomains": [
+    "consumer-mobile",
+    "habit-tracking",
+    "wellness",
+    "personal-productivity",
+    "clinical",
+    "habit-fitness",
+    "women-health",
+    "supplements-nutrition",
+    "nutrition",
+    "mental-health"
+  ],
+  "surfaces": [
+    "mobile",
+    "bottom-tabs",
+    "feed",
+    "detail",
+    "profile",
+    "onboarding"
+  ],
+  "trustProfiles": [
+    "consumer-trust",
+    "wellness-trust",
+    "clinical-trust",
+    "financial-trust"
+  ],
+  "toneProfiles": [
+    "calm",
+    "premium",
+    "playful",
+    "clinical",
+    "corporate",
+    "creator",
+    "minimal",
+    "soft"
+  ],
+  "densityProfiles": [
+    "compact",
+    "comfortable",
+    "spacious"
+  ],
+  "radiusProfiles": [
+    "soft",
+    "pill",
+    "sharp"
+  ],
+  "motionProfiles": [
+    "gentle",
+    "expressive",
+    "reduced"
+  ],
+  "contrastProfiles": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "layoutPatterns": [
+    "bottom-tabs",
+    "card-feed",
+    "list-detail",
+    "onboarding-flow",
+    "bottom-sheet",
+    "profile-stack"
+  ],
+  "componentFamilies": [
+    "mobile-nav",
+    "feed-item",
+    "onboarding-step",
+    "profile-card",
+    "bottom-sheet",
+    "card",
+    "list-item"
+  ],
+  "colorFamilies": [
+    "neutral",
+    "clinical-teal",
+    "wellness-sage",
+    "soft-womens-health",
+    "nutrition-amber-green",
+    "calm-lavender",
+    "medical-navy-teal",
+    "fintech-indigo",
+    "cool-blue",
+    "playful-coral"
+  ],
+  "requiredBlocks": [
+    "mobile-nav",
+    "feed-item",
+    "onboarding-step",
+    "profile-card"
+  ],
   "requiredFiles": [],
-  "forbiddenPatterns": ["desktop-only sidebar shell", "generic blank Tailwind fallback"],
+  "forbiddenPatterns": [
+    "desktop-only sidebar shell",
+    "generic blank Tailwind fallback"
+  ],
   "antiRepeatGroup": "mobile-app-domain-pack",
   "priorityScore": 10,
   "description": "Visual variants for mobile app skeleton. Bottom nav, card feeds, profile flows.",
   "variantCount": 8,
-  "variants": ["calm","premium-dark","playful","clinical","fintech-corporate","creator-social","minimal-brutal","mobile-soft"]
+  "variants": [
+    "calm",
+    "premium-dark",
+    "playful",
+    "clinical",
+    "fintech-corporate",
+    "creator-social",
+    "minimal-brutal",
+    "mobile-soft"
+  ]
 }

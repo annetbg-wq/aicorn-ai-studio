@@ -1,0 +1,104 @@
+{
+  "skeletonId": "super-app",
+  "label": "Super App",
+  "version": "0.1.0",
+  "navigation": "bottom-tabs",
+  "shell": "AppShell wraps OnboardingGuard + shared BottomTabs across multiple product domains",
+  "routes": [
+    {
+      "path": "/onboarding",
+      "page": "src/pages/Onboarding.tsx",
+      "guard": "GuestGuard"
+    },
+    {
+      "path": "/home",
+      "page": "src/pages/Home.tsx",
+      "guard": "OnboardingGuard"
+    },
+    {
+      "path": "/finance",
+      "page": "src/pages/Finance.tsx",
+      "guard": "OnboardingGuard",
+      "domain": "finance"
+    },
+    {
+      "path": "/wellness",
+      "page": "src/pages/Wellness.tsx",
+      "guard": "OnboardingGuard",
+      "domain": "wellness"
+    },
+    {
+      "path": "/learning",
+      "page": "src/pages/Learning.tsx",
+      "guard": "OnboardingGuard",
+      "domain": "learning"
+    },
+    {
+      "path": "/profile",
+      "page": "src/pages/Profile.tsx",
+      "guard": "OnboardingGuard"
+    }
+  ],
+  "tabs": [
+    {
+      "to": "/home",
+      "label": "Home"
+    },
+    {
+      "to": "/finance",
+      "label": "Money"
+    },
+    {
+      "to": "/wellness",
+      "label": "Wellness"
+    },
+    {
+      "to": "/learning",
+      "label": "Learn"
+    },
+    {
+      "to": "/profile",
+      "label": "Profile"
+    }
+  ],
+  "providedComponents": [
+    "ErrorBoundary",
+    "LoadingScreen",
+    "EmptyState",
+    "BottomTabs",
+    "PaywallSheet"
+  ],
+  "providedHooks": [
+    "useApp",
+    "useLocalStorage",
+    "useTheme"
+  ],
+  "uiPrimitives": [
+    "Avatar",
+    "Badge",
+    "Button",
+    "Card",
+    "Dialog",
+    "Input",
+    "Progress",
+    "Select",
+    "Sheet",
+    "Skeleton",
+    "Tabs"
+  ],
+  "config": {
+    "appIdentity": "src/config/app.ts",
+    "routes": "src/config/routes.ts",
+    "navigation": "src/config/navigation.ts",
+    "theme": "src/config/theme.ts"
+  },
+  "productContract": {
+    "profile": "app-first",
+    "domains": [
+      "finance",
+      "wellness",
+      "learning"
+    ],
+    "sharedShell": true
+  }
+}

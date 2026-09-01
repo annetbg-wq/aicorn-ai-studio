@@ -119,6 +119,7 @@ const ROOT_SHELL_OWNERS = ['src/App.tsx', 'src/components/AppShell.tsx', 'src/co
 
 const PROTECTED_SHELL_COMPONENTS_BY_SKELETON: Partial<Record<SkeletonId, readonly string[]>> = {
   'mobile-app': ['BottomTabs', 'AppShell', 'NavigationShell'],
+  'super-app': ['BottomTabs', 'AppShell', 'NavigationShell'],
   'b2b-operations-workspace': ['Sidebar', 'TopBar', 'Topbar', 'DashboardShell', 'AppShell'],
   'creator-editor-workspace': ['Sidebar', 'TopBar', 'Topbar', 'DashboardShell', 'AppShell'],
   ecommerce: ['BottomTabs', 'AppShell', 'NavigationShell'],

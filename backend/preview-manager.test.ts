@@ -212,6 +212,7 @@ describe('preview-manager UI primitive guard', () => {
     const barrelPaths = [
       path.resolve('preview-workspace/src/components/ui/index.ts'),
       path.resolve('skeletons/mobile-app/skeleton-mobile-app/src/components/ui/index.ts'),
+      path.resolve('skeletons/super-app/skeleton-super-app/src/components/ui/index.ts'),
       path.resolve('skeletons/ecommerce/skeleton-ecommerce/src/components/ui/index.ts'),
       path.resolve('skeletons/landing-page/skeleton-landing-page/src/components/ui/index.ts'),
       path.resolve('skeletons/productivity-tool/skeleton-productivity-tool/src/components/ui/index.ts'),

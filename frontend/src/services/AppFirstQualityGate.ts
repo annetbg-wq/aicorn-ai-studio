@@ -11,7 +11,7 @@ export interface AppFirstArchitectPlanShape {
 }
 
 export interface AppFirstQualityGateTelemetry {
-  profile: 'mobile-app' | 'not-app-first';
+  profile: 'app-first' | 'not-app-first';
   checked: boolean;
   meaningful_screen_count: number;
   minimum_meaningful_screens: number;
@@ -111,11 +111,11 @@ export function evaluateAppFirstQualityGate(input: {
   functionalFlowPlan?: FunctionalFlowPlan | null;
   functionalDiagnostics?: FunctionalImplementationDiagnostics | null;
 }): AppFirstQualityGateResult {
-  const minimumMeaningfulScreens = input.skeletonId === 'mobile-app'
-    ? getSkeletonQualityContract(input.skeletonId).minMeaningfulScreens
-    : 0;
+  const qualityContract = getSkeletonQualityContract(input.skeletonId);
+  const isAppFirst = qualityContract.profile === 'app-first';
+  const minimumMeaningfulScreens = isAppFirst ? qualityContract.minMeaningfulScreens : 0;
 
-  if (input.skeletonId !== 'mobile-app') {
+  if (!isAppFirst) {
     return {
       ok: true,
       blockingReasons: [],
@@ -192,8 +192,8 @@ export function evaluateAppFirstQualityGate(input: {
     pushBlocking(
       blockingReasons,
       repairInstructions,
-      `Mobile app has only ${screenEntries.length} meaningful screen(s); requires at least ${minimumMeaningfulScreens}.`,
-      `Implement at least ${minimumMeaningfulScreens} real mobile screens in the declared page slots. Each screen must render product-specific UI instead of a stub or placeholder.`,
+      `App-first prototype has only ${screenEntries.length} meaningful screen(s); requires at least ${minimumMeaningfulScreens}.`,
+      `Implement at least ${minimumMeaningfulScreens} real app screens in the declared page slots. Each screen must render product-specific UI instead of a stub or placeholder.`,
     );
   }
 
@@ -201,7 +201,7 @@ export function evaluateAppFirstQualityGate(input: {
     pushBlocking(
       blockingReasons,
       repairInstructions,
-      `Architect-planned mobile screens are missing or non-meaningful: ${missingPlannedScreens.slice(0, 5).join(', ')}.`,
+      `Architect-planned app screens are missing or non-meaningful: ${missingPlannedScreens.slice(0, 5).join(', ')}.`,
       `Implement the missing planned screens (${missingPlannedScreens.slice(0, 5).join(', ')}) as complete product-specific pages within the allowed product slots.`,
     );
   }
@@ -210,7 +210,7 @@ export function evaluateAppFirstQualityGate(input: {
     pushBlocking(
       blockingReasons,
       repairInstructions,
-      `Mobile navigation graph is incomplete: routes=${routeTargetCount}, navigation targets=${navigationTargetCount}.`,
+      `App navigation graph is incomplete: routes=${routeTargetCount}, navigation targets=${navigationTargetCount}.`,
       'Wire the real screens through config/routes.ts and config/navigation.ts. Bottom navigation must expose at least three real destinations and the route table must cover the app screens.',
     );
   }
@@ -220,7 +220,7 @@ export function evaluateAppFirstQualityGate(input: {
     pushBlocking(
       blockingReasons,
       repairInstructions,
-      `Mobile screen connectivity is incomplete: connected=${connectedNames.size}/${screenEntries.length}, orphaned=${orphanScreens.join(', ') || 'none'}.`,
+      `App screen connectivity is incomplete: connected=${connectedNames.size}/${screenEntries.length}, orphaned=${orphanScreens.join(', ') || 'none'}.`,
       'Connect every core screen to the route/navigation graph or a visible user action. Do not leave generated screens unreachable from the working app flow.',
     );
   }
@@ -229,7 +229,7 @@ export function evaluateAppFirstQualityGate(input: {
     pushBlocking(
       blockingReasons,
       repairInstructions,
-      `Mobile product data is too thin: data files=${dataFiles.length}, screens consuming data=${dataConsumerScreens.length}.`,
+      `App product data is too thin: data files=${dataFiles.length}, screens consuming data=${dataConsumerScreens.length}.`,
       'Provide typed product data plus realistic seed/mock data, and render that data on at least two mobile screens. Static decorative copy alone is not a functional app.',
     );
   }
@@ -238,7 +238,7 @@ export function evaluateAppFirstQualityGate(input: {
     pushBlocking(
       blockingReasons,
       repairInstructions,
-      `Mobile app contains ${emptyHandlerCount} empty interaction handler(s).`,
+      `App-first prototype contains ${emptyHandlerCount} empty interaction handler(s).`,
       'Replace empty click/submit handlers with visible local state changes, navigation, create/update behavior, or another deterministic product action.',
     );
   }
@@ -247,17 +247,17 @@ export function evaluateAppFirstQualityGate(input: {
     pushBlocking(
       blockingReasons,
       repairInstructions,
-      `Mobile actions are insufficient: handlers=${nonEmptyActionHandlerCount}, implemented flow coverage=${Math.round(flowCoverage * 100)}%.`,
+      `App actions are insufficient: handlers=${nonEmptyActionHandlerCount}, implemented flow coverage=${Math.round(flowCoverage * 100)}%.`,
       'Implement the core FunctionalFlowPlan with real local actions: at minimum one create/update action plus another visible state-changing interaction or navigation-driven product flow.',
     );
   } else if (plannedFlowCount > 0 && flowCoverage < 0.7) {
     advisoryReasons.push(
-      `Mobile functional flow coverage is ${Math.round(flowCoverage * 100)}%; core gate passes but additional planned flows remain weakly evidenced.`,
+      `App functional flow coverage is ${Math.round(flowCoverage * 100)}%; core gate passes but additional planned flows remain weakly evidenced.`,
     );
   }
 
   if ((functionalDiagnostics?.derivedDataSignals.length ?? 0) === 0) {
-    advisoryReasons.push('Mobile screens have no obvious derived-data signal; progress/summary surfaces may still be static.');
+    advisoryReasons.push('App screens have no obvious derived-data signal; progress/summary surfaces may still be static.');
   }
 
   return {
@@ -266,7 +266,7 @@ export function evaluateAppFirstQualityGate(input: {
     repairInstructions,
     advisoryReasons,
     telemetry: {
-      profile: 'mobile-app',
+      profile: 'app-first',
       checked: true,
       meaningful_screen_count: screenEntries.length,
       minimum_meaningful_screens: minimumMeaningfulScreens,

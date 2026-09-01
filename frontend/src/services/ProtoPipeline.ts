@@ -386,7 +386,7 @@ export interface VisualUsageDiagnosticsTelemetry {
  * All fields are optional — omit any you don't have yet.
  */
 export interface PrototypeQualityGateInput {
-  /** Surface profile. Mobile app enables app-first release semantics. */
+  /** Surface profile. Manifest-declared app-first skeletons enable app-first release semantics. */
   skeletonId?: SkeletonId;
   /** Violations from validateDesignContract(). Null/undefined = check not run. */
   designContractViolations?: DesignViolation[] | null;
@@ -394,14 +394,14 @@ export interface PrototypeQualityGateInput {
   visualUsageDiagnostics?: VisualUsageDiagnostics | null;
   /** Pre-computed product specificity diagnostics. Null/undefined = check not run. */
   productSpecificityDiagnostics?: ProductSpecificityDiagnostics | null;
-  /** App-first mobile diagnostics. Null/undefined = check not run. */
+  /** App-first diagnostics. Null/undefined = check not run. */
   appFirstQualityDiagnostics?: AppFirstQualityGateResult | null;
 }
 
 /** The telemetry payload included with every quality gate result. */
 export interface PrototypeQualityGateTelemetry {
   checks_run: string[];
-  quality_profile: 'mobile-app' | 'landing-page' | 'general';
+  quality_profile: 'app-first' | 'landing-page' | 'general';
   app_first_quality_gate?: AppFirstQualityGateTelemetry;
   design_contract_violations: number;
   premium_selected_not_used: boolean;
@@ -2991,14 +2991,14 @@ export function evaluatePrototypeQualityGate(
   const advisoryInstructions: string[] = [];
   const checksRun: string[] = [];
   const qualityProfile: PrototypeQualityGateTelemetry['quality_profile'] =
-    input.skeletonId === 'mobile-app'
-      ? 'mobile-app'
+    input.appFirstQualityDiagnostics?.telemetry.checked
+      ? 'app-first'
       : input.skeletonId === 'landing-page'
         ? 'landing-page'
         : 'general';
   const appFirst = input.appFirstQualityDiagnostics ?? null;
 
-  if (qualityProfile === 'mobile-app' && appFirst !== null) {
+  if (qualityProfile === 'app-first' && appFirst !== null) {
     checksRun.push('app_first_mobile');
     blockingReasons.push(...appFirst.blockingReasons);
     repairInstructions.push(...appFirst.repairInstructions);
@@ -3115,7 +3115,7 @@ export function evaluatePrototypeQualityGate(
 
   // ── Check 5: product specificity — empty/generic dashboard cards ──────────
   const psd = input.productSpecificityDiagnostics ?? null;
-  const genericDashboardCardFlag = psd !== null && qualityProfile !== 'mobile-app' && (
+  const genericDashboardCardFlag = psd !== null && qualityProfile !== 'app-first' && (
     psd.emptyMetricFindings.length > 0 ||
     psd.suggestedNextAction === 'add_repair_later'
   );

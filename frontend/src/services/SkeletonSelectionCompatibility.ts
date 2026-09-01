@@ -3,6 +3,9 @@ import { compileSkeletonContract, listSkeletonContractIds } from './SkeletonCont
 
 export type ProductArchetype =
   | 'mobile-consumer'
+  | 'super-app'
+  | 'multi-domain-consumer'
+  | 'single-purpose-tool'
   | 'dashboard'
   | 'marketing'
   | 'social'
@@ -17,9 +20,9 @@ export type ProductArchetype =
   | 'learning';
 
 const PRODUCT_ARCHETYPES = new Set<ProductArchetype>([
-  'mobile-consumer', 'dashboard', 'marketing', 'social', 'productivity',
-  'commerce', 'marketplace', 'creator-tool', 'dating', 'gaming',
-  'interactive-game', 'booking', 'learning',
+  'mobile-consumer', 'super-app', 'multi-domain-consumer', 'single-purpose-tool',
+  'dashboard', 'marketing', 'social', 'productivity', 'commerce', 'marketplace',
+  'creator-tool', 'dating', 'gaming', 'interactive-game', 'booking', 'learning',
 ]);
 
 export interface SkeletonSelectionCompatibilityContract {

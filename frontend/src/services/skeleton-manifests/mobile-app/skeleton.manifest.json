@@ -141,7 +141,8 @@
     "requiredFlows": [
       "onboarding-to-home",
       "home-to-detail"
-    ]
+    ],
+    "profile": "app-first"
   },
   "selectionContract": {
     "productTypes": [

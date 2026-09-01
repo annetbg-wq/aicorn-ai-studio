@@ -236,13 +236,19 @@ Return ONLY JSON, no markdown, matching this exact shape:
       || revisionManager.getActiveRevisionId()
       || `rev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-    // Pick a skeleton using safe override logic (advisory diagnostics + narrow deterministic overrides).
+    // Heuristic selection remains useful for generic app prompts, but an explicit
+    // first-class super-app surface is authoritative and must not lose to generic
+    // mobile keywords in the product brief.
     const archetype = inferArchetype(config);
     const tags = inferTags(config);
     const skOverride = selectSkeletonWithSafeOverrides(archetype, tags);
-    const skeletonId: SkeletonId = skOverride.finalSelectedSkeletonId;
-    log(`[SimpleGeneration] Skeleton original=${skOverride.originalSelectedSkeletonId} final=${skeletonId} override=${skOverride.overrideApplied}`);
-    if (skOverride.overrideApplied && skOverride.overrideReason) {
+    const explicitSuperApp = config.generationMode === 'superapp';
+    const skeletonId: SkeletonId = explicitSuperApp ? 'super-app' : skOverride.finalSelectedSkeletonId;
+    const surfaceOverrideApplied = explicitSuperApp && skOverride.finalSelectedSkeletonId !== 'super-app';
+    log(`[SimpleGeneration] Skeleton original=${skOverride.originalSelectedSkeletonId} final=${skeletonId} override=${skOverride.overrideApplied || surfaceOverrideApplied}`);
+    if (surfaceOverrideApplied) {
+      log('[SimpleGeneration] Skeleton override reason: explicit super-app surface is authoritative');
+    } else if (skOverride.overrideApplied && skOverride.overrideReason) {
       log(`[SimpleGeneration] Skeleton override reason: ${skOverride.overrideReason}`);
     }
     log(`[SimpleGeneration] Skeleton diagnostics: confidence=${skOverride.confidence} bestScore=${skOverride.bestScore} runnerUp=${skOverride.runnerUpSkeletonId ?? 'none'}(${skOverride.runnerUpScore})`);
@@ -477,6 +483,10 @@ Return ONLY JSON, no markdown, matching this exact shape:
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function inferArchetype(config: PipelineRunConfig): string {
+  // An explicitly selected first-class surface is authoritative. A legacy
+  // prebuilt plan may still describe its generic layout as "mobile"; that
+  // layout hint must not silently downgrade a super-app back to mobile-app.
+  if (config.generationMode === 'superapp') return 'superapp';
   const plan = config.prebuiltPlan;
   if (plan?.layout?.type) return plan.layout.type;
   return config.generationMode ?? '';

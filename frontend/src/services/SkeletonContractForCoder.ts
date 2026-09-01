@@ -50,7 +50,7 @@ export interface SkeletonNavContract {
 //
 // Covers all registered SkeletonId values.
 // Sidebar skeletons: saas-dashboard, b2b-operations-workspace, creator-editor-workspace, productivity-tool
-// Bottom-tabs skeletons: mobile-app, ecommerce, marketplace-platform, social-community,
+// Bottom-tabs skeletons: mobile-app, super-app, ecommerce, marketplace-platform, social-community,
 //                         dating-matching-app, gaming-casino-app, game-interactive-app,
 //                         booking-service-app, content-learning-app
 // Anchor-scroll: landing-page
@@ -97,6 +97,26 @@ const NAV_CONTRACTS: Record<SkeletonId, SkeletonNavContract> = {
       'Import BottomTabs from @/components/BottomTabs (NOT from @/components/ui).',
       'BOTTOM_TABS is read-only; do NOT re-import or re-export.',
       'config/routes.ts MUST export ROUTES with keys: home, create, detail, progress, profile.',
+    ],
+  },
+
+  'super-app': {
+    navMode: 'bottom-tabs',
+    configPath: '@/config/navigation',
+    exports: [
+      {
+        name: 'BOTTOM_TABS',
+        type: 'readonly NavItem[]',
+        description: 'shared bottom navigation across the super-app domain hub and domain surfaces',
+      },
+    ],
+    primaryNavComponentPath: '@/components/BottomTabs',
+    primaryNavComponentExport: 'BottomTabs',
+    rules: [
+      'Import BottomTabs from @/components/BottomTabs (NOT from @/components/ui).',
+      'BOTTOM_TABS is read-only; do NOT re-declare or re-export it outside config/navigation.ts.',
+      'config/routes.ts MUST export ROUTES with keys: home, finance, wellness, learning, profile plus onboarding.',
+      'Every domain tab must target a real registered route and a real product screen.',
     ],
   },
 

@@ -435,6 +435,7 @@ const PRODUCT_DOMAIN_KEYWORDS: Array<{ id: string; rx: RegExp }> = [
   { id: 'social-community', rx: /\b(social|community|feed|post|follow|forum|network|creator|comment|like|соц|сообще|лента|пост)/i },
   { id: 'productivity-tool', rx: /\b(task|todo|kanban|note|workspace|project tracker|productivity|planner|calendar|command palette|задач|замет|план|канбан)/i },
   { id: 'saas-dashboard', rx: /\b(dashboard|admin|analytics|metrics|crm|b2b|operations|reporting|table|дашборд|аналит|метрик|админ)/i },
+  { id: 'super-app', rx: /\b(super app|superapp|multi domain|all in one|life os|life hub|everything app|multi service)/i },
   { id: 'mobile-app', rx: /\b(mobile|app|habit|tracker|journal|fitness|wellness|health app|прилож|трекер|дневник|привыч)/i },
 ];
 
@@ -449,6 +450,7 @@ const SEMANTIC_KEYWORDS: Array<{ id: string; rx: RegExp }> = [
 
 const SURFACE_BY_SKELETON: Record<SkeletonId, string[]> = {
   'mobile-app':               ['mobile', 'bottom-tabs', 'feed', 'detail', 'profile', 'onboarding'],
+  'super-app':                ['mobile', 'bottom-tabs', 'domain-hub', 'finance', 'wellness', 'learning', 'profile', 'onboarding'],
   'saas-dashboard':           ['dashboard', 'sidebar', 'metrics', 'data-table', 'settings', 'workspace'],
   'landing-page':             ['marketing', 'hero', 'pricing', 'faq', 'cta', 'top-nav', 'social-proof'],
   'social-community':         ['mobile', 'bottom-tabs', 'feed', 'explore', 'notifications', 'profile', 'post-detail'],
@@ -465,6 +467,12 @@ const SURFACE_BY_SKELETON: Record<SkeletonId, string[]> = {
 };
 
 const SURFACE_SOURCE_FILES: Record<SkeletonId, string[]> = {
+  'super-app': [
+    'prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx',
+    'prototype-bank/design-packs/surfaces/blocks/feed-item.tsx',
+    'prototype-bank/design-packs/surfaces/blocks/onboarding-step.tsx',
+    'prototype-bank/design-packs/surfaces/cards/profile-card.tsx',
+  ],
   'mobile-app': [
     'prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx',
     'prototype-bank/design-packs/surfaces/blocks/feed-item.tsx',
@@ -547,6 +555,7 @@ const SURFACE_SOURCE_FILES: Record<SkeletonId, string[]> = {
 };
 
 const PACK_DOMAIN_ALIASES: Record<SkeletonId, string[]> = {
+  'super-app':                ['consumer', 'wellness', 'health', 'fintech', 'learning', 'lifestyle'],
   'mobile-app':               ['consumer', 'wellness', 'health', 'habit', 'lifestyle'],
   'saas-dashboard':           ['saas', 'b2b', 'admin', 'analytics', 'fintech', 'medicine', 'ai-tools'],
   'landing-page':             ['marketing', 'saas', 'ecommerce', 'creator', 'fintech', 'wellness'],
@@ -2444,6 +2453,7 @@ function inferDomainsForColorFamily(familyId: string): string[] {
 
 function defaultLayoutPatternsForSkeleton(skeleton: SkeletonId): string[] {
   switch (skeleton) {
+    case 'super-app': return ['bottom-tabs', 'domain-hub', 'multi-domain-home', 'card-feed', 'onboarding-flow', 'profile-stack'];
     case 'mobile-app': return ['bottom-tabs', 'card-feed', 'list-detail', 'onboarding-flow', 'bottom-sheet', 'profile-stack'];
     case 'saas-dashboard': return ['sidebar-shell', 'kpi-grid', 'data-table', 'settings-tabs', 'operator-dashboard'];
     case 'landing-page': return ['top-nav', 'hero-section', 'bento-grid', 'pricing-grid', 'faq-stack', 'landing-scroll'];
@@ -2463,6 +2473,7 @@ function defaultLayoutPatternsForSkeleton(skeleton: SkeletonId): string[] {
 
 function defaultComponentFamiliesForSkeleton(skeleton: SkeletonId): string[] {
   switch (skeleton) {
+    case 'super-app': return ['mobile-nav', 'domain-card', 'feed-item', 'onboarding-step', 'profile-card', 'card', 'list-item'];
     case 'mobile-app': return ['mobile-nav', 'feed-item', 'onboarding-step', 'profile-card', 'bottom-sheet', 'card', 'list-item'];
     case 'saas-dashboard': return ['sidebar-nav', 'dashboard-header', 'stat-card', 'metric-card', 'data-table', 'tabs'];
     case 'landing-page': return ['nav', 'hero', 'bento', 'pricing-card', 'faq', 'cta'];
@@ -2482,6 +2493,7 @@ function defaultComponentFamiliesForSkeleton(skeleton: SkeletonId): string[] {
 
 function defaultSubdomainsForSkeleton(skeleton: SkeletonId): string[] {
   switch (skeleton) {
+    case 'super-app': return ['consumer-mobile', 'multi-domain', 'budgeting', 'wellness', 'learning'];
     case 'mobile-app': return ['consumer-mobile', 'habit-tracking', 'wellness', 'women-health', 'nutrition'];
     case 'saas-dashboard': return ['analytics', 'operations'];
     case 'landing-page': return ['launch', 'conversion'];
@@ -2501,6 +2513,7 @@ function defaultSubdomainsForSkeleton(skeleton: SkeletonId): string[] {
 
 function defaultTrustProfileForSkeleton(skeleton: SkeletonId): string {
   switch (skeleton) {
+    case 'super-app': return 'consumer-trust';
     case 'mobile-app': return 'consumer-trust';
     case 'saas-dashboard': return 'enterprise-trust';
     case 'landing-page': return 'market-trust';

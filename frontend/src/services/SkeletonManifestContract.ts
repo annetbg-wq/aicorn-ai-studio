@@ -25,7 +25,11 @@ export interface SkeletonOwnershipV2 {
   carcassFiles: string[];
 }
 
+export type SkeletonQualityProfileV2 = 'general' | 'app-first';
+
 export interface SkeletonQualityContractV2 {
+  /** Release semantics profile. app-first means screens/navigation/data/actions are blocking quality signals. */
+  profile?: SkeletonQualityProfileV2;
   minMeaningfulScreens?: number;
   requiredCapabilities?: string[];
   requiredFlows?: string[];
@@ -96,6 +100,9 @@ export function validateSkeletonManifestV2(manifest: SkeletonManifestV2): string
   }
 
   const quality = manifest.qualityContract;
+  if (quality.profile !== undefined && !['general', 'app-first'].includes(quality.profile)) {
+    errors.push(`${manifest.id}: qualityContract.profile must be general or app-first`);
+  }
   if (!Number.isInteger(quality.minMeaningfulScreens) || (quality.minMeaningfulScreens ?? 0) < 1) {
     errors.push(`${manifest.id}: qualityContract.minMeaningfulScreens must be a positive integer`);
   }

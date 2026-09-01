@@ -13,6 +13,7 @@ import type { SkeletonId } from '../SkeletonRegistry';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const expectedSkeletonIds: SkeletonId[] = [
   'mobile-app',
+  'super-app',
   'saas-dashboard',
   'landing-page',
   'social-community',
@@ -41,7 +42,7 @@ function pathExists(id: SkeletonId, manifestPath: string): boolean {
   return fs.existsSync(path.join(getSkeletonSrcRoot(id), relative));
 }
 
-describe('Skeleton Contract Compiler — 14/14 matrix gate', () => {
+describe('Skeleton Contract Compiler — 15/15 matrix gate', () => {
   it('covers every registered skeleton family exactly once', () => {
     expect([...listSkeletonContractIds()].sort()).toEqual([...expectedSkeletonIds].sort());
   });
