@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "id": "mobile-app",
-  "label": "Mobile App",
+  "id": "super-app",
+  "label": "Super App",
   "workingGroups": [
     {
       "label": "core",
@@ -80,9 +80,9 @@
       "src/data/seed.ts",
       "src/pages/Onboarding.tsx",
       "src/pages/Home.tsx",
-      "src/pages/Detail.tsx",
-      "src/pages/Create.tsx",
-      "src/pages/Progress.tsx",
+      "src/pages/Finance.tsx",
+      "src/pages/Wellness.tsx",
+      "src/pages/Learning.tsx",
       "src/pages/Profile.tsx"
     ],
     "optionalProductSlots": [],
@@ -94,9 +94,9 @@
       "src/data/seed.ts",
       "src/pages/Onboarding.tsx",
       "src/pages/Home.tsx",
-      "src/pages/Detail.tsx",
-      "src/pages/Create.tsx",
-      "src/pages/Progress.tsx",
+      "src/pages/Finance.tsx",
+      "src/pages/Wellness.tsx",
+      "src/pages/Learning.tsx",
       "src/pages/Profile.tsx"
     ],
     "agentReadOnly": [
@@ -131,41 +131,53 @@
   ],
   "requiredExports": {},
   "qualityContract": {
-    "minMeaningfulScreens": 4,
+    "profile": "app-first",
+    "minMeaningfulScreens": 6,
     "requiredCapabilities": [
       "navigation",
       "onboarding",
       "primary-action",
-      "profile"
+      "profile",
+      "multi-domain"
     ],
     "requiredFlows": [
       "onboarding-to-home",
-      "home-to-detail"
-    ],
-    "profile": "app-first"
+      "home-to-domain",
+      "domain-action"
+    ]
   },
   "selectionContract": {
     "productTypes": [
-      "mobile-consumer"
+      "super-app",
+      "multi-domain-consumer"
     ],
     "surfaces": [
       "mobile",
       "bottom-tabs",
-      "feed",
-      "detail",
+      "domain-hub",
+      "finance",
+      "wellness",
+      "learning",
       "profile",
       "onboarding"
+    ],
+    "layouts": [
+      "bottom-tabs",
+      "domain-hub",
+      "multi-domain-home",
+      "domain-detail"
     ],
     "capabilities": [
       "navigation",
       "onboarding",
       "profile",
-      "primary-action"
+      "primary-action",
+      "multi-domain"
     ],
     "incompatibleArchetypes": [
-      "dashboard",
       "marketing",
-      "creator-tool"
+      "dashboard",
+      "single-purpose-tool"
     ]
   }
 }

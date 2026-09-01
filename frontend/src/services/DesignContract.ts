@@ -89,6 +89,7 @@ export interface MediaHint {
 
 const ARCHETYPE_BY_SKELETON: Record<SkeletonId, string> = {
   'mobile-app':                  'consumer-feed',
+  'super-app':                   'consumer-feed',
   'saas-dashboard':              'dashboard-workspace',
   'landing-page':                'consumer-feed',
   'social-community':            'consumer-feed',

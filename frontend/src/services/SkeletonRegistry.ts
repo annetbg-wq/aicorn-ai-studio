@@ -23,6 +23,7 @@ import { compileSkeletonContract, type SkeletonManifestGroup } from './SkeletonC
 
 export type SkeletonId =
   | 'mobile-app'
+  | 'super-app'
   | 'saas-dashboard'
   | 'landing-page'
   | 'social-community'
@@ -135,6 +136,57 @@ CRITICAL RULES:
 - To complete onboarding call completeOnboarding({ name, goal }) — do NOT write to localStorage directly
 - The Onboarding screen MUST call completeOnboarding() on submit, not navigate away by setting local state
 - Check isOnboarded (not any local flag) to decide whether to show the onboarding screen
+`,
+  },
+
+  'super-app': {
+    id: 'super-app',
+    label: 'Super App',
+    description:
+      'Multi-domain consumer app with one shared identity and bottom navigation across distinct product domains such as money, wellness, learning, services, or lifestyle.',
+    tags: [
+      'super app', 'superapp', 'multi domain', 'multi-domain', 'all in one', 'all-in-one',
+      'life os', 'life hub', 'everything app', 'multi service', 'multi-service',
+      'finance health learning', 'money wellness learning', 'ecosystem app',
+    ],
+    navigation: 'bottom-tabs',
+    providedComponents: [
+      'ErrorBoundary', 'LoadingScreen', 'EmptyState',
+      'BottomTabs', 'PaywallSheet',
+    ],
+    providedHooks: ['useLocalStorage', 'useTheme'],
+    uiPrimitives: [
+      'AlertDialog', 'Avatar', 'Badge', 'Button', 'Card', 'Dialog',
+      'Input', 'Label', 'Progress', 'ScrollArea', 'Select', 'Sheet', 'Skeleton', 'Tabs',
+    ],
+    visualCompatibility: {
+      allowedSurfaces: ['mobile', 'bottom-tabs', 'domain-hub', 'finance', 'wellness', 'learning', 'profile', 'onboarding'],
+      allowedLayoutPatterns: ['bottom-tabs', 'domain-hub', 'multi-domain-home', 'card-feed', 'list-detail', 'onboarding-flow', 'profile-stack'],
+      allowedDensityProfiles: ['compact', 'comfortable', 'spacious'],
+      allowedMotionProfiles: ['gentle', 'expressive', 'reduced'],
+      allowedComponentFamilies: ['mobile-nav', 'domain-card', 'feed-item', 'onboarding-step', 'profile-card', 'card', 'list-item'],
+      forbiddenVisualPatterns: ['desktop-only sidebar shell', 'single giant marketing page', 'one-domain-only shell', 'tiny tap targets'],
+    },
+    available: true,
+    contextContract: `
+useApp() — imported from '@/context/AppContext' — returns the same shared application/profile contract used by app-first mobile products:
+  isOnboarded: boolean
+  profile: { id, name, goal, createdAt, onboardingComplete, plan, usageCount }
+  isPremium: boolean
+  loadingState: 'loading' | 'ready' | 'error'
+  completeOnboarding({ name: string, goal: string })
+  updateProfile(patch: Partial<UserProfile>)
+  consumeAction(limit: number): boolean
+  setPlan(plan)
+  resetProfile()
+  themeChoice, resolvedTheme, setTheme(choice)
+
+SUPER-APP RULES:
+- Treat each declared domain as a real product surface with its own reachable screen, product data, and at least one meaningful action.
+- Keep one shared AppContext/profile and one navigation shell; do NOT build isolated mini-app roots.
+- Do NOT collapse all domains into a static dashboard. The Home screen is a hub; domain screens must remain independently reachable.
+- NEVER rewrite App.tsx, BottomTabs, AppContext, or shared skeleton infrastructure.
+- Onboarding MUST finish through completeOnboarding({ name, goal }).
 `,
   },
 

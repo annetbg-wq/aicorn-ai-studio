@@ -435,6 +435,7 @@ const PRODUCT_DOMAIN_KEYWORDS: Array<{ id: string; rx: RegExp }> = [
   { id: 'social-community', rx: /\b(social|community|feed|post|follow|forum|network|creator|comment|like|соц|сообще|лента|пост)/i },
   { id: 'productivity-tool', rx: /\b(task|todo|kanban|note|workspace|project tracker|productivity|planner|calendar|command palette|задач|замет|план|канбан)/i },
   { id: 'saas-dashboard', rx: /\b(dashboard|admin|analytics|metrics|crm|b2b|operations|reporting|table|дашборд|аналит|метрик|админ)/i },
+  { id: 'super-app', rx: /\b(super app|superapp|multi domain|all in one|life os|life hub|everything app|multi service)/i },
   { id: 'mobile-app', rx: /\b(mobile|app|habit|tracker|journal|fitness|wellness|health app|прилож|трекер|дневник|привыч)/i },
 ];
 
@@ -449,6 +450,7 @@ const SEMANTIC_KEYWORDS: Array<{ id: string; rx: RegExp }> = [
 
 const SURFACE_BY_SKELETON: Record<SkeletonId, string[]> = {
   'mobile-app':               ['mobile', 'bottom-tabs', 'feed', 'detail', 'profile', 'onboarding'],
+  'super-app':                ['mobile', 'bottom-tabs', 'domain-hub', 'finance', 'wellness', 'learning', 'profile', 'onboarding'],
   'saas-dashboard':           ['dashboard', 'sidebar', 'metrics', 'data-table', 'settings', 'workspace'],
   'landing-page':             ['marketing', 'hero', 'pricing', 'faq', 'cta', 'top-nav', 'social-proof'],
   'social-community':         ['mobile', 'bottom-tabs', 'feed', 'explore', 'notifications', 'profile', 'post-detail'],
@@ -465,6 +467,12 @@ const SURFACE_BY_SKELETON: Record<SkeletonId, string[]> = {
 };
 
 const SURFACE_SOURCE_FILES: Record<SkeletonId, string[]> = {
+  'super-app': [
+    'prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx',
+    'prototype-bank/design-packs/surfaces/blocks/feed-item.tsx',
+    'prototype-bank/design-packs/surfaces/blocks/onboarding-step.tsx',
+    'prototype-bank/design-packs/surfaces/cards/profile-card.tsx',
+  ],
   'mobile-app': [
     'prototype-bank/design-packs/surfaces/blocks/mobile-nav.tsx',
     'prototype-bank/design-packs/surfaces/blocks/feed-item.tsx',

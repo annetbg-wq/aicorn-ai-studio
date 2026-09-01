@@ -141,6 +141,7 @@ const TABS: Tab[] = ['overview', 'sources', 'themes', 'components', 'variants', 
 const SKELETON_ORDER: SkeletonId[] = [
   'saas-dashboard',
   'mobile-app',
+  'super-app',
   'landing-page',
   'ecommerce',
   'social-community',

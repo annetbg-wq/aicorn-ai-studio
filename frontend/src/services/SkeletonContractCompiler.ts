@@ -9,6 +9,7 @@ import gamingCasinoAppManifest from './skeleton-manifests/gaming-casino-app/skel
 import landingPageManifest from './skeleton-manifests/landing-page/skeleton.manifest.json';
 import marketplacePlatformManifest from './skeleton-manifests/marketplace-platform/skeleton.manifest.json';
 import mobileAppManifest from './skeleton-manifests/mobile-app/skeleton.manifest.json';
+import superAppManifest from './skeleton-manifests/super-app/skeleton.manifest.json';
 import productivityToolManifest from './skeleton-manifests/productivity-tool/skeleton.manifest.json';
 import saasDashboardManifest from './skeleton-manifests/saas-dashboard/skeleton.manifest.json';
 import socialCommunityManifest from './skeleton-manifests/social-community/skeleton.manifest.json';
@@ -24,6 +25,7 @@ export interface SkeletonManifestGroup {
 }
 
 export interface CompiledSkeletonQualityContract {
+  profile: 'general' | 'app-first';
   minMeaningfulScreens: number;
   requiredCapabilities: string[];
   requiredFlows: string[];
@@ -99,6 +101,7 @@ export interface CompiledSkeletonContract {
 
 const manifests: Record<SkeletonId, SkeletonManifestV2> = {
   'mobile-app': mobileAppManifest as SkeletonManifestV2,
+  'super-app': superAppManifest as SkeletonManifestV2,
   'saas-dashboard': saasDashboardManifest as SkeletonManifestV2,
   'landing-page': landingPageManifest as SkeletonManifestV2,
   'social-community': socialCommunityManifest as SkeletonManifestV2,
@@ -178,6 +181,7 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
     .sort((a, b) => a.localeCompare(b));
 
   const quality: CompiledSkeletonQualityContract = {
+    profile: manifest.qualityContract.profile ?? 'general',
     minMeaningfulScreens: manifest.qualityContract.minMeaningfulScreens as number,
     requiredCapabilities: [...(manifest.qualityContract.requiredCapabilities ?? [])],
     requiredFlows: [...(manifest.qualityContract.requiredFlows ?? [])],
