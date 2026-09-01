@@ -147,7 +147,7 @@ const LIVE_CANARY_REPAIRED_CONTENT_TS = [
   "  status: ['Candidate materialized', 'Compiled preview mounted', 'Final live check passed'],",
   '} as const;',
   '',
-].join('\\n');
+].join('\n');
 
 const LIVE_CANARY_PRODUCT_DELTA_APP_TSX = [
   "import { useRef, useState } from 'react';",
