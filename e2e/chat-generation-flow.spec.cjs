@@ -5,7 +5,7 @@ const { test, expect } = require('@playwright/test');
 
 const BASE_URL     = process.env.STUDIO_URL ?? 'http://localhost:5183';
 const FLOW_TIMEOUT = 60_000;
-const LIVE_CANARY_PROMPT = 'landing page for a simple counter product';
+const LIVE_CANARY_PROMPT = process.env.LIVE_CANARY_PROMPT ?? 'landing page for a simple counter product';
 const WATCHDOG_WINDOW_MS = readWatchdogWindowMs();
 const WATCHDOG_STABLE_TIMEOUT_MS = Math.max(
   WATCHDOG_WINDOW_MS * 3,
@@ -570,6 +570,29 @@ const LIVE_CANARY_PROTO_CODER_PLAN = [
   `<<<FILE: src/data/content.ts>>>\n${LIVE_CANARY_CONTENT_TS}\n<<<END>>>`,
 ].join('\n');
 
+const LIVE_CANARY_MOBILE_NAVIGATION_TS = [
+  "export const NAVIGATION = [",
+  "  { id: 'home', label: 'Home', path: '/' },",
+  "  { id: 'progress', label: 'Progress', path: '/progress' },",
+  "  { id: 'profile', label: 'Profile', path: '/profile' },",
+  "] as const;",
+  "",
+].join('\n');
+
+const LIVE_CANARY_MOBILE_SEED_TS = [
+  "export const HABIT_SEED = [",
+  "  { id: 'hydrate', title: 'Drink water', streak: 7 },",
+  "  { id: 'walk', title: 'Daily walk', streak: 4 },",
+  "] as const;",
+  "",
+].join('\n');
+
+const LIVE_CANARY_MOBILE_PROTO_CODER_PLAN = [
+  LIVE_CANARY_PROTO_CODER_PLAN,
+  `<<<FILE: src/config/navigation.ts>>>\n${LIVE_CANARY_MOBILE_NAVIGATION_TS}\n<<<END>>>`,
+  `<<<FILE: src/data/seed.ts>>>\n${LIVE_CANARY_MOBILE_SEED_TS}\n<<<END>>>`,
+].join('\n');
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function parseMsLiteral(raw) {
@@ -640,7 +663,9 @@ function responseTextForLLM(systemText, userText, stream) {
       systemText.includes('senior React') ||
       systemText.includes('fixing build errors')
     ) {
-      return LIVE_CANARY_PROTO_CODER_PLAN;
+      return LIVE_CANARY_PROMPT.includes('mobile consumer habit tracking app')
+        ? LIVE_CANARY_MOBILE_PROTO_CODER_PLAN
+        : LIVE_CANARY_PROTO_CODER_PLAN;
     }
     return LIVE_CANARY_ARCHITECT_ANALYSIS_RESPONSE;
   }
@@ -934,23 +959,39 @@ test.describe('Chat → generation → blueprint → preview', () => {
         sessionStorage.getItem('AIC_PREVIEW_SESSION_ID'),
       ).catch(() => null);
 
-      // Poll backend build status until ready. Replaces frontend ready_set signal.
+      // Poll backend build status until ready. Terminal failures must not be
+      // swallowed by expect().toPass(), which retries thrown errors until timeout.
       let _lastStatusSeen = null;
-      await expect(async () => {
+      const buildStatusDeadline = Date.now() + LIVE_FLOW_TIMEOUT;
+      let buildReady = false;
+      while (Date.now() < buildStatusDeadline) {
         if (!canaryBuildId) throw new Error('buildId not found in controller_compiling log');
         const statusRes = await page.request.get(
           `${BASE_URL}/api/preview/${canaryBuildId}/status`,
           { headers: { 'X-Preview-Session': canaryPreviewSession ?? '' } },
         );
-        if (statusRes.status() === 404) throw new Error('build status not registered yet');
+        if (statusRes.status() === 404) {
+          await page.waitForTimeout(2_000);
+          continue;
+        }
         const body = await statusRes.json();
         const s = body?.status;
         if (s !== _lastStatusSeen) {
           console.log(`CANARY_STEP: build_status_${s}`);
           _lastStatusSeen = s;
         }
-        expect(s).toBe('ready');
-      }).toPass({ timeout: LIVE_FLOW_TIMEOUT, intervals: [2_000, 3_000, 5_000] });
+        if (s === 'failed') {
+          throw new Error(
+            `[Live Preview Canary] preview build failed: ${body?.error ?? body?.message ?? JSON.stringify(body)}`,
+          );
+        }
+        if (s === 'ready') {
+          buildReady = true;
+          break;
+        }
+        await page.waitForTimeout(2_000);
+      }
+      expect(buildReady, `preview build did not become ready; last status=${_lastStatusSeen}`).toBe(true);
       console.log('CANARY_STEP: build_status_ready');
 
       // Compile is now confirmed ready by backend; iframe should be rendered.
