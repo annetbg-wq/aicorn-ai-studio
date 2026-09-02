@@ -154,7 +154,44 @@ function buildArchiveManifest({ runId, buildId, sessionId, apiMode, skeletonId, 
   };
 }
 
-async function runQaChecks({ page, runId, buildId, sessionId, apiMode, skeletonId, baseUrl, flows, archiveRoot, maxRuns, createdAt }) {
+function qaSummary(report) {
+  return {
+    passed: report.passed,
+    consoleErrorCount: report.consoleErrors.length,
+    pageErrorCount: report.pageErrors.length,
+    brokenLinkCount: report.brokenLinks.length,
+    deadButtonCount: report.deadButtons.length,
+    failedFlowCount: report.flows.filter(flow => flow.status === 'failed').length,
+  };
+}
+
+async function persistServerRun({ page, baseUrl, buildId, sessionId, apiMode, skeletonId, kind, retention, report }) {
+  const response = await page.request.post(
+    `${baseUrl.replace(/\/$/, '')}/api/prototype-runs/${buildId}`,
+    {
+      headers: { 'X-Preview-Session': sessionId },
+      data: {
+        apiMode,
+        skeletonId,
+        kind,
+        retention,
+        status: report.passed ? 'ready' : 'qa_failed',
+        qaSummary: qaSummary(report),
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const body = await response.json().catch(() => null);
+  if (!response.ok()) {
+    throw new Error(`server prototype-run registry failed (${response.status()}): ${JSON.stringify(body)}`);
+  }
+  if (body?.runId !== buildId || body?.buildId !== buildId) {
+    throw new Error(`server prototype-run registry returned mismatched identity: ${JSON.stringify(body)}`);
+  }
+  return body;
+}
+
+async function runQaChecks({ page, runId, buildId, sessionId, apiMode, skeletonId, baseUrl, flows, archiveRoot, maxRuns, createdAt, kind, retention }) {
   const runDir = path.join(archiveRoot, runId);
   const manifestPath = path.join(runDir, 'manifest.json');
   const qaReportPath = path.join(runDir, 'qa-report.json');
@@ -206,6 +243,17 @@ async function runQaChecks({ page, runId, buildId, sessionId, apiMode, skeletonI
       passed: consoleErrors.length === 0 && pageErrors.length === 0 && brokenLinks.length === 0 && deadButtons.length === 0 && failedFlows.length === 0,
     };
     await writeJson(qaReportPath, report);
+    await persistServerRun({
+      page,
+      baseUrl,
+      buildId,
+      sessionId,
+      apiMode,
+      skeletonId,
+      kind,
+      retention,
+      report,
+    });
     await writeJson(manifestPath, {
       ...commonManifest,
       completedAt: new Date().toISOString(),
@@ -237,6 +285,8 @@ async function recordExistingPrototypeRunQa({
   flows = [],
   archiveRoot = DEFAULT_ARCHIVE_ROOT,
   maxRuns = DEFAULT_MAX_RUNS,
+  kind = 'reference',
+  retention = 'rolling',
 }) {
   const explicitApiMode = assertApiMode(apiMode);
   const explicitSkeletonId = assertSkeletonId(skeletonId);
@@ -256,6 +306,8 @@ async function recordExistingPrototypeRunQa({
     archiveRoot,
     maxRuns,
     createdAt,
+    kind,
+    retention,
   });
 }
 
@@ -309,6 +361,8 @@ async function runPrototypeQa({ page, files, apiMode, skeletonId, baseUrl = proc
     archiveRoot,
     maxRuns,
     createdAt,
+    kind: 'fixture',
+    retention: 'rolling',
   });
 
   return { ...result, sessionId };

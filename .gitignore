@@ -15,6 +15,7 @@ launcher-status.json
 test-results/
 playwright-report/
 .prototype-runs/
+.prototype-run-registry/
 repomix-output.xml
 *.har
 *.png
