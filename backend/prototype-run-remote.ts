@@ -59,6 +59,10 @@ function backendSecret(): string {
   return value;
 }
 
+function rpcSecret(rpc?: PrototypeRemoteRpc): string {
+  return rpc ? (process.env.AIC_PROTOTYPE_BACKEND_SECRET || 'test-secret-1234567890') : backendSecret();
+}
+
 export function sha256Buffer(value: Buffer): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
@@ -94,7 +98,7 @@ export async function persistBuildArtifactRemote(
   rpc?: PrototypeRemoteRpc,
 ): Promise<{ sha256: string; sizeBytes: number; chunkCount: number }> {
   const client = rpc ?? defaultRpc();
-  const secret = rpc ? (process.env.AIC_PROTOTYPE_BACKEND_SECRET || 'test-secret-1234567890') : backendSecret();
+  const secret = rpcSecret(rpc);
   const artifact = await zipBuildDirectory(buildPath);
   const sha256 = sha256Buffer(artifact);
   const chunks: Buffer[] = [];
@@ -131,9 +135,8 @@ export async function persistBuildArtifactRemote(
 
 export async function getRemoteArtifactManifest(buildId: string, rpc?: PrototypeRemoteRpc): Promise<RemoteArtifactManifest | null> {
   const client = rpc ?? defaultRpc();
-  const secret = rpc ? (process.env.AIC_PROTOTYPE_BACKEND_SECRET || 'test-secret-1234567890') : backendSecret();
   return await callRpc<RemoteArtifactManifest | null>('aic_prototype_get_artifact_manifest', {
-    p_secret: secret,
+    p_secret: rpcSecret(rpc),
     p_build_id: buildId,
   }, client);
 }
@@ -144,7 +147,7 @@ export async function restoreBuildArtifactRemote(
   rpc?: PrototypeRemoteRpc,
 ): Promise<RemoteArtifactManifest | null> {
   const client = rpc ?? defaultRpc();
-  const secret = rpc ? (process.env.AIC_PROTOTYPE_BACKEND_SECRET || 'test-secret-1234567890') : backendSecret();
+  const secret = rpcSecret(rpc);
   const manifest = await getRemoteArtifactManifest(buildId, client);
   if (!manifest || manifest.artifactStatus !== 'ready' || !manifest.sha256 || !manifest.chunkCount) return null;
 
@@ -168,7 +171,8 @@ export async function restoreBuildArtifactRemote(
   await fsPromises.rm(temp, { recursive: true, force: true });
   await fsPromises.mkdir(temp, { recursive: true });
   try {
-    const stream = PassThrough.from(archive);
+    const stream = new PassThrough();
+    stream.end(archive);
     await stream.pipe(unzipper.Extract({ path: temp })).promise();
     if (!fs.existsSync(path.join(temp, 'index.html'))) throw new Error('restored preview artifact has no index.html');
     await fsPromises.rm(target, { recursive: true, force: true });
@@ -182,25 +186,24 @@ export async function restoreBuildArtifactRemote(
 
 export async function persistPrototypeRunRemote(record: PrototypeRunRecord, rpc?: PrototypeRemoteRpc): Promise<void> {
   const client = rpc ?? defaultRpc();
-  const secret = rpc ? (process.env.AIC_PROTOTYPE_BACKEND_SECRET || 'test-secret-1234567890') : backendSecret();
-  await callRpc('aic_prototype_upsert_run', { p_secret: secret, p_run: record }, client);
+  await callRpc('aic_prototype_upsert_run', { p_secret: rpcSecret(rpc), p_run: record }, client);
 }
 
 export async function getPrototypeRunRemote(runId: string, rpc?: PrototypeRemoteRpc): Promise<PrototypeRunRecord | null> {
   const client = rpc ?? defaultRpc();
-  const secret = rpc ? (process.env.AIC_PROTOTYPE_BACKEND_SECRET || 'test-secret-1234567890') : backendSecret();
-  return await callRpc<PrototypeRunRecord | null>('aic_prototype_get_run', { p_secret: secret, p_run_id: runId }, client);
+  return await callRpc<PrototypeRunRecord | null>('aic_prototype_get_run', {
+    p_secret: rpcSecret(rpc),
+    p_run_id: runId,
+  }, client);
 }
 
 export async function listPrototypeRunsRemote(rpc?: PrototypeRemoteRpc): Promise<PrototypeRunRecord[]> {
   const client = rpc ?? defaultRpc();
-  const secret = rpc ? (process.env.AIC_PROTOTYPE_BACKEND_SECRET || 'test-secret-1234567890') : backendSecret();
-  return await callRpc<PrototypeRunRecord[]>('aic_prototype_list_runs', { p_secret: secret }, client);
+  return await callRpc<PrototypeRunRecord[]>('aic_prototype_list_runs', { p_secret: rpcSecret(rpc) }, client);
 }
 
 export async function remotePrototypeDurabilityHealth(rpc?: PrototypeRemoteRpc): Promise<boolean> {
   const client = rpc ?? defaultRpc();
-  const secret = rpc ? (process.env.AIC_PROTOTYPE_BACKEND_SECRET || 'test-secret-1234567890') : backendSecret();
-  const data = await callRpc<{ ok?: boolean }>('aic_prototype_health', { p_secret: secret }, client);
+  const data = await callRpc<{ ok?: boolean }>('aic_prototype_health', { p_secret: rpcSecret(rpc) }, client);
   return data?.ok === true;
 }
