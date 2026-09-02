@@ -11,7 +11,7 @@
     "prod:frontend": "npm run preview --prefix frontend -- --host 127.0.0.1 --port 5183 --strictPort",
     "prod:canary:all": "npm run kill-ports && npm run build --prefix frontend && concurrently \"npm run prod:frontend\" \"npm run dev:backend\"",
     "test:unit": "vitest run backend/auth-token.test.ts",
-    "test:unit:prototype-registry": "vitest run --config backend/vitest.config.ts backend/prototype-run-registry.test.ts",
+    "test:unit:prototype-registry": "vitest run --config backend/vitest.config.ts backend/prototype-run-registry.test.ts backend/prototype-run-remote.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:preview-live": "playwright test e2e/chat-generation-flow.spec.cjs --grep @preview-live-canary",
     "test:e2e:reference-generated-run": "playwright test e2e/reference-generated-prototype-run.spec.cjs --reporter=line",
