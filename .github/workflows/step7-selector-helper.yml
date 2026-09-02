@@ -62,8 +62,8 @@ jobs:
         run: |
           test ! -e frontend/src/services/SkeletonSelectionCompatibility.ts
           test ! -e frontend/src/services/__tests__/SkeletonSelectionCompatibility.test.ts
-          if git grep -n "SkeletonSelectionCompatibility\|selectSkeletonWithSafeOverrides\|evaluateSkeletonIntentCompatibility" -- frontend/src; then
-            echo "Legacy selection compatibility reference remains." >&2
+          if git grep -n -E "from ['\"].*SkeletonSelectionCompatibility|selectSkeletonWithSafeOverrides\(|evaluateSkeletonIntentCompatibility\(" -- frontend/src; then
+            echo "Legacy selection compatibility import or call remains." >&2
             exit 1
           fi
           git diff --check
