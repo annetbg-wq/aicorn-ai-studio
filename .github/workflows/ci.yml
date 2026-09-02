@@ -141,6 +141,11 @@ jobs:
           PLAYWRIGHT_PRODUCTION_ARTIFACT: '1'
           VITE_OPENROUTER_API_KEY: e2e-live-preview-key
 
+      - name: Persist and QA the real generated reference build
+        run: npm run test:e2e:reference-generated-run
+        env:
+          PLAYWRIGHT_PRODUCTION_ARTIFACT: '1'
+
       - name: Run persistent prototype QA vertical slice
         run: npm run test:e2e:prototype-run
         env:
