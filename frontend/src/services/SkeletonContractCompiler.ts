@@ -59,14 +59,11 @@ export interface CompiledSkeletonInfrastructureContract {
  *
  * Semantics:
  * - requiredSlots: product files required for a successful prototype;
- * - editable: files generation may emit/replace;
- * - reusable: read-only skeleton files/components/hooks product code may consume;
+ * - optionalSlots: product files generation may write when the plan requires them;
+ * - editable: derived union of requiredSlots + optionalSlots, never an independent policy source;
+ * - reusable: derived from skeleton-owned infrastructure that product code may consume but not emit;
  * - infrastructure: installed/owned/protected scaffold and export integrity data;
  * - quality: manifest-declared prototype quality expectations.
- *
- * `reusable` and `infrastructure.protected` may overlap: read-only means
- * "do not rewrite", not "do not import". Import/ownership boundaries are
- * enforced by the explicit validator rules introduced in the validator refactor.
  */
 export interface CompiledSkeletonContract {
   version: 2;
@@ -78,25 +75,6 @@ export interface CompiledSkeletonContract {
   infrastructure: CompiledSkeletonInfrastructureContract;
   quality: CompiledSkeletonQualityContract;
   selection: CompiledSkeletonSelectionContract;
-
-  /** @deprecated Use infrastructure.workingGroups. */
-  workingGroups: SkeletonManifestGroup[];
-  /** @deprecated Use requiredSlots. */
-  requiredProductSlots: string[];
-  /** @deprecated Use optionalSlots. */
-  optionalProductSlots: string[];
-  /** @deprecated Use editable. */
-  agentEditable: string[];
-  /** @deprecated Use reusable. */
-  agentReadOnly: string[];
-  /** @deprecated Use infrastructure.protected. */
-  protectedFiles: string[];
-  /** @deprecated Use infrastructure.owned. */
-  skeletonOwned: string[];
-  /** @deprecated Use infrastructure.carcass. */
-  carcassFiles: string[];
-  /** @deprecated Use infrastructure.requiredExports. */
-  requiredExports: Record<string, Array<{ name: string; type?: string }>>;
 }
 
 const manifests: Record<SkeletonId, SkeletonManifestV2> = {
@@ -151,7 +129,7 @@ function assertManifestIsV2(manifest: SkeletonManifestV2): void {
 }
 
 /**
- * Canonical compiler. All 14 on-disk manifests are schema v2. Runtime consumers
+ * Canonical compiler. All 15 on-disk manifests are schema v2. Runtime consumers
  * receive one cached, normalized contract and never inspect raw manifest fields.
  */
 export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContract {
@@ -169,14 +147,12 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
   const workingGroups = normalizeWorkingGroups(manifest.workingGroups);
   const requiredSlots = normalizePaths(manifest.ownership.requiredProductSlots);
   const optionalSlots = normalizePaths(manifest.ownership.optionalProductSlots);
-  const editable = normalizePaths(manifest.ownership.agentEditable);
-  const reusable = normalizePaths(manifest.ownership.agentReadOnly);
+  const editable = normalizePaths([...requiredSlots, ...optionalSlots]);
+  const reusable = normalizePaths(manifest.ownership.skeletonOwned);
   const protectedFiles = normalizePaths(manifest.protectedFiles);
   const owned = normalizePaths(manifest.ownership.skeletonOwned);
   const carcass = normalizePaths(manifest.ownership.carcassFiles);
   const requiredExports = manifest.requiredExports ?? {};
-  // Preserve the Registry's historic observable ordering for installed files.
-  // Other semantic arrays intentionally retain manifest order.
   const installed = normalizePaths(workingGroups.flatMap(group => group.paths))
     .sort((a, b) => a.localeCompare(b));
 
@@ -214,18 +190,6 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
     infrastructure,
     quality,
     selection,
-
-    // Transitional aliases keep unchanged consumers stable while they migrate
-    // one-by-one to the semantic runtime contract above.
-    workingGroups,
-    requiredProductSlots: requiredSlots,
-    optionalProductSlots: optionalSlots,
-    agentEditable: editable,
-    agentReadOnly: reusable,
-    protectedFiles,
-    skeletonOwned: owned,
-    carcassFiles: carcass,
-    requiredExports,
   };
 
   compiledContracts.set(id, compiled);

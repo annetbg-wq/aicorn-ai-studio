@@ -1,5 +1,5 @@
 import type { SkeletonId } from './SkeletonRegistry';
-import { getSkeletonQualityContract } from './SkeletonQualityContract';
+import { compileSkeletonContract } from './SkeletonContractCompiler';
 import type {
   FunctionalFlowPlan,
   FunctionalImplementationDiagnostics,
@@ -111,7 +111,7 @@ export function evaluateAppFirstQualityGate(input: {
   functionalFlowPlan?: FunctionalFlowPlan | null;
   functionalDiagnostics?: FunctionalImplementationDiagnostics | null;
 }): AppFirstQualityGateResult {
-  const qualityContract = getSkeletonQualityContract(input.skeletonId);
+  const qualityContract = compileSkeletonContract(input.skeletonId).quality;
   const isAppFirst = qualityContract.profile === 'app-first';
   const minimumMeaningfulScreens = isAppFirst ? qualityContract.minMeaningfulScreens : 0;
 

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { selectSkeletonWithDiagnostics, selectSkeletonWithSafeOverrides } from '../SkeletonRegistry';
+import { selectSkeletonWithDiagnostics, selectSkeletonCanonical } from '../SkeletonRegistry';
 
 describe('Skeleton selection weighted intent conflicts', () => {
   it('keeps a SaaS marketing landing page on landing-page despite incidental Enterprise/table vocabulary', () => {
     const prompt = 'Build a SaaS landing page with a hero section, three feature cards with icons, a pricing table (Free / Pro / Enterprise), testimonials carousel, and a footer with social links.';
     const diagnostics = selectSkeletonWithDiagnostics('', [prompt]);
-    const result = selectSkeletonWithSafeOverrides('', [prompt]);
+    const result = selectSkeletonCanonical('', [prompt]);
 
     expect(diagnostics.intentSignals).toContain('landing-intent');
     expect(diagnostics.intentSignals).toContain('dashboard-intent');
@@ -16,7 +16,7 @@ describe('Skeleton selection weighted intent conflicts', () => {
   });
 
   it('lets explicit domain-specific game intent challenge more generic dashboard vocabulary', () => {
-    const result = selectSkeletonWithSafeOverrides('game analytics dashboard', ['metrics', 'levels']);
+    const result = selectSkeletonCanonical('game analytics dashboard', ['metrics', 'levels']);
     expect(result.intentSignals).toContain('dashboard-intent');
     expect(result.intentSignals).toContain('game-intent');
     expect(result.originalSelectedSkeletonId).toBe('saas-dashboard');

@@ -3,126 +3,22 @@
   "id": "landing-page",
   "label": "Landing Page",
   "workingGroups": [
-    {
-      "label": "core",
-      "paths": [
-        "src/App.tsx",
-        "src/main.tsx",
-        "src/index.css",
-        "src/route-manifest.json"
-      ]
-    },
-    {
-      "label": "config",
-      "paths": [
-        "src/config/app.ts"
-      ]
-    },
-    {
-      "label": "layout",
-      "paths": [
-        "src/components/Nav.tsx"
-      ]
-    },
-    {
-      "label": "sections",
-      "paths": [
-        "src/components/sections/*"
-      ]
-    },
-    {
-      "label": "states",
-      "paths": [
-        "src/components/ErrorBoundary.tsx"
-      ]
-    },
-    {
-      "label": "ui",
-      "paths": [
-        "src/components/ui/*"
-      ]
-    },
-    {
-      "label": "runtime",
-      "paths": [
-        "src/lib/cn.ts"
-      ]
-    }
+    {"label":"core","paths":["src/App.tsx","src/main.tsx","src/index.css","src/route-manifest.json"]},
+    {"label":"config","paths":["src/config/app.ts"]},
+    {"label":"layout","paths":["src/components/Nav.tsx"]},
+    {"label":"sections","paths":["src/components/sections/*"]},
+    {"label":"states","paths":["src/components/ErrorBoundary.tsx"]},
+    {"label":"ui","paths":["src/components/ui/*"]},
+    {"label":"runtime","paths":["src/lib/cn.ts"]}
   ],
   "ownership": {
-    "skeletonOwned": [
-      "src/main.tsx",
-      "src/index.css",
-      "src/lib/**",
-      "src/components/ui/**",
-      "src/components/ErrorBoundary.tsx",
-      "src/components/Nav.tsx",
-      "src/components/sections/**"
-    ],
-    "requiredProductSlots": [
-      "src/config/app.ts",
-      "src/data/content.ts",
-      "src/App.tsx"
-    ],
+    "skeletonOwned": ["src/main.tsx","src/index.css","src/lib/**","src/components/ui/**","src/components/ErrorBoundary.tsx","src/components/Nav.tsx","src/components/sections/**"],
+    "requiredProductSlots": ["src/config/app.ts","src/data/content.ts","src/App.tsx"],
     "optionalProductSlots": [],
-    "agentEditable": [
-      "src/config/app.ts",
-      "src/data/content.ts",
-      "src/App.tsx"
-    ],
-    "agentReadOnly": [
-      "src/main.tsx",
-      "src/index.css",
-      "src/lib/**",
-      "src/components/ui/**",
-      "src/components/ErrorBoundary.tsx",
-      "src/components/Nav.tsx",
-      "src/components/sections/**"
-    ],
     "carcassFiles": []
   },
-  "protectedFiles": [
-    "src/main.tsx",
-    "src/index.css",
-    "src/lib/**",
-    "src/components/ui/**",
-    "src/components/ErrorBoundary.tsx",
-    "src/components/Nav.tsx",
-    "src/components/sections/**"
-  ],
+  "protectedFiles": ["src/main.tsx","src/index.css","src/lib/**","src/components/ui/**","src/components/ErrorBoundary.tsx","src/components/Nav.tsx","src/components/sections/**"],
   "requiredExports": {},
-  "qualityContract": {
-    "minMeaningfulScreens": 1,
-    "requiredCapabilities": [
-      "hero",
-      "value-proposition",
-      "call-to-action"
-    ],
-    "requiredFlows": [
-      "hero-to-cta"
-    ]
-  },
-  "selectionContract": {
-    "productTypes": [
-      "marketing"
-    ],
-    "surfaces": [
-      "marketing",
-      "hero",
-      "pricing",
-      "faq",
-      "cta"
-    ],
-    "capabilities": [
-      "storytelling",
-      "conversion"
-    ],
-    "incompatibleArchetypes": [
-      "dashboard",
-      "social",
-      "dating",
-      "gaming",
-      "interactive-game"
-    ]
-  }
+  "qualityContract": {"minMeaningfulScreens":1,"requiredCapabilities":["hero","value-proposition","call-to-action"],"requiredFlows":["hero-to-cta"]},
+  "selectionContract": {"productTypes":["marketing"],"surfaces":["marketing","hero","pricing","faq","cta"],"capabilities":["storytelling","conversion"],"incompatibleArchetypes":["dashboard","social","dating","gaming","interactive-game"]}
 }

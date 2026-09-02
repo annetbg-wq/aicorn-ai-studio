@@ -18,7 +18,6 @@ import {
   getSkeletonCarcassMap,
   hasCarcassContent,
 } from './SkeletonCarcassContent';
-import { evaluateSkeletonIntentCompatibility } from './SkeletonSelectionCompatibility';
 import { compileSkeletonContract, type SkeletonManifestGroup } from './SkeletonContractCompiler';
 
 export type SkeletonId =
@@ -743,34 +742,61 @@ export function getSkeletonVisualCompatibility(
 }
 
 /**
- * Select the best skeleton for a project based on tags from ProductPlan.
- * Falls back to 'mobile-app' (the universal B2C default).
+ * Product archetypes are an interpretation vocabulary only. A skeleton's fit
+ * for an archetype comes exclusively from its compiled manifest selection contract.
  */
-export function selectSkeleton(
-  appType: string | undefined,
-  tags: string[] = [],
-): SkeletonId {
-  const input = [appType ?? '', ...tags]
-    .join(' ')
-    .toLowerCase()
-    .replace(/[^a-zа-яё0-9\s]/gi, ' ');
+export type ProductArchetype =
+  | 'mobile-consumer'
+  | 'super-app'
+  | 'multi-domain-consumer'
+  | 'single-purpose-tool'
+  | 'dashboard'
+  | 'marketing'
+  | 'social'
+  | 'productivity'
+  | 'commerce'
+  | 'marketplace'
+  | 'creator-tool'
+  | 'dating'
+  | 'gaming'
+  | 'interactive-game'
+  | 'booking'
+  | 'learning';
 
-  // Rank textual relevance together with manifest-declared intent compatibility.
-  const scores = buildSkeletonSelectionScores(input);
-  const best = scores[0];
+const PRODUCT_ARCHETYPES = new Set<ProductArchetype>([
+  'mobile-consumer', 'super-app', 'multi-domain-consumer', 'single-purpose-tool',
+  'dashboard', 'marketing', 'social', 'productivity', 'commerce', 'marketplace',
+  'creator-tool', 'dating', 'gaming', 'interactive-game', 'booking', 'learning',
+]);
 
-  // Only use non-mobile skeleton if it clearly wins (score >= 2)
-  if (best && best[1] >= 2 && best[0] !== 'mobile-app') {
-    return best[0];
-  }
-
-  return 'mobile-app'; // universal default
+interface IntentCompatibilityProfile {
+  signal: string;
+  label: string;
+  archetypes: ProductArchetype[];
 }
 
-// ── Skeleton selection diagnostics ───────────────────────────────────────────
+interface IntentCompatibilityEvaluation {
+  signal: string;
+  label: string;
+  explicitlyCompatible: boolean;
+  explicitlyIncompatible: boolean;
+  mismatch: boolean;
+  preferredSkeletonId: SkeletonId | null;
+}
+
+const INTENT_COMPATIBILITY_PROFILES: ReadonlyArray<IntentCompatibilityProfile> = [
+  { signal: 'landing-intent', label: 'Landing/marketing', archetypes: ['marketing'] },
+  { signal: 'dashboard-intent', label: 'Dashboard/analytics', archetypes: ['dashboard'] },
+  { signal: 'marketplace-intent', label: 'Marketplace/ecommerce', archetypes: ['commerce', 'marketplace'] },
+  { signal: 'social-intent', label: 'Social/community', archetypes: ['social'] },
+  { signal: 'game-intent', label: 'Game/RPG', archetypes: ['interactive-game', 'gaming'] },
+];
 
 export interface SkeletonSelectionDiagnostics {
+  /** Canonical final selection used by production. */
   selectedSkeletonId: SkeletonId;
+  /** Tag-only baseline retained for diagnostics, never used as the production decision. */
+  baseSelectedSkeletonId: SkeletonId;
   confidence: 'high' | 'medium' | 'low';
   bestScore: number;
   runnerUpSkeletonId: SkeletonId | null;
@@ -781,7 +807,25 @@ export interface SkeletonSelectionDiagnostics {
   intentSignalMatches: Array<{ signal: string; matchedKeywords: string[] }>;
 }
 
-/** Intent keyword groups used purely for advisory signal detection. */
+export interface SkeletonSelectionResult {
+  /** Tag-only baseline retained as telemetry. */
+  originalSelectedSkeletonId: SkeletonId;
+  /** Canonical manifest-aware production selection. */
+  finalSelectedSkeletonId: SkeletonId;
+  /** True when manifest-aware resolution changes the tag-only baseline. */
+  overrideApplied: boolean;
+  overrideReason?: string;
+  confidence: 'high' | 'medium' | 'low';
+  bestScore: number;
+  runnerUpSkeletonId: SkeletonId | null;
+  runnerUpScore: number;
+  fallbackReason?: string;
+  mismatchWarnings: string[];
+  intentSignals: string[];
+  intentSignalMatches: Array<{ signal: string; matchedKeywords: string[] }>;
+}
+
+/** Intent keyword groups used only to interpret textual evidence. */
 const INTENT_SIGNAL_GROUPS: ReadonlyArray<{ signal: string; keywords: string[]; specificity?: number }> = [
   {
     signal: 'landing-intent',
@@ -797,12 +841,6 @@ const INTENT_SIGNAL_GROUPS: ReadonlyArray<{ signal: string; keywords: string[]; 
   },
   {
     signal: 'social-intent',
-    // Precise social-app signals only. Bare substrings ('social', 'feed',
-    // 'follow', 'share', 'like', 'comment', 'network', 'club') fired on
-    // incidental matches — "social links" in a landing footer, a dashboard's
-    // "recent-activity feed", "feedback", "following up" — and then forced a
-    // correct skeleton over to social-community. A real social product names
-    // itself with these phrases; a footer link does not.
     keywords: [
       'social network', 'social media', 'social app', 'social platform',
       'community', 'forum', 'followers', 'posts', 'newsfeed', 'news feed',
@@ -811,10 +849,6 @@ const INTENT_SIGNAL_GROUPS: ReadonlyArray<{ signal: string; keywords: string[]; 
   },
   {
     signal: 'game-intent',
-    // Explicit game vocabulary is a domain-defining signal, unlike generic
-    // analytics/dashboard vocabulary that commonly appears inside games too.
-    // Specificity affects only intent arbitration; skeleton fit still comes
-    // exclusively from the manifest selectionContract.
     specificity: 2,
     keywords: ['game', 'rpg', 'progression', 'levels', 'leaderboard', 'score', 'puzzle', 'arcade', 'quest', 'player', 'achievements', 'gamification'],
   },
@@ -834,116 +868,81 @@ function detectIntentSignalMatches(input: string): Array<{ signal: string; match
 }
 
 function buildSkeletonSelectionScores(input: string): Array<[SkeletonId, number]> {
-  const scores = (Object.values(SKELETON_REGISTRY) as SkeletonMeta[])
+  return (Object.values(SKELETON_REGISTRY) as SkeletonMeta[])
     .filter(skeleton => skeleton.available)
-    .map(skeleton => {
-      const tagScore = skeleton.tags.reduce(
-        (acc, tag) => acc + (input.includes(tag) ? 1 : 0),
-        0,
-      );
-      return [skeleton.id, tagScore] as [SkeletonId, number];
-    });
-
-  return scores.sort((a, b) => b[1] - a[1]);
+    .map(skeleton => [
+      skeleton.id,
+      skeleton.tags.reduce((score, tag) => score + (input.includes(tag) ? 1 : 0), 0),
+    ] as [SkeletonId, number])
+    .sort((left, right) => right[1] - left[1]);
 }
 
-/**
- * Advisory-only diagnostics for skeleton selection.
- *
- * Runs the same scoring algorithm as `selectSkeleton` and returns the
- * resulting skeleton alongside confidence, runner-up data, intent signals
- * detected from the input, and any obvious mismatch warnings.
- *
- * This function is PURELY diagnostic — it does not change generation
- * behaviour. The selected skeleton is identical to what `selectSkeleton`
- * would have returned.
- */
-export function selectSkeletonWithDiagnostics(
-  appType: string | undefined,
-  tags: string[] = [],
-): SkeletonSelectionDiagnostics {
-  const input = [appType ?? '', ...tags]
-    .join(' ')
-    .toLowerCase()
-    .replace(/[^a-zа-яё0-9\s]/gi, ' ');
-
-  const intentSignalMatches = detectIntentSignalMatches(input);
-  const scores = buildSkeletonSelectionScores(input);
-
-  const best = scores[0];
-  const runnerUp = scores[1] ?? null;
-
-  const bestScore = best?.[1] ?? 0;
-  const runnerUpSkeletonId: SkeletonId | null = runnerUp?.[0] ?? null;
-  const runnerUpScore = runnerUp?.[1] ?? 0;
-
-  // Mirror selectSkeleton decision rule exactly — no behaviour change.
-  const selectedSkeletonId: SkeletonId =
-    best && best[1] >= 2 && best[0] !== 'mobile-app'
-      ? best[0]
-      : 'mobile-app';
-
-  // Intent signals also contributed evidence to the manifest-aware ranking above.
-  const intentSignals = intentSignalMatches.map(group => group.signal);
-
-  // Compute confidence.
-  let confidence: 'high' | 'medium' | 'low';
-  let fallbackReason: string | undefined;
-
-  if (selectedSkeletonId === 'mobile-app' && bestScore < 2) {
-    confidence = 'low';
-    fallbackReason = `No skeleton scored ≥2 — fell back to mobile-app (best score: ${bestScore})`;
-  } else if (bestScore >= 3 && (bestScore - runnerUpScore) >= 2) {
-    confidence = 'high';
-  } else {
-    confidence = 'medium';
+function parseSelectionArchetypes(id: SkeletonId, values: string[], field: string): ProductArchetype[] {
+  for (const value of values) {
+    if (!PRODUCT_ARCHETYPES.has(value as ProductArchetype)) {
+      throw new Error(`${id}: selectionContract.${field} contains unknown archetype: ${value}`);
+    }
   }
+  return [...values] as ProductArchetype[];
+}
 
-  // Evaluate intent fit from each skeleton's manifest selectionContract.
-  const mismatchWarnings: string[] = [];
-  const availableSkeletonIds = (Object.values(SKELETON_REGISTRY) as SkeletonMeta[])
-    .filter(skeleton => skeleton.available)
-    .map(skeleton => skeleton.id);
-  const weakFallback = selectedSkeletonId === 'mobile-app' && bestScore < 2;
+function scoreManifestArchetypeCompatibility(id: SkeletonId, archetype: ProductArchetype): number {
+  const selection = compileSkeletonContract(id).selection;
+  const productTypes = parseSelectionArchetypes(id, selection.productTypes, 'productTypes');
+  const incompatible = parseSelectionArchetypes(id, selection.incompatibleArchetypes, 'incompatibleArchetypes');
+  if (incompatible.includes(archetype)) return -100;
+  if (productTypes.includes(archetype)) return 100;
+  return 0;
+}
 
-  for (const signal of intentSignals) {
-    const evaluation = evaluateSkeletonIntentCompatibility({
-      selectedSkeletonId,
-      signal,
-      weakFallback,
-      candidateIds: availableSkeletonIds,
-    });
-    if (!evaluation?.mismatch) continue;
-    const recommendation = evaluation.preferredSkeletonId
-      ? `; consider ${evaluation.preferredSkeletonId}`
-      : '';
-    mismatchWarnings.push(
-      `${evaluation.label} intent detected but '${selectedSkeletonId}' skeleton is not compatible by manifest${recommendation}`,
-    );
+function getIntentCompatibilityProfile(signal: string): IntentCompatibilityProfile | null {
+  return INTENT_COMPATIBILITY_PROFILES.find(profile => profile.signal === signal) ?? null;
+}
+
+function resolvePreferredSkeletonForIntent(signal: string, candidateIds: SkeletonId[]): SkeletonId | null {
+  const profile = getIntentCompatibilityProfile(signal);
+  if (!profile) return null;
+  for (const archetype of profile.archetypes) {
+    const candidate = candidateIds.find(id => scoreManifestArchetypeCompatibility(id, archetype) === 100);
+    if (candidate) return candidate;
   }
+  return null;
+}
 
+function evaluateIntentCompatibility(input: {
+  selectedSkeletonId: SkeletonId;
+  signal: string;
+  weakFallback: boolean;
+  candidateIds: SkeletonId[];
+}): IntentCompatibilityEvaluation | null {
+  const profile = getIntentCompatibilityProfile(input.signal);
+  if (!profile) return null;
+  const scores = profile.archetypes.map(archetype =>
+    scoreManifestArchetypeCompatibility(input.selectedSkeletonId, archetype),
+  );
+  const explicitlyCompatible = scores.includes(100);
+  const explicitlyIncompatible = !explicitlyCompatible && scores.includes(-100);
+  const preferredSkeletonId = resolvePreferredSkeletonForIntent(input.signal, input.candidateIds);
+  const mismatch = explicitlyIncompatible || Boolean(
+    input.weakFallback
+    && !explicitlyCompatible
+    && preferredSkeletonId
+    && preferredSkeletonId !== input.selectedSkeletonId,
+  );
   return {
-    selectedSkeletonId,
-    confidence,
-    bestScore,
-    runnerUpSkeletonId,
-    runnerUpScore,
-    ...(fallbackReason !== undefined ? { fallbackReason } : {}),
-    mismatchWarnings,
-    intentSignals,
-    intentSignalMatches,
+    signal: input.signal,
+    label: profile.label,
+    explicitlyCompatible,
+    explicitlyIncompatible,
+    mismatch,
+    preferredSkeletonId,
   };
 }
 
-// ── Skeleton selection safe overrides ────────────────────────────────────────
-
-export interface SkeletonSelectionOverrideResult {
-  /** Skeleton chosen by the original selectSkeleton scoring algorithm. */
-  originalSelectedSkeletonId: SkeletonId;
-  /** Final skeleton after safe overrides are applied (may equal original). */
+interface CanonicalSelectionResolution {
+  baseSelectedSkeletonId: SkeletonId;
   finalSelectedSkeletonId: SkeletonId;
-  overrideApplied: boolean;
-  overrideReason?: string;
+  resolutionReason?: string;
   confidence: 'high' | 'medium' | 'low';
   bestScore: number;
   runnerUpSkeletonId: SkeletonId | null;
@@ -955,110 +954,162 @@ export interface SkeletonSelectionOverrideResult {
 }
 
 /**
- * Deterministic skeleton selection with safe behavioral overrides.
- *
- * Calls `selectSkeletonWithDiagnostics` internally for base selection and
- * signal detection, then applies a narrow set of override rules for obvious
- * high-confidence mismatches.
- *
- * Override fires only when:
- *   - At least one intent signal is present (not an ambiguous prompt)
- *   - At least one mismatch warning is present (not an already-correct selection)
- *   - Manifest compatibility marks the original selection incompatible
- *   - A manifest-compatible preferred target is available in the registry
- *
- * Ambiguous prompts (no intent signals) always keep the original selection.
- * Already-correct selections (no mismatch warnings) are never overridden.
+ * Single production selector. Tag evidence establishes a baseline while the same
+ * pass resolves intent against each candidate's compiled manifest selection contract.
+ * There is no separate compatibility policy or post-selection override table.
  */
-export function selectSkeletonWithSafeOverrides(
+function resolveCanonicalSkeletonSelection(
   appType: string | undefined,
   tags: string[] = [],
-): SkeletonSelectionOverrideResult {
-  const diag = selectSkeletonWithDiagnostics(appType, tags);
-  const {
-    selectedSkeletonId: originalSelectedSkeletonId,
-    intentSignals,
-    intentSignalMatches,
-    mismatchWarnings,
-    confidence: diagConfidence,
-    bestScore,
-    runnerUpSkeletonId,
-    runnerUpScore,
-    fallbackReason,
-  } = diag;
-
-  const base = {
-    bestScore,
-    runnerUpSkeletonId,
-    runnerUpScore,
-    intentSignals,
-    intentSignalMatches,
-    mismatchWarnings,
-    ...(fallbackReason !== undefined ? { fallbackReason } : {}),
-  };
-
-  // Guard: ambiguous input (no recognized intent signals) — never override.
-  // Guard: no mismatch warnings — selection is already appropriate.
-  if (intentSignals.length === 0 || mismatchWarnings.length === 0) {
-    return {
-      originalSelectedSkeletonId,
-      finalSelectedSkeletonId: originalSelectedSkeletonId,
-      overrideApplied: false,
-      confidence: diagConfidence,
-      ...base,
-    };
-  }
-
-  // Resolve overrides from manifest compatibility in signal priority order.
+): CanonicalSelectionResolution {
+  const input = [appType ?? '', ...tags]
+    .join(' ')
+    .toLowerCase()
+    .replace(/[^a-zа-яё0-9\s]/gi, ' ');
+  const intentSignalMatches = detectIntentSignalMatches(input);
+  const intentSignals = intentSignalMatches.map(match => match.signal);
+  const scores = buildSkeletonSelectionScores(input);
+  const best = scores[0];
+  const runnerUp = scores[1] ?? null;
+  const bestScore = best?.[1] ?? 0;
+  const runnerUpSkeletonId = runnerUp?.[0] ?? null;
+  const runnerUpScore = runnerUp?.[1] ?? 0;
+  const baseSelectedSkeletonId: SkeletonId =
+    best && best[1] >= 2 && best[0] !== 'mobile-app'
+      ? best[0]
+      : 'mobile-app';
+  const weakFallback = baseSelectedSkeletonId === 'mobile-app' && bestScore < 2;
   const availableSkeletonIds = (Object.values(SKELETON_REGISTRY) as SkeletonMeta[])
     .filter(skeleton => skeleton.available)
     .map(skeleton => skeleton.id);
-  const weakFallback = originalSelectedSkeletonId === 'mobile-app' && bestScore < 2;
 
-  // A confident tag-based selection must not be overturned by a weaker incidental
-  // intent signal. Only the strongest detected signal tier may challenge it.
-  // Ties stay eligible: e.g. a game brief can deliberately override a dashboard
-  // when game and dashboard evidence are equally strong. Weak fallbacks remain
-  // rescuable by any recognized manifest-backed intent.
-  const arbitrationStrength = (match: { signal: string; matchedKeywords: string[] }) =>
-    match.matchedKeywords.length + getIntentSignalSpecificity(match.signal);
-  const strongestSignalEvidence = intentSignalMatches.reduce(
-    (max, match) => Math.max(max, arbitrationStrength(match)),
-    0,
-  );
-  const arbitrationSignals = weakFallback
-    ? intentSignals
-    : intentSignalMatches
-        .filter(match => arbitrationStrength(match) === strongestSignalEvidence)
-        .map(match => match.signal);
+  let confidence: 'high' | 'medium' | 'low';
+  let fallbackReason: string | undefined;
+  if (weakFallback) {
+    confidence = 'low';
+    fallbackReason = `Tag evidence did not reach the legacy >=2 threshold; baseline fell back to mobile-app (best score: ${bestScore}).`;
+  } else if (bestScore >= 3 && (bestScore - runnerUpScore) >= 2) {
+    confidence = 'high';
+  } else {
+    confidence = 'medium';
+  }
 
-  for (const signal of arbitrationSignals) {
-    const evaluation = evaluateSkeletonIntentCompatibility({
-      selectedSkeletonId: originalSelectedSkeletonId,
+  const evaluations = intentSignals
+    .map(signal => evaluateIntentCompatibility({
+      selectedSkeletonId: baseSelectedSkeletonId,
       signal,
       weakFallback,
       candidateIds: availableSkeletonIds,
+    }))
+    .filter((value): value is IntentCompatibilityEvaluation => value !== null);
+  const mismatchWarnings = evaluations
+    .filter(evaluation => evaluation.mismatch)
+    .map(evaluation => {
+      const recommendation = evaluation.preferredSkeletonId
+        ? `; consider ${evaluation.preferredSkeletonId}`
+        : '';
+      return `${evaluation.label} intent detected but '${baseSelectedSkeletonId}' skeleton is not compatible by manifest${recommendation}`;
     });
-    const preferred = evaluation?.preferredSkeletonId;
-    if (evaluation?.mismatch && preferred && preferred !== originalSelectedSkeletonId && SKELETON_REGISTRY[preferred]?.available) {
-      return {
-        originalSelectedSkeletonId,
-        finalSelectedSkeletonId: preferred,
-        overrideApplied: true,
-        overrideReason: `${signal} detected; manifest compatibility rejects '${originalSelectedSkeletonId}' — overriding to '${preferred}'`,
-        confidence: 'medium',
-        ...base,
-      };
+
+  let finalSelectedSkeletonId = baseSelectedSkeletonId;
+  let resolutionReason: string | undefined;
+
+  if (intentSignals.length > 0 && mismatchWarnings.length > 0) {
+    const arbitrationStrength = (match: { signal: string; matchedKeywords: string[] }) =>
+      match.matchedKeywords.length + getIntentSignalSpecificity(match.signal);
+    const strongestSignalEvidence = intentSignalMatches.reduce(
+      (max, match) => Math.max(max, arbitrationStrength(match)),
+      0,
+    );
+    const arbitrationSignals = weakFallback
+      ? intentSignals
+      : intentSignalMatches
+          .filter(match => arbitrationStrength(match) === strongestSignalEvidence)
+          .map(match => match.signal);
+
+    for (const signal of arbitrationSignals) {
+      const evaluation = evaluateIntentCompatibility({
+        selectedSkeletonId: baseSelectedSkeletonId,
+        signal,
+        weakFallback,
+        candidateIds: availableSkeletonIds,
+      });
+      const preferred = evaluation?.preferredSkeletonId;
+      if (evaluation?.mismatch && preferred && preferred !== baseSelectedSkeletonId && SKELETON_REGISTRY[preferred]?.available) {
+        finalSelectedSkeletonId = preferred;
+        resolutionReason = `${signal} detected; compiled manifest selection resolves '${baseSelectedSkeletonId}' to '${preferred}'`;
+        confidence = 'medium';
+        break;
+      }
     }
   }
 
-  // No override rule matched — keep original selection.
   return {
-    originalSelectedSkeletonId,
-    finalSelectedSkeletonId: originalSelectedSkeletonId,
-    overrideApplied: false,
-    confidence: diagConfidence,
-    ...base,
+    baseSelectedSkeletonId,
+    finalSelectedSkeletonId,
+    ...(resolutionReason ? { resolutionReason } : {}),
+    confidence,
+    bestScore,
+    runnerUpSkeletonId,
+    runnerUpScore,
+    ...(fallbackReason ? { fallbackReason } : {}),
+    mismatchWarnings,
+    intentSignals,
+    intentSignalMatches,
+  };
+}
+
+/** Canonical production skeleton selection. */
+export function selectSkeleton(appType: string | undefined, tags: string[] = []): SkeletonId {
+  return resolveCanonicalSkeletonSelection(appType, tags).finalSelectedSkeletonId;
+}
+
+/** Canonical selection plus diagnostic evidence. */
+export function selectSkeletonWithDiagnostics(
+  appType: string | undefined,
+  tags: string[] = [],
+): SkeletonSelectionDiagnostics {
+  const resolution = resolveCanonicalSkeletonSelection(appType, tags);
+  return {
+    selectedSkeletonId: resolution.finalSelectedSkeletonId,
+    baseSelectedSkeletonId: resolution.baseSelectedSkeletonId,
+    confidence: resolution.confidence,
+    bestScore: resolution.bestScore,
+    runnerUpSkeletonId: resolution.runnerUpSkeletonId,
+    runnerUpScore: resolution.runnerUpScore,
+    ...(resolution.fallbackReason ? { fallbackReason: resolution.fallbackReason } : {}),
+    mismatchWarnings: resolution.mismatchWarnings,
+    intentSignals: resolution.intentSignals,
+    intentSignalMatches: resolution.intentSignalMatches,
+  };
+}
+
+/**
+ * Detailed canonical selection result. `original/final` and `override*` fields are
+ * retained as telemetry compatibility only; the production decision is made once
+ * by resolveCanonicalSkeletonSelection().
+ */
+export function selectSkeletonCanonical(
+  appType: string | undefined,
+  tags: string[] = [],
+): SkeletonSelectionResult {
+  const resolution = resolveCanonicalSkeletonSelection(appType, tags);
+  const overrideApplied = resolution.baseSelectedSkeletonId !== resolution.finalSelectedSkeletonId;
+  return {
+    originalSelectedSkeletonId: resolution.baseSelectedSkeletonId,
+    finalSelectedSkeletonId: resolution.finalSelectedSkeletonId,
+    overrideApplied,
+    ...(overrideApplied && resolution.resolutionReason
+      ? { overrideReason: resolution.resolutionReason }
+      : {}),
+    confidence: resolution.confidence,
+    bestScore: resolution.bestScore,
+    runnerUpSkeletonId: resolution.runnerUpSkeletonId,
+    runnerUpScore: resolution.runnerUpScore,
+    ...(resolution.fallbackReason ? { fallbackReason: resolution.fallbackReason } : {}),
+    mismatchWarnings: resolution.mismatchWarnings,
+    intentSignals: resolution.intentSignals,
+    intentSignalMatches: resolution.intentSignalMatches,
   };
 }
 
@@ -1104,33 +1155,6 @@ function collectBlueprintFiles(context?: SkeletonPromptContext): string[] {
   collectBlueprintFilesFromObject(context?.plan, out);
   collectBlueprintFilesFromObject(context?.technicalBlueprint, out);
   return uniqueSorted([...out]);
-}
-
-export function getSkeletonInstalledFiles(skeletonId: SkeletonId): string[] {
-  return [...compileSkeletonContract(skeletonId).infrastructure.installed];
-}
-
-export function getEditableSkeletonFiles(skeletonId: SkeletonId): string[] {
-  return [...compileSkeletonContract(skeletonId).editable];
-}
-
-export function getSkeletonProductSlotFiles(skeletonId: SkeletonId): string[] {
-  const contract = compileSkeletonContract(skeletonId);
-  return uniqueSorted([...contract.requiredSlots, ...contract.optionalSlots]);
-}
-
-export function getRequiredSkeletonDataFiles(skeletonId: SkeletonId): string[] {
-  const contract = compileSkeletonContract(skeletonId);
-  const candidates = [
-    ...contract.infrastructure.installed,
-    ...contract.requiredSlots,
-    ...contract.optionalSlots,
-    ...contract.editable,
-  ];
-
-  return uniqueSorted(candidates.filter(file => (
-    file === 'src/data/seed.ts' || file === 'src/data/types.ts'
-  )));
 }
 
 /**
@@ -1368,13 +1392,6 @@ export function isProtectedSkeletonFile(skeletonId: SkeletonId, path: string): b
 }
 
 /**
- * Returns true if the given path falls under any of the skeleton's locked prefixes.
- */
-function isLockedSkeletonPath(skeletonId: SkeletonId, path: string): boolean {
-  return isProtectedSkeletonFile(skeletonId, path);
-}
-
-/**
  * Strip locked/provided skeleton entries from a product plan so the coder
  * receives a shorter, delta-focused prompt.
  *
@@ -1394,14 +1411,14 @@ export function stripLockedPlanEntries(
   if (Array.isArray(result.pages)) {
     result.pages = (result.pages as Array<Record<string, unknown>>).filter(page => {
       const rawFile = typeof page.file === 'string' ? page.file : '';
-      return !rawFile || !isLockedSkeletonPath(skeletonId, rawFile);
+      return !rawFile || !isProtectedSkeletonFile(skeletonId, rawFile);
     });
   }
 
   if (Array.isArray(result.fileArchitecture)) {
     result.fileArchitecture = (result.fileArchitecture as Array<Record<string, unknown>>).filter(entry => {
       const rawPath = typeof entry.path === 'string' ? entry.path : '';
-      return !rawPath || !isLockedSkeletonPath(skeletonId, rawPath);
+      return !rawPath || !isProtectedSkeletonFile(skeletonId, rawPath);
     });
   }
 
@@ -1441,7 +1458,7 @@ export function buildSkeletonPromptBlock(
   if (!s || !s.available) return '';
 
   const contract = compileSkeletonContract(skeletonId);
-  const installedFiles = getSkeletonInstalledFiles(skeletonId);
+  const installedFiles = compileSkeletonContract(skeletonId).infrastructure.installed;
   const blueprintFiles = collectBlueprintFiles(context);
   const productSlotFiles = uniqueSorted([...contract.requiredSlots, ...contract.optionalSlots]);
   const productSlotSet = new Set(productSlotFiles);

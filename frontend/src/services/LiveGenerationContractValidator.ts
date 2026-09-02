@@ -1,10 +1,6 @@
-import {
-  getSkeletonInstalledFiles,
-  getSkeletonProductSlotFiles,
-  getRequiredSkeletonDataFiles,
-  isProtectedSkeletonFile,
-  type SkeletonId,
-} from './SkeletonRegistry';
+import { isProtectedSkeletonFile, type SkeletonId } from './SkeletonRegistry';
+import { compileSkeletonContract } from './SkeletonContractCompiler';
+import { getProductDeltaScope } from './ProductDeltaContract';
 import {
   LIVE_GENERATION_ALLOWED_UI_PRIMITIVES,
   LIVE_GENERATION_UI_IMPORT_CATALOG,
@@ -205,6 +201,19 @@ function uniqueSorted(values: Iterable<string>): string[] {
   return Array.from(new Set(Array.from(values))).sort((left, right) => left.localeCompare(right));
 }
 
+function resolveRequiredDataContractFiles(skeletonId: SkeletonId): string[] {
+  const contract = compileSkeletonContract(skeletonId);
+  const candidates = [
+    ...contract.infrastructure.installed,
+    ...contract.requiredSlots,
+    ...contract.optionalSlots,
+    ...contract.editable,
+  ];
+  return uniqueSorted(candidates.filter(file => (
+    file === 'src/data/seed.ts' || file === 'src/data/types.ts'
+  )));
+}
+
 function normalizeGraph(files: Record<string, string> | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [filePath, content] of Object.entries(files ?? {})) {
@@ -229,7 +238,7 @@ function pageFiles(files: Record<string, string>): string[] {
 
 function resolveRouteManifestExpectation(skeletonId?: SkeletonId): boolean {
   if (!skeletonId) return false;
-  return getSkeletonInstalledFiles(skeletonId).includes('src/route-manifest.json');
+  return compileSkeletonContract(skeletonId).infrastructure.installed.includes('src/route-manifest.json');
 }
 
 function resolveShellOwnerFiles(files: Record<string, string>, skeletonId?: SkeletonId): string[] {
@@ -246,7 +255,7 @@ function buildCandidateGraphSummary(input: LiveGenerationContractValidationInput
   const finalFiles = normalizeGraph(input.finalFiles);
   const skeletonFiles = new Set(
     input.skeletonId
-      ? getSkeletonInstalledFiles(input.skeletonId).map(path => normalizeCandidatePath(path))
+      ? compileSkeletonContract(input.skeletonId).infrastructure.installed.map(path => normalizeCandidatePath(path))
       : [],
   );
   const generatedFiles = new Set(Object.keys(normalizeGraph(input.generatedDeltaFiles)));
@@ -269,7 +278,7 @@ function buildCandidateGraphSummary(input: LiveGenerationContractValidationInput
 }
 
 function resolveRequiredLocalFiles(input: LiveGenerationContractValidationInput): string[] {
-  const skeletonRequiredFiles = input.skeletonId ? getRequiredSkeletonDataFiles(input.skeletonId) : [];
+  const skeletonRequiredFiles = input.skeletonId ? resolveRequiredDataContractFiles(input.skeletonId) : [];
   return uniqueSorted([
     ...skeletonRequiredFiles,
     ...(input.requiredLocalFiles ?? []),
@@ -862,7 +871,7 @@ export function validateProtectedShellBoundary(
   const diagnostics: LiveGenerationContractDiagnostic[] = [];
   const protectedShellComponents = getProtectedShellComponents(input.skeletonId);
   const productSlotPaths = new Set(
-    (input.skeletonId ? getSkeletonProductSlotFiles(input.skeletonId) : [])
+    (input.skeletonId ? getProductDeltaScope(input.skeletonId).allowed : [])
       .map(path => normalizeCandidatePath(path)),
   );
   const hasGeneratedDelta = Object.keys(generatedDeltaFiles).length > 0;

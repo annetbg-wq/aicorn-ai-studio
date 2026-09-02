@@ -22,7 +22,7 @@ export interface LivePreviewWorkspaceSnapshot {
   workspaceFiles: Record<string, string>;
   deltaFiles: Record<string, string>;
   outputTruth: OutputTruthResult;
-  /** Per-file delta status for each declared editable skeleton file. Useful for diagnosing why code-delta sees 0 meaningful files. */
+  /** Per-file delta status for each manifest-declared product slot. */
   editableFilesStatus: EditableFileStatus[];
 }
 
@@ -82,13 +82,25 @@ function readSkeletonFiles(skeletonId: string | null): Record<string, string> {
   return readTreeFiles(skeletonSrcRoot);
 }
 
-function readSkeletonEditableFilePaths(skeletonId: string | null): string[] {
+function readSkeletonProductSlotPaths(skeletonId: string | null): string[] {
   if (!skeletonId) return [];
   const manifestPath = path.join(SKELETON_MANIFESTS_ROOT, skeletonId, 'skeleton.manifest.json');
   if (!fs.existsSync(manifestPath)) return [];
+
   try {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { editableFiles?: unknown };
-    return Array.isArray(manifest.editableFiles) ? (manifest.editableFiles as string[]) : [];
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
+      ownership?: {
+        requiredProductSlots?: unknown;
+        optionalProductSlots?: unknown;
+      };
+    };
+    const required = Array.isArray(manifest.ownership?.requiredProductSlots)
+      ? manifest.ownership.requiredProductSlots.filter((value): value is string => typeof value === 'string')
+      : [];
+    const optional = Array.isArray(manifest.ownership?.optionalProductSlots)
+      ? manifest.ownership.optionalProductSlots.filter((value): value is string => typeof value === 'string')
+      : [];
+    return [...new Set([...required, ...optional])];
   } catch {
     return [];
   }
@@ -110,8 +122,8 @@ export function inspectLivePreviewWorkspace(): LivePreviewWorkspaceSnapshot {
     skeletonPaths: Object.keys(skeletonFiles),
   });
 
-  const editableFilePaths = readSkeletonEditableFilePaths(skeletonId);
-  const editableFilesStatus: EditableFileStatus[] = editableFilePaths.map((filePath) => {
+  const productSlotPaths = readSkeletonProductSlotPaths(skeletonId);
+  const editableFilesStatus: EditableFileStatus[] = productSlotPaths.map((filePath) => {
     const workspaceContent = workspaceFiles[filePath];
     const skeletonContent = skeletonFiles[filePath];
     return {

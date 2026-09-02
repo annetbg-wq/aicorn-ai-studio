@@ -1,10 +1,10 @@
 import {
-  SKELETON_REGISTRY,
-  getSkeletonInstalledFiles,
   pathMatchesSkeletonPattern,
   type SkeletonId,
 } from '../services/SkeletonRegistry';
-import { getSkeletonRuntimePolicy } from '../services/SkeletonRuntimePolicy';
+import { compileSkeletonContract, listSkeletonContractIds } from '../services/SkeletonContractCompiler';
+
+const SKELETON_IDS = new Set<SkeletonId>(listSkeletonContractIds());
 
 export const BLOCKED_PLACEHOLDER_PATTERNS = [
   'Test',
@@ -269,7 +269,7 @@ const REQUIRED_OUTPUT_STRUCTURE_CLASSES: OutputStructureClassId[] = [
 
 function asSkeletonId(value?: string | null): SkeletonId | null {
   if (!value) return null;
-  return Object.prototype.hasOwnProperty.call(SKELETON_REGISTRY, value) ? value as SkeletonId : null;
+  return SKELETON_IDS.has(value as SkeletonId) ? value as SkeletonId : null;
 }
 
 function uniquePaths(paths: string[]): string[] {
@@ -281,7 +281,7 @@ function getSkeletonPathPatterns(input: OutputTruthInput, skeletonId: SkeletonId
     return uniquePaths(input.skeletonPaths.map(normalizeProjectPath));
   }
   if (!skeletonId) return [];
-  return getSkeletonInstalledFiles(skeletonId).map(normalizeProjectPath);
+  return compileSkeletonContract(skeletonId).infrastructure.installed.map(normalizeProjectPath);
 }
 
 function getStructureClassesForPaths(paths: string[], previewEntryFile: string | null): OutputStructureClassId[] {
@@ -409,7 +409,7 @@ export function analyzeOutputTruth(input: OutputTruthInput): OutputTruthResult {
   const genericFallbackHits = matchRuleHits(files, uniqueChangedPaths, GENERIC_FALLBACK_RULES, 'generic-fallback');
   const blockers: OutputTruthBlocker[] = [];
   const skeletonProductSlots = skeletonId
-    ? getSkeletonRuntimePolicy(skeletonId).requiredSlots.map(normalizeProjectPath)
+    ? compileSkeletonContract(skeletonId).requiredSlots.map(normalizeProjectPath)
     : [];
   const skeletonDeltaClasses = skeletonId
     ? getStructureClassesForPaths(skeletonProductSlots, previewEntryFile)

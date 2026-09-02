@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildVisualUsageDiagnostics } from '../ProtoPipeline';
-import { getSkeletonQualityContract, listSkeletonQualityContractIds } from '../SkeletonQualityContract';
+import { compileSkeletonContract, listSkeletonContractIds } from '../SkeletonContractCompiler';
 
 const expectedSkeletonIds = [
   'mobile-app', 'super-app', 'saas-dashboard', 'landing-page', 'social-community',
@@ -12,10 +12,10 @@ const expectedSkeletonIds = [
 
 describe('Skeleton quality contract runtime — 15/15', () => {
   it('covers every skeleton id with a positive meaningful-screen threshold', () => {
-    const ids = listSkeletonQualityContractIds();
+    const ids = listSkeletonContractIds();
     expect([...ids].sort()).toEqual([...expectedSkeletonIds].sort());
     for (const id of ids) {
-      const contract = getSkeletonQualityContract(id);
+      const contract = compileSkeletonContract(id).quality;
       expect(contract.minMeaningfulScreens).toBeGreaterThan(0);
       expect(contract.requiredCapabilities.length).toBeGreaterThan(0);
       expect(contract.requiredFlows.length).toBeGreaterThan(0);
@@ -23,11 +23,11 @@ describe('Skeleton quality contract runtime — 15/15', () => {
   });
 
   it('preserves representative manifest thresholds', () => {
-    expect(getSkeletonQualityContract('landing-page').minMeaningfulScreens).toBe(1);
-    expect(getSkeletonQualityContract('saas-dashboard').minMeaningfulScreens).toBe(3);
-    expect(getSkeletonQualityContract('mobile-app').minMeaningfulScreens).toBe(4);
-    expect(getSkeletonQualityContract('super-app').minMeaningfulScreens).toBe(6);
-    expect(getSkeletonQualityContract('ecommerce').minMeaningfulScreens).toBe(5);
+    expect(compileSkeletonContract('landing-page').quality.minMeaningfulScreens).toBe(1);
+    expect(compileSkeletonContract('saas-dashboard').quality.minMeaningfulScreens).toBe(3);
+    expect(compileSkeletonContract('mobile-app').quality.minMeaningfulScreens).toBe(4);
+    expect(compileSkeletonContract('super-app').quality.minMeaningfulScreens).toBe(6);
+    expect(compileSkeletonContract('ecommerce').quality.minMeaningfulScreens).toBe(5);
   });
 
   it.each([

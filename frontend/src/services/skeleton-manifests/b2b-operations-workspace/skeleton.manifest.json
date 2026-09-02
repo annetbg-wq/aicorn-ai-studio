@@ -109,29 +109,6 @@
       "src/pages/Workflow.tsx"
     ],
     "optionalProductSlots": [],
-    "agentEditable": [
-      "src/config/app.ts",
-      "src/config/navigation.ts",
-      "src/data/types.ts",
-      "src/data/seed.ts",
-      "src/pages/Dashboard.tsx",
-      "src/pages/RecordDetail.tsx",
-      "src/pages/Records.tsx",
-      "src/pages/Reports.tsx",
-      "src/pages/Settings.tsx",
-      "src/pages/Team.tsx",
-      "src/pages/Workflow.tsx"
-    ],
-    "agentReadOnly": [
-      "src/main.tsx",
-      "src/index.css",
-      "src/lib/**",
-      "src/hooks/**",
-      "src/context/**",
-      "src/components/**",
-      "src/config/routes.ts",
-      "src/config/theme.ts"
-    ],
     "carcassFiles": []
   },
   "protectedFiles": [

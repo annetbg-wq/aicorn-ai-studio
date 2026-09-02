@@ -3,186 +3,23 @@
   "id": "saas-dashboard",
   "label": "SaaS Dashboard",
   "workingGroups": [
-    {
-      "label": "core",
-      "paths": [
-        "src/App.tsx",
-        "src/main.tsx",
-        "src/index.css",
-        "src/route-manifest.json"
-      ]
-    },
-    {
-      "label": "config",
-      "paths": [
-        "src/config/app.ts",
-        "src/config/routes.ts",
-        "src/config/navigation.ts",
-        "src/config/theme.ts"
-      ]
-    },
-    {
-      "label": "layout",
-      "paths": [
-        "src/components/Sidebar.tsx",
-        "src/components/TopBar.tsx"
-      ]
-    },
-    {
-      "label": "patterns",
-      "paths": [
-        "src/components/KPICard.tsx",
-        "src/components/Sparkline.tsx",
-        "src/components/DataTable.tsx",
-        "src/components/OnboardingChecklist.tsx"
-      ]
-    },
-    {
-      "label": "states",
-      "paths": [
-        "src/components/ErrorBoundary.tsx",
-        "src/components/LoadingScreen.tsx",
-        "src/components/EmptyState.tsx"
-      ]
-    },
-    {
-      "label": "ui",
-      "paths": [
-        "src/components/ui/*"
-      ]
-    },
-    {
-      "label": "hooks",
-      "paths": [
-        "src/hooks/useLocalStorage.ts",
-        "src/hooks/useTheme.ts",
-        "src/hooks/useTable.ts"
-      ]
-    },
-    {
-      "label": "runtime",
-      "paths": [
-        "src/context/AppContext.tsx",
-        "src/lib/cn.ts"
-      ]
-    }
+    {"label":"core","paths":["src/App.tsx","src/main.tsx","src/index.css","src/route-manifest.json"]},
+    {"label":"config","paths":["src/config/app.ts","src/config/routes.ts","src/config/navigation.ts","src/config/theme.ts"]},
+    {"label":"layout","paths":["src/components/Sidebar.tsx","src/components/TopBar.tsx"]},
+    {"label":"patterns","paths":["src/components/KPICard.tsx","src/components/Sparkline.tsx","src/components/DataTable.tsx","src/components/OnboardingChecklist.tsx"]},
+    {"label":"states","paths":["src/components/ErrorBoundary.tsx","src/components/LoadingScreen.tsx","src/components/EmptyState.tsx"]},
+    {"label":"ui","paths":["src/components/ui/*"]},
+    {"label":"hooks","paths":["src/hooks/useLocalStorage.ts","src/hooks/useTheme.ts","src/hooks/useTable.ts"]},
+    {"label":"runtime","paths":["src/context/AppContext.tsx","src/lib/cn.ts"]}
   ],
   "ownership": {
-    "skeletonOwned": [
-      "src/main.tsx",
-      "src/index.css",
-      "src/lib/**",
-      "src/context/AppContext.tsx",
-      "src/hooks/useLocalStorage.ts",
-      "src/hooks/useTheme.ts",
-      "src/hooks/useTable.ts",
-      "src/components/ui/**",
-      "src/components/Sidebar.tsx",
-      "src/components/TopBar.tsx",
-      "src/components/ErrorBoundary.tsx",
-      "src/components/LoadingScreen.tsx",
-      "src/components/EmptyState.tsx",
-      "src/components/KPICard.tsx",
-      "src/components/Sparkline.tsx",
-      "src/components/DataTable.tsx",
-      "src/components/OnboardingChecklist.tsx"
-    ],
-    "requiredProductSlots": [
-      "src/config/app.ts",
-      "src/config/navigation.ts",
-      "src/data/types.ts",
-      "src/data/seed.ts",
-      "src/pages/Dashboard.tsx",
-      "src/pages/DataView.tsx",
-      "src/pages/Settings.tsx"
-    ],
-    "optionalProductSlots": [
-      "src/config/routes.ts"
-    ],
-    "agentEditable": [
-      "src/config/app.ts",
-      "src/config/routes.ts",
-      "src/config/navigation.ts",
-      "src/data/types.ts",
-      "src/data/seed.ts",
-      "src/pages/Dashboard.tsx",
-      "src/pages/DataView.tsx",
-      "src/pages/Settings.tsx"
-    ],
-    "agentReadOnly": [
-      "src/main.tsx",
-      "src/index.css",
-      "src/lib/**",
-      "src/context/AppContext.tsx",
-      "src/hooks/useLocalStorage.ts",
-      "src/hooks/useTheme.ts",
-      "src/hooks/useTable.ts",
-      "src/components/ui/**",
-      "src/components/Sidebar.tsx",
-      "src/components/TopBar.tsx",
-      "src/components/ErrorBoundary.tsx",
-      "src/components/LoadingScreen.tsx",
-      "src/components/EmptyState.tsx",
-      "src/components/KPICard.tsx",
-      "src/components/Sparkline.tsx",
-      "src/components/DataTable.tsx",
-      "src/components/OnboardingChecklist.tsx"
-    ],
+    "skeletonOwned": ["src/main.tsx","src/index.css","src/lib/**","src/context/AppContext.tsx","src/hooks/useLocalStorage.ts","src/hooks/useTheme.ts","src/hooks/useTable.ts","src/components/ui/**","src/components/Sidebar.tsx","src/components/TopBar.tsx","src/components/ErrorBoundary.tsx","src/components/LoadingScreen.tsx","src/components/EmptyState.tsx","src/components/KPICard.tsx","src/components/Sparkline.tsx","src/components/DataTable.tsx","src/components/OnboardingChecklist.tsx"],
+    "requiredProductSlots": ["src/config/app.ts","src/config/navigation.ts","src/data/types.ts","src/data/seed.ts","src/pages/Dashboard.tsx","src/pages/DataView.tsx","src/pages/Settings.tsx"],
+    "optionalProductSlots": ["src/config/routes.ts"],
     "carcassFiles": []
   },
-  "protectedFiles": [
-    "src/main.tsx",
-    "src/index.css",
-    "src/lib/**",
-    "src/context/AppContext.tsx",
-    "src/hooks/useLocalStorage.ts",
-    "src/hooks/useTheme.ts",
-    "src/hooks/useTable.ts",
-    "src/components/ui/**",
-    "src/components/Sidebar.tsx",
-    "src/components/TopBar.tsx",
-    "src/components/ErrorBoundary.tsx",
-    "src/components/LoadingScreen.tsx",
-    "src/components/EmptyState.tsx",
-    "src/components/KPICard.tsx",
-    "src/components/Sparkline.tsx",
-    "src/components/DataTable.tsx",
-    "src/components/OnboardingChecklist.tsx"
-  ],
+  "protectedFiles": ["src/main.tsx","src/index.css","src/lib/**","src/context/AppContext.tsx","src/hooks/useLocalStorage.ts","src/hooks/useTheme.ts","src/hooks/useTable.ts","src/components/ui/**","src/components/Sidebar.tsx","src/components/TopBar.tsx","src/components/ErrorBoundary.tsx","src/components/LoadingScreen.tsx","src/components/EmptyState.tsx","src/components/KPICard.tsx","src/components/Sparkline.tsx","src/components/DataTable.tsx","src/components/OnboardingChecklist.tsx"],
   "requiredExports": {},
-  "qualityContract": {
-    "minMeaningfulScreens": 3,
-    "requiredCapabilities": [
-      "sidebar-navigation",
-      "dashboard",
-      "data-view",
-      "settings"
-    ],
-    "requiredFlows": [
-      "dashboard-to-data",
-      "settings-access"
-    ]
-  },
-  "selectionContract": {
-    "productTypes": [
-      "dashboard"
-    ],
-    "surfaces": [
-      "dashboard",
-      "sidebar",
-      "metrics",
-      "data-table",
-      "settings"
-    ],
-    "capabilities": [
-      "analytics",
-      "records",
-      "settings"
-    ],
-    "incompatibleArchetypes": [
-      "marketing",
-      "dating",
-      "interactive-game"
-    ]
-  }
+  "qualityContract": {"minMeaningfulScreens":3,"requiredCapabilities":["sidebar-navigation","dashboard","data-view","settings"],"requiredFlows":["dashboard-to-data","settings-access"]},
+  "selectionContract": {"productTypes":["dashboard"],"surfaces":["dashboard","sidebar","metrics","data-table","settings"],"capabilities":["analytics","records","settings"],"incompatibleArchetypes":["marketing","dating","interactive-game"]}
 }

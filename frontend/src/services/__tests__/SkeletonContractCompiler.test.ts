@@ -7,7 +7,7 @@ import {
   getRawSkeletonManifest,
   listSkeletonContractIds,
 } from '../SkeletonContractCompiler';
-import type { SkeletonId } from '../SkeletonRegistry';
+import { pathMatchesSkeletonPattern, type SkeletonId } from '../SkeletonRegistry';
 
 // Runtime consumers use only the semantic compiled contract; raw manifests stay schema/test-only.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -47,8 +47,14 @@ describe('Skeleton Contract Compiler — 15/15 matrix gate', () => {
     expect([...listSkeletonContractIds()].sort()).toEqual([...expectedSkeletonIds].sort());
   });
 
-  it.each(expectedSkeletonIds)('%s is a native schema-v2 manifest', id => {
-    expect(getRawSkeletonManifest(id).version).toBe(2);
+  it.each(expectedSkeletonIds)('%s is a native schema-v2 manifest without legacy ownership mirrors', id => {
+    const manifest = getRawSkeletonManifest(id) as unknown as Record<string, unknown>;
+    expect(manifest.version).toBe(2);
+    const ownership = manifest.ownership as Record<string, unknown>;
+    expect(ownership).not.toHaveProperty('agentEditable');
+    expect(ownership).not.toHaveProperty('agentReadOnly');
+    expect(manifest).not.toHaveProperty('editableFiles');
+    expect(manifest).not.toHaveProperty('deltaFiles');
   });
 
   it.each(expectedSkeletonIds)('%s compiles into one semantic runtime contract', id => {
@@ -58,7 +64,8 @@ describe('Skeleton Contract Compiler — 15/15 matrix gate', () => {
     expect(contract.version).toBe(2);
     expect(contract.id).toBe(id);
     expect(contract.requiredSlots.length).toBeGreaterThan(0);
-    expect(contract.editable).toEqual(expect.arrayContaining(contract.requiredSlots));
+    expect(contract.editable).toEqual([...new Set([...contract.requiredSlots, ...contract.optionalSlots])]);
+    expect(contract.reusable).toEqual(contract.infrastructure.owned);
     expect(contract.infrastructure.installed.length).toBeGreaterThan(0);
     expect(contract.quality.minMeaningfulScreens).toBeGreaterThan(0);
     expect(contract.quality.requiredCapabilities.length).toBeGreaterThan(0);
@@ -78,23 +85,33 @@ describe('Skeleton Contract Compiler — 15/15 matrix gate', () => {
       expect(pathExists(id, protectedPath), `${id} protected path does not exist: ${protectedPath}`).toBe(true);
     }
 
+  for (const editablePath of contract.editable) {
+  expect(
+    contract.infrastructure.protected.some(pattern => pathMatchesSkeletonPattern(editablePath, pattern)),
+    `${id} product slot must not also be protected: ${editablePath}`,
+  ).toBe(false);
+}
+
     expect(new Set(contract.editable).size).toBe(contract.editable.length);
     expect(new Set(contract.requiredSlots).size).toBe(contract.requiredSlots.length);
     expect(new Set(contract.optionalSlots).size).toBe(contract.optionalSlots.length);
     expect(manifest.id).toBe(id);
   });
 
-  it('keeps deprecated aliases identical while consumers migrate one-by-one', () => {
-    for (const id of expectedSkeletonIds) {
-      const contract = compileSkeletonContract(id);
-      expect(contract.requiredProductSlots).toBe(contract.requiredSlots);
-      expect(contract.optionalProductSlots).toBe(contract.optionalSlots);
-      expect(contract.agentEditable).toBe(contract.editable);
-      expect(contract.agentReadOnly).toBe(contract.reusable);
-      expect(contract.protectedFiles).toBe(contract.infrastructure.protected);
-      expect(contract.skeletonOwned).toBe(contract.infrastructure.owned);
-      expect(contract.carcassFiles).toBe(contract.infrastructure.carcass);
-      expect(contract.requiredExports).toBe(contract.infrastructure.requiredExports);
+  it('exposes only canonical semantic fields at runtime', () => {
+    const contract = compileSkeletonContract('mobile-app') as unknown as Record<string, unknown>;
+    for (const removedAlias of [
+      'workingGroups',
+      'requiredProductSlots',
+      'optionalProductSlots',
+      'agentEditable',
+      'agentReadOnly',
+      'protectedFiles',
+      'skeletonOwned',
+      'carcassFiles',
+      'requiredExports',
+    ]) {
+      expect(contract).not.toHaveProperty(removedAlias);
     }
   });
 
