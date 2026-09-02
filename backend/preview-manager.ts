@@ -31,6 +31,7 @@ export * from './preview-manager-core';
 const BUILDS_ROOT = path.resolve(__dirname, '..', 'builds');
 const registryRouteApps = new WeakSet<express.Express>();
 const remoteHydratedBuilds = new Set<string>();
+const remoteHydratedOwnership = new Set<string>();
 const remoteHydrationJobs = new Map<string, Promise<boolean>>();
 let bindingsRestored = false;
 
@@ -52,6 +53,20 @@ function normalizeHeaderToken(value: unknown): string | null {
   return token.length >= 16 && token.length <= 200 ? token : null;
 }
 
+async function ensureRemoteOwnershipHydrated(buildId: string): Promise<boolean> {
+  if (!remotePrototypeDurabilityConfigured()) return false;
+  if (!/^[\w-]{8,}$/.test(buildId)) return false;
+  if (remoteHydratedOwnership.has(buildId)) return true;
+
+  const manifest = await getRemoteArtifactManifest(buildId);
+  if (!manifest) return false;
+  const binding = core.bindPreviewBuildSession(buildId, manifest.sessionToken);
+  if (binding === 'conflict') throw new Error(`remote preview binding conflict for ${buildId}`);
+  recordPreviewSessionBinding(buildId, manifest.sessionToken);
+  remoteHydratedOwnership.add(buildId);
+  return true;
+}
+
 async function ensureRemoteBuildHydrated(buildId: string): Promise<boolean> {
   if (!remotePrototypeDurabilityConfigured()) return false;
   if (!/^[\w-]{8,}$/.test(buildId)) return false;
@@ -70,6 +85,7 @@ async function ensureRemoteBuildHydrated(buildId: string): Promise<boolean> {
     const binding = core.bindPreviewBuildSession(buildId, manifest.sessionToken);
     if (binding === 'conflict') throw new Error(`remote preview binding conflict for ${buildId}`);
     recordPreviewSessionBinding(buildId, manifest.sessionToken);
+    remoteHydratedOwnership.add(buildId);
     if (!core.getPreviewBuildStatus(buildId)) {
       core.setPreviewBuildStatus({
         buildId,
@@ -186,6 +202,21 @@ export function registerPreviewBuildRoute(app: express.Express): void {
 export function registerPreviewCompileRoute(app: express.Express): void {
   restoreBindingsOnce();
 
+  // Rehydrate durable ownership before core validation. This prevents a known
+  // buildId from being rebound to another preview session after a full redeploy.
+  app.use('/api/preview/:buildId/compile', async (req, res, next) => {
+    if (!remotePrototypeDurabilityConfigured()) return next();
+    try {
+      await ensureRemoteOwnershipHydrated(req.params.buildId);
+      return next();
+    } catch (error) {
+      return res.status(503).json({
+        success: false,
+        error: `External durability preflight failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  });
+
   app.use('/api/preview/:buildId/compile', (req, res, next) => {
     const buildId = req.params.buildId;
     const token = normalizeHeaderToken(req.get('X-Preview-Session'));
@@ -208,6 +239,7 @@ export function registerPreviewCompileRoute(app: express.Express): void {
               token,
               fingerprintPreviewSession(token),
             );
+            remoteHydratedOwnership.add(buildId);
             remoteHydratedBuilds.add(buildId);
           }
           originalJson(body);
