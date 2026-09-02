@@ -69,14 +69,19 @@ revoke all on function aic_prototype.require_backend_secret(text) from public, a
 
 create or replace function public.aic_prototype_begin_artifact(p_secret text, p_build_id text, p_session_token text, p_session_fingerprint text)
 returns boolean language plpgsql security definer set search_path = aic_prototype, public, pg_temp as $$
+declare v_existing_token text;
 begin
   perform aic_prototype.require_backend_secret(p_secret);
   if p_build_id !~ '^[A-Za-z0-9_-]{8,}$' then raise exception 'invalid build id'; end if;
   if char_length(coalesce(p_session_token, '')) not between 16 and 200 then raise exception 'invalid session token'; end if;
   if p_session_fingerprint !~ '^[a-f0-9]{64}$' then raise exception 'invalid session fingerprint'; end if;
+  select session_token into v_existing_token from aic_prototype.preview_bindings where build_id = p_build_id;
+  if v_existing_token is not null and v_existing_token <> p_session_token then
+    raise exception 'prototype build is already bound to another session' using errcode = '23505';
+  end if;
   insert into aic_prototype.preview_bindings(build_id, session_token, session_fingerprint)
   values (p_build_id, p_session_token, p_session_fingerprint)
-  on conflict (build_id) do update set session_token=excluded.session_token, session_fingerprint=excluded.session_fingerprint, updated_at=now();
+  on conflict (build_id) do update set session_fingerprint=excluded.session_fingerprint, updated_at=now();
   insert into aic_prototype.build_artifacts(build_id, artifact_status)
   values (p_build_id, 'uploading')
   on conflict (build_id) do update set artifact_status='uploading', sha256=null, size_bytes=null, chunk_count=null, updated_at=now();
@@ -170,15 +175,15 @@ create or replace function public.aic_prototype_health(p_secret text)
 returns jsonb language plpgsql security definer set search_path = aic_prototype, public, pg_temp as $$
 begin perform aic_prototype.require_backend_secret(p_secret); return jsonb_build_object('ok',true,'schemaVersion',1,'checkedAt',now()); end; $$;
 
-revoke all on function public.aic_prototype_begin_artifact(text,text,text,text) from public;
-revoke all on function public.aic_prototype_put_artifact_chunk(text,text,integer,text) from public;
-revoke all on function public.aic_prototype_finalize_artifact(text,text,text,bigint,integer) from public;
-revoke all on function public.aic_prototype_get_artifact_manifest(text,text) from public;
-revoke all on function public.aic_prototype_get_artifact_chunk(text,text,integer) from public;
-revoke all on function public.aic_prototype_upsert_run(text,jsonb) from public;
-revoke all on function public.aic_prototype_get_run(text,text) from public;
-revoke all on function public.aic_prototype_list_runs(text) from public;
-revoke all on function public.aic_prototype_health(text) from public;
+revoke all on function public.aic_prototype_begin_artifact(text,text,text,text) from public, authenticated;
+revoke all on function public.aic_prototype_put_artifact_chunk(text,text,integer,text) from public, authenticated;
+revoke all on function public.aic_prototype_finalize_artifact(text,text,text,bigint,integer) from public, authenticated;
+revoke all on function public.aic_prototype_get_artifact_manifest(text,text) from public, authenticated;
+revoke all on function public.aic_prototype_get_artifact_chunk(text,text,integer) from public, authenticated;
+revoke all on function public.aic_prototype_upsert_run(text,jsonb) from public, authenticated;
+revoke all on function public.aic_prototype_get_run(text,text) from public, authenticated;
+revoke all on function public.aic_prototype_list_runs(text) from public, authenticated;
+revoke all on function public.aic_prototype_health(text) from public, authenticated;
 
 grant execute on function public.aic_prototype_begin_artifact(text,text,text,text) to anon;
 grant execute on function public.aic_prototype_put_artifact_chunk(text,text,integer,text) to anon;
