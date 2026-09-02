@@ -117,18 +117,26 @@ export function registerPreviewBuildRoute(app: express.Express): void {
 export function registerPreviewCompileRoute(app: express.Express): void {
   restoreBindingsOnce();
 
-  app.use('/api/preview/:buildId/compile', (req, _res, next) => {
+  app.use('/api/preview/:buildId/compile', (req, res, next) => {
     const buildId = req.params.buildId;
     const token = normalizeHeaderToken(req.get('X-Preview-Session'));
+
+    // Persist ownership only after the canonical core compile route has accepted
+    // the request and returned success. Persisting before core validation could
+    // let a conflicting or malformed compile poison the restart binding store.
     if (token && /^[\w-]{8,}$/.test(buildId)) {
-      try {
-        recordPreviewSessionBinding(buildId, token);
-      } catch (error) {
-        console.warn(
-          `[prototype-run-registry] failed to persist binding for ${buildId}:`,
-          error instanceof Error ? error.message : String(error),
-        );
-      }
+      res.once('finish', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) return;
+        if (!core.validatePreviewBuildSession(buildId, token)) return;
+        try {
+          recordPreviewSessionBinding(buildId, token);
+        } catch (error) {
+          console.warn(
+            `[prototype-run-registry] failed to persist binding for ${buildId}:`,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      });
     }
 
     // The core compiler evicts by build-dir mtime. Refresh pinned directories
