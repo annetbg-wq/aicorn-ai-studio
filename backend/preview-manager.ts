@@ -108,7 +108,7 @@ function registerPrototypeRunRoutes(app: express.Express): void {
   if (registryRouteApps.has(app)) return;
   registryRouteApps.add(app);
 
-  app.get('/api/prototype-durability/health', async (_req, res) => {
+  app.get('/api/prototype_durability/health', async (_req, res) => {
     if (!remotePrototypeDurabilityConfigured()) {
       return res.status(503).json({
         ok: false,
