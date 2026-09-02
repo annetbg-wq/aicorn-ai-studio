@@ -29,6 +29,18 @@ const expectedSkeletonIds: SkeletonId[] = [
   'content-learning-app',
 ];
 
+const removedLegacyAliases = [
+  'workingGroups',
+  'requiredProductSlots',
+  'optionalProductSlots',
+  'agentEditable',
+  'agentReadOnly',
+  'protectedFiles',
+  'skeletonOwned',
+  'carcassFiles',
+  'requiredExports',
+] as const;
+
 function getSkeletonSrcRoot(id: SkeletonId): string {
   return path.join(repoRoot, 'skeletons', id, `skeleton-${id}`, 'src');
 }
@@ -84,17 +96,12 @@ describe('Skeleton Contract Compiler — 15/15 matrix gate', () => {
     expect(manifest.id).toBe(id);
   });
 
-  it('keeps deprecated aliases identical while consumers migrate one-by-one', () => {
+  it('does not expose transitional flat aliases after the runtime migration', () => {
     for (const id of expectedSkeletonIds) {
-      const contract = compileSkeletonContract(id);
-      expect(contract.requiredProductSlots).toBe(contract.requiredSlots);
-      expect(contract.optionalProductSlots).toBe(contract.optionalSlots);
-      expect(contract.agentEditable).toBe(contract.editable);
-      expect(contract.agentReadOnly).toBe(contract.reusable);
-      expect(contract.protectedFiles).toBe(contract.infrastructure.protected);
-      expect(contract.skeletonOwned).toBe(contract.infrastructure.owned);
-      expect(contract.carcassFiles).toBe(contract.infrastructure.carcass);
-      expect(contract.requiredExports).toBe(contract.infrastructure.requiredExports);
+      const keys = Object.keys(compileSkeletonContract(id));
+      for (const alias of removedLegacyAliases) {
+        expect(keys, `${id} still exposes legacy alias ${alias}`).not.toContain(alias);
+      }
     }
   });
 
