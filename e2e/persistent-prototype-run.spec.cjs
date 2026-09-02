@@ -4,7 +4,7 @@
 const fs = require('fs/promises');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const { assertApiMode, runPrototypeQa } = require('../scripts/prototype-run-qa.cjs');
+const { assertApiMode, assertSkeletonId, runPrototypeQa } = require('../scripts/prototype-run-qa.cjs');
 
 const ARCHIVE_ROOT = path.resolve(process.cwd(), '.prototype-runs');
 
@@ -27,10 +27,12 @@ const FILES = {
 };
 
 test.describe('Step 8 persistent prototype run', () => {
-  test('requires an explicit API mode', async () => {
+  test('requires explicit API mode and skeleton isolation', async () => {
     expect(() => assertApiMode(undefined)).toThrow(/explicitly "mock" or "staging"/i);
     expect(assertApiMode('mock')).toBe('mock');
     expect(assertApiMode('staging')).toBe('staging');
+    expect(() => assertSkeletonId(undefined)).toThrow(/explicit skeletonId/i);
+    expect(assertSkeletonId('landing-page')).toBe('landing-page');
   });
 
   test('creates an isolated saved run and passes interactive QA', async ({ page }) => {
@@ -38,6 +40,7 @@ test.describe('Step 8 persistent prototype run', () => {
       page,
       files: FILES,
       apiMode: 'mock',
+      skeletonId: 'landing-page',
       archiveRoot: ARCHIVE_ROOT,
       maxRuns: 3,
       flows: [
@@ -65,6 +68,7 @@ test.describe('Step 8 persistent prototype run', () => {
     expect(manifest.runId).toBe(result.runId);
     expect(manifest.buildId).toBe(result.runId);
     expect(manifest.apiMode).toBe('mock');
+    expect(manifest.skeletonId).toBe('landing-page');
     expect(manifest.status).toBe('ready');
     expect(manifest.previewUrl).toContain(`/preview/${result.runId}/`);
 
