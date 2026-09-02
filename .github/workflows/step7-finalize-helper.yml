@@ -29,19 +29,18 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import textwrap
 
           registry_path = Path('frontend/src/services/SkeletonRegistry.ts')
           registry = registry_path.read_text(encoding='utf-8')
-          alias = """/**
+          alias = textwrap.dedent("""/**
            * Returns true if the given path falls under any of the skeleton's locked prefixes.
            */
           function isLockedSkeletonPath(skeletonId: SkeletonId, path: string): boolean {
             return isProtectedSkeletonFile(skeletonId, path);
           }
 
-          """
-          import textwrap
-          alias = textwrap.dedent(alias)
+          """)
           if registry.count(alias) != 1:
               raise SystemExit(f'isLockedSkeletonPath alias expected once, found {registry.count(alias)}')
           registry = registry.replace(alias, '')
@@ -58,38 +57,26 @@ jobs:
           if compiler_test.count(old_import) != 1:
               raise SystemExit('compiler test SkeletonRegistry type import not found exactly once')
           compiler_test = compiler_test.replace(old_import, new_import)
-          needle = """    for (const protectedPath of contract.infrastructure.protected) {
-              expect(pathExists(id, protectedPath), `${id} protected path does not exist: ${protectedPath}`).toBe(true);
-            }
-
-            expect(new Set(contract.editable).size).toBe(contract.editable.length);
-          """
-          needle = textwrap.dedent(needle)
-          replacement = """    for (const protectedPath of contract.infrastructure.protected) {
-              expect(pathExists(id, protectedPath), `${id} protected path does not exist: ${protectedPath}`).toBe(true);
-            }
-
-            for (const editablePath of contract.editable) {
+          marker = '    expect(new Set(contract.editable).size).toBe(contract.editable.length);'
+          if compiler_test.count(marker) != 1:
+              raise SystemExit(f'compiler editable invariant marker expected once, found {compiler_test.count(marker)}')
+          protected_disjoint = """    for (const editablePath of contract.editable) {
               expect(
                 contract.infrastructure.protected.some(pattern => pathMatchesSkeletonPattern(editablePath, pattern)),
                 `${id} product slot must not also be protected: ${editablePath}`,
               ).toBe(false);
             }
 
-            expect(new Set(contract.editable).size).toBe(contract.editable.length);
           """
-          replacement = textwrap.dedent(replacement)
-          if compiler_test.count(needle) != 1:
-              raise SystemExit('compiler protected-path assertion insertion point not found exactly once')
-          compiler_test = compiler_test.replace(needle, replacement)
+          protected_disjoint = textwrap.dedent(protected_disjoint)
+          compiler_test = compiler_test.replace(marker, protected_disjoint + marker)
           compiler_test_path.write_text(compiler_test, encoding='utf-8')
 
           matrix_path = Path('frontend/src/services/__tests__/SkeletonDeterministicMatrixSmoke.test.ts')
           matrix = matrix_path.read_text(encoding='utf-8')
-          insertion_point = """  it('keeps output truth thresholds on canonical compiled required slots', async () => {
-          """
+          insertion_point = "  it('keeps output truth thresholds on canonical compiled required slots', async () => {"
           if matrix.count(insertion_point) != 1:
-              raise SystemExit('matrix insertion point not found exactly once')
+              raise SystemExit(f'matrix insertion point expected once, found {matrix.count(insertion_point)}')
           new_test = """  it('centralizes product-delta write policy instead of duplicating validators', async () => {
             const fs = await import('node:fs/promises');
             const proto = await fs.readFile(new URL('../ProtoPipeline.ts', import.meta.url), 'utf8');
@@ -105,7 +92,7 @@ jobs:
           });
 
           """
-          matrix = matrix.replace(insertion_point, new_test + insertion_point)
+          matrix = matrix.replace(insertion_point, textwrap.dedent(new_test) + insertion_point)
           matrix_path.write_text(matrix, encoding='utf-8')
 
           for temp_path in [
