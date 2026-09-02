@@ -29,20 +29,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Run full unit suite and capture output
-        shell: bash
-        run: |
-          set +e
-          cd frontend
-          npm test > ../step7-unit-failure.log 2>&1
-          status=$?
-          cd ..
-          echo "TEST_EXIT_CODE=$status" >> step7-unit-failure.log
-          echo '--- UNIT FAILURE SUMMARY ---'
-          grep -E -A8 -B3 'FAIL|AssertionError|Test Files|Tests |Error:' step7-unit-failure.log | tail -n 240 || true
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -f step7-unit-failure.log
-          git commit -m 'chore: capture Step 7 unit diagnostics'
-          git push origin HEAD:tmp/step7-unit-debug
-          exit 0
+      - name: Run full unit suite with CI environment
+        working-directory: frontend
+        run: npm test
+        env:
+          VITE_OPENROUTER_API_KEY: placeholder
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-anon-key
