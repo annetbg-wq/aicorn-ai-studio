@@ -13,6 +13,7 @@ import {
   upsertPrototypeRun,
   type PrototypeApiMode,
   type PrototypeRunKind,
+  type PrototypeRunRecord,
   type PrototypeRunRetention,
   type PrototypeRunStatus,
 } from './prototype-run-registry';
@@ -157,8 +158,9 @@ function registerPrototypeRunRoutes(app: express.Express): void {
           }
         : {};
 
+      let record: PrototypeRunRecord;
       try {
-        const record = upsertPrototypeRun({
+        record = upsertPrototypeRun({
           runId,
           buildId: runId,
           apiMode: body.apiMode as PrototypeApiMode,
@@ -170,13 +172,22 @@ function registerPrototypeRunRoutes(app: express.Express): void {
           qaSummary: body.qaSummary,
         });
         touchPinnedBuilds(BUILDS_ROOT);
-        if (remotePrototypeDurabilityConfigured()) await persistPrototypeRunRemote(record);
-        return res.json(record);
       } catch (error) {
-        return res.status(remotePrototypeDurabilityConfigured() ? 502 : 400).json({
+        return res.status(400).json({
           error: error instanceof Error ? error.message : String(error),
         });
       }
+
+      if (remotePrototypeDurabilityConfigured()) {
+        try {
+          await persistPrototypeRunRemote(record);
+        } catch (error) {
+          return res.status(502).json({
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return res.json(record);
     },
   );
 }
