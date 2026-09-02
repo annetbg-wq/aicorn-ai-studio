@@ -24,6 +24,7 @@ import {
   persistBuildArtifactRemote,
   persistPrototypeRunRemote,
   remotePrototypeDurabilityConfigured,
+  remotePrototypeDurabilityHealth,
   restoreBuildArtifactRemote,
 } from './prototype-run-remote';
 
@@ -106,6 +107,33 @@ async function ensureRemoteBuildHydrated(buildId: string): Promise<boolean> {
 function registerPrototypeRunRoutes(app: express.Express): void {
   if (registryRouteApps.has(app)) return;
   registryRouteApps.add(app);
+
+  app.get('/api/prototype_durability/health', async (_req, res) => {
+    if (!remotePrototypeDurabilityConfigured()) {
+      return res.status(503).json({
+        ok: false,
+        configured: false,
+        mode: 'external',
+        error: 'External prototype durability is not configured',
+      });
+    }
+
+    try {
+      const ok = await remotePrototypeDurabilityHealth();
+      return res.status(ok ? 200 : 503).json({
+        ok,
+        configured: true,
+        mode: 'external',
+      });
+    } catch (error) {
+      return res.status(503).json({
+        ok: false,
+        configured: true,
+        mode: 'external',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 
   app.get('/api/prototype-runs', async (_req, res) => {
     try {
