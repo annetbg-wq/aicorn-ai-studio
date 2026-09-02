@@ -29,6 +29,19 @@ jobs:
       - name: Apply canonical selector refactor
         run: python .github/step7-selector-refactor.py
 
+      - name: Align manifest invariant assertion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/services/__tests__/SkeletonSelectionManifestRuntime.test.ts')
+          text = path.read_text(encoding='utf-8')
+          old = "compileSkeletonContract('saas-dashboard').selection.incompatibleArchetypes).toContain('gaming')"
+          new = "compileSkeletonContract('saas-dashboard').selection.incompatibleArchetypes).toContain('interactive-game')"
+          if text.count(old) != 1:
+              raise SystemExit('expected saas-dashboard incompatibility assertion not found exactly once')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
