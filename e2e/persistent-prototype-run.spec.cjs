@@ -67,12 +67,16 @@ test.describe('Step 8 persistent prototype run', () => {
     ]);
 
     const manifest = JSON.parse(await fs.readFile(result.manifestPath, 'utf8'));
+    expect(manifest.schemaVersion).toBe(2);
     expect(manifest.runId).toBe(result.runId);
     expect(manifest.buildId).toBe(result.runId);
     expect(manifest.apiMode).toBe('mock');
     expect(manifest.skeletonId).toBe('landing-page');
     expect(manifest.status).toBe('ready');
-    expect(manifest.previewUrl).toContain(`/preview/${result.runId}/`);
+    expect(manifest.previewPath).toBe(`/preview/${result.runId}/`);
+    expect(manifest.sessionFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(manifest.sessionId).toBeUndefined();
+    expect(JSON.stringify(manifest)).not.toContain(result.sessionId);
 
     const entries = await fs.readdir(ARCHIVE_ROOT, { withFileTypes: true });
     expect(entries.filter(entry => entry.isDirectory()).length).toBeLessThanOrEqual(3);

@@ -22,6 +22,24 @@ function assertSkeletonId(value) {
   return value.trim();
 }
 
+function assertBuildId(value) {
+  if (typeof value !== 'string' || !/^[\w-]{8,}$/.test(value.trim())) {
+    throw new Error(`prototype run requires a valid buildId; received ${JSON.stringify(value)}`);
+  }
+  return value.trim();
+}
+
+function assertSessionId(value) {
+  if (typeof value !== 'string' || value.trim().length < 16 || value.trim().length > 200) {
+    throw new Error('prototype run requires the preview session bound to the generated build');
+  }
+  return value.trim();
+}
+
+function fingerprintSession(sessionId) {
+  return crypto.createHash('sha256').update(sessionId).digest('hex');
+}
+
 function makeRunIdentity() {
   const uuid = crypto.randomUUID();
   return {
@@ -122,6 +140,125 @@ async function runKeyFlows(page, flows = []) {
   return results;
 }
 
+function buildArchiveManifest({ runId, buildId, sessionId, apiMode, skeletonId, maxRuns, createdAt, previewPath }) {
+  return {
+    schemaVersion: 2,
+    runId,
+    buildId,
+    sessionFingerprint: fingerprintSession(sessionId),
+    apiMode,
+    skeletonId,
+    archivePolicy: { type: 'rolling', maxRuns },
+    createdAt,
+    previewPath,
+  };
+}
+
+async function runQaChecks({ page, runId, buildId, sessionId, apiMode, skeletonId, baseUrl, flows, archiveRoot, maxRuns, createdAt }) {
+  const runDir = path.join(archiveRoot, runId);
+  const manifestPath = path.join(runDir, 'manifest.json');
+  const qaReportPath = path.join(runDir, 'qa-report.json');
+  const previewPath = `/preview/${buildId}/`;
+  const previewUrl = `${baseUrl.replace(/\/$/, '')}${previewPath}?previewSession=${encodeURIComponent(sessionId)}`;
+  const commonManifest = buildArchiveManifest({
+    runId,
+    buildId,
+    sessionId,
+    apiMode,
+    skeletonId,
+    maxRuns,
+    createdAt,
+    previewPath,
+  });
+
+  await writeJson(manifestPath, { ...commonManifest, status: 'qa_running' });
+
+  const consoleErrors = [];
+  const pageErrors = [];
+  page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+  page.on('pageerror', error => pageErrors.push(error.message));
+
+  try {
+    const response = await page.goto(previewUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+    if (!response || response.status() >= 400) {
+      throw new Error(`preview load failed: ${response?.status() ?? 'no response'}`);
+    }
+
+    const brokenLinks = await findBrokenLinks(page, previewUrl);
+    const deadButtons = await detectDeadButtons(page);
+    await page.goto(previewUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+    const flowResults = await runKeyFlows(page, flows);
+    const failedFlows = flowResults.filter(item => item.status === 'failed');
+
+    const report = {
+      schemaVersion: 2,
+      runId,
+      buildId,
+      apiMode,
+      skeletonId,
+      previewPath,
+      checkedAt: new Date().toISOString(),
+      consoleErrors,
+      pageErrors,
+      brokenLinks,
+      deadButtons,
+      flows: flowResults,
+      passed: consoleErrors.length === 0 && pageErrors.length === 0 && brokenLinks.length === 0 && deadButtons.length === 0 && failedFlows.length === 0,
+    };
+    await writeJson(qaReportPath, report);
+    await writeJson(manifestPath, {
+      ...commonManifest,
+      completedAt: new Date().toISOString(),
+      status: report.passed ? 'ready' : 'qa_failed',
+      qaReport: path.basename(qaReportPath),
+    });
+    await cleanupRollingArchive(archiveRoot, maxRuns);
+    return { runId, buildId, manifestPath, qaReportPath, previewUrl, report };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await writeJson(manifestPath, {
+      ...commonManifest,
+      completedAt: new Date().toISOString(),
+      status: 'qa_failed',
+      error: message,
+    });
+    await cleanupRollingArchive(archiveRoot, maxRuns);
+    throw error;
+  }
+}
+
+async function recordExistingPrototypeRunQa({
+  page,
+  buildId,
+  sessionId,
+  apiMode,
+  skeletonId,
+  baseUrl = process.env.STUDIO_URL || 'http://localhost:5183',
+  flows = [],
+  archiveRoot = DEFAULT_ARCHIVE_ROOT,
+  maxRuns = DEFAULT_MAX_RUNS,
+}) {
+  const explicitApiMode = assertApiMode(apiMode);
+  const explicitSkeletonId = assertSkeletonId(skeletonId);
+  const explicitBuildId = assertBuildId(buildId);
+  const explicitSessionId = assertSessionId(sessionId);
+  const createdAt = new Date().toISOString();
+
+  return runQaChecks({
+    page,
+    runId: explicitBuildId,
+    buildId: explicitBuildId,
+    sessionId: explicitSessionId,
+    apiMode: explicitApiMode,
+    skeletonId: explicitSkeletonId,
+    baseUrl,
+    flows,
+    archiveRoot,
+    maxRuns,
+    createdAt,
+  });
+}
+
 async function runPrototypeQa({ page, files, apiMode, skeletonId, baseUrl = process.env.STUDIO_URL || 'http://localhost:5183', flows = [], archiveRoot = DEFAULT_ARCHIVE_ROOT, maxRuns = DEFAULT_MAX_RUNS }) {
   const explicitApiMode = assertApiMode(apiMode);
   const explicitSkeletonId = assertSkeletonId(skeletonId);
@@ -133,26 +270,19 @@ async function runPrototypeQa({ page, files, apiMode, skeletonId, baseUrl = proc
   const runDir = path.join(archiveRoot, runId);
   const createdAt = new Date().toISOString();
   const manifestPath = path.join(runDir, 'manifest.json');
-  const qaReportPath = path.join(runDir, 'qa-report.json');
-  const previewUrl = `${baseUrl.replace(/\/$/, '')}/preview/${runId}/?previewSession=${encodeURIComponent(sessionId)}`;
-  const commonManifest = {
-    schemaVersion: 1,
+  const previewPath = `/preview/${runId}/`;
+  const commonManifest = buildArchiveManifest({
     runId,
     buildId: runId,
     sessionId,
     apiMode: explicitApiMode,
     skeletonId: explicitSkeletonId,
-    archivePolicy: { type: 'rolling', maxRuns },
+    maxRuns,
     createdAt,
-    previewUrl,
-  };
+    previewPath,
+  });
 
   await writeJson(manifestPath, { ...commonManifest, status: 'compiling' });
-
-  const consoleErrors = [];
-  const pageErrors = [];
-  page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
-  page.on('pageerror', error => pageErrors.push(error.message));
 
   const compileResponse = await page.request.post(`${baseUrl.replace(/\/$/, '')}/api/preview/${runId}/compile`, {
     headers: { 'X-Preview-Session': sessionId },
@@ -167,43 +297,29 @@ async function runPrototypeQa({ page, files, apiMode, skeletonId, baseUrl = proc
     throw new Error(error);
   }
 
-  const response = await page.goto(previewUrl, { waitUntil: 'networkidle', timeout: 30_000 });
-  if (!response || response.status() >= 400) throw new Error(`preview load failed: ${response?.status() ?? 'no response'}`);
-
-  const brokenLinks = await findBrokenLinks(page, previewUrl);
-  const deadButtons = await detectDeadButtons(page);
-  await page.goto(previewUrl, { waitUntil: 'networkidle', timeout: 30_000 });
-  const flowResults = await runKeyFlows(page, flows);
-  const failedFlows = flowResults.filter(item => item.status === 'failed');
-
-  const report = {
-    schemaVersion: 1,
+  const result = await runQaChecks({
+    page,
     runId,
+    buildId: runId,
+    sessionId,
     apiMode: explicitApiMode,
     skeletonId: explicitSkeletonId,
-    previewUrl,
-    checkedAt: new Date().toISOString(),
-    consoleErrors,
-    pageErrors,
-    brokenLinks,
-    deadButtons,
-    flows: flowResults,
-    passed: consoleErrors.length === 0 && pageErrors.length === 0 && brokenLinks.length === 0 && deadButtons.length === 0 && failedFlows.length === 0,
-  };
-  await writeJson(qaReportPath, report);
-  await writeJson(manifestPath, {
-    ...commonManifest,
-    completedAt: new Date().toISOString(),
-    status: report.passed ? 'ready' : 'qa_failed',
-    qaReport: path.basename(qaReportPath),
+    baseUrl,
+    flows,
+    archiveRoot,
+    maxRuns,
+    createdAt,
   });
-  await cleanupRollingArchive(archiveRoot, maxRuns);
-  return { runId, sessionId, manifestPath, qaReportPath, report };
+
+  return { ...result, sessionId };
 }
 
 module.exports = {
   assertApiMode,
+  assertBuildId,
+  assertSessionId,
   assertSkeletonId,
   cleanupRollingArchive,
+  recordExistingPrototypeRunQa,
   runPrototypeQa,
 };
