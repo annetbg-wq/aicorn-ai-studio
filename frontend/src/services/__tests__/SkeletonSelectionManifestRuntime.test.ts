@@ -1,60 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import {
-  evaluateSkeletonIntentCompatibility,
-  resolvePreferredSkeletonForIntent,
-} from '../SkeletonSelectionCompatibility';
-import { selectSkeletonWithSafeOverrides } from '../SkeletonRegistry';
+import { compileSkeletonContract } from '../SkeletonContractCompiler';
+import { selectSkeletonCanonical } from '../SkeletonRegistry';
 
-describe('Skeleton selection manifest compatibility runtime', () => {
+describe('Skeleton canonical manifest selection runtime', () => {
   it.each([
-    ['landing-intent', 'landing-page'],
-    ['dashboard-intent', 'saas-dashboard'],
-    ['marketplace-intent', 'ecommerce'],
-    ['social-intent', 'social-community'],
-    ['game-intent', 'game-interactive-app'],
-  ] as const)('%s resolves its preferred skeleton from manifest productTypes', (signal, expected) => {
-    expect(resolvePreferredSkeletonForIntent(signal)).toBe(expected);
+    ['landing-page', 'marketing'],
+    ['saas-dashboard', 'dashboard'],
+    ['ecommerce', 'commerce'],
+    ['social-community', 'social'],
+    ['game-interactive-app', 'interactive-game'],
+  ] as const)('%s declares the archetype used by canonical intent resolution', (id, archetype) => {
+    expect(compileSkeletonContract(id).selection.productTypes).toContain(archetype);
   });
 
-  it('marks explicit manifest incompatibility as a mismatch', () => {
-    const result = evaluateSkeletonIntentCompatibility({
-      selectedSkeletonId: 'saas-dashboard',
-      signal: 'game-intent',
-    });
-    expect(result?.explicitlyIncompatible).toBe(true);
-    expect(result?.mismatch).toBe(true);
-    expect(result?.preferredSkeletonId).toBe('game-interactive-app');
+  it('keeps explicit cross-family incompatibility in compiled manifests', () => {
+    expect(compileSkeletonContract('saas-dashboard').selection.incompatibleArchetypes).toContain('interactive-game');
+    expect(compileSkeletonContract('game-interactive-app').selection.incompatibleArchetypes).toContain('dashboard');
   });
 
-  it('rescues a weak neutral mobile fallback using manifest-compatible social target', () => {
-    const result = evaluateSkeletonIntentCompatibility({
-      selectedSkeletonId: 'mobile-app',
-      signal: 'social-intent',
-      weakFallback: true,
-    });
-    expect(result?.explicitlyCompatible).toBe(false);
-    expect(result?.explicitlyIncompatible).toBe(false);
-    expect(result?.mismatch).toBe(true);
-    expect(result?.preferredSkeletonId).toBe('social-community');
+  it('rescues a weak neutral mobile baseline using manifest-compatible social intent', () => {
+    const result = selectSkeletonCanonical('', ['forum']);
+    expect(result.originalSelectedSkeletonId).toBe('mobile-app');
+    expect(result.finalSelectedSkeletonId).toBe('social-community');
+    expect(result.overrideApplied).toBe(true);
   });
 
-  it('does not steamroll a neutral selection when it is not a weak fallback', () => {
-    const result = evaluateSkeletonIntentCompatibility({
-      selectedSkeletonId: 'mobile-app',
-      signal: 'social-intent',
-      weakFallback: false,
-    });
-    expect(result?.mismatch).toBe(false);
+  it('preserves representative canonical outcomes through manifest selection', () => {
+    expect(selectSkeletonCanonical('', ['homepage']).finalSelectedSkeletonId).toBe('landing-page');
+    expect(selectSkeletonCanonical('', ['analytics']).finalSelectedSkeletonId).toBe('saas-dashboard');
+    expect(selectSkeletonCanonical('', ['listing']).finalSelectedSkeletonId).toBe('ecommerce');
+    expect(selectSkeletonCanonical('', ['forum']).finalSelectedSkeletonId).toBe('social-community');
   });
 
-  it('preserves representative safe-override outcomes through manifest compatibility', () => {
-    expect(selectSkeletonWithSafeOverrides('', ['homepage']).finalSelectedSkeletonId).toBe('landing-page');
-    expect(selectSkeletonWithSafeOverrides('', ['analytics']).finalSelectedSkeletonId).toBe('saas-dashboard');
-    expect(selectSkeletonWithSafeOverrides('', ['listing']).finalSelectedSkeletonId).toBe('ecommerce');
-    expect(selectSkeletonWithSafeOverrides('', ['forum']).finalSelectedSkeletonId).toBe('social-community');
-  });
-
-  it('keeps Registry free of hardcoded skeleton-fit sets and override tables', async () => {
+  it('keeps Registry free of hardcoded skeleton-fit sets and external compatibility shims', async () => {
     const source = await import('node:fs/promises').then(fs =>
       fs.readFile(new URL('../SkeletonRegistry.ts', import.meta.url), 'utf8'),
     );
@@ -63,9 +41,12 @@ describe('Skeleton selection manifest compatibility runtime', () => {
       'GAME_APPROPRIATE',
       'PLAIN_DESK_SKELETONS',
       'SAFE_OVERRIDE_RULES',
+      'SkeletonSelectionCompatibility',
+      'evaluateSkeletonIntentCompatibility',
     ]) {
       expect(source).not.toContain(legacy);
     }
-    expect(source).toContain('evaluateSkeletonIntentCompatibility');
+    expect(source).toContain('compileSkeletonContract(id).selection');
+    expect(source).toContain('resolveCanonicalSkeletonSelection');
   });
 });

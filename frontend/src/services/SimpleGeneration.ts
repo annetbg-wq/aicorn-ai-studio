@@ -26,7 +26,7 @@
  */
 
 import { ProtoPipeline, type StepEvent, type StepId } from './ProtoPipeline';
-import { selectSkeletonWithSafeOverrides, type SkeletonId } from './SkeletonRegistry';
+import { selectSkeletonCanonical, type SkeletonId } from './SkeletonRegistry';
 import { ConfigService } from './ConfigService';
 import { Orchestrator } from './Orchestrator';
 import { llmFetchStream } from './LLMProxy';
@@ -241,25 +241,25 @@ Return ONLY JSON, no markdown, matching this exact shape:
     // mobile keywords in the product brief.
     const archetype = inferArchetype(config);
     const tags = inferTags(config);
-    const skOverride = selectSkeletonWithSafeOverrides(archetype, tags);
+    const skSelection = selectSkeletonCanonical(archetype, tags);
     const explicitSuperApp = config.generationMode === 'superapp';
-    const skeletonId: SkeletonId = explicitSuperApp ? 'super-app' : skOverride.finalSelectedSkeletonId;
-    const surfaceOverrideApplied = explicitSuperApp && skOverride.finalSelectedSkeletonId !== 'super-app';
-    log(`[SimpleGeneration] Skeleton original=${skOverride.originalSelectedSkeletonId} final=${skeletonId} override=${skOverride.overrideApplied || surfaceOverrideApplied}`);
+    const skeletonId: SkeletonId = explicitSuperApp ? 'super-app' : skSelection.finalSelectedSkeletonId;
+    const surfaceOverrideApplied = explicitSuperApp && skSelection.finalSelectedSkeletonId !== 'super-app';
+    log(`[SimpleGeneration] Skeleton original=${skSelection.originalSelectedSkeletonId} final=${skeletonId} override=${skSelection.overrideApplied || surfaceOverrideApplied}`);
     if (surfaceOverrideApplied) {
       log('[SimpleGeneration] Skeleton override reason: explicit super-app surface is authoritative');
-    } else if (skOverride.overrideApplied && skOverride.overrideReason) {
-      log(`[SimpleGeneration] Skeleton override reason: ${skOverride.overrideReason}`);
+    } else if (skSelection.overrideApplied && skSelection.overrideReason) {
+      log(`[SimpleGeneration] Skeleton override reason: ${skSelection.overrideReason}`);
     }
-    log(`[SimpleGeneration] Skeleton diagnostics: confidence=${skOverride.confidence} bestScore=${skOverride.bestScore} runnerUp=${skOverride.runnerUpSkeletonId ?? 'none'}(${skOverride.runnerUpScore})`);
-    if (skOverride.intentSignals.length > 0) {
-      log(`[SimpleGeneration] Skeleton intent signals: ${skOverride.intentSignals.join(', ')}`);
+    log(`[SimpleGeneration] Skeleton diagnostics: confidence=${skSelection.confidence} bestScore=${skSelection.bestScore} runnerUp=${skSelection.runnerUpSkeletonId ?? 'none'}(${skSelection.runnerUpScore})`);
+    if (skSelection.intentSignals.length > 0) {
+      log(`[SimpleGeneration] Skeleton intent signals: ${skSelection.intentSignals.join(', ')}`);
     }
-    for (const warning of skOverride.mismatchWarnings) {
+    for (const warning of skSelection.mismatchWarnings) {
       log(`[SimpleGeneration] ⚠ Skeleton mismatch: ${warning}`);
     }
-    if (skOverride.fallbackReason) {
-      log(`[SimpleGeneration] Skeleton fallback reason: ${skOverride.fallbackReason}`);
+    if (skSelection.fallbackReason) {
+      log(`[SimpleGeneration] Skeleton fallback reason: ${skSelection.fallbackReason}`);
     }
 
     // Surface the architect "pages" plan to the UI as soon as we have one.

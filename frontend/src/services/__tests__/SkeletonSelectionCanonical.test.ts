@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { selectSkeletonWithSafeOverrides, selectSkeleton } from '../SkeletonRegistry';
+import { selectSkeletonCanonical, selectSkeleton } from '../SkeletonRegistry';
 
 // All tests are deterministic — no LLM calls, no I/O.
 
-describe('selectSkeletonWithSafeOverrides', () => {
+describe('canonical skeleton selection', () => {
   // ── Landing intent override ─────────────────────────────────────────────
 
   it('landing intent with weak tags: overrides mobile-app fallback to landing-page', () => {
     // 'homepage' is an INTENT_SIGNAL_GROUPS keyword for landing but NOT a
     // landing-page registry tag → score=0 → mobile-app fallback.
     // Override should fire: landing-intent + mobile-app mismatch → landing-page.
-    const result = selectSkeletonWithSafeOverrides('', ['homepage']);
+    const result = selectSkeletonCanonical('', ['homepage']);
     expect(result.intentSignals).toContain('landing-intent');
     expect(result.originalSelectedSkeletonId).toBe('mobile-app');
     expect(result.finalSelectedSkeletonId).toBe('landing-page');
@@ -21,7 +21,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
 
   it('landing intent: promotional keyword overrides mobile-app fallback', () => {
     // 'promotional' IS a landing-page tag (score=1) but <2 → mobile-app fallback.
-    const result = selectSkeletonWithSafeOverrides('promotional website', []);
+    const result = selectSkeletonCanonical('promotional website', []);
     expect(result.intentSignals).toContain('landing-intent');
     if (result.originalSelectedSkeletonId === 'mobile-app') {
       expect(result.finalSelectedSkeletonId).toBe('landing-page');
@@ -34,7 +34,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
   it('dashboard intent with weak tags: overrides mobile-app fallback to saas-dashboard', () => {
     // 'analytics' is a saas-dashboard tag (score=1) and a dashboard-intent keyword.
     // score=1 < 2 → mobile-app fallback → override to saas-dashboard.
-    const result = selectSkeletonWithSafeOverrides('', ['analytics']);
+    const result = selectSkeletonCanonical('', ['analytics']);
     expect(result.intentSignals).toContain('dashboard-intent');
     expect(result.originalSelectedSkeletonId).toBe('mobile-app');
     expect(result.finalSelectedSkeletonId).toBe('saas-dashboard');
@@ -44,7 +44,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
 
   it('dashboard intent: admin keyword alone triggers override to saas-dashboard', () => {
     // 'admin' scores saas-dashboard=1, b2b-operations-workspace=1 → both <2 → mobile-app.
-    const result = selectSkeletonWithSafeOverrides('', ['admin']);
+    const result = selectSkeletonCanonical('', ['admin']);
     expect(result.intentSignals).toContain('dashboard-intent');
     expect(result.originalSelectedSkeletonId).toBe('mobile-app');
     expect(result.finalSelectedSkeletonId).toBe('saas-dashboard');
@@ -56,7 +56,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
   it('marketplace intent with weak tags: overrides mobile-app fallback to ecommerce', () => {
     // 'listing' is a marketplace-platform tag (score=1) and marketplace-intent keyword.
     // score=1 < 2 → mobile-app fallback → override to ecommerce.
-    const result = selectSkeletonWithSafeOverrides('', ['listing']);
+    const result = selectSkeletonCanonical('', ['listing']);
     expect(result.intentSignals).toContain('marketplace-intent');
     expect(result.originalSelectedSkeletonId).toBe('mobile-app');
     expect(result.finalSelectedSkeletonId).toBe('ecommerce');
@@ -66,7 +66,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
 
   it('marketplace intent: vendor keyword triggers override to ecommerce', () => {
     // 'vendor' is a marketplace-intent keyword but not a high-scoring registry tag.
-    const result = selectSkeletonWithSafeOverrides('online vendor', []);
+    const result = selectSkeletonCanonical('online vendor', []);
     expect(result.intentSignals).toContain('marketplace-intent');
     if (result.originalSelectedSkeletonId === 'mobile-app') {
       expect(result.finalSelectedSkeletonId).toBe('ecommerce');
@@ -80,7 +80,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
     // 'forum' is a precise social-intent signal AND a social-community tag, but
     // a single tag scores 1 (<2) → mobile-app fallback. The override rescues
     // the weak fallback (mobile-app IS in badSelections) → social-community.
-    const result = selectSkeletonWithSafeOverrides('', ['forum']);
+    const result = selectSkeletonCanonical('', ['forum']);
     expect(result.intentSignals).toContain('social-intent');
     expect(result.originalSelectedSkeletonId).toBe('mobile-app');
     expect(result.finalSelectedSkeletonId).toBe('social-community');
@@ -90,7 +90,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
 
   it('social intent: single community keyword triggers override to social-community', () => {
     // 'community' scores social-community=1 → mobile-app fallback → override.
-    const result = selectSkeletonWithSafeOverrides('', ['community']);
+    const result = selectSkeletonCanonical('', ['community']);
     expect(result.intentSignals).toContain('social-intent');
     if (result.originalSelectedSkeletonId === 'mobile-app') {
       expect(result.finalSelectedSkeletonId).toBe('social-community');
@@ -101,14 +101,14 @@ describe('selectSkeletonWithSafeOverrides', () => {
   // ── Ambiguous prompt — no override ─────────────────────────────────────
 
   it('ambiguous prompt: no intent signals → no override', () => {
-    const result = selectSkeletonWithSafeOverrides('something interesting', []);
+    const result = selectSkeletonCanonical('something interesting', []);
     expect(result.intentSignals).toHaveLength(0);
     expect(result.overrideApplied).toBe(false);
     expect(result.finalSelectedSkeletonId).toBe(result.originalSelectedSkeletonId);
   });
 
   it('empty input: no intent signals → no override', () => {
-    const result = selectSkeletonWithSafeOverrides(undefined, []);
+    const result = selectSkeletonCanonical(undefined, []);
     expect(result.intentSignals).toHaveLength(0);
     expect(result.overrideApplied).toBe(false);
     expect(result.finalSelectedSkeletonId).toBe(result.originalSelectedSkeletonId);
@@ -118,7 +118,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
 
   it('strong social intent that already picks social-community: no override applied', () => {
     // Score ≥2 → selectSkeleton picks social-community → no mismatch warning.
-    const result = selectSkeletonWithSafeOverrides('social network app', ['community', 'feed', 'posts']);
+    const result = selectSkeletonCanonical('social network app', ['community', 'feed', 'posts']);
     expect(result.intentSignals).toContain('social-intent');
     expect(result.originalSelectedSkeletonId).toBe('social-community');
     expect(result.overrideApplied).toBe(false);
@@ -126,14 +126,14 @@ describe('selectSkeletonWithSafeOverrides', () => {
   });
 
   it('strong landing intent that already picks landing-page: no override applied', () => {
-    const result = selectSkeletonWithSafeOverrides('website', ['landing', 'marketing', 'waitlist']);
+    const result = selectSkeletonCanonical('website', ['landing', 'marketing', 'waitlist']);
     expect(result.originalSelectedSkeletonId).toBe('landing-page');
     expect(result.overrideApplied).toBe(false);
     expect(result.finalSelectedSkeletonId).toBe('landing-page');
   });
 
   it('strong dashboard intent that already picks saas-dashboard: no override applied', () => {
-    const result = selectSkeletonWithSafeOverrides('admin dashboard', ['analytics', 'kpi', 'metrics']);
+    const result = selectSkeletonCanonical('admin dashboard', ['analytics', 'kpi', 'metrics']);
     expect(['saas-dashboard', 'b2b-operations-workspace']).toContain(result.originalSelectedSkeletonId);
     expect(result.overrideApplied).toBe(false);
     expect(result.finalSelectedSkeletonId).toBe(result.originalSelectedSkeletonId);
@@ -151,7 +151,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
       [undefined, []],
     ];
     for (const [appType, tags] of cases) {
-      const result = selectSkeletonWithSafeOverrides(appType, tags);
+      const result = selectSkeletonCanonical(appType, tags);
       expect(typeof result.originalSelectedSkeletonId).toBe('string');
       expect(typeof result.finalSelectedSkeletonId).toBe('string');
       expect(typeof result.overrideApplied).toBe('boolean');
@@ -162,7 +162,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
   });
 
   it('when override is applied, overrideReason is provided', () => {
-    const result = selectSkeletonWithSafeOverrides('', ['analytics']);
+    const result = selectSkeletonCanonical('', ['analytics']);
     if (result.overrideApplied) {
       expect(typeof result.overrideReason).toBe('string');
       expect((result.overrideReason?.length ?? 0)).toBeGreaterThan(0);
@@ -170,7 +170,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
   });
 
   it('when override is applied, originalSelectedSkeletonId differs from finalSelectedSkeletonId', () => {
-    const result = selectSkeletonWithSafeOverrides('', ['analytics']);
+    const result = selectSkeletonCanonical('', ['analytics']);
     if (result.overrideApplied) {
       expect(result.originalSelectedSkeletonId).not.toBe(result.finalSelectedSkeletonId);
     }
@@ -188,7 +188,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
       ['something random', []],
     ];
     for (const [appType, tags] of pairs) {
-      const result = selectSkeletonWithSafeOverrides(appType, tags);
+      const result = selectSkeletonCanonical(appType, tags);
       if (!result.overrideApplied) {
         expect(result.finalSelectedSkeletonId).toBe(selectSkeleton(appType, tags));
       }
@@ -200,7 +200,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
   it('game intent with dominant dashboard keywords: overrides to game-interactive-app', () => {
     // Dashboard keywords score saas-dashboard ≥2 → selectSkeleton picks saas-dashboard.
     // But game-intent is also detected → PLAIN_DESK_SKELETONS mismatch → override.
-    const result = selectSkeletonWithSafeOverrides('game analytics dashboard', ['dashboard', 'metrics', 'game', 'levels']);
+    const result = selectSkeletonCanonical('game analytics dashboard', ['dashboard', 'metrics', 'game', 'levels']);
     expect(result.intentSignals).toContain('game-intent');
     if (result.originalSelectedSkeletonId === 'saas-dashboard') {
       expect(result.finalSelectedSkeletonId).toBe('game-interactive-app');
@@ -213,7 +213,7 @@ describe('selectSkeletonWithSafeOverrides', () => {
   // These use the EXACT golden-intent prompts the diagnostic run failed on, fed
   // the same way the benchmark feeds them (whole prompt as one tag).
 
-  const asPromptTag = (prompt: string) => selectSkeletonWithSafeOverrides(undefined, [prompt]);
+  const asPromptTag = (prompt: string) => selectSkeletonCanonical(undefined, [prompt]);
 
   // ROOT 1 — a confidently-scored skeleton with a stray social keyword.
 
