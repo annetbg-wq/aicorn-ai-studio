@@ -78,25 +78,6 @@ export interface CompiledSkeletonContract {
   infrastructure: CompiledSkeletonInfrastructureContract;
   quality: CompiledSkeletonQualityContract;
   selection: CompiledSkeletonSelectionContract;
-
-  /** @deprecated Use infrastructure.workingGroups. */
-  workingGroups: SkeletonManifestGroup[];
-  /** @deprecated Use requiredSlots. */
-  requiredProductSlots: string[];
-  /** @deprecated Use optionalSlots. */
-  optionalProductSlots: string[];
-  /** @deprecated Use editable. */
-  agentEditable: string[];
-  /** @deprecated Use reusable. */
-  agentReadOnly: string[];
-  /** @deprecated Use infrastructure.protected. */
-  protectedFiles: string[];
-  /** @deprecated Use infrastructure.owned. */
-  skeletonOwned: string[];
-  /** @deprecated Use infrastructure.carcass. */
-  carcassFiles: string[];
-  /** @deprecated Use infrastructure.requiredExports. */
-  requiredExports: Record<string, Array<{ name: string; type?: string }>>;
 }
 
 const manifests: Record<SkeletonId, SkeletonManifestV2> = {
@@ -151,7 +132,7 @@ function assertManifestIsV2(manifest: SkeletonManifestV2): void {
 }
 
 /**
- * Canonical compiler. All 14 on-disk manifests are schema v2. Runtime consumers
+ * Canonical compiler. All 15 on-disk manifests are schema v2. Runtime consumers
  * receive one cached, normalized contract and never inspect raw manifest fields.
  */
 export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContract {
@@ -214,18 +195,6 @@ export function compileSkeletonContract(id: SkeletonId): CompiledSkeletonContrac
     infrastructure,
     quality,
     selection,
-
-    // Transitional aliases keep unchanged consumers stable while they migrate
-    // one-by-one to the semantic runtime contract above.
-    workingGroups,
-    requiredProductSlots: requiredSlots,
-    optionalProductSlots: optionalSlots,
-    agentEditable: editable,
-    agentReadOnly: reusable,
-    protectedFiles,
-    skeletonOwned: owned,
-    carcassFiles: carcass,
-    requiredExports,
   };
 
   compiledContracts.set(id, compiled);
