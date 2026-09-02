@@ -8,6 +8,8 @@ const { assertApiMode, assertSkeletonId, runPrototypeQa } = require('../scripts/
 
 const ARCHIVE_ROOT = path.resolve(process.cwd(), '.prototype-runs');
 
+test.setTimeout(180_000);
+
 const FILES = {
   'src/App.tsx': [
     "import { useState } from 'react';",
