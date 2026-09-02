@@ -1392,13 +1392,6 @@ export function isProtectedSkeletonFile(skeletonId: SkeletonId, path: string): b
 }
 
 /**
- * Returns true if the given path falls under any of the skeleton's locked prefixes.
- */
-function isLockedSkeletonPath(skeletonId: SkeletonId, path: string): boolean {
-  return isProtectedSkeletonFile(skeletonId, path);
-}
-
-/**
  * Strip locked/provided skeleton entries from a product plan so the coder
  * receives a shorter, delta-focused prompt.
  *
@@ -1418,14 +1411,14 @@ export function stripLockedPlanEntries(
   if (Array.isArray(result.pages)) {
     result.pages = (result.pages as Array<Record<string, unknown>>).filter(page => {
       const rawFile = typeof page.file === 'string' ? page.file : '';
-      return !rawFile || !isLockedSkeletonPath(skeletonId, rawFile);
+      return !rawFile || !isProtectedSkeletonFile(skeletonId, rawFile);
     });
   }
 
   if (Array.isArray(result.fileArchitecture)) {
     result.fileArchitecture = (result.fileArchitecture as Array<Record<string, unknown>>).filter(entry => {
       const rawPath = typeof entry.path === 'string' ? entry.path : '';
-      return !rawPath || !isLockedSkeletonPath(skeletonId, rawPath);
+      return !rawPath || !isProtectedSkeletonFile(skeletonId, rawPath);
     });
   }
 

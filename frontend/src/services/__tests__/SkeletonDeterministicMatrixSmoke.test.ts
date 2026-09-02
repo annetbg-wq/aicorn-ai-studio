@@ -31,6 +31,20 @@ describe('Skeleton deterministic matrix smoke — 15/15', () => {
     }
   });
 
+  it('centralizes product-delta write policy instead of duplicating validators', async () => {
+  const fs = await import('node:fs/promises');
+  const proto = await fs.readFile(new URL('../ProtoPipeline.ts', import.meta.url), 'utf8');
+  const validator = await fs.readFile(new URL('../LiveGenerationContractValidator.ts', import.meta.url), 'utf8');
+  const deltaContract = await fs.readFile(new URL('../ProductDeltaContract.ts', import.meta.url), 'utf8');
+
+  expect(proto).toContain("from './ProductDeltaContract'");
+  expect(proto).toContain('filterProductDeltaFiles');
+  expect(validator).toContain("from './ProductDeltaContract'");
+  expect(validator).toContain('getProductDeltaScope');
+  expect(deltaContract).toContain('requiredSlots.map(normalizeProductDeltaPath)');
+  expect(deltaContract).toContain('optionalSlots.map(normalizeProductDeltaPath)');
+});
+
   it('keeps output truth thresholds on canonical compiled required slots', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../../shared/outputTruth.ts', import.meta.url), 'utf8'));
     expect(source).toContain('.requiredSlots.map(normalizeProjectPath)');

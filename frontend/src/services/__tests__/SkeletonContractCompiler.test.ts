@@ -7,7 +7,7 @@ import {
   getRawSkeletonManifest,
   listSkeletonContractIds,
 } from '../SkeletonContractCompiler';
-import type { SkeletonId } from '../SkeletonRegistry';
+import { pathMatchesSkeletonPattern, type SkeletonId } from '../SkeletonRegistry';
 
 // Runtime consumers use only the semantic compiled contract; raw manifests stay schema/test-only.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -84,6 +84,13 @@ describe('Skeleton Contract Compiler — 15/15 matrix gate', () => {
     for (const protectedPath of contract.infrastructure.protected) {
       expect(pathExists(id, protectedPath), `${id} protected path does not exist: ${protectedPath}`).toBe(true);
     }
+
+  for (const editablePath of contract.editable) {
+  expect(
+    contract.infrastructure.protected.some(pattern => pathMatchesSkeletonPattern(editablePath, pattern)),
+    `${id} product slot must not also be protected: ${editablePath}`,
+  ).toBe(false);
+}
 
     expect(new Set(contract.editable).size).toBe(contract.editable.length);
     expect(new Set(contract.requiredSlots).size).toBe(contract.requiredSlots.length);
