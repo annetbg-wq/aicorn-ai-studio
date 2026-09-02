@@ -13,6 +13,7 @@
     "test:unit": "vitest run backend/auth-token.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:preview-live": "playwright test e2e/chat-generation-flow.spec.cjs --grep @preview-live-canary",
+    "test:e2e:reference-generated-run": "playwright test e2e/reference-generated-prototype-run.spec.cjs --reporter=line",
     "test:e2e:prototype-run": "playwright test e2e/persistent-prototype-run.spec.cjs --reporter=line",
     "test:smoke:projects": "npx playwright test --config playwright.projects-smoke.config.cjs projects.smoke.spec.cjs --reporter=line --workers=1",
     "test:smoke:preview": "npm run test:smoke --prefix frontend",
