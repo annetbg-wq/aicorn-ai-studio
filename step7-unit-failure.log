@@ -1,0 +1,1143 @@
+
+> aic-rgstudio@0.0.0 test
+> vitest run
+
+[2m8:10:08 AM[22m [33m[1m[vite][22m[39m [33mwarning: `esbuild` option was specified by "vite:react-babel" plugin. This option is deprecated, please use `oxc` instead.[39m
+[2m8:10:08 AM[22m [33m[1m[vite][22m[39m [33mwarning: `optimizeDeps.esbuildOptions` option was specified by "vite:react-babel" plugin. This option is deprecated, please use `optimizeDeps.rolldownOptions` instead.[39m
+[33mBoth esbuild and oxc options were set. oxc options will be used and esbuild options will be ignored.[39m The following esbuild options were set: `{ jsx: 'automatic', jsxImportSource: undefined }`
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.6 [39m[90m/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend[39m
+
+ [32m✓[39m src/services/__tests__/GenerationQualityService.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 157[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/PrototypeQualityGate.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/ArchitectProductStrategistDownscope.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/modules/quality/__tests__/QualityPanel.flow-chain.test.tsx [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/WhiteScreenDetector.test.ts [2m([22m[2m35 tests[22m[2m)[22m[32m 259[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/MarketAwareBuilderBrief.test.ts [2m([22m[2m88 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/LiveGenerationContractValidator.test.ts [2m([22m[2m32 tests[22m[2m)[22m[32m 147[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/LlmTransportError.test.ts [2m([22m[2m55 tests[22m[2m)[22m[32m 41[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/ScreenCompositionDiagnostics.test.ts [2m([22m[2m25 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+ [32m✓[39m src/modules/architect/components/__tests__/BranchArchitectureScreen.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 2678[2mms[22m[39m
+     [33m[2m✓[22m[39m renders the active branch instead of another branch [33m 475[2mms[22m[39m
+     [33m[2m✓[22m[39m renders visible Architect copy in the selected user language [33m 302[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/ArchitectDependencyMap.test.ts [2m([22m[2m49 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[33m 712[2mms[22m[39m
+     [32m✓[39m classifies deltaFiles as required_for_pipeline and required_for_compile_or_files[32m 4[2mms[22m[39m
+     [32m✓[39m classifies fileTree as required_for_pipeline, required_for_compile_or_files, and required_for_planners[32m 1[2mms[22m[39m
+     [32m✓[39m classifies appName as required_for_compile_or_files[32m 0[2mms[22m[39m
+     [32m✓[39m classifies pages as required_for_compile_or_files and required_for_planners[32m 0[2mms[22m[39m
+     [32m✓[39m classifies contextContract as required_for_compile_or_files[32m 1[2mms[22m[39m
+     [32m✓[39m classifies dataModel as required_for_planners[32m 0[2mms[22m[39m
+     [32m✓[39m returns all 10 known fields[32m 2[2mms[22m[39m
+     [32m✓[39m classifies summary as advisory_for_coder[32m 0[2mms[22m[39m
+     [32m✓[39m classifies notes as advisory_for_coder[32m 0[2mms[22m[39m
+     [32m✓[39m classifies summary and notes as duplicated_by_market_aware_brief[32m 3[2mms[22m[39m
+     [32m✓[39m classifies summary, notes, skeleton, rawResponse as candidate_for_removal_or_downscoping[32m 1[2mms[22m[39m
+     [32m✓[39m does NOT classify fileTree or deltaFiles as candidate for downscoping[32m 0[2mms[22m[39m
+     [32m✓[39m marks present fields correctly for full plan[32m 1[2mms[22m[39m
+     [32m✓[39m marks absent fields as not present for minimal plan[32m 1[2mms[22m[39m
+     [32m✓[39m marks empty string summary as not present[32m 1[2mms[22m[39m
+     [32m✓[39m marks empty fileTree as not present[32m 0[2mms[22m[39m
+     [32m✓[39m marks empty deltaFiles array as not present[32m 0[2mms[22m[39m
+     [32m✓[39m detects technical ownership when fileTree is non-empty[32m 1[2mms[22m[39m
+     [32m✓[39m detects technical ownership when only deltaFiles is non-empty[32m 0[2mms[22m[39m
+     [32m✓[39m does not detect ownership when both fileTree and deltaFiles are empty[32m 0[2mms[22m[39m
+     [32m✓[39m emits ARCH_OWNS_FILE_TREE issue when ownership is detected[32m 0[2mms[22m[39m
+     [32m✓[39m does not emit ARCH_OWNS_FILE_TREE when ownership is not detected[32m 0[2mms[22m[39m
+     [32m✓[39m detects duplicate when market brief is injected and summary is non-empty[32m 0[2mms[22m[39m
+     [32m✓[39m detects duplicate when market brief is injected and notes are non-empty[32m 0[2mms[22m[39m
+     [32m✓[39m does NOT detect duplicate when market brief is NOT injected[32m 0[2mms[22m[39m
+     [32m✓[39m does NOT detect duplicate when summary and notes are both absent[32m 0[2mms[22m[39m
+     [32m✓[39m detects conflict when builder self-plan injected and fileTree is non-empty[32m 0[2mms[22m[39m
+     [32m✓[39m does NOT detect conflict when builder self-plan is NOT injected[32m 0[2mms[22m[39m
+     [32m✓[39m does NOT detect conflict when fileTree is empty even if self-plan is injected[32m 0[2mms[22m[39m
+     [32m✓[39m lists fileTree and deltaFiles as missing if reduced (full plan)[32m 0[2mms[22m[39m
+     [32m✓[39m lists appName, pages, contextContract in missing_required_fields_if_reduced when present[32m 0[2mms[22m[39m
+     [32m✓[39m does NOT include absent optional fields in missing_required_fields_if_reduced[32m 0[2mms[22m[39m
+     [32m✓[39m lists summary and notes as safe to move to product strategist brief[32m 0[2mms[22m[39m
+     [32m✓[39m lists skeleton and rawResponse as safe to move/downscope[32m 0[2mms[22m[39m
+     [32m✓[39m does NOT list fileTree, deltaFiles as safe to move[32m 0[2mms[22m[39m
+     [32m✓[39m lists fileTree and deltaFiles as fields that must remain until replacement[32m 0[2mms[22m[39m
+     [32m✓[39m evaluateArchitectRoleDiagnostics returns a plain result object with no side effects[32m 2[2mms[22m[39m
+     [32m✓[39m buildArchitectDependencyMap does not mutate the input plan[32m 0[2mms[22m[39m
+     [32m✓[39m serializeArchitectDependencyTelemetry returns all five telemetry keys[32m 0[2mms[22m[39m
+     [32m✓[39m replacement_adapter_needed is true when required pipeline fields are present[32m 0[2mms[22m[39m
+     [32m✓[39m architect_dependency_required_count is positive for full plan[32m 0[2mms[22m[39m
+     [32m✓[39m architect_fields_candidate_for_downscope_count matches candidate list length[32m 0[2mms[22m[39m
+[31m     [31m×[31m ProtoPipeline module loads correctly[39m[33m 677[2mms[22m[39m
+[31m     [31m×[31m buildCoderPlanningBlocks is still exported[39m[32m 0[2mms[22m[39m
+[31m     [31m×[31m buildUiPrimitiveImportCatalog is still exported[39m[32m 0[2mms[22m[39m
+[31m     [31m×[31m evaluatePrototypeQualityGate is still exported (quality gate not modified)[39m[32m 3[2mms[22m[39m
+     [32m✓[39m exports buildArchitectDependencyMap as a function[32m 0[2mms[22m[39m
+     [32m✓[39m exports evaluateArchitectRoleDiagnostics as a function[32m 0[2mms[22m[39m
+     [32m✓[39m exports serializeArchitectDependencyTelemetry as a function[32m 0[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/ProtoPipelineLlmHttp500.test.ts [2m([22m[2m45 tests[22m[2m)[22m[32m 49[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/ArchitectReplacementAdapter.test.ts [2m([22m[2m57 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/ArchitectOutputValidator.test.ts [2m([22m[2m56 tests[22m[2m)[22m[32m 32[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/routeGraph.test.ts [2m([22m[2m28 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/BranchArchitectureOrchestrationService.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 56[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/VisualQualityService.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+ [31m❯[39m src/components/__tests__/PreviewCanvas.workspaceTruth.test.tsx [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/previewStabilityPack.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/buildAgentRouting.routingAuthority.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/ArchitectAdapterControlledFallback.test.ts [2m([22m[2m55 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/LeftPanel.generation-trust.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 555[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/visualEditBridge.test.ts [2m([22m[2m34 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/diffReviewFlow.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/ideaPackagingService.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/ArchitectAdapterShadowTelemetry.test.ts [2m([22m[2m35 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/architectureMemoryModel.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [31m❯[39m src/components/__tests__/LeftPanel.blueprint-flow.test.tsx [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/TrendDirectLaunchBuilderOwnedAssemblyPlan.test.ts [2m([22m[2m0 test[22m[2m)[22m
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mfatal failure triggers a bounded repair attempt
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-fatal'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'compile_dependency_failure'[39m,
+  signature: [32m'failed to resolve import "path" from "path"'[39m,
+  errors: [ [32m'Failed to resolve import "./NewPanel" from "src/App.tsx"'[39m ],
+  _t: [33m1788336626171[39m
+} {"buildId":"rev-fatal","severity":"fatal","reason":"compile_dependency_failure","signature":"failed to resolve import \"path\" from \"path\"","errors":["Failed to resolve import \"./NewPanel\" from \"src/App.tsx\""],"_t":1788336626171}
+[preview-timeline] repair_attempt_started { buildId: [32m'rev-fatal'[39m, attempt: [33m1[39m, maxAttempts: [33m2[39m, _t: [33m1788336626174[39m } {"buildId":"rev-fatal","attempt":1,"maxAttempts":2,"_t":1788336626174}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mfatal failure triggers a bounded repair attempt
+[22m[39m[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-fatal'[39m,
+  stopReason: [32m'repair_succeeded'[39m,
+  attempts: [33m2[39m,
+  _t: [33m1788336626180[39m
+} {"buildId":"rev-fatal","stopReason":"repair_succeeded","attempts":2,"_t":1788336626180}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mnon-fatal issue does not force unnecessary repair
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-non-fatal'[39m,
+  severity: [32m'non_fatal'[39m,
+  reason: [32m'warning_only_issue'[39m,
+  signature: [32m'warning: missing decorative asset logo.svg'[39m,
+  errors: [ [32m'Warning: missing decorative asset logo.svg'[39m ],
+  _t: [33m1788336626184[39m
+} {"buildId":"rev-non-fatal","severity":"non_fatal","reason":"warning_only_issue","signature":"warning: missing decorative asset logo.svg","errors":["Warning: missing decorative asset logo.svg"],"_t":1788336626184}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-non-fatal'[39m,
+  decision: [32m'no_repair_needed'[39m,
+  reason: [32m'warning_only_issue'[39m,
+  _t: [33m1788336626184[39m
+} {"buildId":"rev-non-fatal","decision":"no_repair_needed","reason":"warning_only_issue","_t":1788336626184}
+[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-non-fatal'[39m,
+  stopReason: [32m'non_fatal_issue_no_repair'[39m,
+  budgetExhausted: [33mfalse[39m,
+  _t: [33m1788336626184[39m
+} {"buildId":"rev-non-fatal","stopReason":"non_fatal_issue_no_repair","budgetExhausted":false,"_t":1788336626184}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mnon-fatal issue can survive via degraded acceptable path without entering repair
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-non-fatal-degraded'[39m,
+  severity: [32m'non_fatal'[39m,
+  reason: [32m'missing_non_critical_asset'[39m,
+  signature: [32m'failed to resolve import "path" from "path"'[39m,
+  errors: [ [32m'Failed to resolve import "./logo.svg" from "src/BrokenPage.tsx"'[39m ],
+  _t: [33m1788336626188[39m
+} {"buildId":"rev-non-fatal-degraded","severity":"non_fatal","reason":"missing_non_critical_asset","signature":"failed to resolve import \"path\" from \"path\"","errors":["Failed to resolve import \"./logo.svg\" from \"src/BrokenPage.tsx\""],"_t":1788336626188}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-non-fatal-degraded'[39m,
+  decision: [32m'no_repair_needed'[39m,
+  reason: [32m'missing_non_critical_asset'[39m,
+  _t: [33m1788336626188[39m
+} {"buildId":"rev-non-fatal-degraded","decision":"no_repair_needed","reason":"missing_non_critical_asset","_t":1788336626188}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-non-fatal-degraded'[39m,
+  decision: [32m'partial_ship'[39m,
+  reason: [32m'stub_BrokenPage.tsx'[39m,
+  _t: [33m1788336626188[39m
+} {"buildId":"rev-non-fatal-degraded","decision":"partial_ship","reason":"stub_BrokenPage.tsx","_t":1788336626188}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mnon-fatal issue can survive via degraded acceptable path without entering repair
+[22m[39m[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-non-fatal-degraded'[39m,
+  stopReason: [32m'non_fatal_degraded_acceptable'[39m,
+  partialShip: [33mtrue[39m,
+  brokenFile: [32m'BrokenPage.tsx'[39m,
+  _t: [33m1788336626189[39m
+} {"buildId":"rev-non-fatal-degraded","stopReason":"non_fatal_degraded_acceptable","partialShip":true,"brokenFile":"BrokenPage.tsx","_t":1788336626189}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mstops early when repeated failures show no progress
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-no-progress'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'compile_dependency_failure'[39m,
+  signature: [32m'failed to resolve import "path" from "path"'[39m,
+  errors: [
+    [32m'Failed to resolve import "./SamePanel" from "src/pages/Home.tsx"'[39m
+  ],
+  _t: [33m1788336626191[39m
+} {"buildId":"rev-no-progress","severity":"fatal","reason":"compile_dependency_failure","signature":"failed to resolve import \"path\" from \"path\"","errors":["Failed to resolve import \"./SamePanel\" from \"src/pages/Home.tsx\""],"_t":1788336626191}
+[preview-timeline] repair_attempt_started {
+  buildId: [32m'rev-no-progress'[39m,
+  attempt: [33m1[39m,
+  maxAttempts: [33m2[39m,
+  _t: [33m1788336626191[39m
+} {"buildId":"rev-no-progress","attempt":1,"maxAttempts":2,"_t":1788336626191}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mstops early when repeated failures show no progress
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-no-progress'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'compile_dependency_failure'[39m,
+  signature: [32m'failed to resolve import "path" from "path"'[39m,
+  errors: [
+    [32m'Failed to resolve import "./SamePanel" from "src/pages/Home.tsx"'[39m
+  ],
+  _t: [33m1788336626192[39m
+} {"buildId":"rev-no-progress","severity":"fatal","reason":"compile_dependency_failure","signature":"failed to resolve import \"path\" from \"path\"","errors":["Failed to resolve import \"./SamePanel\" from \"src/pages/Home.tsx\""],"_t":1788336626192}
+[preview-timeline] progress_evaluated {
+  buildId: [32m'rev-no-progress'[39m,
+  status: [32m'no_progress'[39m,
+  previousSignature: [32m'failed to resolve import "path" from "path"'[39m,
+  currentSignature: [32m'failed to resolve import "path" from "path"'[39m,
+  _t: [33m1788336626192[39m
+} {"buildId":"rev-no-progress","status":"no_progress","previousSignature":"failed to resolve import \"path\" from \"path\"","currentSignature":"failed to resolve import \"path\" from \"path\"","_t":1788336626192}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-no-progress'[39m,
+  decision: [32m'stop'[39m,
+  reason: [32m'no_progress'[39m,
+  _t: [33m1788336626192[39m
+} {"buildId":"rev-no-progress","decision":"stop","reason":"no_progress","_t":1788336626192}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-no-progress'[39m,
+  decision: [32m'partial_ship'[39m,
+  reason: [32m'stub_pages/Home.tsx'[39m,
+  _t: [33m1788336626193[39m
+} {"buildId":"rev-no-progress","decision":"partial_ship","reason":"stub_pages/Home.tsx","_t":1788336626193}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mstops early when repeated failures show no progress
+[22m[39m[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-no-progress'[39m,
+  stopReason: [32m'partial_ship'[39m,
+  partialShip: [33mtrue[39m,
+  brokenFile: [32m'pages/Home.tsx'[39m,
+  _t: [33m1788336626193[39m
+} {"buildId":"rev-no-progress","stopReason":"partial_ship","partialShip":true,"brokenFile":"pages/Home.tsx","_t":1788336626193}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mstops when repair budget is exhausted
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-budget'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'candidate_execution_failure'[39m,
+  signature: [32m'recoverable compile failure in src/app.tsx'[39m,
+  errors: [ [32m'Recoverable compile failure in src/App.tsx'[39m ],
+  _t: [33m1788336626194[39m
+} {"buildId":"rev-budget","severity":"fatal","reason":"candidate_execution_failure","signature":"recoverable compile failure in src/app.tsx","errors":["Recoverable compile failure in src/App.tsx"],"_t":1788336626194}
+[preview-timeline] repair_attempt_started {
+  buildId: [32m'rev-budget'[39m,
+  attempt: [33m1[39m,
+  maxAttempts: [33m2[39m,
+  _t: [33m1788336626194[39m
+} {"buildId":"rev-budget","attempt":1,"maxAttempts":2,"_t":1788336626194}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mstops when repair budget is exhausted
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-budget'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'entry_runtime_initialization_failure'[39m,
+  signature: [32m'runtime bootstrap changed in src/app.tsx'[39m,
+  errors: [ [32m'Runtime bootstrap changed in src/App.tsx'[39m ],
+  _t: [33m1788336626195[39m
+} {"buildId":"rev-budget","severity":"fatal","reason":"entry_runtime_initialization_failure","signature":"runtime bootstrap changed in src/app.tsx","errors":["Runtime bootstrap changed in src/App.tsx"],"_t":1788336626195}
+[preview-timeline] progress_evaluated {
+  buildId: [32m'rev-budget'[39m,
+  status: [32m'progress'[39m,
+  previousSignature: [32m'recoverable compile failure in src/app.tsx'[39m,
+  currentSignature: [32m'runtime bootstrap changed in src/app.tsx'[39m,
+  _t: [33m1788336626195[39m
+} {"buildId":"rev-budget","status":"progress","previousSignature":"recoverable compile failure in src/app.tsx","currentSignature":"runtime bootstrap changed in src/app.tsx","_t":1788336626195}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-budget'[39m,
+  decision: [32m'retry'[39m,
+  reason: [32m'entry_runtime_initialization_failure'[39m,
+  nextAttempt: [33m2[39m,
+  _t: [33m1788336626195[39m
+} {"buildId":"rev-budget","decision":"retry","reason":"entry_runtime_initialization_failure","nextAttempt":2,"_t":1788336626195}
+[preview-timeline] repair_attempt_started {
+  buildId: [32m'rev-budget'[39m,
+  attempt: [33m2[39m,
+  maxAttempts: [33m2[39m,
+  _t: [33m1788336626195[39m
+} {"buildId":"rev-budget","attempt":2,"maxAttempts":2,"_t":1788336626195}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mstops when repair budget is exhausted
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-budget'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'candidate_execution_failure'[39m,
+  signature: [32m'yet another runtime break in src/app.tsx'[39m,
+  errors: [ [32m'Yet another runtime break in src/App.tsx'[39m ],
+  _t: [33m1788336626196[39m
+} {"buildId":"rev-budget","severity":"fatal","reason":"candidate_execution_failure","signature":"yet another runtime break in src/app.tsx","errors":["Yet another runtime break in src/App.tsx"],"_t":1788336626196}
+[preview-timeline] progress_evaluated {
+  buildId: [32m'rev-budget'[39m,
+  status: [32m'progress'[39m,
+  previousSignature: [32m'runtime bootstrap changed in src/app.tsx'[39m,
+  currentSignature: [32m'yet another runtime break in src/app.tsx'[39m,
+  _t: [33m1788336626196[39m
+} {"buildId":"rev-budget","status":"progress","previousSignature":"runtime bootstrap changed in src/app.tsx","currentSignature":"yet another runtime break in src/app.tsx","_t":1788336626196}
+[preview-timeline] repair_budget_exhausted {
+  buildId: [32m'rev-budget'[39m,
+  attemptsUsed: [33m2[39m,
+  maxAttempts: [33m2[39m,
+  _t: [33m1788336626196[39m
+} {"buildId":"rev-budget","attemptsUsed":2,"maxAttempts":2,"_t":1788336626196}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-budget'[39m,
+  decision: [32m'stop'[39m,
+  reason: [32m'repair_budget_exhausted'[39m,
+  _t: [33m1788336626196[39m
+} {"buildId":"rev-budget","decision":"stop","reason":"repair_budget_exhausted","_t":1788336626196}
+[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-budget'[39m,
+  stopReason: [32m'repair_budget_exhausted'[39m,
+  budgetExhausted: [33mtrue[39m,
+  _t: [33m1788336626196[39m
+} {"buildId":"rev-budget","stopReason":"repair_budget_exhausted","budgetExhausted":true,"_t":1788336626196}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mallows partial ship only when a minimum viable candidate boots after degradation
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-partial'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'entry_runtime_initialization_failure'[39m,
+  signature: [32m'module exploded in src/brokenpage.tsx during startup'[39m,
+  errors: [ [32m'Module exploded in src/BrokenPage.tsx during startup'[39m ],
+  _t: [33m1788336626197[39m
+} {"buildId":"rev-partial","severity":"fatal","reason":"entry_runtime_initialization_failure","signature":"module exploded in src/brokenpage.tsx during startup","errors":["Module exploded in src/BrokenPage.tsx during startup"],"_t":1788336626197}
+[preview-timeline] repair_attempt_started {
+  buildId: [32m'rev-partial'[39m,
+  attempt: [33m1[39m,
+  maxAttempts: [33m2[39m,
+  _t: [33m1788336626198[39m
+} {"buildId":"rev-partial","attempt":1,"maxAttempts":2,"_t":1788336626198}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mallows partial ship only when a minimum viable candidate boots after degradation
+[22m[39m[preview-timeline] repair_decision {
+  buildId: [32m'rev-partial'[39m,
+  decision: [32m'stop'[39m,
+  reason: [32m'no_fix_output'[39m,
+  _t: [33m1788336626198[39m
+} {"buildId":"rev-partial","decision":"stop","reason":"no_fix_output","_t":1788336626198}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-partial'[39m,
+  decision: [32m'partial_ship'[39m,
+  reason: [32m'stub_BrokenPage.tsx'[39m,
+  _t: [33m1788336626198[39m
+} {"buildId":"rev-partial","decision":"partial_ship","reason":"stub_BrokenPage.tsx","_t":1788336626198}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mallows partial ship only when a minimum viable candidate boots after degradation
+[22m[39m[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-partial'[39m,
+  stopReason: [32m'partial_ship'[39m,
+  partialShip: [33mtrue[39m,
+  brokenFile: [32m'BrokenPage.tsx'[39m,
+  _t: [33m1788336626199[39m
+} {"buildId":"rev-partial","stopReason":"partial_ship","partialShip":true,"brokenFile":"BrokenPage.tsx","_t":1788336626199}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mdoes not partial-ship when the degraded candidate still cannot boot
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-no-partial'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'entry_runtime_initialization_failure'[39m,
+  signature: [32m'module exploded in src/brokenpage.tsx during startup'[39m,
+  errors: [ [32m'Module exploded in src/BrokenPage.tsx during startup'[39m ],
+  _t: [33m1788336626201[39m
+} {"buildId":"rev-no-partial","severity":"fatal","reason":"entry_runtime_initialization_failure","signature":"module exploded in src/brokenpage.tsx during startup","errors":["Module exploded in src/BrokenPage.tsx during startup"],"_t":1788336626201}
+[preview-timeline] repair_attempt_started {
+  buildId: [32m'rev-no-partial'[39m,
+  attempt: [33m1[39m,
+  maxAttempts: [33m2[39m,
+  _t: [33m1788336626201[39m
+} {"buildId":"rev-no-partial","attempt":1,"maxAttempts":2,"_t":1788336626201}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mdoes not partial-ship when the degraded candidate still cannot boot
+[22m[39m[preview-timeline] repair_decision {
+  buildId: [32m'rev-no-partial'[39m,
+  decision: [32m'stop'[39m,
+  reason: [32m'no_fix_output'[39m,
+  _t: [33m1788336626201[39m
+} {"buildId":"rev-no-partial","decision":"stop","reason":"no_fix_output","_t":1788336626201}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-no-partial'[39m,
+  decision: [32m'partial_ship'[39m,
+  reason: [32m'stub_BrokenPage.tsx'[39m,
+  _t: [33m1788336626201[39m
+} {"buildId":"rev-no-partial","decision":"partial_ship","reason":"stub_BrokenPage.tsx","_t":1788336626201}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mdoes not partial-ship when the degraded candidate still cannot boot
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-no-partial'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'candidate_execution_failure'[39m,
+  signature: [32m'still broken after stub'[39m,
+  errors: [ [32m'Still broken after stub'[39m ],
+  _t: [33m1788336626201[39m
+} {"buildId":"rev-no-partial","severity":"fatal","reason":"candidate_execution_failure","signature":"still broken after stub","errors":["Still broken after stub"],"_t":1788336626201}
+[preview-timeline] progress_evaluated {
+  buildId: [32m'rev-no-partial'[39m,
+  status: [32m'progress'[39m,
+  previousSignature: [32m'module exploded in src/brokenpage.tsx during startup'[39m,
+  currentSignature: [32m'still broken after stub'[39m,
+  _t: [33m1788336626202[39m
+} {"buildId":"rev-no-partial","status":"progress","previousSignature":"module exploded in src/brokenpage.tsx during startup","currentSignature":"still broken after stub","_t":1788336626202}
+[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-no-partial'[39m,
+  stopReason: [32m'no_fix_output'[39m,
+  budgetExhausted: [33mfalse[39m,
+  _t: [33m1788336626202[39m
+} {"buildId":"rev-no-partial","stopReason":"no_fix_output","budgetExhausted":false,"_t":1788336626202}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mnever writes JSX route fallback into non-route TypeScript infrastructure files
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-hook-infra'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'candidate_execution_failure'[39m,
+  signature: [32m'vite build exited #: could not load c:/ai_studio/preview-workspace/src/config/theme (imported by src/hooks/usetheme.ts)'[39m,
+  errors: [
+    [32m'vite build exited 1: Could not load C:/ai_studio/preview-workspace/src/config/theme (imported by src/hooks/useTheme.ts)'[39m
+  ],
+  _t: [33m1788336626202[39m
+} {"buildId":"rev-hook-infra","severity":"fatal","reason":"candidate_execution_failure","signature":"vite build exited #: could not load c:/ai_studio/preview-workspace/src/config/theme (imported by src/hooks/usetheme.ts)","errors":["vite build exited 1: Could not load C:/ai_studio/preview-workspace/src/config/theme (imported by src/hooks/useTheme.ts)"],"_t":1788336626202}
+[preview-timeline] repair_attempt_started {
+  buildId: [32m'rev-hook-infra'[39m,
+  attempt: [33m1[39m,
+  maxAttempts: [33m2[39m,
+  _t: [33m1788336626203[39m
+} {"buildId":"rev-hook-infra","attempt":1,"maxAttempts":2,"_t":1788336626203}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mnever writes JSX route fallback into non-route TypeScript infrastructure files
+[22m[39m[preview-timeline] repair_decision {
+  buildId: [32m'rev-hook-infra'[39m,
+  decision: [32m'stop'[39m,
+  reason: [32m'no_fix_output'[39m,
+  _t: [33m1788336626203[39m
+} {"buildId":"rev-hook-infra","decision":"stop","reason":"no_fix_output","_t":1788336626203}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-hook-infra'[39m,
+  decision: [32m'stop'[39m,
+  reason: [32m'partial_ship_blocked_for_non_route_file'[39m,
+  _t: [33m1788336626203[39m
+} {"buildId":"rev-hook-infra","decision":"stop","reason":"partial_ship_blocked_for_non_route_file","_t":1788336626203}
+[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-hook-infra'[39m,
+  stopReason: [32m'partial_ship_blocked_for_non_route_file'[39m,
+  budgetExhausted: [33mfalse[39m,
+  _t: [33m1788336626203[39m
+} {"buildId":"rev-hook-infra","stopReason":"partial_ship_blocked_for_non_route_file","budgetExhausted":false,"_t":1788336626203}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mdoes not partial-ship App.tsx into a saveable error screen
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-root-entry'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'candidate_execution_failure'[39m,
+  signature: [32m'vite build exited #: could not load c:/ai_studio/preview-workspace/src/contexts/usercontext (imported by src/app.tsx)'[39m,
+  errors: [
+    [32m'vite build exited 1: Could not load C:/ai_studio/preview-workspace/src/contexts/UserContext (imported by src/App.tsx)'[39m
+  ],
+  _t: [33m1788336626204[39m
+} {"buildId":"rev-root-entry","severity":"fatal","reason":"candidate_execution_failure","signature":"vite build exited #: could not load c:/ai_studio/preview-workspace/src/contexts/usercontext (imported by src/app.tsx)","errors":["vite build exited 1: Could not load C:/ai_studio/preview-workspace/src/contexts/UserContext (imported by src/App.tsx)"],"_t":1788336626204}
+[preview-timeline] repair_attempt_started {
+  buildId: [32m'rev-root-entry'[39m,
+  attempt: [33m1[39m,
+  maxAttempts: [33m2[39m,
+  _t: [33m1788336626204[39m
+} {"buildId":"rev-root-entry","attempt":1,"maxAttempts":2,"_t":1788336626204}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mdoes not partial-ship App.tsx into a saveable error screen
+[22m[39m[preview-timeline] repair_decision {
+  buildId: [32m'rev-root-entry'[39m,
+  decision: [32m'stop'[39m,
+  reason: [32m'no_fix_output'[39m,
+  _t: [33m1788336626204[39m
+} {"buildId":"rev-root-entry","decision":"stop","reason":"no_fix_output","_t":1788336626204}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-root-entry'[39m,
+  decision: [32m'stop'[39m,
+  reason: [32m'partial_ship_blocked_for_non_route_file'[39m,
+  _t: [33m1788336626204[39m
+} {"buildId":"rev-root-entry","decision":"stop","reason":"partial_ship_blocked_for_non_route_file","_t":1788336626204}
+[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-root-entry'[39m,
+  stopReason: [32m'partial_ship_blocked_for_non_route_file'[39m,
+  budgetExhausted: [33mfalse[39m,
+  _t: [33m1788336626204[39m
+} {"buildId":"rev-root-entry","stopReason":"partial_ship_blocked_for_non_route_file","budgetExhausted":false,"_t":1788336626204}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mdoes not widen the candidate file set without admission approval
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-1'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'compile_dependency_failure'[39m,
+  signature: [32m'failed to resolve import "path" from "path"'[39m,
+  errors: [ [32m'Failed to resolve import "./NewPanel" from "src/pages/Home.tsx"'[39m ],
+  _t: [33m1788336626205[39m
+} {"buildId":"rev-1","severity":"fatal","reason":"compile_dependency_failure","signature":"failed to resolve import \"path\" from \"path\"","errors":["Failed to resolve import \"./NewPanel\" from \"src/pages/Home.tsx\""],"_t":1788336626205}
+[preview-timeline] repair_attempt_started { buildId: [32m'rev-1'[39m, attempt: [33m1[39m, maxAttempts: [33m2[39m, _t: [33m1788336626205[39m } {"buildId":"rev-1","attempt":1,"maxAttempts":2,"_t":1788336626205}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mdoes not widen the candidate file set without admission approval
+[22m[39m[preview-timeline] repair_decision {
+  buildId: [32m'rev-1'[39m,
+  decision: [32m'stop'[39m,
+  reason: [32m'no_fix_output'[39m,
+  _t: [33m1788336626205[39m
+} {"buildId":"rev-1","decision":"stop","reason":"no_fix_output","_t":1788336626205}
+[preview-timeline] repair_decision {
+  buildId: [32m'rev-1'[39m,
+  decision: [32m'partial_ship'[39m,
+  reason: [32m'stub_pages/Home.tsx'[39m,
+  _t: [33m1788336626205[39m
+} {"buildId":"rev-1","decision":"partial_ship","reason":"stub_pages/Home.tsx","_t":1788336626205}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mdoes not widen the candidate file set without admission approval
+[22m[39m[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-1'[39m,
+  stopReason: [32m'partial_ship'[39m,
+  partialShip: [33mtrue[39m,
+  brokenFile: [32m'pages/Home.tsx'[39m,
+  _t: [33m1788336626205[39m
+} {"buildId":"rev-1","stopReason":"partial_ship","partialShip":true,"brokenFile":"pages/Home.tsx","_t":1788336626205}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mwrites newly introduced files only after admission recheck approval
+[22m[39m[preview-timeline] failure_classified {
+  buildId: [32m'rev-2'[39m,
+  severity: [32m'fatal'[39m,
+  reason: [32m'compile_dependency_failure'[39m,
+  signature: [32m'failed to resolve import "path" from "path"'[39m,
+  errors: [ [32m'Failed to resolve import "./NewPanel" from "src/App.tsx"'[39m ],
+  _t: [33m1788336626206[39m
+} {"buildId":"rev-2","severity":"fatal","reason":"compile_dependency_failure","signature":"failed to resolve import \"path\" from \"path\"","errors":["Failed to resolve import \"./NewPanel\" from \"src/App.tsx\""],"_t":1788336626206}
+[preview-timeline] repair_attempt_started { buildId: [32m'rev-2'[39m, attempt: [33m1[39m, maxAttempts: [33m2[39m, _t: [33m1788336626206[39m } {"buildId":"rev-2","attempt":1,"maxAttempts":2,"_t":1788336626206}
+
+[90mstdout[2m | src/services/__tests__/compileGuard.test.ts[2m > [22m[2mcompileGuard bounded repair loop[2m > [22m[2mwrites newly introduced files only after admission recheck approval
+[22m[39m[preview-timeline] final_stop_reason {
+  buildId: [32m'rev-2'[39m,
+  stopReason: [32m'repair_succeeded'[39m,
+  attempts: [33m2[39m,
+  _t: [33m1788336626207[39m
+} {"buildId":"rev-2","stopReason":"repair_succeeded","attempts":2,"_t":1788336626207}
+
+ [32m✓[39m src/services/__tests__/compileGuard.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 91[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/ProductSpecificityPlanner.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/ProjectRepository.architectureMemory.test.ts [2m([22m[2m0 test[22m[2m)[22m
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mpoison injection after good preview: rejected, last-good preserved
+[22m[39m[preview-timeline] candidate_created {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'b3373a49-b49d-4b4d-83a3-db00ea0d574c'[39m,
+  buildId: [32m'b3373a49-b49d-4b4d-83a3-db00ea0d574c'[39m,
+  storeSize: [33m1[39m,
+  _t: [33m1788336626777[39m
+} {"activeRevisionId":null,"candidateRevisionId":"b3373a49-b49d-4b4d-83a3-db00ea0d574c","buildId":"b3373a49-b49d-4b4d-83a3-db00ea0d574c","storeSize":1,"_t":1788336626777}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mpoison injection after good preview: rejected, last-good preserved
+[22m[39m[preview-timeline] file_buffered {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'b3373a49-b49d-4b4d-83a3-db00ea0d574c'[39m,
+  buildId: [32m'b3373a49-b49d-4b4d-83a3-db00ea0d574c'[39m,
+  path: [32m'App.tsx'[39m,
+  size: [33m226[39m,
+  _t: [33m1788336626780[39m
+} {"activeRevisionId":null,"candidateRevisionId":"b3373a49-b49d-4b4d-83a3-db00ea0d574c","buildId":"b3373a49-b49d-4b4d-83a3-db00ea0d574c","path":"App.tsx","size":226,"_t":1788336626780}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mpoison injection after good preview: rejected, last-good preserved
+[22m[39m[preview-timeline] file_buffered {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'b3373a49-b49d-4b4d-83a3-db00ea0d574c'[39m,
+  buildId: [32m'b3373a49-b49d-4b4d-83a3-db00ea0d574c'[39m,
+  path: [32m'index.css'[39m,
+  size: [33m101[39m,
+  _t: [33m1788336626780[39m
+} {"activeRevisionId":null,"candidateRevisionId":"b3373a49-b49d-4b4d-83a3-db00ea0d574c","buildId":"b3373a49-b49d-4b4d-83a3-db00ea0d574c","path":"index.css","size":101,"_t":1788336626780}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mpoison injection after good preview: rejected, last-good preserved
+[22m[39m[preview-timeline] candidate_orphaned {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'b3373a49-b49d-4b4d-83a3-db00ea0d574c'[39m,
+  orphanedId: [32m'b3373a49-b49d-4b4d-83a3-db00ea0d574c'[39m,
+  reason: [32m'new_candidate_created'[39m,
+  _t: [33m1788336626781[39m
+} {"activeRevisionId":null,"candidateRevisionId":"b3373a49-b49d-4b4d-83a3-db00ea0d574c","orphanedId":"b3373a49-b49d-4b4d-83a3-db00ea0d574c","reason":"new_candidate_created","_t":1788336626781}
+[preview-timeline] candidate_created {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'9586816c-8de3-4bba-a1cd-17d90bb3460b'[39m,
+  buildId: [32m'9586816c-8de3-4bba-a1cd-17d90bb3460b'[39m,
+  storeSize: [33m2[39m,
+  _t: [33m1788336626781[39m
+} {"activeRevisionId":null,"candidateRevisionId":"9586816c-8de3-4bba-a1cd-17d90bb3460b","buildId":"9586816c-8de3-4bba-a1cd-17d90bb3460b","storeSize":2,"_t":1788336626781}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mpoison injection after good preview: rejected, last-good preserved
+[22m[39m[preview-timeline] preview_write_blocked {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'9586816c-8de3-4bba-a1cd-17d90bb3460b'[39m,
+  path: [32m'App.tsx'[39m,
+  source: [32m'RevisionManager.writeCandidateFile'[39m,
+  buildId: [32m'9586816c-8de3-4bba-a1cd-17d90bb3460b'[39m,
+  projectId: [1mnull[22m,
+  contentLength: [33m461[39m,
+  contentHead: [32m`{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/App.tsx","content":"import React from 'react';\\nexport default `[39m,
+  _t: [33m1788336626783[39m
+} {"activeRevisionId":null,"candidateRevisionId":"9586816c-8de3-4bba-a1cd-17d90bb3460b","path":"App.tsx","source":"RevisionManager.writeCandidateFile","buildId":"9586816c-8de3-4bba-a1cd-17d90bb3460b","projectId":null,"contentLength":461,"contentHead":"{\"artifact\":{\"entry\":\"src/App.tsx\",\"files\":[{\"path\":\"src/App.tsx\",\"content\":\"import React from 'react';\\nexport default ","_t":1788336626783}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mclean files still pass after a poison rejection
+[22m[39m[preview-timeline] candidate_created {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'383b26ac-42a1-4ea0-b2af-96088a8daa63'[39m,
+  buildId: [32m'383b26ac-42a1-4ea0-b2af-96088a8daa63'[39m,
+  storeSize: [33m1[39m,
+  _t: [33m1788336626786[39m
+} {"activeRevisionId":null,"candidateRevisionId":"383b26ac-42a1-4ea0-b2af-96088a8daa63","buildId":"383b26ac-42a1-4ea0-b2af-96088a8daa63","storeSize":1,"_t":1788336626786}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mclean files still pass after a poison rejection
+[22m[39m[preview-timeline] preview_write_blocked {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'383b26ac-42a1-4ea0-b2af-96088a8daa63'[39m,
+  path: [32m'App.tsx'[39m,
+  source: [32m'RevisionManager.writeCandidateFile'[39m,
+  buildId: [32m'383b26ac-42a1-4ea0-b2af-96088a8daa63'[39m,
+  projectId: [1mnull[22m,
+  contentLength: [33m461[39m,
+  contentHead: [32m`{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/App.tsx","content":"import React from 'react';\\nexport default `[39m,
+  _t: [33m1788336626787[39m
+} {"activeRevisionId":null,"candidateRevisionId":"383b26ac-42a1-4ea0-b2af-96088a8daa63","path":"App.tsx","source":"RevisionManager.writeCandidateFile","buildId":"383b26ac-42a1-4ea0-b2af-96088a8daa63","projectId":null,"contentLength":461,"contentHead":"{\"artifact\":{\"entry\":\"src/App.tsx\",\"files\":[{\"path\":\"src/App.tsx\",\"content\":\"import React from 'react';\\nexport default ","_t":1788336626787}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mclean files still pass after a poison rejection
+[22m[39m[preview-timeline] file_buffered {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'383b26ac-42a1-4ea0-b2af-96088a8daa63'[39m,
+  buildId: [32m'383b26ac-42a1-4ea0-b2af-96088a8daa63'[39m,
+  path: [32m'App.tsx'[39m,
+  size: [33m226[39m,
+  _t: [33m1788336626789[39m
+} {"activeRevisionId":null,"candidateRevisionId":"383b26ac-42a1-4ea0-b2af-96088a8daa63","buildId":"383b26ac-42a1-4ea0-b2af-96088a8daa63","path":"App.tsx","size":226,"_t":1788336626789}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mpoison in nested page file is also rejected
+[22m[39m[preview-timeline] candidate_created {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  buildId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  storeSize: [33m1[39m,
+  _t: [33m1788336626790[39m
+} {"activeRevisionId":null,"candidateRevisionId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","buildId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","storeSize":1,"_t":1788336626790}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mpoison in nested page file is also rejected
+[22m[39m[preview-timeline] file_buffered {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  buildId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  path: [32m'App.tsx'[39m,
+  size: [33m226[39m,
+  _t: [33m1788336626790[39m
+} {"activeRevisionId":null,"candidateRevisionId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","buildId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","path":"App.tsx","size":226,"_t":1788336626790}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mpoison in nested page file is also rejected
+[22m[39m[preview-timeline] preview_write_blocked {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  path: [32m'pages/Home.tsx'[39m,
+  source: [32m'RevisionManager.writeCandidateFile'[39m,
+  buildId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  projectId: [1mnull[22m,
+  contentLength: [33m461[39m,
+  contentHead: [32m`{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/App.tsx","content":"import React from 'react';\\nexport default `[39m,
+  _t: [33m1788336626791[39m
+} {"activeRevisionId":null,"candidateRevisionId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","path":"pages/Home.tsx","source":"RevisionManager.writeCandidateFile","buildId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","projectId":null,"contentLength":461,"contentHead":"{\"artifact\":{\"entry\":\"src/App.tsx\",\"files\":[{\"path\":\"src/App.tsx\",\"content\":\"import React from 'react';\\nexport default ","_t":1788336626791}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mProjectStorage pre-load scan blocks corrupted saved project
+[22m[39m[preview-timeline] corruption_detected_preload {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  projectId: [32m'test-project'[39m,
+  source: [32m'smoke-test'[39m,
+  findingCount: [33m1[39m,
+  artifactEnvelopeCount: [33m1[39m,
+  findings: [ { kind: [32m'artifact-envelope'[39m, path: [32m'App.tsx'[39m } ],
+  _t: [33m1788336626800[39m
+} {"activeRevisionId":null,"candidateRevisionId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","projectId":"test-project","source":"smoke-test","findingCount":1,"artifactEnvelopeCount":1,"findings":[{"kind":"artifact-envelope","path":"App.tsx"}],"_t":1788336626800}
+
+[90mstdout[2m | src/services/__tests__/previewPoisonSmoke.test.ts[2m > [22m[2mPreview Poison Smoke — Integrated Failure Path[2m > [22m[2mPreviewController state is never set to ready for a poisoned build
+[22m[39m[preview-timeline] controller_compiling {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  buildId: [32m'poison-build-123'[39m,
+  buildStage: [32m'unknown'[39m,
+  _t: [33m1788336626801[39m
+} {"activeRevisionId":null,"candidateRevisionId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","buildId":"poison-build-123","buildStage":"unknown","_t":1788336626801}
+[preview-timeline] controller_failed {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  buildId: [32m'poison-build-123'[39m,
+  error: [32m'Blocked artifact-envelope write to App.tsx'[39m,
+  _t: [33m1788336626801[39m
+} {"activeRevisionId":null,"candidateRevisionId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","buildId":"poison-build-123","error":"Blocked artifact-envelope write to App.tsx","_t":1788336626801}
+[preview-timeline] ready_set {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  source: [32m'stale_signal'[39m,
+  buildId: [32m'some-other-build-id'[39m,
+  buildStage: [32m'unknown'[39m,
+  _t: [33m1788336626802[39m
+} {"activeRevisionId":null,"candidateRevisionId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","source":"stale_signal","buildId":"some-other-build-id","buildStage":"unknown","_t":1788336626802}
+[preview-timeline] controller_compiling {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  buildId: [32m'good-build'[39m,
+  buildStage: [32m'unknown'[39m,
+  _t: [33m1788336626802[39m
+} {"activeRevisionId":null,"candidateRevisionId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","buildId":"good-build","buildStage":"unknown","_t":1788336626802}
+[preview-timeline] notify_ready_rejected {
+  activeRevisionId: [1mnull[22m,
+  candidateRevisionId: [32m'2b803d6b-a9bd-47cb-9383-585cecc3cd9f'[39m,
+  source: [32m'foreign_signal'[39m,
+  buildId: [32m'foreign-build-id'[39m,
+  reason: [32m'buildId_mismatch'[39m,
+  expecting: [32m'good-build'[39m,
+  _t: [33m1788336626802[39m
+} {"activeRevisionId":null,"candidateRevisionId":"2b803d6b-a9bd-47cb-9383-585cecc3cd9f","source":"foreign_signal","buildId":"foreign-build-id","reason":"buildId_mismatch","expecting":"good-build","_t":1788336626802}
+
+ [32m✓[39m src/services/__tests__/previewPoisonSmoke.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/BuilderOwnedSelfPlan.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/SkeletonIntegrationPlanner.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/ScreenCompositionPlanner.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/FunctionalFlowPlanner.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/SkeletonSelectionCanonical.test.ts [2m([22m[2m23 tests[22m[2m)[22m[32m 45[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/artifactParser.test.ts [2m([22m[2m26 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/PreviewWriteGateway.test.ts [2m([22m[2m26 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/previewLifecycleResolver.test.ts [2m([22m[2m29 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/GenerationTracer.traceLayers.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/AppFirstQualityGate.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/canaryModelSetup.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/HookProviderValidator.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/revisionSemantics.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/DesignContract.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 85[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/ChatArchitectureService.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 39[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/SkeletonSelectionDiagnostics.test.ts [2m([22m[2m15 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 49[2mms[22m[39m
+     [32m✓[39m clear landing intent: detects landing-intent signal and picks landing-page[32m 19[2mms[22m[39m
+     [32m✓[39m weak landing-only tag: detects landing-intent signal even if mobile-app fallback occurs[32m 1[2mms[22m[39m
+     [32m✓[39m strong dashboard intent: detects dashboard-intent signal and picks a dashboard skeleton[32m 1[2mms[22m[39m
+[31m     [31m×[31m weak dashboard intent falls back to mobile-app with mismatch warning[39m[32m 13[2mms[22m[39m
+     [32m✓[39m strong marketplace intent: detects marketplace-intent signal and picks ecommerce/marketplace skeleton[32m 1[2mms[22m[39m
+     [32m✓[39m weak marketplace intent falls back to mobile-app with mismatch warning[32m 2[2mms[22m[39m
+     [32m✓[39m strong social intent: detects social-intent signal and picks social-community[32m 1[2mms[22m[39m
+     [32m✓[39m social intent with unrelated skeleton produces mismatch warning[32m 1[2mms[22m[39m
+     [32m✓[39m strong game intent: detects game-intent signal and picks game skeleton[32m 2[2mms[22m[39m
+     [32m✓[39m game intent with plain dashboard skeleton produces mismatch warning[32m 1[2mms[22m[39m
+     [32m✓[39m ambiguous prompt produces low confidence and a fallback reason[32m 1[2mms[22m[39m
+     [32m✓[39m empty input produces low confidence and a fallback reason[32m 0[2mms[22m[39m
+     [32m✓[39m always returns all required diagnostic fields[32m 1[2mms[22m[39m
+     [32m✓[39m high confidence when best score dominates runner-up by ≥2[32m 1[2mms[22m[39m
+     [32m✓[39m selectSkeletonWithDiagnostics selectedSkeletonId matches selectSkeleton output[32m 3[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/FileVisualBankService.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 98[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/MarketAwareBuilderBriefCoderInjection.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/ProtoPipelineDiagnostics.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/SkeletonRegistry.manifests.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 88[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/UserProjectSettingsService.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/ProtoPipeline.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/ProjectMemoryService.designTelemetry.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/ArchitectPlannerService.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/previewBridge.test.ts [2m([22m[2m20 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/SaasDashboardNavigationContract.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/PropWiringValidator.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/AgentLoopService.rls.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/orchestratorArtistLayer.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/hooks/__tests__/surfaceChoice.timeout.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [31m❯[39m src/modules/architect/__tests__/ArchitectDashboard.test.tsx [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/SkeletonContractCompiler.test.ts [2m([22m[2m34 tests[22m[2m)[22m[32m 84[2mms[22m[39m
+[90mstdout[2m | src/services/__tests__/projectCorruptionScan.test.ts[2m > [22m[2mscanBeforePreviewLoad[2m > [22m[2mreturns safe=false for project with poisoned App.tsx
+[22m[39m[preview-timeline] corruption_detected_preload {
+  projectId: [32m'proj-2'[39m,
+  source: [32m'test'[39m,
+  findingCount: [33m1[39m,
+  artifactEnvelopeCount: [33m1[39m,
+  findings: [ { kind: [32m'artifact-envelope'[39m, path: [32m'App.tsx'[39m } ],
+  _t: [33m1788336639446[39m
+} {"projectId":"proj-2","source":"test","findingCount":1,"artifactEnvelopeCount":1,"findings":[{"kind":"artifact-envelope","path":"App.tsx"}],"_t":1788336639446}
+
+[90mstdout[2m | src/services/__tests__/projectCorruptionScan.test.ts[2m > [22m[2mscanBeforePreviewLoad[2m > [22m[2mreturns safe=true for project with missing entry (warning only)
+[22m[39m[preview-timeline] corruption_detected_preload {
+  projectId: [32m'proj-3'[39m,
+  source: [32m'test'[39m,
+  findingCount: [33m1[39m,
+  artifactEnvelopeCount: [33m0[39m,
+  findings: [ { kind: [32m'missing-entry'[39m, path: [32m''[39m } ],
+  _t: [33m1788336639451[39m
+} {"projectId":"proj-3","source":"test","findingCount":1,"artifactEnvelopeCount":0,"findings":[{"kind":"missing-entry","path":""}],"_t":1788336639451}
+
+[90mstdout[2m | src/services/__tests__/projectCorruptionScan.test.ts[2m > [22m[2mscanBeforePreviewLoad[2m > [22m[2mblocks project where any source file is an artifact envelope
+[22m[39m[preview-timeline] corruption_detected_preload {
+  projectId: [32m'proj-4'[39m,
+  source: [32m'test'[39m,
+  findingCount: [33m1[39m,
+  artifactEnvelopeCount: [33m1[39m,
+  findings: [ { kind: [32m'artifact-envelope'[39m, path: [32m'services/api.ts'[39m } ],
+  _t: [33m1788336639453[39m
+} {"projectId":"proj-4","source":"test","findingCount":1,"artifactEnvelopeCount":1,"findings":[{"kind":"artifact-envelope","path":"services/api.ts"}],"_t":1788336639453}
+
+ [32m✓[39m src/services/__tests__/projectCorruptionScan.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/SuperAppSkeletonContract.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m src/modules/visual-bank/VisualBankModule.premium.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 5960[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps the old Visual Bank preview, tabs, and variants preview available [33m 1400[2mms[22m[39m
+     [33m[2m✓[22m[39m clicking Premium Components changes active tab and swaps out overview hero content [33m 475[2mms[22m[39m
+     [33m[2m✓[22m[39m adds a separate Premium Components tab backed by PremiumComponentBankService [33m 516[2mms[22m[39m
+     [33m[2m✓[22m[39m maps selected skeletons to their premium recipes without changing the old variant preview [33m 1491[2mms[22m[39m
+     [33m[2m✓[22m[39m changes selectedRecipeId and rendered premium components when the skeleton changes [33m 654[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps Premium Components populated when a stale category filter no longer matches the selected skeleton [33m 707[2mms[22m[39m
+     [33m[2m✓[22m[39m renders real preview adapters for the selected recipe and wraps them in Visual Bank tokens [33m 330[2mms[22m[39m
+     [33m[2m✓[22m[39m shows metadataOnly for a missing adapter instead of a fake generic preview [33m 385[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/DiagnosticIntercept.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+[90mstdout[2m | src/services/__tests__/ProjectRepository.hygiene.test.ts[2m > [22m[2mProjectRepository hygiene[2m > [22m[2mwrites auth user_id into Supabase upsert payload for UUID projects
+[22m[39m[ProjectRepository] ✅ Saved to Supabase: 11111111
+
+ [32m✓[39m src/services/__tests__/ProjectRepository.hygiene.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+[90mstdout[2m | src/services/__tests__/previewGuard.test.ts[2m > [22m[2mcheckPreviewWrite[2m > [22m[2mreturns rejection for artifact-envelope content
+[22m[39m[preview-timeline] preview_write_blocked {
+  path: [32m'App.tsx'[39m,
+  source: [32m'test'[39m,
+  buildId: [32m'build-123'[39m,
+  projectId: [32m'proj-456'[39m,
+  contentLength: [33m86[39m,
+  contentHead: [32m'{"artifact":{"entry":"src/App.tsx","files":[{"path":"src/App.tsx","content":"code"}]}}'[39m,
+  _t: [33m1788336641197[39m
+} {"path":"App.tsx","source":"test","buildId":"build-123","projectId":"proj-456","contentLength":86,"contentHead":"{\"artifact\":{\"entry\":\"src/App.tsx\",\"files\":[{\"path\":\"src/App.tsx\",\"content\":\"code\"}]}}","_t":1788336641197}
+
+[90mstdout[2m | src/services/__tests__/previewGuard.test.ts[2m > [22m[2mcheckPreviewWrite[2m > [22m[2msimulates ProjectStorage.loadToPreview protection
+[22m[39m[preview-timeline] preview_write_blocked {
+  path: [32m'App.tsx'[39m,
+  source: [32m'ProjectStorage.loadToPreview'[39m,
+  buildId: [1mnull[22m,
+  projectId: [1mnull[22m,
+  contentLength: [33m69[39m,
+  contentHead: [32m'{"artifact":{"files":[{"path":"src/App.tsx","content":"real code"}]}}'[39m,
+  _t: [33m1788336641202[39m
+} {"path":"App.tsx","source":"ProjectStorage.loadToPreview","buildId":null,"projectId":null,"contentLength":69,"contentHead":"{\"artifact\":{\"files\":[{\"path\":\"src/App.tsx\",\"content\":\"real code\"}]}}","_t":1788336641202}
+
+ [32m✓[39m src/services/__tests__/previewGuard.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/SkeletonDeterministicMatrixSmoke.test.ts [2m([22m[2m36 tests[22m[2m)[22m[32m 60[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/ArtifactReviewerService.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/trendNichesService.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/LiveGenerationInfrastructureBoundary.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/ProductDeltaContract.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/AppFirstPrototypeQualityIntegration.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/PremiumComponentBankService.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 243[2mms[22m[39m
+ [32m✓[39m src/lib/chat.reducer.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/LiveGenerationContractManifestOwnership.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/ComparisonScorecardService.visual-quality.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/services/__tests__/BenchmarkReport.visual-quality.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/MediaServices.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/LeftPanel.architect-clarification.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 646[2mms[22m[39m
+     [33m[2m✓[22m[39m renders blocking clarifications as structured choices and does not auto-continue [33m 644[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/MetricsService.designTelemetry.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 8[2mms[22m[39m
+ [31m❯[39m src/components/__tests__/Dashboard.projectIdentity.test.tsx [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/GenerationTracer.designTelemetry.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 13[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/SkeletonQualityRuntime.test.ts [2m([22m[2m0 test[22m[2m)[22m
+[90mstdout[2m | src/hooks/__tests__/useStudio.reloadCompleteSave.test.tsx[2m > [22m[2msave-time guard scope[2m > [22m[2mkeeps missing-entry as a warning for generic preload scans
+[22m[39m[preview-timeline] corruption_detected_preload {
+  projectId: [32m'proj-1'[39m,
+  source: [32m'test'[39m,
+  findingCount: [33m1[39m,
+  artifactEnvelopeCount: [33m0[39m,
+  findings: [ { kind: [32m'missing-entry'[39m, path: [32m''[39m } ],
+  _t: [33m1788336647817[39m
+} {"projectId":"proj-1","source":"test","findingCount":1,"artifactEnvelopeCount":0,"findings":[{"kind":"missing-entry","path":""}],"_t":1788336647817}
+
+ [32m✓[39m src/hooks/__tests__/useStudio.reloadCompleteSave.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/ideaFeedService.bridgeFallback.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/SkeletonSelectionManifestRuntime.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 27[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/internalAccess.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/surfaceHeuristic.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/LeftPanel.blueprint-fallback.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 357[2mms[22m[39m
+     [33m[2m✓[22m[39m blueprint without blueprintText renders fallback card with Build it button [33m 354[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/OutputTruthArchitectDocs.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+[90mstdout[2m | src/scripts/generateManifest.test.ts[2m > [22m[2mgenerateManifest — write-path contract[2m > [22m[2mwrites to public/PROJECT_MANIFEST.json — the gitignored asset path
+[22m[39m[manifest] Written → public/PROJECT_MANIFEST.json
+
+[90mstdout[2m | src/scripts/generateManifest.test.ts[2m > [22m[2mgenerateManifest — write-path contract[2m > [22m[2mdoes NOT write the manifest inside src/
+[22m[39m[manifest] Written → public/PROJECT_MANIFEST.json
+
+[90mstdout[2m | src/scripts/generateManifest.test.ts[2m > [22m[2mgenerateManifest — write-path contract[2m > [22m[2mdoes NOT write the manifest at the workspace root
+[22m[39m[manifest] Written → public/PROJECT_MANIFEST.json
+
+[90mstdout[2m | src/scripts/generateManifest.test.ts[2m > [22m[2mgenerateManifest — write-path contract[2m > [22m[2moutput contains expected manifest fields
+[22m[39m[manifest] Written → public/PROJECT_MANIFEST.json
+
+ [32m✓[39m src/scripts/generateManifest.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [31m❯[39m src/modules/quality/__tests__/LiveReadinessPreflight.test.ts [2m([22m[2m0 test[22m[2m)[22m
+[90mstdout[2m | src/services/__tests__/ProjectStorage.workspaceTruth.test.ts[2m > [22m[2mProjectStorage workspace truth[2m > [22m[2msoft-fails empty persisted project preload without touching the live preview candidate
+[22m[39m[preview-timeline] preload_not_found_soft_failed {
+  buildId: [1mnull[22m,
+  projectId: [32m'missing-project'[39m,
+  source: [32m'ProjectStorage.loadToPreview'[39m,
+  reason: [32m'empty_file_map'[39m,
+  _t: [33m1788336651280[39m
+} {"buildId":null,"projectId":"missing-project","source":"ProjectStorage.loadToPreview","reason":"empty_file_map","_t":1788336651280}
+
+ [32m✓[39m src/services/__tests__/ProjectStorage.workspaceTruth.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/ProjectManager.kickoff.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/ideaFeedDiscovery.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/services/__tests__/SkeletonSelectionWeightedConflict.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/SkeletonSelectionBaseSemantics.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/SkeletonQualityContract.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+ [31m❯[39m src/services/__tests__/PrototypeBankDeterminism.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32m✓[39m src/lib/__tests__/bundler.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+[90mstdout[2m | src/lib/__tests__/supabase.config.test.ts[2m > [22m[2msupabase client auth config[2m > [22m[2menables detectSessionInUrl so the PKCE OAuth redirect code gets exchanged for a session
+[22m[39m[Supabase] Connected to: https://zdzuaodphrlpvorutpyc.supabase.co
+
+ [32m✓[39m src/lib/__tests__/supabase.config.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 7[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Suites 33 [49m[22m[31m⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m src/components/__tests__/Dashboard.projectIdentity.test.tsx[2m [ src/components/__tests__/Dashboard.projectIdentity.test.tsx ][22m
+[31m[1mError[22m: supabaseKey is required.[39m
+[90m [2m❯[22m new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:[2m286:28[22m[39m
+[90m [2m❯[22m createClient node_modules/@supabase/supabase-js/src/index.ts:[2m65:9[22m[39m
+[36m [2m❯[22m src/lib/supabase.ts:[2m55:25[22m[39m
+    [90m 53|[39m     [33m:[39m undefined[33m;[39m
+    [90m 54|[39m
+    [90m 55|[39m [35mexport[39m [35mconst[39m supabase [33m=[39m [34mcreateClient[39m([33mSUPABASE_URL[39m[33m,[39m [33mSUPABASE_ANON_KEY[39m[33m,[39m {
+    [90m   |[39m                         [31m^[39m
+    [90m 56|[39m   auth[33m:[39m {
+    [90m 57|[39m     [90m// Full navigator.locks bypass for iframe/sandbox previews.[39m
+[90m [2m❯[22m src/services/storageService.ts:[2m11:1[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/38]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/components/__tests__/LeftPanel.blueprint-flow.test.tsx[2m [ src/components/__tests__/LeftPanel.blueprint-flow.test.tsx ][22m
+[31m[1mError[22m: [vitest] There was an error when mocking a module. If you are using "vi.mock" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file. Read more: https://vitest.dev/api/vi.html#vi-mock[39m
+[36m [2m❯[22m src/components/__tests__/LeftPanel.blueprint-flow.test.tsx:[2m20:1[22m[39m
+    [90m 18|[39m [35mimport[39m { chatReducer[33m,[39m normalizeMessage } [35mfrom[39m [32m'../../types/chat'[39m[33m;[39m
+    [90m 19|[39m [35mimport[39m type { [33mChatMessage[39m } [35mfrom[39m [32m'../../types/chat'[39m[33m;[39m
+    [90m 20|[39m import { KICKOFF_FAST_START_GRACE_MS, useKickoffFastStart, useStudio }…
+    [90m   |[39m [31m^[39m
+    [90m 21|[39m [35mimport[39m type { [33mKickoffPhase[39m } [35mfrom[39m [32m'../../hooks/useStudio'[39m[33m;[39m
+    [90m 22|[39m [35mimport[39m { [33mLeftPanel[39m } [35mfrom[39m [32m'../LeftPanel'[39m[33m;[39m
+
+[31m[1mCaused by: Error[22m: supabaseKey is required.[39m
+[90m [2m❯[22m new SupabaseClient node_modules/@supabase/supabase-js/dist/index.mjs:[2m367:27[22m[39m
+[90m [2m❯[22m createClient node_modules/@supabase/supabase-js/dist/index.mjs:[2m591:9[22m[39m
+[36m [2m❯[22m src/lib/supabase.ts:[2m55:25[22m[39m
+[90m [2m❯[22m src/hooks/useStudio.ts:[2m22:1[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/38]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/components/__tests__/PreviewCanvas.workspaceTruth.test.tsx[2m [ src/components/__tests__/PreviewCanvas.workspaceTruth.test.tsx ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/buildAgentRouting.routingAuthority.test.ts[2m [ src/services/__tests__/buildAgentRouting.routingAuthority.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/canaryModelSetup.test.ts[2m [ src/services/__tests__/canaryModelSetup.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ideaFeedDiscovery.test.ts[2m [ src/services/__tests__/ideaFeedDiscovery.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ideaFeedService.bridgeFallback.test.ts[2m [ src/services/__tests__/ideaFeedService.bridgeFallback.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ideaPackagingService.test.ts[2m [ src/services/__tests__/ideaPackagingService.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/orchestratorArtistLayer.test.ts[2m [ src/services/__tests__/orchestratorArtistLayer.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/trendNichesService.test.ts[2m [ src/services/__tests__/trendNichesService.test.ts ][22m
+[31m[1mError[22m: supabaseKey is required.[39m
+[90m [2m❯[22m new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:[2m286:28[22m[39m
+[90m [2m❯[22m createClient node_modules/@supabase/supabase-js/src/index.ts:[2m65:9[22m[39m
+[36m [2m❯[22m src/lib/supabase.ts:[2m55:25[22m[39m
+    [90m 53|[39m     [33m:[39m undefined[33m;[39m
+    [90m 54|[39m
+    [90m 55|[39m [35mexport[39m [35mconst[39m supabase [33m=[39m [34mcreateClient[39m([33mSUPABASE_URL[39m[33m,[39m [33mSUPABASE_ANON_KEY[39m[33m,[39m {
+    [90m   |[39m                         [31m^[39m
+    [90m 56|[39m   auth[33m:[39m {
+    [90m 57|[39m     [90m// Full navigator.locks bypass for iframe/sandbox previews.[39m
+[90m [2m❯[22m src/services/ConfigService.ts:[2m34:26[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/38]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/services/__tests__/AppFirstPrototypeQualityIntegration.test.ts[2m [ src/services/__tests__/AppFirstPrototypeQualityIntegration.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ArchitectPlannerService.test.ts[2m [ src/services/__tests__/ArchitectPlannerService.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ArchitectProductStrategistDownscope.test.ts[2m [ src/services/__tests__/ArchitectProductStrategistDownscope.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ArtifactReviewerService.test.ts[2m [ src/services/__tests__/ArtifactReviewerService.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/BuilderOwnedSelfPlan.test.ts[2m [ src/services/__tests__/BuilderOwnedSelfPlan.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/MarketAwareBuilderBriefCoderInjection.test.ts[2m [ src/services/__tests__/MarketAwareBuilderBriefCoderInjection.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/PrototypeQualityGate.test.ts[2m [ src/services/__tests__/PrototypeQualityGate.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/SkeletonQualityRuntime.test.ts[2m [ src/services/__tests__/SkeletonQualityRuntime.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/TrendDirectLaunchBuilderOwnedAssemblyPlan.test.ts[2m [ src/services/__tests__/TrendDirectLaunchBuilderOwnedAssemblyPlan.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/previewStabilityPack.test.ts[2m [ src/services/__tests__/previewStabilityPack.test.ts ][22m
+[41m[1m FAIL [22m[49m src/modules/architect/__tests__/ArchitectDashboard.test.tsx[2m [ src/modules/architect/__tests__/ArchitectDashboard.test.tsx ][22m
+[41m[1m FAIL [22m[49m src/modules/quality/__tests__/LiveReadinessPreflight.test.ts[2m [ src/modules/quality/__tests__/LiveReadinessPreflight.test.ts ][22m
+[41m[1m FAIL [22m[49m src/modules/quality/__tests__/QualityPanel.flow-chain.test.tsx[2m [ src/modules/quality/__tests__/QualityPanel.flow-chain.test.tsx ][22m
+[31m[1mError[22m: supabaseKey is required.[39m
+[90m [2m❯[22m new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:[2m286:28[22m[39m
+[90m [2m❯[22m createClient node_modules/@supabase/supabase-js/src/index.ts:[2m65:9[22m[39m
+[36m [2m❯[22m src/lib/supabase.ts:[2m55:25[22m[39m
+    [90m 53|[39m     [33m:[39m undefined[33m;[39m
+    [90m 54|[39m
+    [90m 55|[39m [35mexport[39m [35mconst[39m supabase [33m=[39m [34mcreateClient[39m([33mSUPABASE_URL[39m[33m,[39m [33mSUPABASE_ANON_KEY[39m[33m,[39m {
+    [90m   |[39m                         [31m^[39m
+    [90m 56|[39m   auth[33m:[39m {
+    [90m 57|[39m     [90m// Full navigator.locks bypass for iframe/sandbox previews.[39m
+[90m [2m❯[22m src/services/LLMProxy.ts:[2m8:1[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/38]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/services/__tests__/BenchmarkReport.visual-quality.test.ts[2m [ src/services/__tests__/BenchmarkReport.visual-quality.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ComparisonScorecardService.visual-quality.test.ts[2m [ src/services/__tests__/ComparisonScorecardService.visual-quality.test.ts ][22m
+[31m[1mError[22m: supabaseKey is required.[39m
+[90m [2m❯[22m new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:[2m286:28[22m[39m
+[90m [2m❯[22m createClient node_modules/@supabase/supabase-js/src/index.ts:[2m65:9[22m[39m
+[36m [2m❯[22m src/lib/supabase.ts:[2m55:25[22m[39m
+    [90m 53|[39m     [33m:[39m undefined[33m;[39m
+    [90m 54|[39m
+    [90m 55|[39m [35mexport[39m [35mconst[39m supabase [33m=[39m [34mcreateClient[39m([33mSUPABASE_URL[39m[33m,[39m [33mSUPABASE_ANON_KEY[39m[33m,[39m {
+    [90m   |[39m                         [31m^[39m
+    [90m 56|[39m   auth[33m:[39m {
+    [90m 57|[39m     [90m// Full navigator.locks bypass for iframe/sandbox previews.[39m
+[90m [2m❯[22m src/services/benchmark/BaselineStore.ts:[2m19:1[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/38]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/services/__tests__/FunctionalFlowPlanner.test.ts[2m [ src/services/__tests__/FunctionalFlowPlanner.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ProductSpecificityPlanner.test.ts[2m [ src/services/__tests__/ProductSpecificityPlanner.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ProtoPipeline.test.ts[2m [ src/services/__tests__/ProtoPipeline.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ProtoPipelineDiagnostics.test.ts[2m [ src/services/__tests__/ProtoPipelineDiagnostics.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/PrototypeBankDeterminism.test.ts[2m [ src/services/__tests__/PrototypeBankDeterminism.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/ScreenCompositionPlanner.test.ts[2m [ src/services/__tests__/ScreenCompositionPlanner.test.ts ][22m
+[41m[1m FAIL [22m[49m src/services/__tests__/SkeletonIntegrationPlanner.test.ts[2m [ src/services/__tests__/SkeletonIntegrationPlanner.test.ts ][22m
+[31m[1mError[22m: supabaseKey is required.[39m
+[90m [2m❯[22m new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:[2m286:28[22m[39m
+[90m [2m❯[22m createClient node_modules/@supabase/supabase-js/src/index.ts:[2m65:9[22m[39m
+[36m [2m❯[22m src/lib/supabase.ts:[2m55:25[22m[39m
+    [90m 53|[39m     [33m:[39m undefined[33m;[39m
+    [90m 54|[39m
+    [90m 55|[39m [35mexport[39m [35mconst[39m supabase [33m=[39m [34mcreateClient[39m([33mSUPABASE_URL[39m[33m,[39m [33mSUPABASE_ANON_KEY[39m[33m,[39m {
+    [90m   |[39m                         [31m^[39m
+    [90m 56|[39m   auth[33m:[39m {
+    [90m 57|[39m     [90m// Full navigator.locks bypass for iframe/sandbox previews.[39m
+[90m [2m❯[22m src/services/PrototypeBankService.ts:[2m1:26[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/38]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/services/__tests__/ProjectRepository.architectureMemory.test.ts[2m [ src/services/__tests__/ProjectRepository.architectureMemory.test.ts ][22m
+[31m[1mReferenceError[22m: localStorage is not defined[39m
+[36m [2m❯[22m src/services/LLMProxy.ts:[2m14:3[22m[39m
+    [90m 12|[39m [35mconst[39m [33mSUPABASE_URL[39m [33m=[39m
+    [90m 13|[39m   [35mimport[39m[33m.[39mmeta[33m.[39menv[33m.[39m[33mVITE_SUPABASE_URL[39m [33m||[39m
+    [90m 14|[39m   localStorage[33m.[39m[34mgetItem[39m([32m'SUPABASE_URL'[39m) [33m||[39m
+    [90m   |[39m   [31m^[39m
+    [90m 15|[39m   [32m'https://zdzuaodphrlpvorutpyc.supabase.co'[39m[33m;[39m
+    [90m 16|[39m
+[90m [2m❯[22m src/services/ArchitectPlannerService.ts:[2m24:1[22m[39m
+[90m [2m❯[22m src/services/__tests__/ProjectRepository.architectureMemory.test.ts:[2m41:1[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/38]⎯[22m[39m
+
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 5 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m src/services/__tests__/ArchitectDependencyMap.test.ts[2m > [22mProtoPipeline — runArchitect still present after dependency map wiring[2m > [22mProtoPipeline module loads correctly
+[41m[1m FAIL [22m[49m src/services/__tests__/ArchitectDependencyMap.test.ts[2m > [22mProtoPipeline — runArchitect still present after dependency map wiring[2m > [22mbuildCoderPlanningBlocks is still exported
+[41m[1m FAIL [22m[49m src/services/__tests__/ArchitectDependencyMap.test.ts[2m > [22mProtoPipeline — runArchitect still present after dependency map wiring[2m > [22mbuildUiPrimitiveImportCatalog is still exported
+[41m[1m FAIL [22m[49m src/services/__tests__/ArchitectDependencyMap.test.ts[2m > [22mProtoPipeline — runArchitect still present after dependency map wiring[2m > [22mevaluatePrototypeQualityGate is still exported (quality gate not modified)
+[31m[1mError[22m: supabaseKey is required.[39m
+[90m [2m❯[22m new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:[2m286:28[22m[39m
+[90m [2m❯[22m createClient node_modules/@supabase/supabase-js/src/index.ts:[2m65:9[22m[39m
+[36m [2m❯[22m src/lib/supabase.ts:[2m55:25[22m[39m
+    [90m 53|[39m     [33m:[39m undefined[33m;[39m
+    [90m 54|[39m
+    [90m 55|[39m [35mexport[39m [35mconst[39m supabase [33m=[39m [34mcreateClient[39m([33mSUPABASE_URL[39m[33m,[39m [33mSUPABASE_ANON_KEY[39m[33m,[39m {
+    [90m   |[39m                         [31m^[39m
+    [90m 56|[39m   auth[33m:[39m {
+    [90m 57|[39m     [90m// Full navigator.locks bypass for iframe/sandbox previews.[39m
+[90m [2m❯[22m src/services/LLMProxy.ts:[2m8:1[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/38]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/services/__tests__/SkeletonSelectionDiagnostics.test.ts[2m > [22mselectSkeletonWithDiagnostics[2m > [22mweak dashboard intent falls back to mobile-app with mismatch warning
+[31m[1mAssertionError[22m: expected 'saas-dashboard' to be 'mobile-app' // Object.is equality[39m
+
+Expected: [32m"mobile-app"[39m
+Received: [31m"saas-dashboard"[39m
+
+[36m [2m❯[22m src/services/__tests__/SkeletonSelectionDiagnostics.test.ts:[2m42:39[22m[39m
+    [90m 40|[39m     [35mconst[39m result [33m=[39m [34mselectSkeletonWithDiagnostics[39m([32m''[39m[33m,[39m [[32m'admin'[39m])[33m;[39m
+    [90m 41|[39m     [34mexpect[39m(result[33m.[39mintentSignals)[33m.[39m[34mtoContain[39m([32m'dashboard-intent'[39m)[33m;[39m
+    [90m 42|[39m     [34mexpect[39m(result[33m.[39mselectedSkeletonId)[33m.[39m[34mtoBe[39m([32m'mobile-app'[39m)[33m;[39m
+    [90m   |[39m                                       [31m^[39m
+    [90m 43|[39m     expect(result.mismatchWarnings.some(w => w.includes('Dashboard')))…
+    [90m 44|[39m     [34mexpect[39m(result[33m.[39mconfidence)[33m.[39m[34mtoBe[39m([32m'low'[39m)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/38]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m35 failed[39m[22m[2m | [22m[1m[32m71 passed[39m[22m[90m (106)[39m
+[2m      Tests [22m [1m[31m5 failed[39m[22m[2m | [22m[1m[32m1162 passed[39m[22m[90m (1167)[39m
+[2m   Start at [22m 08:10:08
+[2m   Duration [22m 44.43s[2m (transform 24.34s, setup 18.11s, import 8.63s, tests 13.47s, environment 54.64s)[22m
+
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/components/__tests__/Dashboard.projectIdentity.test.tsx,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/storageService.ts:11:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/components/__tests__/LeftPanel.blueprint-flow.test.tsx,title=src/components/__tests__/LeftPanel.blueprint-flow.test.tsx,line=20,column=1::Error: [vitest] There was an error when mocking a module. If you are using "vi.mock" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file. Read more: https://vitest.dev/api/vi.html#vi-mock%0A ❯ src/components/__tests__/LeftPanel.blueprint-flow.test.tsx:20:1%0A%0ACaused by: Caused by: Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/dist/index.mjs:367:27%0A ❯ createClient node_modules/@supabase/supabase-js/dist/index.mjs:591:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/hooks/useStudio.ts:22:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/components/__tests__/PreviewCanvas.workspaceTruth.test.tsx,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/ConfigService.ts:34:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/AppFirstPrototypeQualityIntegration.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ArchitectDependencyMap.test.ts > ProtoPipeline — runArchitect still present after dependency map wiring > ProtoPipeline module loads correctly,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ArchitectDependencyMap.test.ts > ProtoPipeline — runArchitect still present after dependency map wiring > buildCoderPlanningBlocks is still exported,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ArchitectDependencyMap.test.ts > ProtoPipeline — runArchitect still present after dependency map wiring > buildUiPrimitiveImportCatalog is still exported,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ArchitectDependencyMap.test.ts > ProtoPipeline — runArchitect still present after dependency map wiring > evaluatePrototypeQualityGate is still exported (quality gate not modified),line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ArchitectPlannerService.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ArchitectProductStrategistDownscope.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ArtifactReviewerService.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/BenchmarkReport.visual-quality.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/benchmark/BaselineStore.ts:19:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/BuilderOwnedSelfPlan.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ComparisonScorecardService.visual-quality.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/benchmark/BaselineStore.ts:19:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/FunctionalFlowPlanner.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/PrototypeBankService.ts:1:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/MarketAwareBuilderBriefCoderInjection.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ProductSpecificityPlanner.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/PrototypeBankService.ts:1:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/services/LLMProxy.ts,title=src/services/__tests__/ProjectRepository.architectureMemory.test.ts,line=14,column=3::ReferenceError: localStorage is not defined%0A ❯ src/services/LLMProxy.ts:14:3%0A ❯ src/services/ArchitectPlannerService.ts:24:1%0A ❯ src/services/__tests__/ProjectRepository.architectureMemory.test.ts:41:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ProtoPipeline.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/PrototypeBankService.ts:1:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ProtoPipelineDiagnostics.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/PrototypeBankService.ts:1:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/PrototypeBankDeterminism.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/PrototypeBankService.ts:1:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/PrototypeQualityGate.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ScreenCompositionPlanner.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/PrototypeBankService.ts:1:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/SkeletonIntegrationPlanner.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/PrototypeBankService.ts:1:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/SkeletonQualityRuntime.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/services/__tests__/SkeletonSelectionDiagnostics.test.ts,title=src/services/__tests__/SkeletonSelectionDiagnostics.test.ts > selectSkeletonWithDiagnostics > weak dashboard intent falls back to mobile-app with mismatch warning,line=42,column=39::AssertionError: expected 'saas-dashboard' to be 'mobile-app' // Object.is equality%0A%0AExpected: "mobile-app"%0AReceived: "saas-dashboard"%0A%0A ❯ src/services/__tests__/SkeletonSelectionDiagnostics.test.ts:42:39%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/TrendDirectLaunchBuilderOwnedAssemblyPlan.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/buildAgentRouting.routingAuthority.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/ConfigService.ts:34:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/canaryModelSetup.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/ConfigService.ts:34:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ideaFeedDiscovery.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/ConfigService.ts:34:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ideaFeedService.bridgeFallback.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/ConfigService.ts:34:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/ideaPackagingService.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/ConfigService.ts:34:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/orchestratorArtistLayer.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/ConfigService.ts:34:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/previewStabilityPack.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/services/__tests__/trendNichesService.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/ConfigService.ts:34:26%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/modules/architect/__tests__/ArchitectDashboard.test.tsx,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/modules/quality/__tests__/LiveReadinessPreflight.test.ts,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+
+::error file=/home/runner/work/aicorn-ai-studio/aicorn-ai-studio/frontend/src/lib/supabase.ts,title=src/modules/quality/__tests__/QualityPanel.flow-chain.test.tsx,line=55,column=25::Error: supabaseKey is required.%0A ❯ new SupabaseClient node_modules/@supabase/supabase-js/src/SupabaseClient.ts:286:28%0A ❯ createClient node_modules/@supabase/supabase-js/src/index.ts:65:9%0A ❯ src/lib/supabase.ts:55:25%0A ❯ src/services/LLMProxy.ts:8:1%0A%0A
+TEST_EXIT_CODE=1
