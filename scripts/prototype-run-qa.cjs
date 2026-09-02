@@ -2,7 +2,6 @@
 'use strict';
 
 const crypto = require('crypto');
-const fs = require('fs');
 const fsPromises = require('fs/promises');
 const path = require('path');
 
@@ -14,6 +13,13 @@ function assertApiMode(value) {
     throw new Error(`prototype API mode must be explicitly "mock" or "staging"; received ${JSON.stringify(value)}`);
   }
   return value;
+}
+
+function assertSkeletonId(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error('prototype run requires an explicit skeletonId so preview workspace isolation uses the backend atomic wipe path');
+  }
+  return value.trim();
 }
 
 function makeRunIdentity() {
@@ -37,7 +43,7 @@ async function cleanupRollingArchive(root = DEFAULT_ARCHIVE_ROOT, maxRuns = DEFA
     if (!entry.isDirectory()) continue;
     const fullPath = path.join(root, entry.name);
     const stat = await fsPromises.stat(fullPath);
-    dirs.push({ name: entry.name, fullPath, mtimeMs: stat.mtimeMs });
+    dirs.push({ fullPath, mtimeMs: stat.mtimeMs });
   }
   dirs.sort((a, b) => b.mtimeMs - a.mtimeMs);
   for (const entry of dirs.slice(Math.max(0, maxRuns))) {
@@ -50,7 +56,6 @@ function pageFingerprintSnapshot() {
     url: location.href,
     text: document.body?.innerText ?? '',
     html: document.body?.innerHTML ?? '',
-    active: document.activeElement?.outerHTML ?? '',
   };
 }
 
@@ -117,8 +122,9 @@ async function runKeyFlows(page, flows = []) {
   return results;
 }
 
-async function runPrototypeQa({ page, files, apiMode, baseUrl = process.env.STUDIO_URL || 'http://localhost:5183', flows = [], archiveRoot = DEFAULT_ARCHIVE_ROOT, maxRuns = DEFAULT_MAX_RUNS }) {
+async function runPrototypeQa({ page, files, apiMode, skeletonId, baseUrl = process.env.STUDIO_URL || 'http://localhost:5183', flows = [], archiveRoot = DEFAULT_ARCHIVE_ROOT, maxRuns = DEFAULT_MAX_RUNS }) {
   const explicitApiMode = assertApiMode(apiMode);
+  const explicitSkeletonId = assertSkeletonId(skeletonId);
   if (!files || typeof files !== 'object' || Array.isArray(files) || Object.keys(files).length === 0) {
     throw new Error('prototype run requires a non-empty files map');
   }
@@ -129,18 +135,19 @@ async function runPrototypeQa({ page, files, apiMode, baseUrl = process.env.STUD
   const manifestPath = path.join(runDir, 'manifest.json');
   const qaReportPath = path.join(runDir, 'qa-report.json');
   const previewUrl = `${baseUrl.replace(/\/$/, '')}/preview/${runId}/?previewSession=${encodeURIComponent(sessionId)}`;
-
-  await writeJson(manifestPath, {
+  const commonManifest = {
     schemaVersion: 1,
     runId,
     buildId: runId,
     sessionId,
     apiMode: explicitApiMode,
+    skeletonId: explicitSkeletonId,
     archivePolicy: { type: 'rolling', maxRuns },
     createdAt,
-    status: 'compiling',
     previewUrl,
-  });
+  };
+
+  await writeJson(manifestPath, { ...commonManifest, status: 'compiling' });
 
   const consoleErrors = [];
   const pageErrors = [];
@@ -149,13 +156,13 @@ async function runPrototypeQa({ page, files, apiMode, baseUrl = process.env.STUD
 
   const compileResponse = await page.request.post(`${baseUrl.replace(/\/$/, '')}/api/preview/${runId}/compile`, {
     headers: { 'X-Preview-Session': sessionId },
-    data: { files, sessionId },
+    data: { files, sessionId, skeletonId: explicitSkeletonId },
     timeout: 120_000,
   });
   const compileBody = await compileResponse.json().catch(() => null);
   if (!compileResponse.ok() || !compileBody?.success) {
     const error = `compile failed (${compileResponse.status()}): ${JSON.stringify(compileBody)}`;
-    await writeJson(manifestPath, { schemaVersion: 1, runId, buildId: runId, sessionId, apiMode: explicitApiMode, archivePolicy: { type: 'rolling', maxRuns }, createdAt, status: 'failed', previewUrl, error });
+    await writeJson(manifestPath, { ...commonManifest, status: 'failed', error });
     await cleanupRollingArchive(archiveRoot, maxRuns);
     throw new Error(error);
   }
@@ -173,6 +180,7 @@ async function runPrototypeQa({ page, files, apiMode, baseUrl = process.env.STUD
     schemaVersion: 1,
     runId,
     apiMode: explicitApiMode,
+    skeletonId: explicitSkeletonId,
     previewUrl,
     checkedAt: new Date().toISOString(),
     consoleErrors,
@@ -184,16 +192,9 @@ async function runPrototypeQa({ page, files, apiMode, baseUrl = process.env.STUD
   };
   await writeJson(qaReportPath, report);
   await writeJson(manifestPath, {
-    schemaVersion: 1,
-    runId,
-    buildId: runId,
-    sessionId,
-    apiMode: explicitApiMode,
-    archivePolicy: { type: 'rolling', maxRuns },
-    createdAt,
+    ...commonManifest,
     completedAt: new Date().toISOString(),
     status: report.passed ? 'ready' : 'qa_failed',
-    previewUrl,
     qaReport: path.basename(qaReportPath),
   });
   await cleanupRollingArchive(archiveRoot, maxRuns);
@@ -202,6 +203,7 @@ async function runPrototypeQa({ page, files, apiMode, baseUrl = process.env.STUD
 
 module.exports = {
   assertApiMode,
+  assertSkeletonId,
   cleanupRollingArchive,
   runPrototypeQa,
 };
