@@ -3472,12 +3472,18 @@ export const useStudio = () => {
       console.warn('publishProject: files are empty — Supabase insert skipped');
       return null;
     }
+    // Snapshots are private: the projects table now enforces owner_id through RLS.
+    // Never publish with an anonymous session or omit owner_id.
+    if (!authUser?.id) {
+      console.warn('publishProject: sign-in required to create a snapshot');
+      return null;
+    }
     console.log('publishProject: uploading snapshot, code length =', code.length);
     try {
       const { data, error } = await supabase
         .from('projects')
-        .insert([{ code }])
-        .select()
+        .insert([{ code, owner_id: authUser.id }])
+        .select('id')
         .single();
       if (error) throw error;
       console.log('✅ Cloud Snapshot created! ID:', data.id);
